@@ -22,14 +22,14 @@ fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
         return;
     }
-
-    // Still use emit for complex control flow - full builder migration needs more work
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_bsl: {{ const arr = ", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("bsl");
+    try self.emit("const arr = ");
     try self.genExpr(args[0]);
     try self.emit("; const x = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (arr[mid] < x) {{ lo = mid + 1; }} else {{ hi = mid; }} }} break :__m{d}_bsl @as(i64, @intCast(lo)); }})", .{id});
+    try self.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (arr[mid] < x) {{ lo = mid + 1; }} else {{ hi = mid; }} }} break :{s} @as(i64, @intCast(lo)); ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -38,14 +38,14 @@ fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
         return;
     }
-
-    // Still use emit for complex control flow - full builder migration needs more work
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_bsr: {{ const arr = ", .{id});
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("bsr");
+    try self.emit("const arr = ");
     try self.genExpr(args[0]);
     try self.emit("; const x = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (x < arr[mid]) {{ hi = mid; }} else {{ lo = mid + 1; }} }} break :__m{d}_bsr @as(i64, @intCast(lo)); }})", .{id});
+    try self.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (x < arr[mid]) {{ hi = mid; }} else {{ lo = mid + 1; }} }} break :{s} @as(i64, @intCast(lo)); ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genInsort(self: *NativeCodegen, _: []ast.Node) CodegenError!void {

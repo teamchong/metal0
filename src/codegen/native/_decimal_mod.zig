@@ -35,11 +35,12 @@ fn genDecimal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_dec: {{ _ = ", .{id});
+    const label = try b.emitInlineBlockStart("dec");
+    try self.emit("_ = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_dec ", .{id});
-    try self.emit(default ++ "; })");
+    try self.emitFmt("; break :{s} ", .{label});
+    try self.emit(default ++ "; ");
+    try b.emitInlineBlockEnd();
 }
 
 fn genContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

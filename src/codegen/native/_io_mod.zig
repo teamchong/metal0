@@ -33,10 +33,11 @@ fn genFileIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw("@as(?std.fs.File, null)"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__io_fio_{d}: {{ const __path_{d} = ", .{ id, id });
+    const label = try b.emitInlineBlockStart("fio");
+    try self.emit("const __path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__io_fio_{d} std.fs.cwd().openFile(__path_{d}, .{{}}) catch null; }})", .{ id, id });
+    try self.emitFmt("; break :{s} std.fs.cwd().openFile(__path, .{{}}) catch null; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genBytesIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -45,10 +46,11 @@ fn genBytesIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .buffer = .{}, .pos = 0 }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__io_bio_{d}: {{ const __init_{d} = ", .{ id, id });
+    const label = try b.emitInlineBlockStart("bio");
+    try self.emit("const __init = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; var __bio_{d}: std.ArrayList(u8) = .{{}}; __bio_{d}.appendSlice(__global_allocator, __init_{d}) catch unreachable; break :__io_bio_{d} .{{ .buffer = __bio_{d}, .pos = 0 }}; }})", .{ id, id, id, id, id });
+    try self.emitFmt("; var __bio: std.ArrayList(u8) = .{{}}; __bio.appendSlice(__global_allocator, __init) catch unreachable; break :{s} .{{ .buffer = __bio, .pos = 0 }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genStringIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -57,20 +59,21 @@ fn genStringIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .buffer = .{}, .pos = 0 }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__io_sio_{d}: {{ const __init_{d} = ", .{ id, id });
+    const label = try b.emitInlineBlockStart("sio");
+    try self.emit("const __init = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; var __sio_{d}: std.ArrayList(u8) = .{{}}; __sio_{d}.appendSlice(__global_allocator, __init_{d}) catch unreachable; break :__io_sio_{d} .{{ .buffer = __sio_{d}, .pos = 0 }}; }})", .{ id, id, id, id, id });
+    try self.emitFmt("; var __sio: std.ArrayList(u8) = .{{}}; __sio.appendSlice(__global_allocator, __init) catch unreachable; break :{s} .{{ .buffer = __sio, .pos = 0 }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genBuffered(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_buf: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("buf");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :__m");
-        try self.emitFmt("{d}_buf .{{ .raw = __v, .buffer_size = 8192 }}; }}", .{id});
+        try self.emitFmt("; break :{s} .{{ .raw = __v, .buffer_size = 8192 }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .raw = null, .buffer_size = 8192 }"), builder_mod.EmitConfig.forExpression());
     }
@@ -79,11 +82,11 @@ fn genBuffered(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 fn genTextIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_tio: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("tio");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; break :__m");
-        try self.emitFmt("{d}_tio .{{ .buffer = __v, .encoding = \"utf-8\" }}; }}", .{id});
+        try self.emitFmt("; break :{s} .{{ .buffer = __v, .encoding = \"utf-8\" }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .buffer = null, .encoding = \"utf-8\" }"), builder_mod.EmitConfig.forExpression());
     }
@@ -95,12 +98,13 @@ fn genBufferedRWPair(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
         try b.emitValue(builder_mod.ZigValue.raw(".{ .reader = null, .writer = null, .buffer_size = 8192 }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__io_rwp_{d}: {{ const __r_{d} = ", .{ id, id });
+    const label = try b.emitInlineBlockStart("rwp");
+    try self.emit("const __r = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; const __w_{d} = ", .{id});
+    try self.emit("; const __w = ");
     try self.genExpr(args[1]);
-    try self.emitFmt("; break :__io_rwp_{d} .{{ .reader = __r_{d}, .writer = __w_{d}, .buffer_size = 8192 }}; }})", .{ id, id, id });
+    try self.emitFmt("; break :{s} .{{ .reader = __r, .writer = __w, .buffer_size = 8192 }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genOpenCode(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -109,10 +113,11 @@ fn genOpenCode(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw("@as(?std.fs.File, null)"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__io_oc_{d}: {{ const __path_{d} = ", .{ id, id });
+    const label = try b.emitInlineBlockStart("oc");
+    try self.emit("const __path = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__io_oc_{d} std.fs.cwd().openFile(__path_{d}, .{{ .mode = .read_only }}) catch null; }})", .{ id, id });
+    try self.emitFmt("; break :{s} std.fs.cwd().openFile(__path, .{{ .mode = .read_only }}) catch null; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genIncrementalNewlineDecoder(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

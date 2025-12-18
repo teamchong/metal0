@@ -23,11 +23,11 @@ fn genContextVar(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"\", .default = null }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    // Generate: __m{id}_cvi: { const __v = arg; break :__m{id}_cvi .{ .name = __v, .default = null }; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_cvi: {{ const __v = ", .{id});
+    const label = try b.emitInlineBlockStart("cvi");
+    try self.emit("const __v = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_cvi .{{ .name = __v, .default = null }}; }})", .{id});
+    try self.emitFmt("; break :{s} .{{ .name = __v, .default = null }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
