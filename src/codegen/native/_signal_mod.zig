@@ -63,11 +63,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genSignal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_sig: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("sig");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v; break :__m");
-        try self.emitFmt("{d}_sig null; }}", .{id});
+        try self.emitFmt("; _ = __v; break :{s} null; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
     }
@@ -86,11 +86,11 @@ fn genRaiseSignal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 fn genAlarm(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("__m{d}_alm: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("alm");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emit("; _ = __v; break :__m");
-        try self.emitFmt("{d}_alm @as(i32, 0); }}", .{id});
+        try self.emitFmt("; _ = __v; break :{s} @as(i32, 0); ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
     }

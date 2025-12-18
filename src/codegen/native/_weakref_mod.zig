@@ -18,10 +18,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genRef(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_wref: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("wref");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :__m{d}_wref .{{ .ptr = @intFromPtr(&__v) }}; }})", .{id});
+        try self.emitFmt("; break :{s} .{{ .ptr = @intFromPtr(&__v) }}; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .ptr = 0 }"), builder_mod.EmitConfig.forExpression());
     }

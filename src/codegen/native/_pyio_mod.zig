@@ -28,10 +28,11 @@ fn genOpen(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_pyio: {{ const __v = ", .{id});
+    const label = try b.emitInlineBlockStart("pyio");
+    try self.emit("const __v = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_pyio .{{ .name = __v, .mode = \"r\", .closed = false }}; }})", .{id});
+    try self.emitFmt("; break :{s} .{{ .name = __v, .mode = \"r\", .closed = false }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genFileIO(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
