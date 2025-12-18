@@ -312,3 +312,34 @@ pub fn AnyClosure7(comptime CaptureT: type, comptime func: anytype) type {
         }
     };
 }
+
+/// Partial function application (functools.partial replacement)
+///
+/// PROBLEM: Original codegen generates inline struct per partial() call:
+///   const Partial = struct {
+///       captured: @TypeOf(_captured),
+///       func: @TypeOf(_func),
+///       pub fn call(__self: @This(), extra_args: anytype) @TypeOf(_func(_captured ++ extra_args)) { ... }
+///   };
+/// This causes O(n²) compilation time - 546 instances in test_argparse.zig alone!
+///
+/// SOLUTION: Move struct definition to runtime library, compile ONCE.
+/// Codegen just instantiates the type with specific func/captured types.
+/// This reduces 546 inline struct definitions to 546 type instantiations,
+/// which Zig compiles much faster.
+///
+/// Key insight: The struct definition itself is the bottleneck, not the type params.
+/// By defining the struct once in the runtime, Zig can reuse the compiled code.
+pub fn Partial(comptime FuncT: type, comptime CapturedT: type) type {
+    return struct {
+        const Self = @This();
+        func: FuncT,
+        captured: CapturedT,
+
+        /// Call with additional arguments (variadic via anytype)
+        /// Return type inferred from @call, not pre-evaluated with @TypeOf
+        pub inline fn call(self: Self, extra_args: anytype) @TypeOf(@call(.auto, self.func, self.captured ++ extra_args)) {
+            return @call(.auto, self.func, self.captured ++ extra_args);
+        }
+    };
+}

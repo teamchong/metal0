@@ -906,6 +906,9 @@ pub const Lib = struct {
     // Python stdlib modules (alphabetical, underscores first)
     pub const __future__ = @import("Lib/__future__.zig");
     pub const _compression = @import("Lib/_compression.zig");
+    pub const _testcapi = @import("Lib/_testcapi.zig");
+    pub const _testconsole = @import("Lib/_testconsole.zig");
+    pub const _testexternalinspection = @import("Lib/_testexternalinspection.zig");
     pub const sre_constants = @import("Lib/sre_constants.zig");
     pub const sre_compile = @import("Lib/sre_compile.zig");
     pub const sre_parse = @import("Lib/sre_parse.zig");
@@ -995,9 +998,12 @@ pub const Lib = struct {
     pub const profile = @import("Lib/profile.zig");
     pub const timeit = @import("Lib/timeit.zig");
     pub const trace = @import("Lib/trace.zig");
+    pub const pyexpat = @import("Lib/pyexpat.zig");
     pub const socket = if (is_freestanding) void else @import("Lib/socket.zig");
     pub const threading = if (is_freestanding) void else @import("Lib/threading.zig");
     pub const queue = @import("Lib/queue.zig");
+    pub const winreg = @import("Lib/winreg.zig"); // Windows registry (stubs on non-Windows)
+    pub const msvcrt = @import("Lib/msvcrt.zig"); // MSVC runtime (stubs on non-Windows)
     pub const test_ = @import("Lib/test/support.zig"); // test is reserved, use test_
 };
 

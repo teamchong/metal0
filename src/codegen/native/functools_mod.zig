@@ -60,26 +60,11 @@ pub fn genPartial(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 }
                 try c.emit(" };\n");
                 try c.emitIndent();
-                // Return a struct that can be called with additional args
-                try c.emit("const Partial = struct {\n");
-                c.indent();
+                // Use runtime.closure_impl.Partial - compiled once, not per call site
+                // This eliminates O(n²) compilation from inline struct definitions
+                try c.emit("const PartialType = runtime.closure_impl.Partial(@TypeOf(_func), @TypeOf(_captured));\n");
                 try c.emitIndent();
-                try c.emit("captured: @TypeOf(_captured),\n");
-                try c.emitIndent();
-                try c.emit("func: @TypeOf(_func),\n");
-                try c.emitIndent();
-                try c.emit("pub fn call(__self: @This(), extra_args: anytype) @TypeOf(_func(_captured ++ extra_args)) {\n");
-                c.indent();
-                try c.emitIndent();
-                try c.emit("return @call(.auto, __self.func, __self.captured ++ extra_args);\n");
-                c.dedent();
-                try c.emitIndent();
-                try c.emit("}\n");
-                c.dedent();
-                try c.emitIndent();
-                try c.emit("};\n");
-                try c.emitIndent();
-                try c.emitFmt("break :{s} Partial{{ .captured = _captured, .func = _func }}\n", .{label});
+                try c.emitFmt("break :{s} PartialType{{ .func = _func, .captured = _captured }}\n", .{label});
             } else {
                 try c.emitIndent();
                 try c.emitFmt("break :{s} _func\n", .{label});

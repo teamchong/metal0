@@ -189,7 +189,7 @@ pub const ZigBuilder = struct {
     // ============================================
 
     /// Write to the body buffer
-    fn write(self: *ZigBuilder, s: []const u8) !void {
+    pub fn write(self: *ZigBuilder, s: []const u8) !void {
         // Zig 0.15: pass allocator to appendSlice
         try self.body.appendSlice(self.allocator, s);
         for (s) |c| {
@@ -198,7 +198,7 @@ pub const ZigBuilder = struct {
     }
 
     /// Write formatted to body buffer
-    fn writeFmt(self: *ZigBuilder, comptime fmt: []const u8, args: anytype) !void {
+    pub fn writeFmt(self: *ZigBuilder, comptime fmt: []const u8, args: anytype) !void {
         const start = self.body.items.len;
         // Zig 0.15: pass allocator to writer
         try self.body.writer(self.allocator).print(fmt, args);
@@ -234,18 +234,18 @@ pub const ZigBuilder = struct {
     };
 
     /// Write current indentation
-    fn writeIndent(self: *ZigBuilder) !void {
+    pub fn writeIndent(self: *ZigBuilder) !void {
         const level = @min(self.indent_level, INDENT_STRINGS.len - 1);
         try self.write(INDENT_STRINGS[level]);
     }
 
     /// Increase indent
-    fn indent(self: *ZigBuilder) void {
+    pub fn indent(self: *ZigBuilder) void {
         self.indent_level += 1;
     }
 
     /// Decrease indent
-    fn dedent(self: *ZigBuilder) void {
+    pub fn dedent(self: *ZigBuilder) void {
         if (self.indent_level > 0) self.indent_level -= 1;
     }
 
@@ -1112,6 +1112,40 @@ pub const ZigBuilder = struct {
     /// Get type pool reference
     pub fn getTypePool(self: *ZigBuilder) *TypePool {
         return &self.type_pool;
+    }
+
+    // ============================================
+    // Context manager (with statement) helpers
+    // ============================================
+
+    /// Emit a context manager with defer cleanup (callback style)
+    ///
+    /// Example usage:
+    ///   try b.withContextManager("ctx", args, struct {
+    ///       fn emit(builder: *ZigBuilder, ctx_name: []const u8, a: []ast.Node) !void {
+    ///           try builder.writeIndent();
+    ///           try builder.writeFmt("const {s} = ", .{ctx_name});
+    ///           // ... emit context manager expression ...
+    ///           try builder.write(";\n");
+    ///
+    ///           try builder.writeIndent();
+    ///           try builder.writeFmt("defer {s}.__exit__(null, null, null);\n", .{ctx_name});
+    ///
+    ///           // ... emit body ...
+    ///       }
+    ///   }.emit);
+    ///
+    /// Features:
+    /// - Callback style - can't forget to close
+    /// - Context manager name is managed for you
+    /// - Handles defer cleanup automatically
+    pub fn withContextManager(self: *ZigBuilder, hint: []const u8, context: anytype, body_fn: anytype) !void {
+        const id = self.nextId();
+        const ctx_name = try std.fmt.allocPrint(self.allocator, "__{s}{d}", .{ hint, id });
+        defer self.allocator.free(ctx_name);
+
+        // Call body with context manager name
+        try body_fn(self, ctx_name, context);
     }
 };
 
