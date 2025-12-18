@@ -25,11 +25,11 @@ fn genDumps(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.string("\"\""), builder_mod.EmitConfig.forExpression());
         return;
     }
-    // Generate: __m{id}_discard: { _ = arg; break :__m{id}_discard ""; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
+    const label = try b.emitInlineBlockStart("discard");
+    try self.emit("_ = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_discard \"\"; }})", .{id});
+    try self.emitFmt("; break :{s} \"\"; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genDump(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
@@ -43,11 +43,11 @@ fn genLoads(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
         return;
     }
-    // Generate: __m{id}_discard: { _ = arg; break :__m{id}_discard null; }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
+    const label = try b.emitInlineBlockStart("discard");
+    try self.emit("_ = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_discard null; }})", .{id});
+    try self.emitFmt("; break :{s} null; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genLoad(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
