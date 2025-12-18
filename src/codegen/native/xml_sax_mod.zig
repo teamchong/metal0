@@ -1,4 +1,5 @@
 /// Python xml.sax module - SAX XML parsing
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

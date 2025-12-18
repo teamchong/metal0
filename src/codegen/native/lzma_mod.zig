@@ -1,4 +1,5 @@
 /// Python lzma module - LZMA/XZ compression
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

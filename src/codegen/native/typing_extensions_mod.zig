@@ -1,4 +1,5 @@
 /// Python typing_extensions module - Backports of typing features
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

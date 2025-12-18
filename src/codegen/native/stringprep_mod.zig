@@ -1,4 +1,5 @@
 /// Python stringprep module - Internet string preparation (RFC 3454)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

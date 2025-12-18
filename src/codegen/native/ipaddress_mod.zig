@@ -1,4 +1,5 @@
 /// Python ipaddress module - IPv4/IPv6 manipulation library
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

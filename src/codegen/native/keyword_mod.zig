@@ -1,6 +1,9 @@
 /// Python keyword module - Test whether strings are Python keywords
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 const kwlist = "\"False\", \"None\", \"True\", \"and\", \"as\", \"assert\", \"async\", \"await\", \"break\", \"class\", \"continue\", \"def\", \"del\", \"elif\", \"else\", \"except\", \"finally\", \"for\", \"from\", \"global\", \"if\", \"import\", \"in\", \"is\", \"lambda\", \"nonlocal\", \"not\", \"or\", \"pass\", \"raise\", \"return\", \"try\", \"while\", \"with\", \"yield\"";
 const softkwlist = "\"_\", \"case\", \"match\", \"type\"";
@@ -8,14 +11,42 @@ const softkwlist = "\"_\", \"case\", \"match\", \"type\"";
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "iskeyword", genIskeyword },
     .{ "issoftkeyword", genIssoftkeyword },
-    .{ "kwlist", h.c("(try runtime.NativeList.fromStringSlice(__global_allocator, &[_][]const u8{ " ++ kwlist ++ " }))") },
-    .{ "softkwlist", h.c("(try runtime.NativeList.fromStringSlice(__global_allocator, &[_][]const u8{ " ++ softkwlist ++ " }))") },
+    .{ "kwlist", genKwlist },
+    .{ "softkwlist", genSoftkwlist },
 });
 
-const ast = @import("analysis.ast");
-const NativeCodegen = h.NativeCodegen;
-const CodegenError = h.CodegenError;
+fn genIskeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len == 0) {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+        return;
+    }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_iskw: {{ const __search = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emit("; const __items = [_][]const u8{ " ++ kwlist ++ " }; for (__items) |__item| { if (std.mem.eql(u8, __search, __item)) break :__m");
+    try self.emitFmt("{d}_iskw true; }} break :__m{d}_iskw false; }})", .{ id, id });
+}
 
-const genIskeyword = h.listContains("iskw", kwlist, "std.mem.eql(u8, __search, __item)");
+fn genIssoftkeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len == 0) {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+        return;
+    }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_issk: {{ const __search = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emit("; const __items = [_][]const u8{ " ++ softkwlist ++ " }; for (__items) |__item| { if (std.mem.eql(u8, __search, __item)) break :__m");
+    try self.emitFmt("{d}_issk true; }} break :__m{d}_issk false; }})", .{ id, id });
+}
 
-const genIssoftkeyword = h.listContains("issk", softkwlist, "std.mem.eql(u8, __search, __item)");
+fn genKwlist(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("(try runtime.NativeList.fromStringSlice(__global_allocator, &[_][]const u8{ " ++ kwlist ++ " }))"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSoftkwlist(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("(try runtime.NativeList.fromStringSlice(__global_allocator, &[_][]const u8{ " ++ softkwlist ++ " }))"), builder_mod.EmitConfig.forExpression());
+}

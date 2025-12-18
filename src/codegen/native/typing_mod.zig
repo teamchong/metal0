@@ -1,4 +1,5 @@
 /// Python typing module - Type hints (no-ops for AOT compilation)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

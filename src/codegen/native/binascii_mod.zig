@@ -1,4 +1,5 @@
 /// Python binascii module - Binary/ASCII conversions
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// Python ctypes module - Foreign function library
+/// MIGRATED TO ZIGBUILDER
 /// Generates code that uses runtime.ctypes for actual FFI
 const std = @import("std");
 const ast = @import("analysis.ast");

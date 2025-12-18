@@ -1,4 +1,5 @@
 /// Python sys module - system-specific parameters and functions
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

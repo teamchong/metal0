@@ -1,30 +1,203 @@
 /// Python traceback module - Print or retrieve a stack traceback
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 /// Frame struct type for extract_tb/extract_stack return
 const FrameStruct = "&[_]struct { filename: []const u8, lineno: i64, name: []const u8, line: []const u8 }{}";
 const WalkStruct = "&[_]struct { frame: ?*anyopaque, lineno: i64 }{}";
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    // Functions that take arguments - use discard() to suppress unused variable warnings
-    .{ "print_tb", h.discard("{}") },
-    .{ "print_exception", h.discard("{}") },
-    .{ "print_exc", h.c("{}") }, // No args
-    .{ "print_last", h.c("{}") }, // No args
-    .{ "print_stack", h.c("{}") }, // No args
-    .{ "clear_frames", h.discard("{}") },
-    .{ "extract_tb", h.discard(FrameStruct) },
-    .{ "extract_stack", h.c(FrameStruct) }, // No args (optional)
-    .{ "walk_tb", h.discard(WalkStruct) },
-    .{ "walk_stack", h.c(WalkStruct) }, // No args (optional)
-    .{ "format_list", h.discard("&[_][]const u8{}") },
-    .{ "format_exception_only", h.discard("&[_][]const u8{}") },
-    .{ "format_exception", h.discard("&[_][]const u8{}") },
-    .{ "format_tb", h.discard("&[_][]const u8{}") },
-    .{ "format_stack", h.c("&[_][]const u8{}") }, // No args (optional)
-    .{ "format_exc", h.c("\"\"") }, // No args
-    .{ "TracebackException", h.c("struct { exc_type: []const u8 = \"\", exc_value: []const u8 = \"\", stack: []struct { filename: []const u8, lineno: i64, name: []const u8 } = &.{}, cause: ?*@This() = null, context: ?*@This() = null, pub fn format(__self: *@This()) [][]const u8 { _ = __self; return &[_][]const u8{}; } pub fn format_exception_only(__self: *@This()) [][]const u8 { _ = __self; return &[_][]const u8{}; } pub fn from_exception(exc: anytype) @This() { _ = exc; return @This(){}; } }{}") },
-    .{ "StackSummary", h.c("struct { frames: []struct { filename: []const u8, lineno: i64, name: []const u8, line: []const u8 } = &.{}, pub fn extract(tb: anytype) @This() { _ = tb; return @This(){}; } pub fn from_list(frames: anytype) @This() { _ = frames; return @This(){}; } pub fn format(__self: *@This()) [][]const u8 { _ = __self; return &[_][]const u8{}; } }{}") },
-    .{ "FrameSummary", h.c("struct { filename: []const u8 = \"\", lineno: i64 = 0, name: []const u8 = \"\", line: []const u8 = \"\", locals: ?hashmap_helper.StringHashMap([]const u8) = null }{}") },
+    .{ "print_tb", genPrintTb },
+    .{ "print_exception", genPrintException },
+    .{ "print_exc", genPrintExc },
+    .{ "print_last", genPrintLast },
+    .{ "print_stack", genPrintStack },
+    .{ "clear_frames", genClearFrames },
+    .{ "extract_tb", genExtractTb },
+    .{ "extract_stack", genExtractStack },
+    .{ "walk_tb", genWalkTb },
+    .{ "walk_stack", genWalkStack },
+    .{ "format_list", genFormatList },
+    .{ "format_exception_only", genFormatExceptionOnly },
+    .{ "format_exception", genFormatException },
+    .{ "format_tb", genFormatTb },
+    .{ "format_stack", genFormatStack },
+    .{ "format_exc", genFormatExc },
+    .{ "TracebackException", genTracebackException },
+    .{ "StackSummary", genStackSummary },
+    .{ "FrameSummary", genFrameSummary },
 });
+
+fn genPrintTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_ptb: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_ptb {{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genPrintException(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_pex: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_pex {{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genPrintExc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPrintLast(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genPrintStack(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genClearFrames(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_cf: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_cf {{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genExtractTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_etb: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_etb ", .{id});
+        try self.emit(FrameStruct);
+        try self.emit("; }})");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw(FrameStruct), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genExtractStack(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(FrameStruct), builder_mod.EmitConfig.forExpression());
+}
+
+fn genWalkTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_wtb: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_wtb ", .{id});
+        try self.emit(WalkStruct);
+        try self.emit("; }})");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw(WalkStruct), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genWalkStack(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(WalkStruct), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFormatList(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_fl: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_fl &[_][]const u8{{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genFormatExceptionOnly(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_feo: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_feo &[_][]const u8{{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genFormatException(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_fe: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_fe &[_][]const u8{{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genFormatTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_ftb: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emit("; _ = __v;");
+        try self.emitFmt(" break :__m{d}_ftb &[_][]const u8{{}}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genFormatStack(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFormatExc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
+}
+
+fn genTracebackException(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("struct { exc_type: []const u8 = \"\", exc_value: []const u8 = \"\", stack: []struct { filename: []const u8, lineno: i64, name: []const u8 } = &.{}, cause: ?*@This() = null, context: ?*@This() = null, pub fn format(__self: *@This()) [][]const u8 { _ = __self; return &[_][]const u8{}; } pub fn format_exception_only(__self: *@This()) [][]const u8 { _ = __self; return &[_][]const u8{}; } pub fn from_exception(exc: anytype) @This() { _ = exc; return @This(){}; } }{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genStackSummary(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("struct { frames: []struct { filename: []const u8, lineno: i64, name: []const u8, line: []const u8 } = &.{}, pub fn extract(tb: anytype) @This() { _ = tb; return @This(){}; } pub fn from_list(frames: anytype) @This() { _ = frames; return @This(){}; } pub fn format(__self: *@This()) [][]const u8 { _ = __self; return &[_][]const u8{}; } }{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFrameSummary(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("struct { filename: []const u8 = \"\", lineno: i64 = 0, name: []const u8 = \"\", line: []const u8 = \"\", locals: ?hashmap_helper.StringHashMap([]const u8) = null }{}"), builder_mod.EmitConfig.forExpression());
+}

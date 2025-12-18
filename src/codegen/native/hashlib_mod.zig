@@ -1,4 +1,5 @@
 /// Python hashlib module - md5, sha1, sha256, sha512
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");

@@ -1,4 +1,5 @@
 /// Python posix module - POSIX system calls (low-level os operations)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");

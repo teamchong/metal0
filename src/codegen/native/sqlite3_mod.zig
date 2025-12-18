@@ -1,4 +1,5 @@
 /// Python sqlite3 module - SQLite database interface
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// Python unicodedata module - Unicode character database
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

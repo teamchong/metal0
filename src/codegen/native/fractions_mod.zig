@@ -1,4 +1,5 @@
 /// Python fractions module - Rational number arithmetic
+/// MIGRATED TO ZIGBUILDER
 /// Uses runtime.Fraction to avoid monomorphization explosion from inline struct emission
 const std = @import("std");
 const ast = @import("analysis.ast");

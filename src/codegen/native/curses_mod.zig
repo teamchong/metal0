@@ -1,4 +1,5 @@
 /// Python curses module - Terminal handling for character-cell displays
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

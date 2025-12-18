@@ -1,4 +1,5 @@
 /// Python genericpath module - Common path operations (shared by os.path implementations)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

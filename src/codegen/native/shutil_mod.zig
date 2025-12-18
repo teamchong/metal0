@@ -1,4 +1,5 @@
 /// Python shutil module - high-level file operations
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");

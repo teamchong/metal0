@@ -1,4 +1,5 @@
 /// Python xdrlib module - XDR data encoding/decoding
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// Python websocket module codegen - WebSocket client
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("main.zig").CodegenError;

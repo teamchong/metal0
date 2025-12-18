@@ -1,10 +1,62 @@
 /// Python _weakref module - Weak reference support (internal)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "ref", h.structBlk("wref", ".ptr = @intFromPtr(&__v)", ".{ .ptr = 0 }") },
-    .{ "proxy", h.pass("null") }, .{ "getweakrefcount", h.I64(0) },
-    .{ "getweakrefs", h.c("&[_]@TypeOf(.{}){}") }, .{ "CallableProxyType", h.c("@TypeOf(.{})") },
-    .{ "ProxyType", h.c("@TypeOf(.{})") }, .{ "ReferenceType", h.c("@TypeOf(.{})") },
+    .{ "ref", genRef },
+    .{ "proxy", genProxy },
+    .{ "getweakrefcount", genGetweakrefcount },
+    .{ "getweakrefs", genGetweakrefs },
+    .{ "CallableProxyType", genCallableProxyType },
+    .{ "ProxyType", genProxyType },
+    .{ "ReferenceType", genReferenceType },
 });
+
+fn genRef(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const id = self.nextNameId();
+        try self.emitFmt("(__m{d}_wref: {{ const __v = ", .{id});
+        try self.genExpr(args[0]);
+        try self.emitFmt("; break :__m{d}_wref .{{ .ptr = @intFromPtr(&__v) }}; }})", .{id});
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw(".{ .ptr = 0 }"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genProxy(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genGetweakrefcount(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genGetweakrefs(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("&[_]@TypeOf(.{}){}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genCallableProxyType(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@TypeOf(.{})"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genProxyType(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@TypeOf(.{})"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genReferenceType(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@TypeOf(.{})"), builder_mod.EmitConfig.forExpression());
+}

@@ -1,4 +1,5 @@
 /// Python functools module - partial, reduce, lru_cache, wraps, cached_property
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");

@@ -1,11 +1,34 @@
 /// Python turtledemo module - Turtle graphics demos
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "main", h.c("{}") }, .{ "bytedesign", h.c("{}") }, .{ "chaos", h.c("{}") }, .{ "clock", h.c("{}") },
-    .{ "colormixer", h.c("{}") }, .{ "forest", h.c("{}") }, .{ "fractalcurves", h.c("{}") }, .{ "lindenmayer", h.c("{}") },
-    .{ "minimal_hanoi", h.c("{}") }, .{ "nim", h.c("{}") }, .{ "paint", h.c("{}") }, .{ "peace", h.c("{}") },
-    .{ "penrose", h.c("{}") }, .{ "planet_and_moon", h.c("{}") }, .{ "rosette", h.c("{}") }, .{ "round_dance", h.c("{}") },
-    .{ "sorting_animate", h.c("{}") }, .{ "tree", h.c("{}") }, .{ "two_canvases", h.c("{}") }, .{ "yinyang", h.c("{}") },
+    .{ "main", genVoid },
+    .{ "bytedesign", genVoid },
+    .{ "chaos", genVoid },
+    .{ "clock", genVoid },
+    .{ "colormixer", genVoid },
+    .{ "forest", genVoid },
+    .{ "fractalcurves", genVoid },
+    .{ "lindenmayer", genVoid },
+    .{ "minimal_hanoi", genVoid },
+    .{ "nim", genVoid },
+    .{ "paint", genVoid },
+    .{ "peace", genVoid },
+    .{ "penrose", genVoid },
+    .{ "planet_and_moon", genVoid },
+    .{ "rosette", genVoid },
+    .{ "round_dance", genVoid },
+    .{ "sorting_animate", genVoid },
+    .{ "tree", genVoid },
+    .{ "two_canvases", genVoid },
+    .{ "yinyang", genVoid },
 });
+
+fn genVoid(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}

@@ -1,9 +1,41 @@
 /// Python contextvars module - Context Variables
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "ContextVar", h.structBlk("cv", ".name = __v, .value = null", ".{ .name = \"\", .value = null }") }, .{ "Token", h.c(".{ .var = null, .old_value = null }") },
-    .{ "Context", h.c(".{ .data = hashmap_helper.StringHashMap(?*anyopaque).init(__global_allocator) }") },
-    .{ "copy_context", h.c(".{ .data = hashmap_helper.StringHashMap(?*anyopaque).init(__global_allocator) }") },
+    .{ "ContextVar", genContextVar },
+    .{ "Token", genToken },
+    .{ "Context", genContext },
+    .{ "copy_context", genCopyContext },
 });
+
+fn genContextVar(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    const default = ".{ .name = \"\", .value = null }";
+    if (args.len == 0) {
+        try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
+        return;
+    }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_cv: {{ const __v = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emitFmt("; break :__m{d}_cv .{{ .name = __v, .value = null }}; }})", .{id});
+}
+
+fn genToken(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{ .var = null, .old_value = null }"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{ .data = hashmap_helper.StringHashMap(?*anyopaque).init(__global_allocator) }"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genCopyContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{ .data = hashmap_helper.StringHashMap(?*anyopaque).init(__global_allocator) }"), builder_mod.EmitConfig.forExpression());
+}

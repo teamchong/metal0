@@ -1,4 +1,5 @@
 /// Python shlex module - Simple lexical analysis (shell tokenizer)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

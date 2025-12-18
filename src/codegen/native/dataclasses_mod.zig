@@ -1,4 +1,5 @@
 /// Python dataclasses module - Data class decorators and functions
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

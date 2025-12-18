@@ -1,14 +1,88 @@
 /// Python _csv module - C accelerator for csv (internal)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
-
-const genRW = h.structBlk("csv", ".file = __v, .dialect = \"excel\"", ".{ .file = null, .dialect = \"excel\" }");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "reader", genRW }, .{ "writer", genRW },
-    .{ "register_dialect", h.c("{}") }, .{ "unregister_dialect", h.c("{}") },
-    .{ "get_dialect", h.c(".{ .delimiter = ',', .quotechar = '\"', .escapechar = null, .doublequote = true, .skipinitialspace = false, .lineterminator = \"\\r\\n\", .quoting = 0, .strict = false }") },
-    .{ "list_dialects", h.c("&[_][]const u8{ \"excel\", \"excel-tab\", \"unix\" }") }, .{ "field_size_limit", h.pass("@as(i64, 131072)") },
-    .{ "QUOTE_ALL", h.I32(1) }, .{ "QUOTE_MINIMAL", h.I32(0) }, .{ "QUOTE_NONNUMERIC", h.I32(2) }, .{ "QUOTE_NONE", h.I32(3) },
-    .{ "Error", h.err("CsvError") },
+    .{ "reader", genRW },
+    .{ "writer", genRW },
+    .{ "register_dialect", genRegisterDialect },
+    .{ "unregister_dialect", genUnregisterDialect },
+    .{ "get_dialect", genGetDialect },
+    .{ "list_dialects", genListDialects },
+    .{ "field_size_limit", genFieldSizeLimit },
+    .{ "QUOTE_ALL", genQuoteAll },
+    .{ "QUOTE_MINIMAL", genQuoteMinimal },
+    .{ "QUOTE_NONNUMERIC", genQuoteNonnumeric },
+    .{ "QUOTE_NONE", genQuoteNone },
+    .{ "Error", genError },
 });
+
+fn genRW(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    const default = ".{ .file = null, .dialect = \"excel\" }";
+    if (args.len == 0) {
+        try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
+        return;
+    }
+    const id = self.nextNameId();
+    try self.emitFmt("(__m{d}_csv: {{ const __v = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emitFmt("; break :__m{d}_csv .{{ .file = __v, .dialect = \"excel\" }}; }})", .{id});
+}
+
+fn genRegisterDialect(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genUnregisterDialect(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genGetDialect(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw(".{ .delimiter = ',', .quotechar = '\"', .escapechar = null, .doublequote = true, .skipinitialspace = false, .lineterminator = \"\\r\\n\", .quoting = 0, .strict = false }"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genListDialects(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{ \"excel\", \"excel-tab\", \"unix\" }"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFieldSizeLimit(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 131072)"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genQuoteAll(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.int(1), builder_mod.EmitConfig.forExpression());
+}
+
+fn genQuoteMinimal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
+}
+
+fn genQuoteNonnumeric(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.int(2), builder_mod.EmitConfig.forExpression());
+}
+
+fn genQuoteNone(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.int(3), builder_mod.EmitConfig.forExpression());
+}
+
+fn genError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("error.CsvError"), builder_mod.EmitConfig.forExpression());
+}

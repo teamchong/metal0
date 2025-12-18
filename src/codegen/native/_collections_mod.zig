@@ -1,18 +1,19 @@
 /// Python _collections module - C accelerator for collections (internal)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
-const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "deque", genDeque },
     .{ "_deque_iterator", genDequeIterator },
     .{ "_deque_reverse_iterator", genDequeReverseIterator },
-    .{ "_count_elements", h.c("{}") },
+    .{ "_count_elements", genCountElements },
 });
 
-fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genDeque(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         const id = self.nextNameId();
         try self.emitFmt("__m{d}_deque: {{ var d = std.ArrayListUnmanaged(@TypeOf(", .{id});
@@ -21,28 +22,35 @@ fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emitFmt(") catch unreachable; break :__m{d}_deque .{{ .items = d.items, .maxlen = null }}; }}", .{id});
     } else {
-        try self.emit(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }");
+        try b.emitValue(builder_mod.ZigValue.raw(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }"), builder_mod.EmitConfig.forExpression());
     }
 }
 
-fn genDequeIterator(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genDequeIterator(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         const id = self.nextNameId();
         try self.emitFmt("__m{d}_deque_iter: {{ const d = ", .{id});
         try self.genExpr(args[0]);
         try self.emitFmt("; break :__m{d}_deque_iter .{{ .deque = d, .index = 0 }}; }}", .{id});
     } else {
-        try self.emit(".{ .deque = null, .index = 0 }");
+        try b.emitValue(builder_mod.ZigValue.raw(".{ .deque = null, .index = 0 }"), builder_mod.EmitConfig.forExpression());
     }
 }
 
-fn genDequeReverseIterator(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genDequeReverseIterator(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         const id = self.nextNameId();
         try self.emitFmt("__m{d}_deque_riter: {{ const d = ", .{id});
         try self.genExpr(args[0]);
         try self.emitFmt("; break :__m{d}_deque_riter .{{ .deque = d, .index = d.items.len }}; }}", .{id});
     } else {
-        try self.emit(".{ .deque = null, .index = 0 }");
+        try b.emitValue(builder_mod.ZigValue.raw(".{ .deque = null, .index = 0 }"), builder_mod.EmitConfig.forExpression());
     }
+}
+
+fn genCountElements(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
 }

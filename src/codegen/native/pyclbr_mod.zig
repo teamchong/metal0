@@ -1,4 +1,5 @@
 /// Python pyclbr module - Python class browser support
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

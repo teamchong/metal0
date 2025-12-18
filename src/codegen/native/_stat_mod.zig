@@ -1,44 +1,417 @@
 /// Python _stat module - Constants/functions from stat.h (internal)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // File type constants
-    .{ "S_IFMT", h.U32(0o170000) }, .{ "S_IFDIR", h.U32(0o040000) }, .{ "S_IFCHR", h.U32(0o020000) },
-    .{ "S_IFBLK", h.U32(0o060000) }, .{ "S_IFREG", h.U32(0o100000) }, .{ "S_IFIFO", h.U32(0o010000) },
-    .{ "S_IFLNK", h.U32(0o120000) }, .{ "S_IFSOCK", h.U32(0o140000) },
+    .{ "S_IFMT", genSIFMT },
+    .{ "S_IFDIR", genSIFDIR },
+    .{ "S_IFCHR", genSIFCHR },
+    .{ "S_IFBLK", genSIFBLK },
+    .{ "S_IFREG", genSIFREG },
+    .{ "S_IFIFO", genSIFIFO },
+    .{ "S_IFLNK", genSIFLNK },
+    .{ "S_IFSOCK", genSIFSOCK },
     // Permission bits
-    .{ "S_ISUID", h.U32(0o4000) }, .{ "S_ISGID", h.U32(0o2000) }, .{ "S_ISVTX", h.U32(0o1000) },
-    .{ "S_IRWXU", h.U32(0o700) }, .{ "S_IRUSR", h.U32(0o400) }, .{ "S_IWUSR", h.U32(0o200) }, .{ "S_IXUSR", h.U32(0o100) },
-    .{ "S_IRWXG", h.U32(0o070) }, .{ "S_IRGRP", h.U32(0o040) }, .{ "S_IWGRP", h.U32(0o020) }, .{ "S_IXGRP", h.U32(0o010) },
-    .{ "S_IRWXO", h.U32(0o007) }, .{ "S_IROTH", h.U32(0o004) }, .{ "S_IWOTH", h.U32(0o002) }, .{ "S_IXOTH", h.U32(0o001) },
+    .{ "S_ISUID", genSISUID },
+    .{ "S_ISGID", genSISGID },
+    .{ "S_ISVTX", genSISVTX },
+    .{ "S_IRWXU", genSIRWXU },
+    .{ "S_IRUSR", genSIRUSR },
+    .{ "S_IWUSR", genSIWUSR },
+    .{ "S_IXUSR", genSIXUSR },
+    .{ "S_IRWXG", genSIRWXG },
+    .{ "S_IRGRP", genSIRGRP },
+    .{ "S_IWGRP", genSIWGRP },
+    .{ "S_IXGRP", genSIXGRP },
+    .{ "S_IRWXO", genSIRWXO },
+    .{ "S_IROTH", genSIROTH },
+    .{ "S_IWOTH", genSIWOTH },
+    .{ "S_IXOTH", genSIXOTH },
     // Type test functions
-    .{ "S_ISDIR", h.typeTest("0o040000") }, .{ "S_ISCHR", h.typeTest("0o020000") }, .{ "S_ISBLK", h.typeTest("0o060000") },
-    .{ "S_ISREG", h.typeTest("0o100000") }, .{ "S_ISFIFO", h.typeTest("0o010000") }, .{ "S_ISLNK", h.typeTest("0o120000") }, .{ "S_ISSOCK", h.typeTest("0o140000") },
-    .{ "S_IMODE", h.wrap("(", " & 0o7777)", "@as(u32, 0)") },
+    .{ "S_ISDIR", genSISDIR },
+    .{ "S_ISCHR", genSISCHR },
+    .{ "S_ISBLK", genSISBLK },
+    .{ "S_ISREG", genSISREG },
+    .{ "S_ISFIFO", genSISFIFO },
+    .{ "S_ISLNK", genSISLNK },
+    .{ "S_ISSOCK", genSISSOCK },
+    .{ "S_IMODE", genSIMODE },
     .{ "filemode", genFilemode },
     // stat_result field indices
-    .{ "ST_MODE", h.I32(0) }, .{ "ST_INO", h.I32(1) }, .{ "ST_DEV", h.I32(2) }, .{ "ST_NLINK", h.I32(3) },
-    .{ "ST_UID", h.I32(4) }, .{ "ST_GID", h.I32(5) }, .{ "ST_SIZE", h.I32(6) },
-    .{ "ST_ATIME", h.I32(7) }, .{ "ST_MTIME", h.I32(8) }, .{ "ST_CTIME", h.I32(9) },
+    .{ "ST_MODE", genSTMODE },
+    .{ "ST_INO", genSTINO },
+    .{ "ST_DEV", genSTDEV },
+    .{ "ST_NLINK", genSTNLINK },
+    .{ "ST_UID", genSTUID },
+    .{ "ST_GID", genSTGID },
+    .{ "ST_SIZE", genSTSIZE },
+    .{ "ST_ATIME", genSTATIME },
+    .{ "ST_MTIME", genSTMTIME },
+    .{ "ST_CTIME", genSTCTIME },
     // Windows file attributes
-    .{ "FILE_ATTRIBUTE_ARCHIVE", h.U32(32) }, .{ "FILE_ATTRIBUTE_COMPRESSED", h.U32(2048) },
-    .{ "FILE_ATTRIBUTE_DEVICE", h.U32(64) }, .{ "FILE_ATTRIBUTE_DIRECTORY", h.U32(16) },
-    .{ "FILE_ATTRIBUTE_ENCRYPTED", h.U32(16384) }, .{ "FILE_ATTRIBUTE_HIDDEN", h.U32(2) },
-    .{ "FILE_ATTRIBUTE_NORMAL", h.U32(128) }, .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", h.U32(8192) },
-    .{ "FILE_ATTRIBUTE_OFFLINE", h.U32(4096) }, .{ "FILE_ATTRIBUTE_READONLY", h.U32(1) },
-    .{ "FILE_ATTRIBUTE_REPARSE_POINT", h.U32(1024) }, .{ "FILE_ATTRIBUTE_SPARSE_FILE", h.U32(512) },
-    .{ "FILE_ATTRIBUTE_SYSTEM", h.U32(4) }, .{ "FILE_ATTRIBUTE_TEMPORARY", h.U32(256) },
-    .{ "FILE_ATTRIBUTE_VIRTUAL", h.U32(65536) },
+    .{ "FILE_ATTRIBUTE_ARCHIVE", genFILEATTRIBUTEARCHIVE },
+    .{ "FILE_ATTRIBUTE_COMPRESSED", genFILEATTRIBUTECOMPRESSED },
+    .{ "FILE_ATTRIBUTE_DEVICE", genFILEATTRIBUTEDEVICE },
+    .{ "FILE_ATTRIBUTE_DIRECTORY", genFILEATTRIBUTEDIRECTORY },
+    .{ "FILE_ATTRIBUTE_ENCRYPTED", genFILEATTRIBUTEENCRYPTED },
+    .{ "FILE_ATTRIBUTE_HIDDEN", genFILEATTRIBUTEHIDDEN },
+    .{ "FILE_ATTRIBUTE_NORMAL", genFILEATTRIBUTENORMAL },
+    .{ "FILE_ATTRIBUTE_NOT_CONTENT_INDEXED", genFILEATTRIBUTENOTCONTENTINDEXED },
+    .{ "FILE_ATTRIBUTE_OFFLINE", genFILEATTRIBUTEOFFLINE },
+    .{ "FILE_ATTRIBUTE_READONLY", genFILEATTRIBUTEREADONLY },
+    .{ "FILE_ATTRIBUTE_REPARSE_POINT", genFILEATTRIBUTEREPARSEPOINT },
+    .{ "FILE_ATTRIBUTE_SPARSE_FILE", genFILEATTRIBUTESPARSEFILE },
+    .{ "FILE_ATTRIBUTE_SYSTEM", genFILEATTRIBUTESYSTEM },
+    .{ "FILE_ATTRIBUTE_TEMPORARY", genFILEATTRIBUTETEMPORARY },
+    .{ "FILE_ATTRIBUTE_VIRTUAL", genFILEATTRIBUTEVIRTUAL },
 });
 
-const ast = @import("analysis.ast");
-const NativeCodegen = h.NativeCodegen;
-const CodegenError = h.CodegenError;
+// File type constants
+fn genSIFMT(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o170000)"), builder_mod.EmitConfig.forExpression());
+}
 
-fn genFilemode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("\"----------\""); return; }
+fn genSIFDIR(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o040000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIFCHR(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o020000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIFBLK(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o060000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIFREG(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o100000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIFIFO(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o010000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIFLNK(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o120000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIFSOCK(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o140000)"), builder_mod.EmitConfig.forExpression());
+}
+
+// Permission bits
+fn genSISUID(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o4000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSISGID(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o2000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSISVTX(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o1000)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIRWXU(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o700)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIRUSR(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o400)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIWUSR(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o200)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIXUSR(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o100)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIRWXG(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o070)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIRGRP(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o040)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIWGRP(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o020)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIXGRP(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o010)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIRWXO(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o007)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIROTH(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o004)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIWOTH(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o002)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSIXOTH(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0o001)"), builder_mod.EmitConfig.forExpression());
+}
+
+// Type test functions
+fn genSISDIR(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o040000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSISCHR(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o020000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSISBLK(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o060000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSISREG(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o100000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSISFIFO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o010000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSISLNK(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o120000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSISSOCK(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("((");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o170000) == 0o140000)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genSIMODE(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.emit("(");
+        try self.genExpr(args[0]);
+        try self.emit(" & 0o7777)");
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 0)"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genFilemode(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len == 0) {
+        try b.emitValue(builder_mod.ZigValue.string("----------"), builder_mod.EmitConfig.forExpression());
+        return;
+    }
     const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_fm: {{ const mode = ", .{id}); try self.genExpr(args[0]);
-    try self.emitFmt("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :__m{d}_fm &perm; }})", .{id});
+    try self.emitFmt("(__m{d}_fm: {{ const mode = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emit("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :__m");
+    try self.emitFmt("{d}_fm &perm; }})", .{id});
+}
+
+// stat_result field indices
+fn genSTMODE(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTINO(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 1)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTDEV(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 2)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTNLINK(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 3)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTUID(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 4)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTGID(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 5)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTSIZE(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 6)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTATIME(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 7)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTMTIME(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 8)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genSTCTIME(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 9)"), builder_mod.EmitConfig.forExpression());
+}
+
+// Windows file attributes
+fn genFILEATTRIBUTEARCHIVE(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 32)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTECOMPRESSED(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 2048)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEDEVICE(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 64)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEDIRECTORY(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 16)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEENCRYPTED(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 16384)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEHIDDEN(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 2)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTENORMAL(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 128)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTENOTCONTENTINDEXED(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 8192)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEOFFLINE(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 4096)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEREADONLY(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 1)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEREPARSEPOINT(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 1024)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTESPARSEFILE(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 512)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTESYSTEM(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 4)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTETEMPORARY(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 256)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genFILEATTRIBUTEVIRTUAL(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("@as(u32, 65536)"), builder_mod.EmitConfig.forExpression());
 }

@@ -1,4 +1,5 @@
 /// Python wsgiref module - WSGI utilities and reference implementation
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// Python sre_compile module - Internal support module for sre
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

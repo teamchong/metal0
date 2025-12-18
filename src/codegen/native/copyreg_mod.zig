@@ -1,42 +1,93 @@
 /// Python copyreg module - Register pickle support functions
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
-const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
-const CodegenError = h.CodegenError;
-const NativeCodegen = h.NativeCodegen;
+const builder_mod = @import("codegen.builder");
+const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "pickle", h.c("{}") },
-    .{ "constructor", h.pass("@as(?*const fn() anytype, null)") },
-    .{ "dispatch_table", h.c("hashmap_helper.AutoHashMap(usize, ?*anyopaque).init(__global_allocator)") },
-    .{ "_extension_registry", h.c("hashmap_helper.StringHashMap(i32).init(__global_allocator)") },
-    .{ "_inverted_registry", h.c("hashmap_helper.AutoHashMap(i32, []const u8).init(__global_allocator)") },
-    .{ "_extension_cache", h.c("hashmap_helper.AutoHashMap(i32, ?*anyopaque).init(__global_allocator)") },
-    .{ "add_extension", h.c("{}") },
-    .{ "remove_extension", h.c("{}") },
-    .{ "clear_extension_cache", h.c("{}") },
+    .{ "pickle", genPickle },
+    .{ "constructor", genConstructor },
+    .{ "dispatch_table", genDispatchTable },
+    .{ "_extension_registry", genExtensionRegistry },
+    .{ "_inverted_registry", genInvertedRegistry },
+    .{ "_extension_cache", genExtensionCache },
+    .{ "add_extension", genAddExtension },
+    .{ "remove_extension", genRemoveExtension },
+    .{ "clear_extension_cache", genClearExtensionCache },
     .{ "__newobj__", genNewobj },
     .{ "__newobj_ex__", genNewobjEx },
 });
 
-fn genNewobj(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) {
-        try self.emit(".{}");
-        return;
-    }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{}_newobj: {{ const cls = ", .{id});
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{}_newobj cls{{}}; }}", .{id});
+fn genPickle(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
 }
 
-fn genNewobjEx(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+fn genConstructor(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try b.emitValue(builder_mod.ZigValue.raw("@as(?*const fn() anytype, null)"), builder_mod.EmitConfig.forExpression());
+    }
+}
+
+fn genDispatchTable(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.AutoHashMap(usize, ?*anyopaque).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genExtensionRegistry(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.StringHashMap(i32).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genInvertedRegistry(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.AutoHashMap(i32, []const u8).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genExtensionCache(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.AutoHashMap(i32, ?*anyopaque).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genAddExtension(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genRemoveExtension(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genClearExtensionCache(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+}
+
+fn genNewobj(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len == 0) {
-        try self.emit(".{}");
+        try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
         return;
     }
     const id = self.nextNameId();
-    try self.emitFmt("__m{}_newobj_ex: {{ const cls = ", .{id});
+    try self.emitFmt("__m{d}_newobj: {{ const cls = ", .{id});
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{}_newobj_ex cls{{}}; }}", .{id});
+    try self.emitFmt("; break :__m{d}_newobj cls{{}}; }}", .{id});
+}
+
+fn genNewobjEx(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
+    if (args.len == 0) {
+        try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
+        return;
+    }
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_newobj_ex: {{ const cls = ", .{id});
+    try self.genExpr(args[0]);
+    try self.emitFmt("; break :__m{d}_newobj_ex cls{{}}; }}", .{id});
 }

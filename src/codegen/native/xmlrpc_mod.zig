@@ -1,4 +1,5 @@
 /// Python xmlrpc module - XML-RPC client/server
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// Python pipes module - Interface to shell pipelines (deprecated in 3.11)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

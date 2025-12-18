@@ -1,4 +1,5 @@
 /// Python syslog module - Unix system logging
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// metal0.tokenizer module - native Zig BPE tokenizer (248x faster than tiktoken)
+/// MIGRATED TO ZIGBUILDER
 ///
 /// Usage in Python:
 ///   from metal0 import tokenizer

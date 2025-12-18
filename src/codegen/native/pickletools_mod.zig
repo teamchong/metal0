@@ -1,4 +1,5 @@
 /// Python pickletools module - Tools for working with pickle data streams
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 

@@ -1,4 +1,5 @@
 /// Python string module - string constants and utilities
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");
