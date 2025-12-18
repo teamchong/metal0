@@ -8,31 +8,38 @@ const bool_conv = @import("../../../helpers/bool_conv.zig");
 
 /// Generate while loop
 pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!void {
-    const CodeBuilder = @import("../../../code_builder.zig").CodeBuilder;
-    var builder = CodeBuilder.init(self);
+    const b = try self.getBuilder();
 
-    try self.emitIndent();
-    _ = try builder.write("while (");
+    try b.writeIndent();
+    try b.write("while (");
 
     // Check condition type - need to handle non-boolean conditions
     const cond_type = self.type_inferrer.inferExpr(while_stmt.condition.*) catch .unknown;
     // TWO-FLOW: Check for both .unknown and .pyvalue (uncertain types)
     if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Unknown/PyValue type - use runtime truthiness check
-        _ = try builder.write("runtime.pyTruthy(");
-        try self.genExpr(while_stmt.condition.*);
-        _ = try builder.write(")");
+        try b.write("runtime.pyTruthy(");
+        const cond_val = try self.captureExpr(while_stmt.condition.*);
+        try b.emitValue(cond_val, .{});
+        try b.write(")");
     } else {
         // Use type-specific inline bool conversion to avoid anytype monomorphization
         const prefix = bool_conv.getBoolPrefix(cond_type);
         const suffix = bool_conv.getBoolSuffix(cond_type);
-        _ = try builder.write(prefix);
-        try self.genExpr(while_stmt.condition.*);
-        _ = try builder.write(suffix);
+        try b.write(prefix);
+        const cond_val = try self.captureExpr(while_stmt.condition.*);
+        try b.emitValue(cond_val, .{});
+        try b.write(suffix);
     }
 
-    _ = try builder.write(")");
-    _ = try builder.beginBlock();
+    try b.write(") {\n");
+
+    // Flush builder before generating body
+    const builder_output = b.getBody();
+    try self.output.appendSlice(self.allocator, builder_output);
+
+    // Indent for loop body
+    self.indent();
 
     // Push new scope for loop body
     try self.pushScope();
@@ -52,7 +59,10 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     // Pop scope when exiting loop
     self.popScope();
 
-    _ = try builder.endBlock();
+    // Close while block
+    self.dedent();
+    try self.emitIndent();
+    try self.emit("}\n");
 
     // Handle optional else clause (while/else)
     // Note: In Python, else runs if loop completes without break.
