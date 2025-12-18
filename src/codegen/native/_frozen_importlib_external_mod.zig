@@ -24,13 +24,15 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genSourceFileLoader(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len >= 2) {
-        const label = try self.emitInlineBlockStart("sfl");
-        try self.emit("const __v0 = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const __v1 = ");
-        try self.genExpr(args[1]);
-        try self.emitFmt("; break :{s} .{{ .name = __v0, .path = __v1 }}; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("sfl", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v0 = ");
+                try c.genExpr(a[0]);
+                try c.emit("; const __v1 = ");
+                try c.genExpr(a[1]);
+                try c.emitFmt("; break :{s} .{{ .name = __v0, .path = __v1 }}", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"\", .path = \"\" }"), builder_mod.EmitConfig.forExpression());
     }
