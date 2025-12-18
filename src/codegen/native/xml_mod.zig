@@ -23,25 +23,31 @@ const CodegenError = h.CodegenError;
 
 fn genParse(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit(element_tree_struct); return; }
-    const label = try self.emitInlineBlockStart("parse");
-    try self.emit("const _src = "); try self.genExpr(args[0]);
-    try self.emitFmt("; const f = std.fs.cwd().openFile(_src, .{{}}) catch break :{s} {s}; defer f.close(); const content = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch break :{s} {s}; _ = content; break :{s} {s}; ", .{ label, element_tree_struct, label, element_tree_struct, label, element_tree_struct });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("parse", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _src = "); try c.genExpr(a[0]);
+            try c.emitFmt("; const f = std.fs.cwd().openFile(_src, .{{}}) catch break :{s} {s}; defer f.close(); const content = f.readToEndAlloc(__global_allocator, 10*1024*1024) catch break :{s} {s}; _ = content; break :{s} {s}; ", .{ label, element_tree_struct, label, element_tree_struct, label, element_tree_struct });
+        }
+    }.emit);
 }
 
 fn genTostring(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const label = try self.emitInlineBlockStart("tos");
-    try self.emit("const e = "); try self.genExpr(args[0]);
-    try self.emitFmt("; var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, \"<\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; r.appendSlice(__global_allocator, e.text) catch unreachable; r.appendSlice(__global_allocator, \"</\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; break :{s} r.items; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("tos", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const e = "); try c.genExpr(a[0]);
+            try c.emitFmt("; var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, \"<\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; r.appendSlice(__global_allocator, e.text) catch unreachable; r.appendSlice(__global_allocator, \"</\") catch unreachable; r.appendSlice(__global_allocator, e.tag) catch unreachable; r.appendSlice(__global_allocator, \">\") catch unreachable; break :{s} r.items; ", .{label});
+        }
+    }.emit);
 }
 
 fn genSubElement(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("Element{}"); return; }
-    const label = try self.emitInlineBlockStart("sub");
-    try self.emit("var p = "); try self.genExpr(args[0]);
-    try self.emit("; const t = "); try self.genExpr(args[1]);
-    try self.emitFmt("; var c = Element{{ .tag = t }}; p.children.append(__global_allocator, &c) catch unreachable; break :{s} c; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("sub", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("var p = "); try c.genExpr(a[0]);
+            try c.emit("; const t = "); try c.genExpr(a[1]);
+            try c.emitFmt("; var c = Element{{ .tag = t }}; p.children.append(__global_allocator, &c) catch unreachable; break :{s} c; ", .{label});
+        }
+    }.emit);
 }

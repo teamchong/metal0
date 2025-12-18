@@ -110,11 +110,13 @@ fn genExactTokenTypes(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void
 fn genIsterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("isterminal");
-        try self.emit("const x = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} x < 256; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("isterminal", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const x = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; break :{s} x < 256; ", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
     }
@@ -123,11 +125,13 @@ fn genIsterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 fn genIsnonterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("isnonterminal");
-        try self.emit("const x = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} x >= 256; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("isnonterminal", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const x = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; break :{s} x >= 256; ", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
     }
@@ -136,11 +140,13 @@ fn genIsnonterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!voi
 fn genIseof(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("iseof");
-        try self.emit("const x = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} x == 0; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("iseof", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const x = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; break :{s} x == 0; ", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
     }
