@@ -226,7 +226,8 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
         // Pattern 2: Try expressions for runtime module functions that return values
         // Generic: any "try runtime.xxx.yyy(...)" call returns a value
-        if (std.mem.startsWith(u8, generated, "try runtime.")) {
+        // Also includes unittest module functions (aliased as runtime.Lib.unittest)
+        if (std.mem.startsWith(u8, generated, "try runtime.") or std.mem.startsWith(u8, generated, "try unittest.")) {
             // Find if it's a function call (has parentheses after module.func)
             if (std.mem.indexOf(u8, generated, "(") != null) {
                 break :blk true;
