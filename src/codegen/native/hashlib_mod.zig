@@ -15,13 +15,15 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     if (args.len > 1) {
-        const label = try self.emitInlineBlockStart("hash_new");
-        try self.emit("var _h = try hashlib.new(");
-        try self.genExpr(args[0]);
-        try self.emit("); _h.update(");
-        try self.genExpr(args[1]);
-        try self.emitFmt("); break :{s} _h; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("hash_new", args, struct {
+            fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("var _h = try hashlib.new(");
+                try c.genExpr(a[0]);
+                try c.emit("); _h.update(");
+                try c.genExpr(a[1]);
+                try c.emitFmt("); break :{s} _h", .{label});
+            }
+        }.emit);
     } else {
         try self.emit("try hashlib.new(");
         try self.genExpr(args[0]);
