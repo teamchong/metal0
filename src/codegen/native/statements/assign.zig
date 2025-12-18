@@ -1354,14 +1354,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emitInlineBlockEnd();
                 try self.emit(");\n");
             } else {
-                // TWO-FLOW TYPE SYSTEM: If PyValue wrapper was opened, check if value is a call
-                // that returns an error union. If so, emit 'try' to unwrap it before passing to PyValue.from()
-                // This handles cases like: g = gcd(den, num) where gcd returns !i64
-                const needs_try = is_first_assignment and wrapper_opened and assign.value.* == .call;
-                if (needs_try) {
-                    try self.emit("try ");
-                }
-                // Emit value normally
+                // TWO-FLOW TYPE SYSTEM: Emit value normally
+                // genExpr() for calls already handles 'try' when needed (see calls.zig:1523)
+                // so we don't need to add it here
                 try self.genExpr(assign.value.*);
                 // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if it was opened
                 // Use wrapper_opened flag from emitVarDeclaration which already handles
