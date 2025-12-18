@@ -125,19 +125,13 @@ pub const LZMAFile = struct {
         defer self.allocator.free(compressed);
         _ = try self.file.?.readAll(compressed);
 
-        // Check format
+        // Check format and decompress using liblzma (same as CPython)
         if (compressed.len >= 6 and std.mem.eql(u8, compressed[0..6], &XZ_MAGIC)) {
-            // XZ format - use std.compress.xz
-            var fbs = std.io.fixedBufferStream(compressed);
-            var decomp = std.compress.xz.decompress(self.allocator, fbs.reader()) catch
-                return error.LzmaDecompressError;
-
-            const max_size = size orelse 1024 * 1024 * 10;
-            return decomp.reader().readAllAlloc(self.allocator, max_size) catch
-                return error.LzmaDecompressError;
+            // XZ format
+            return try decompress(self.allocator, compressed, FORMAT_XZ, size);
         } else if (compressed.len >= 1 and compressed[0] == LZMA_MAGIC[0]) {
             // LZMA alone format
-            return error.LzmaAloneNotImplemented;
+            return try decompress(self.allocator, compressed, FORMAT_ALONE, size);
         } else {
             return error.InvalidLzmaFormat;
         }
@@ -351,37 +345,112 @@ pub fn openLzma(
 }
 
 /// Compress data in one shot
+/// Compress data in one shot (same as CPython's lzma.compress)
 pub fn compress(allocator: std.mem.Allocator, data: []const u8, format: i32, check: CHECK, preset: ?u32) ![]u8 {
-    _ = format;
-    _ = check;
-    _ = preset;
+    _ = format; // TODO: Use format (FORMAT_XZ, FORMAT_ALONE, etc.)
 
-    var result: std.ArrayList(u8) = .{};
-    errdefer result.deinit(allocator);
+    const level = preset orelse PRESET_DEFAULT;
 
-    var comp = try std.compress.xz.compressor(result.writer(), allocator, .{});
-    try comp.write(data);
-    try comp.finish();
+    // Initialize lzma stream
+    var stream: c.lzma_stream = std.mem.zeroes(c.lzma_stream);
 
-    return result.toOwnedSlice(allocator);
+    // Initialize encoder (same as CPython)
+    const check_type = switch (check) {
+        .NONE => c.LZMA_CHECK_NONE,
+        .CRC32 => c.LZMA_CHECK_CRC32,
+        .CRC64 => c.LZMA_CHECK_CRC64,
+        .SHA256 => c.LZMA_CHECK_SHA256,
+    };
+
+    const init_ret = c.lzma_easy_encoder(&stream, level, check_type);
+    if (init_ret != c.LZMA_OK) {
+        return error.LzmaEncoderInitFailed;
+    }
+    defer _ = c.lzma_end(&stream);
+
+    // Allocate output buffer (LZMA worst case: ~110% of input + small overhead)
+    const max_compressed = data.len + (data.len / 10) + 1024;
+    var output = try allocator.alloc(u8, max_compressed);
+    errdefer allocator.free(output);
+
+    // Compress
+    stream.next_in = data.ptr;
+    stream.avail_in = data.len;
+    stream.next_out = output.ptr;
+    stream.avail_out = output.len;
+
+    const ret = c.lzma_code(&stream, c.LZMA_FINISH);
+    if (ret != c.LZMA_STREAM_END) {
+        allocator.free(output);
+        return switch (ret) {
+            c.LZMA_MEM_ERROR => error.OutOfMemory,
+            c.LZMA_DATA_ERROR => error.InvalidLzmaData,
+            c.LZMA_BUF_ERROR => error.OutputBufferTooSmall,
+            else => error.LzmaCompressionFailed,
+        };
+    }
+
+    const compressed_len = stream.total_out;
+
+    // Resize to actual size
+    if (compressed_len < max_compressed) {
+        output = allocator.realloc(output, compressed_len) catch output;
+    }
+
+    return output[0..compressed_len];
 }
 
-/// Decompress LZMA data in one shot
+/// Decompress LZMA data in one shot (same as CPython's lzma.decompress)
 pub fn decompress(allocator: std.mem.Allocator, data: []const u8, format: i32, max_length: ?usize) ![]u8 {
-    _ = format;
+    _ = format; // TODO: Use format (FORMAT_XZ, FORMAT_ALONE, etc.)
 
     // Verify XZ magic
     if (data.len < 6 or !std.mem.eql(u8, data[0..6], &XZ_MAGIC)) {
         return error.InvalidLzmaData;
     }
 
-    var fbs = std.io.fixedBufferStream(data);
-    var decomp = std.compress.xz.decompress(allocator, fbs.reader()) catch
-        return error.LzmaDecompressError;
+    // Initialize lzma stream
+    var stream: c.lzma_stream = std.mem.zeroes(c.lzma_stream);
 
-    const max_size = max_length orelse 1024 * 1024 * 100;
-    return decomp.reader().readAllAlloc(allocator, max_size) catch
-        return error.LzmaDecompressError;
+    // Initialize decoder (same as CPython)
+    const memlimit: u64 = std.math.maxInt(u64); // No memory limit
+    const init_ret = c.lzma_stream_decoder(&stream, memlimit, 0);
+    if (init_ret != c.LZMA_OK) {
+        return error.LzmaDecoderInitFailed;
+    }
+    defer _ = c.lzma_end(&stream);
+
+    // Allocate output buffer
+    const max_size = max_length orelse 1024 * 1024 * 100; // 100MB default
+    var output = try allocator.alloc(u8, max_size);
+    errdefer allocator.free(output);
+
+    // Decompress
+    stream.next_in = data.ptr;
+    stream.avail_in = data.len;
+    stream.next_out = output.ptr;
+    stream.avail_out = output.len;
+
+    const ret = c.lzma_code(&stream, c.LZMA_FINISH);
+    if (ret != c.LZMA_STREAM_END) {
+        allocator.free(output);
+        return switch (ret) {
+            c.LZMA_MEM_ERROR => error.OutOfMemory,
+            c.LZMA_DATA_ERROR => error.InvalidLzmaData,
+            c.LZMA_BUF_ERROR => error.OutputBufferTooSmall,
+            c.LZMA_MEMLIMIT_ERROR => error.MemoryLimitExceeded,
+            else => error.LzmaDecompressionFailed,
+        };
+    }
+
+    const decompressed_len = stream.total_out;
+
+    // Resize to actual size
+    if (decompressed_len < max_size) {
+        output = allocator.realloc(output, decompressed_len) catch output;
+    }
+
+    return output[0..decompressed_len];
 }
 
 /// Check if LZMA/XZ format is supported
@@ -434,7 +503,6 @@ pub const LZMAError = error{
     InvalidLzmaFormat,
     InvalidLzmaData,
     LzmaDecompressError,
-    LzmaAloneNotImplemented,
     UnsupportedCheck,
 };
 
