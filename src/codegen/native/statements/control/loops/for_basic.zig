@@ -1006,8 +1006,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 }
             }
 
-            // Only mark as callable if ALL elements are PyCallable (no function refs)
-            if (has_pow_builtin and !has_function_ref) {
+            // Mark as error-callable if tuple contains pow (either builtin or operator.pow)
+            // Both runtime.builtins.pow.call and operator.pow return !f64, so both need try
+            if (has_pow_builtin) {
                 const owned_name = try self.arena.allocator().dupe(u8, var_name);
                 try self.callable_vars.put(owned_name, {});
                 const owned_name2 = try self.arena.allocator().dupe(u8, var_name);
