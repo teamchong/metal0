@@ -326,10 +326,23 @@ fn generateBodyForTypeCheck(
         const func_name = call.func.name.id;
 
         if (is_class) {
-            // Looking for isClassName (e.g., isRat)
+            // Looking for isClassName (e.g., isRat) OR isinstance(param, ClassName)
             var class_check_name_buf: [64]u8 = undefined;
             const expected_func = std.fmt.bufPrint(&class_check_name_buf, "is{s}", .{check_type}) catch continue;
-            if (!std.mem.eql(u8, func_name, expected_func)) continue;
+
+            if (std.mem.eql(u8, func_name, expected_func)) {
+                // Found isClassName() pattern
+            } else if (std.mem.eql(u8, func_name, "isinstance")) {
+                // Check if isinstance(param, ClassName)
+                if (call.args.len >= 2 and call.args[1] == .name) {
+                    const type_arg = call.args[1].name.id;
+                    if (!std.mem.eql(u8, type_arg, check_type)) continue;
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            }
         } else {
             // Looking for isint
             if (!std.mem.eql(u8, func_name, "isint") and !std.mem.eql(u8, func_name, "isinstance")) continue;

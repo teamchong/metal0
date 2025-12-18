@@ -22,6 +22,9 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 
 const hashmap_helper = @import("utils.hashmap_helper");
+const scratch_buffer_mod = @import("../../../utils/scratch_buffer.zig");
+const ScratchBuffer = scratch_buffer_mod.ScratchBuffer;
+
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const FnvStringMap = hashmap_helper.StringHashMap([]const u8);
 const FnvFuncDefMap = hashmap_helper.StringHashMap(ast.Node.FunctionDef);
@@ -128,6 +131,7 @@ pub const FinallyContext = struct {
 pub const NativeCodegen = struct {
     allocator: std.mem.Allocator,
     arena: *std.heap.ArenaAllocator, // Arena for internal string allocations (deinit frees all at once)
+    scratch: ScratchBuffer, // Scratch buffer for temporary allocations (2-3x faster than arena for temps)
     output: std.ArrayList(u8),
     type_inferrer: *TypeInferrer,
     semantic_info: *SemanticInfo,
@@ -765,6 +769,7 @@ pub const NativeCodegen = struct {
         self.* = .{
             .allocator = allocator,
             .arena = arena,
+            .scratch = ScratchBuffer.init(),
             .output = std.ArrayList(u8){},
             .type_inferrer = type_inferrer,
             .semantic_info = semantic_info,
