@@ -35,6 +35,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const prefetch = b.addModule("utils.prefetch", .{
+        .root_source_file = b.path("../src/utils/prefetch.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const bigint = b.addModule("bigint", .{
         .root_source_file = b.path("../packages/bigint/src/bigint.zig"),
         .target = target,
@@ -168,8 +174,22 @@ pub fn build(b: *std.Build) void {
 
     // Prefetch all Zig source files in parallel before compilation
     // This hints the OS to load files into page cache, speeding up Zig compiler I/O
-    // NOTE: Prefetch import was removed - relative path invalid in generated build.zig
-    // Skip prefetching in batch builds - it's mainly useful for individual file compilation
+    {
+        const prefetch_mod = @import("utils.prefetch");
+        var prefetch_paths = std.ArrayList([]const u8).init(b.allocator);
+        defer prefetch_paths.deinit();
+
+        var prefetch_iter = std.mem.splitScalar(u8, manifest_content, '\n');
+        while (prefetch_iter.next()) |line| {
+            if (line.len == 0) continue;
+            var parts = std.mem.splitScalar(u8, line, ':');
+            const zig_path = parts.next() orelse continue;
+            prefetch_paths.append(zig_path) catch continue;
+        }
+
+        // Prefetch in background - errors are silently ignored (best-effort)
+        prefetch_mod.prefetchSourceFiles(b.allocator, prefetch_paths.items) catch {};
+    }
 
     // Parse manifest: each line is "zig_path:bin_name"
     var line_iter = std.mem.splitScalar(u8, manifest_content, '\n');
