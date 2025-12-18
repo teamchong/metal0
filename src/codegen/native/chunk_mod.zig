@@ -20,11 +20,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genChunk(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_chunk: {{ const __v = ", .{id});
+        const label = try b.emitInlineBlockStart("chunk");
+        try self.emit("const __v = ");
         try self.genExpr(args[0]);
         try self.emit("; _ = __v;");
-        try self.emitFmt(" break :__m{d}_chunk .{{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{{0}} ** 4, .chunksize = 0, .size_read = 0 }}; }})", .{id});
+        try self.emit(" break :");
+        try self.emit(label);
+        try self.emit(" .{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{0} ** 4, .chunksize = 0, .size_read = 0 }; ");
+        try b.emitInlineBlockEnd();
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{0} ** 4, .chunksize = 0, .size_read = 0 }"), builder_mod.EmitConfig.forExpression());
     }
