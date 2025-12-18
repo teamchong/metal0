@@ -227,17 +227,40 @@ pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     switch (arg_type) {
-        .function => {
+        .function, .callable => {
             try self.emit("true");
         },
         else => {
-            // Check if it's a class (has __call__)
+            // Check if it's a name referring to a callable
             if (args[0] == .name) {
-                if (self.classHasMethod(args[0].name.id, "__call__")) {
+                const name = args[0].name.id;
+
+                // Check if it's a class (has __call__)
+                if (self.classHasMethod(name, "__call__")) {
+                    try self.emit("true");
+                    return;
+                }
+
+                // Check if it's a module-level function
+                if (self.module_level_funcs.contains(name)) {
+                    try self.emit("true");
+                    return;
+                }
+
+                // Check if it's a known builtin function
+                const builtins = @import("../../dispatch/builtins.zig");
+                if (builtins.BuiltinMap.get(name) != null) {
+                    try self.emit("true");
+                    return;
+                }
+
+                // Check if it's a class name (classes are callable as constructors)
+                if (self.class_registry.classes.contains(name)) {
                     try self.emit("true");
                     return;
                 }
             }
+
             // Most types are not callable
             try self.emit("false");
         },
