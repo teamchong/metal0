@@ -19,12 +19,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genCrypt(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("crypt");
-        try self.emit("const __v = ");
-        try self.genExpr(args[0]);
-        try self.emit("; _ = __v;");
-        try self.emitFmt(" break :{s} \"$6$rounds=5000$salt$hash\"; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("crypt", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v = ");
+                try c.genExpr(a[0]);
+                try c.emit("; _ = __v;");
+                try c.emitFmt(" break :{s} \"$6$rounds=5000$salt$hash\"", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
     }
