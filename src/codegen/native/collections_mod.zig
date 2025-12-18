@@ -23,10 +23,12 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
         } else {
             // Non-variable (like int, str, list literals) - wrap in discard block
-            const id = self.nextNameId();
-            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
+            const b = try self.getBuilder();
+            const label = try b.emitInlineBlockStart("discard");
+            try self.emit("_ = ");
             try self.genExpr(arg);
-            try self.emitFmt("; break :__m{d}_discard hashmap_helper.StringHashMap(i64).init(__global_allocator); }})", .{id});
+            try self.emitFmt("; break :{s} hashmap_helper.StringHashMap(i64).init(__global_allocator); ", .{label});
+            try b.emitInlineBlockEnd();
         }
     } else {
         try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
@@ -42,10 +44,12 @@ pub fn genOrderedDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
         } else {
             // Non-variable - wrap in discard block
-            const id = self.nextNameId();
-            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
+            const b = try self.getBuilder();
+            const label = try b.emitInlineBlockStart("discard");
+            try self.emit("_ = ");
             try self.genExpr(arg);
-            try self.emitFmt("; break :__m{d}_discard hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }})", .{id});
+            try self.emitFmt("; break :{s} hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); ", .{label});
+            try b.emitInlineBlockEnd();
         }
     } else {
         try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
@@ -104,11 +108,13 @@ pub fn genCounterSubtract(self: *NativeCodegen, obj: ast.Node, args: []ast.Node)
 /// Returns sum of all counts
 pub fn genCounterTotal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    // Generate: __m{id}_counter_total: { var sum: i64 = 0; for (counter.values()) |v| sum += v; break :__m{id}_counter_total sum; }
-    const id = self.nextNameId();
-    try self.emitFmt("__m{d}_counter_total: {{ var __sum: i64 = 0; for (", .{id});
+    // Generate: label: { var sum: i64 = 0; for (counter.values()) |v| sum += v; break :label sum; }
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("counter_total");
+    try self.emit("var __sum: i64 = 0; for (");
     try self.genExpr(obj);
-    try self.emitFmt(".values()) |__v| {{ __sum += __v; }} break :__m{d}_counter_total __sum; }}", .{id});
+    try self.emitFmt(".values()) |__v| {{ __sum += __v; }} break :{s} __sum; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -133,10 +139,12 @@ pub fn genUserDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
         } else {
             // Non-variable - wrap in discard block
-            const id = self.nextNameId();
-            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
+            const b = try self.getBuilder();
+            const label = try b.emitInlineBlockStart("discard");
+            try self.emit("_ = ");
             try self.genExpr(arg);
-            try self.emitFmt("; break :__m{d}_discard hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); }})", .{id});
+            try self.emitFmt("; break :{s} hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator); ", .{label});
+            try b.emitInlineBlockEnd();
         }
     } else {
         try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)");
@@ -153,10 +161,14 @@ pub fn genUserList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}");
         } else {
             // Non-variable - wrap in discard block
-            const id = self.nextNameId();
-            try self.emitFmt("(__m{d}_discard: {{ _ = ", .{id});
+            const b = try self.getBuilder();
+            const label = try b.emitInlineBlockStart("discard");
+            try self.emit("_ = ");
             try self.genExpr(arg);
-            try self.emitFmt("; break :__m{d}_discard std.ArrayListUnmanaged(*runtime.PyObject){{}}; }})", .{id});
+            try self.emit("; break :");
+            try self.emit(label);
+            try self.emit(" std.ArrayListUnmanaged(*runtime.PyObject){}; ");
+            try b.emitInlineBlockEnd();
         }
     } else {
         try self.emit("std.ArrayListUnmanaged(*runtime.PyObject){}");
@@ -165,12 +177,13 @@ pub fn genUserList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Counter needs dynamic unique IDs for each invocation
 pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
     if (args.len > 0) {
-        try self.emitFmt("__m{d}_counter: {{ const _iter_raw = ", .{id});
+        const b = try self.getBuilder();
+        const label = try b.emitInlineBlockStart("counter");
+        try self.emit("const _iter_raw = ");
         try self.genExpr(args[0]);
-        try self.emit("; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :__m");
-        try self.emitFmt("{d}_counter _counter; }}", .{id});
+        try self.emitFmt("; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| {{ const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) {{ entry.value_ptr.* += 1; }} else {{ entry.value_ptr.* = 1; }} }} break :{s} _counter; ", .{label});
+        try b.emitInlineBlockEnd();
     } else {
         try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
     }
@@ -178,12 +191,15 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 // Deque needs dynamic unique IDs for each invocation
 pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
     if (args.len > 0) {
-        try self.emitFmt("__m{d}_deque: {{ const _iter_raw = ", .{id});
+        const b = try self.getBuilder();
+        const label = try b.emitInlineBlockStart("deque");
+        try self.emit("const _iter_raw = ");
         try self.genExpr(args[0]);
-        try self.emit("; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){{}}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :__m");
-        try self.emitFmt("{d}_deque _deque; }}", .{id});
+        try self.emit("; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){}; for (_iterable) |item| { _deque.append(__global_allocator, item) catch continue; } break :");
+        try self.emit(label);
+        try self.emit(" _deque; ");
+        try b.emitInlineBlockEnd();
     } else {
         try self.emit("std.ArrayListUnmanaged(i64){}");
     }
@@ -231,12 +247,16 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for collections.ChainMap(*maps)
 /// A ChainMap groups multiple dicts into a single view
 pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const id = self.nextNameId();
+    const b = try self.getBuilder();
+    const label = try b.emitInlineBlockStart("chainmap");
     if (args.len == 0) {
-        try self.emitFmt("__m{d}_chainmap: {{ var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){{}}; break :__m{d}_chainmap _maps; }}", .{ id, id });
+        try self.emit("var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){}; break :");
+        try self.emit(label);
+        try self.emit(" _maps; ");
+        try b.emitInlineBlockEnd();
         return;
     }
-    try self.emitFmt("__m{d}_chainmap: {{ var _maps = std.ArrayListUnmanaged(@TypeOf(", .{id});
+    try self.emit("var _maps = std.ArrayListUnmanaged(@TypeOf(");
     try self.genExpr(args[0]);
     try self.emit(")){}; ");
     for (args) |arg| {
@@ -244,5 +264,8 @@ pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(arg);
         try self.emit(") catch unreachable; ");
     }
-    try self.emitFmt("break :__m{d}_chainmap _maps; }}", .{id});
+    try self.emit("break :");
+    try self.emit(label);
+    try self.emit(" _maps; ");
+    try b.emitInlineBlockEnd();
 }
