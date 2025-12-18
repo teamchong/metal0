@@ -353,6 +353,11 @@ fn isUnittestContextManager(expr: ast.Node) bool {
                         return true;
                     }
                 }
+                // Check for contextlib.* context managers (redirect_stdout, redirect_stderr, suppress, etc.)
+                // Check for mock.patch* context managers
+                if (std.mem.eql(u8, obj_name, "contextlib") or std.mem.eql(u8, obj_name, "mock")) {
+                    return true;
+                }
             }
         }
     }
@@ -1002,29 +1007,73 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         // to be used after the block ends
         try hoistWithBodyVars(self, with_node.body);
 
-        // Infer type for cleanup strategy
-        const context_type = try self.type_inferrer.inferExpr(with_node.context_expr.*);
-
-        // Use unique name for nested with statements
-        const ctx_name = try b.freshName("ctx");
+        // Open a block for defer scope
         try self.emitIndent();
         try self.emit("{\n");
         self.indent();
-        try self.emitIndent();
-        if (context_type == .file) {
-            try self.output.writer(self.allocator).print("const {s} = ", .{ctx_name});
+
+        // Check if context_expr is a tuple of context managers (Python 3.10+ syntax)
+        // e.g., with (cm1(), cm2()): body
+        if (with_node.context_expr.* == .tuple) {
+            const tuple_elts = with_node.context_expr.tuple.elts;
+
+            // Handle each context manager in the tuple
+            for (tuple_elts) |cm_expr| {
+                // Skip unittest context managers (they're no-ops)
+                if (isUnittestContextManager(cm_expr)) {
+                    continue;
+                }
+
+                // Extract actual expression from named_expr if present
+                const actual_cm_expr = if (cm_expr == .named_expr) cm_expr.named_expr.value.* else cm_expr;
+
+                // Infer type for cleanup strategy
+                const context_type = try self.type_inferrer.inferExpr(actual_cm_expr);
+
+                // Generate unique name for this context manager
+                const ctx_name = try b.freshName("ctx");
+                try self.emitIndent();
+                if (context_type == .file) {
+                    try self.output.writer(self.allocator).print("const {s} = ", .{ctx_name});
+                } else {
+                    try self.output.writer(self.allocator).print("var {s} = ", .{ctx_name});
+                }
+                try self.genExpr(actual_cm_expr);
+                try self.emit(";\n");
+
+                // Emit defer for cleanup
+                try self.emitIndent();
+                if (context_type == .file) {
+                    try self.output.writer(self.allocator).print("defer runtime.PyFile.close({s});\n", .{ctx_name});
+                } else {
+                    try self.output.writer(self.allocator).print("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{ctx_name});
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = try {s}.__enter__(__global_allocator);\n", .{ctx_name});
+                }
+            }
         } else {
-            try self.output.writer(self.allocator).print("var {s} = ", .{ctx_name});
-        }
-        try self.genExpr(with_node.context_expr.*);
-        try self.emit(";\n");
-        try self.emitIndent();
-        if (context_type == .file) {
-            try self.output.writer(self.allocator).print("defer runtime.PyFile.close({s});\n", .{ctx_name});
-        } else {
-            try self.output.writer(self.allocator).print("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{ctx_name});
+            // Single context manager (original behavior)
+            // Infer type for cleanup strategy
+            const context_type = try self.type_inferrer.inferExpr(with_node.context_expr.*);
+
+            // Use unique name for nested with statements
+            const ctx_name = try b.freshName("ctx");
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("_ = try {s}.__enter__(__global_allocator);\n", .{ctx_name});
+            if (context_type == .file) {
+                try self.output.writer(self.allocator).print("const {s} = ", .{ctx_name});
+            } else {
+                try self.output.writer(self.allocator).print("var {s} = ", .{ctx_name});
+            }
+            try self.genExpr(with_node.context_expr.*);
+            try self.emit(";\n");
+            try self.emitIndent();
+            if (context_type == .file) {
+                try self.output.writer(self.allocator).print("defer runtime.PyFile.close({s});\n", .{ctx_name});
+            } else {
+                try self.output.writer(self.allocator).print("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{ctx_name});
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = try {s}.__enter__(__global_allocator);\n", .{ctx_name});
+            }
         }
     }
 
