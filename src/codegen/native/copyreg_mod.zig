@@ -74,13 +74,13 @@ fn genNewobj(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("newobj");
-    try self.emit("const cls = ");
-    try self.genExpr(args[0]);
-    try self.emit("; break :");
-    try self.emit(label);
-    try self.emit(" cls{}; ");
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("newobj", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const cls = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} cls{{}}", .{label});
+        }
+    }.emit);
 }
 
 fn genNewobjEx(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -89,11 +89,11 @@ fn genNewobjEx(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("newobj_ex");
-    try self.emit("const cls = ");
-    try self.genExpr(args[0]);
-    try self.emit("; break :");
-    try self.emit(label);
-    try self.emit(" cls{}; ");
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("newobj_ex", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const cls = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} cls{{}}", .{label});
+        }
+    }.emit);
 }

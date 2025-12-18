@@ -19,11 +19,13 @@ fn genElement(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tag = \"\", .attrib = .{}, .text = null, .tail = null }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("el");
-    try self.emit("const tag = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("el", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const tag = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}", .{label});
+        }
+    }.emit);
 }
 
 fn genSubElement(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -32,11 +34,13 @@ fn genSubElement(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .tag = \"\", .attrib = .{}, .text = null, .tail = null }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("sub");
-    try self.emit("const tag = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt("; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("sub", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const tag = ");
+            try c.genExpr(a[1]);
+            try c.emitFmt("; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}", .{label});
+        }
+    }.emit);
 }
 
 fn genTreeBuilder(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

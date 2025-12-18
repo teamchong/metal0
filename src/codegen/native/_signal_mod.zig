@@ -63,11 +63,13 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genSignal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("sig");
-        try self.emit("const __v = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; _ = __v; break :{s} null; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("sig", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; _ = __v; break :{s} null", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
     }
@@ -86,11 +88,13 @@ fn genRaiseSignal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 fn genAlarm(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("alm");
-        try self.emit("const __v = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; _ = __v; break :{s} @as(i32, 0); ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("alm", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; _ = __v; break :{s} @as(i32, 0)", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
     }

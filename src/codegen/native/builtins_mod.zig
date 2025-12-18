@@ -21,11 +21,13 @@ fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime defaul
 }
 fn sideEffect(self: *NativeCodegen, args: []ast.Node, comptime default: []const u8) CodegenError!void {
     if (args.len >= 1 and args[0] == .call) {
-        const label = try self.emitInlineBlockStart("side");
-        try self.emit("_ = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} " ++ default ++ "; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("side", args, struct {
+            fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("_ = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; break :{s} " ++ default, .{label});
+            }
+        }.emit);
     } else {
         try self.emit(default);
     }
@@ -87,11 +89,13 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2 and (args[0] == .call or args[1] == .call)) {
-        const label = try self.emitInlineBlockStart("isinstance");
-        if (args[0] == .call) { try self.emit("_ = "); try self.genExpr(args[0]); try self.emit("; "); }
-        if (args[1] == .call) { try self.emit("_ = "); try self.genExpr(args[1]); try self.emit("; "); }
-        try self.emitFmt("break :{s} true; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("isinstance", args, struct {
+            fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                if (a[0] == .call) { try c.emit("_ = "); try c.genExpr(a[0]); try c.emit("; "); }
+                if (a[1] == .call) { try c.emit("_ = "); try c.genExpr(a[1]); try c.emit("; "); }
+                try c.emitFmt("break :{s} true", .{label});
+            }
+        }.emit);
     } else try sideEffect(self, args, "true");
 }
 fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "true"); }

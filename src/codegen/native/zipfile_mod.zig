@@ -20,17 +20,21 @@ const CodegenError = h.CodegenError;
 
 fn genZipFile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("undefined"); return; }
-    const label = try self.emitInlineBlockStart("zf");
-    try self.emit("const _path = "); try self.genExpr(args[0]);
-    try self.emit("; const _mode: []const u8 = "); try self.genExpr(args[1]);
-    try self.emitFmt("; _ = _mode; break :{s} struct {{ path: []const u8, files: std.ArrayList([]const u8), pub fn init(p: []const u8) @This() {{ return @This(){{ .path = p, .files = .{{}} }}; }} pub fn namelist(__self: *@This()) [][]const u8 {{ return __self.files.items; }} pub fn read(__self: *@This(), name: []const u8) []const u8 {{ _ = __self; _ = name; return \"\"; }} pub fn write(__self: *@This(), name: []const u8, data: []const u8) void {{ _ = data; __self.files.append(__global_allocator, name) catch unreachable; }} pub fn writestr(__self: *@This(), name: []const u8, data: []const u8) void {{ __self.write(name, data); }} pub fn extractall(__self: *@This(), path: ?[]const u8) void {{ _ = __self; _ = path; }} pub fn extract(__self: *@This(), member: []const u8, path: ?[]const u8) []const u8 {{ _ = __self; _ = path; return member; }} pub fn close(__self: *@This()) void {{ _ = __self; }} pub fn __enter__(__self: *@This()) *@This() {{ return __self; }} pub fn __exit__(__self: *@This(), _: anytype) void {{ __self.close(); }} }}.init(_path); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("zf", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _path = "); try c.genExpr(a[0]);
+            try c.emit("; const _mode: []const u8 = "); try c.genExpr(a[1]);
+            try c.emitFmt("; _ = _mode; break :{s} struct {{ path: []const u8, files: std.ArrayList([]const u8), pub fn init(p: []const u8) @This() {{ return @This(){{ .path = p, .files = .{{}} }}; }} pub fn namelist(__self: *@This()) [][]const u8 {{ return __self.files.items; }} pub fn read(__self: *@This(), name: []const u8) []const u8 {{ _ = __self; _ = name; return \"\"; }} pub fn write(__self: *@This(), name: []const u8, data: []const u8) void {{ _ = data; __self.files.append(__global_allocator, name) catch unreachable; }} pub fn writestr(__self: *@This(), name: []const u8, data: []const u8) void {{ __self.write(name, data); }} pub fn extractall(__self: *@This(), path: ?[]const u8) void {{ _ = __self; _ = path; }} pub fn extract(__self: *@This(), member: []const u8, path: ?[]const u8) []const u8 {{ _ = __self; _ = path; return member; }} pub fn close(__self: *@This()) void {{ _ = __self; }} pub fn __enter__(__self: *@This()) *@This() {{ return __self; }} pub fn __exit__(__self: *@This(), _: anytype) void {{ __self.close(); }} }}.init(_path)", .{label});
+        }
+    }.emit);
 }
 
 fn genIsZipfile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("false"); return; }
-    const label = try self.emitInlineBlockStart("izf");
-    try self.emit("const _path = "); try self.genExpr(args[0]);
-    try self.emitFmt("; const file = std.fs.cwd().openFile(_path, .{{}}) catch break :{s} false; defer file.close(); var buf: [4]u8 = undefined; _ = file.read(&buf) catch break :{s} false; break :{s} std.mem.eql(u8, buf[0..4], \"PK\\x03\\x04\"); ", .{ label, label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("izf", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _path = "); try c.genExpr(a[0]);
+            try c.emitFmt("; const file = std.fs.cwd().openFile(_path, .{{}}) catch break :{s} false; defer file.close(); var buf: [4]u8 = undefined; _ = file.read(&buf) catch break :{s} false; break :{s} std.mem.eql(u8, buf[0..4], \"PK\\x03\\x04\")", .{ label, label, label });
+        }
+    }.emit);
 }

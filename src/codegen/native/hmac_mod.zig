@@ -19,13 +19,15 @@ fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    const label = try self.emitInlineBlockStart("hmac_new");
-    try self.emit("const _key = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const _msg = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt("; var _hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(_key); _hmac.update(_msg); var _out: [32]u8 = undefined; _hmac.final(&_out); const _hex = __global_allocator.alloc(u8, 64) catch break :{s} \"\"; const _hex_chars = \"0123456789abcdef\"; for (_out, 0..) |byte, i| {{ _hex[i * 2] = _hex_chars[byte >> 4]; _hex[i * 2 + 1] = _hex_chars[byte & 0x0f]; }} break :{s} _hex; ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("hmac_new", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _key = ");
+            try c.genExpr(a[0]);
+            try c.emit("; const _msg = ");
+            try c.genExpr(a[1]);
+            try c.emitFmt("; var _hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(_key); _hmac.update(_msg); var _out: [32]u8 = undefined; _hmac.final(&_out); const _hex = __global_allocator.alloc(u8, 64) catch break :{s} \"\"; const _hex_chars = \"0123456789abcdef\"; for (_out, 0..) |byte, i| {{ _hex[i * 2] = _hex_chars[byte >> 4]; _hex[i * 2 + 1] = _hex_chars[byte & 0x0f]; }} break :{s} _hex", .{ label, label });
+        }
+    }.emit);
 }
 
 /// Generate code for hmac.digest(key, msg) - returns binary HMAC digest
@@ -35,11 +37,13 @@ fn genDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    const label = try self.emitInlineBlockStart("hmac_digest");
-    try self.emit("const _key = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const _msg = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt("; var _hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(_key); _hmac.update(_msg); const _result = __global_allocator.alloc(u8, 32) catch break :{s} \"\"; _hmac.final(_result[0..32]); break :{s} _result; ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("hmac_digest", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _key = ");
+            try c.genExpr(a[0]);
+            try c.emit("; const _msg = ");
+            try c.genExpr(a[1]);
+            try c.emitFmt("; var _hmac = std.crypto.auth.hmac.sha2.HmacSha256.init(_key); _hmac.update(_msg); const _result = __global_allocator.alloc(u8, 32) catch break :{s} \"\"; _hmac.final(_result[0..32]); break :{s} _result", .{ label, label });
+        }
+    }.emit);
 }

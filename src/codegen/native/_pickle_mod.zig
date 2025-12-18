@@ -25,11 +25,13 @@ fn genDumps(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.string("\"\""), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("discard");
-    try self.emit("_ = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} \"\"; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("discard", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("_ = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} \"\"", .{label});
+        }
+    }.emit);
 }
 
 fn genDump(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
@@ -43,11 +45,13 @@ fn genLoads(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("discard");
-    try self.emit("_ = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} null; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("discard", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("_ = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} null", .{label});
+        }
+    }.emit);
 }
 
 fn genLoad(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

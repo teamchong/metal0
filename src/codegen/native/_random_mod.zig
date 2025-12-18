@@ -19,12 +19,12 @@ fn genRandomClass(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     try b.emitValue(builder_mod.ZigValue.raw(".{ .state = std.Random.DefaultPrng.init(0) }"), builder_mod.EmitConfig.forExpression());
 }
 
-fn genRandom(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const label = try self.emitInlineBlockStart("rand");
-    try self.emit("var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :");
-    try self.emit(label);
-    try self.emit(" prng.random().float(f64); ");
-    try self.emitInlineBlockEnd();
+fn genRandom(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    try self.withInlineBlock("rand", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, _: []ast.Node) !void {
+            try c.emitFmt("var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :{s} prng.random().float(f64)", .{label});
+        }
+    }.emit);
 }
 
 fn genSeed(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
@@ -48,9 +48,11 @@ fn genGetrandbits(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void 
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("grb");
-    try self.emit("const k = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; _ = k; var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :{s} @as(i64, @intCast(prng.random().int(u64))); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("grb", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const k = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; _ = k; var prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); break :{s} @as(i64, @intCast(prng.random().int(u64)))", .{label});
+        }
+    }.emit);
 }

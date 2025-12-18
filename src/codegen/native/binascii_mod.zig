@@ -10,18 +10,22 @@ const CodegenError = h.CodegenError;
 
 fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const label = try self.emitInlineBlockStart("hex");
-    try self.emit("const _data = "); try self.genExpr(args[0]);
-    try self.emitFmt("; const _hex = __global_allocator.alloc(u8, _data.len * 2) catch break :{s} \"\"; const _hex_chars = \"0123456789abcdef\"; for (_data, 0..) |b, i| {{ _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; }} break :{s} _hex; ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("hex", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _data = "); try c.genExpr(a[0]);
+            try c.emitFmt("; const _hex = __global_allocator.alloc(u8, _data.len * 2) catch break :{s} \"\"; const _hex_chars = \"0123456789abcdef\"; for (_data, 0..) |b, i| {{ _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; }} break :{s} _hex", .{ label, label });
+        }
+    }.emit);
 }
 
 fn genUnhexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("\"\""); return; }
-    const label = try self.emitInlineBlockStart("unhex");
-    try self.emit("const _hexstr = "); try self.genExpr(args[0]);
-    try self.emitFmt("; const _result = __global_allocator.alloc(u8, _hexstr.len / 2) catch break :{s} \"\"; for (0..(_hexstr.len / 2)) |i| {{ const _hi = if (_hexstr[i * 2] >= 'a') _hexstr[i * 2] - 'a' + 10 else if (_hexstr[i * 2] >= 'A') _hexstr[i * 2] - 'A' + 10 else _hexstr[i * 2] - '0'; const _lo = if (_hexstr[i * 2 + 1] >= 'a') _hexstr[i * 2 + 1] - 'a' + 10 else if (_hexstr[i * 2 + 1] >= 'A') _hexstr[i * 2 + 1] - 'A' + 10 else _hexstr[i * 2 + 1] - '0'; _result[i] = (_hi << 4) | _lo; }} break :{s} _result; ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("unhex", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _hexstr = "); try c.genExpr(a[0]);
+            try c.emitFmt("; const _result = __global_allocator.alloc(u8, _hexstr.len / 2) catch break :{s} \"\"; for (0..(_hexstr.len / 2)) |i| {{ const _hi = if (_hexstr[i * 2] >= 'a') _hexstr[i * 2] - 'a' + 10 else if (_hexstr[i * 2] >= 'A') _hexstr[i * 2] - 'A' + 10 else _hexstr[i * 2] - '0'; const _lo = if (_hexstr[i * 2 + 1] >= 'a') _hexstr[i * 2 + 1] - 'a' + 10 else if (_hexstr[i * 2 + 1] >= 'A') _hexstr[i * 2 + 1] - 'A' + 10 else _hexstr[i * 2 + 1] - '0'; _result[i] = (_hi << 4) | _lo; }} break :{s} _result", .{ label, label });
+        }
+    }.emit);
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{

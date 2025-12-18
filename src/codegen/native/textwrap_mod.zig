@@ -29,20 +29,24 @@ fn genWidth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genWrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    const label = try self.emitInlineBlockStart("wrap");
-    try self.emit("const _text = ");
-    try self.genExpr(args[0]);
-    try genWidth(self, args);
-    try self.emitFmt("; var _lines = std.ArrayListUnmanaged([]const u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); _lines.append(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _lines.items; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("wrap", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _text = ");
+            try c.genExpr(a[0]);
+            try genWidth(c, a);
+            try c.emitFmt("; var _lines = std.ArrayListUnmanaged([]const u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); _lines.append(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _lines.items", .{label});
+        }
+    }.emit);
 }
 
 fn genFill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
-    const label = try self.emitInlineBlockStart("fill");
-    try self.emit("const _text = ");
-    try self.genExpr(args[0]);
-    try genWidth(self, args);
-    try self.emitFmt("; var _result = std.ArrayListUnmanaged(u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); if (_start > 0) _result.append(__global_allocator, '\\n') catch continue; _result.appendSlice(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _result.items; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("fill", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _text = ");
+            try c.genExpr(a[0]);
+            try genWidth(c, a);
+            try c.emitFmt("; var _result = std.ArrayListUnmanaged(u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); if (_start > 0) _result.append(__global_allocator, '\\n') catch continue; _result.appendSlice(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _result.items", .{label});
+        }
+    }.emit);
 }

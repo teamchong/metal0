@@ -21,11 +21,13 @@ fn genIskeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("iskw");
-    try self.emit("const __search = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if (std.mem.eql(u8, __search, __item)) break :{s} true; }} break :{s} false; ", .{ kwlist, label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("iskw", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const __search = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if (std.mem.eql(u8, __search, __item)) break :{s} true; }} break :{s} false", .{ kwlist, label, label });
+        }
+    }.emit);
 }
 
 fn genIssoftkeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -34,11 +36,13 @@ fn genIssoftkeyword(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!voi
         try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("issk");
-    try self.emit("const __search = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if (std.mem.eql(u8, __search, __item)) break :{s} true; }} break :{s} false; ", .{ softkwlist, label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("issk", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const __search = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if (std.mem.eql(u8, __search, __item)) break :{s} true; }} break :{s} false", .{ softkwlist, label, label });
+        }
+    }.emit);
 }
 
 fn genKwlist(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

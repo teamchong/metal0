@@ -48,13 +48,15 @@ fn genLoads(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 
 fn genDump(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
-    const label = try self.emitInlineBlockStart("pickle_dump");
-    try self.emit("const _pickle_data = try runtime.pickle.dumps(");
-    try self.genExpr(args[0]);
-    try self.emit(", __global_allocator); const _file = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt("; _ = _file.write(_pickle_data) catch 0; break :{s}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("pickle_dump", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _pickle_data = try runtime.pickle.dumps(");
+            try c.genExpr(a[0]);
+            try c.emit(", __global_allocator); const _file = ");
+            try c.genExpr(a[1]);
+            try c.emitFmt("; _ = _file.write(_pickle_data) catch 0; break :{s}", .{label});
+        }
+    }.emit);
 }
 
 fn genLoad(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -63,11 +65,13 @@ fn genLoad(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw("runtime.pickle.PickleValue{ .none = {} }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("pickle_load");
-    try self.emit("const _file = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; const _content = _file.readToEndAlloc(__global_allocator, 100 * 1024 * 1024) catch break :{s} runtime.pickle.PickleValue{{ .none = {{}} }}; break :{s} (runtime.pickle.loads(_content, __global_allocator) catch runtime.pickle.PickleValue{{ .none = {{}} }}); ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("pickle_load", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _file = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; const _content = _file.readToEndAlloc(__global_allocator, 100 * 1024 * 1024) catch break :{s} runtime.pickle.PickleValue{{ .none = {{}} }}; break :{s} (runtime.pickle.loads(_content, __global_allocator) catch runtime.pickle.PickleValue{{ .none = {{}} }})", .{ label, label });
+        }
+    }.emit);
 }
 
 fn genHighestProtocol(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

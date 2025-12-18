@@ -13,13 +13,15 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genReduce(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len >= 2) {
-        const label = try self.emitInlineBlockStart("red");
-        try self.emit("const __v0 = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const __v1 = ");
-        try self.genExpr(args[1]);
-        try self.emitFmt("; _ = __v1; break :{s} __v0; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("red", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v0 = ");
+                try c.genExpr(a[0]);
+                try c.emit("; const __v1 = ");
+                try c.genExpr(a[1]);
+                try c.emitFmt("; _ = __v1; break :{s} __v0", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
     }
@@ -28,11 +30,13 @@ fn genReduce(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 fn genCmpToKey(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("ctk");
-        try self.emit("const __v = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} .{{ .cmp = __v }}; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("ctk", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; break :{s} .{{ .cmp = __v }}", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
     }

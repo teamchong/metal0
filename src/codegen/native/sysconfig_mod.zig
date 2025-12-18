@@ -23,16 +23,20 @@ const CodegenError = h.CodegenError;
 
 fn genGetConfigVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("null"); return; }
-    const label = try self.emitInlineBlockStart("gcv");
-    try self.emit("const name = "); try self.genExpr(args[0]);
-    try self.emitFmt("; if (std.mem.eql(u8, name, \"prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"exec_prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"EXT_SUFFIX\")) break :{s} \".so\" else break :{s} null; ", .{ label, label, label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("gcv", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const name = "); try c.genExpr(a[0]);
+            try c.emitFmt("; if (std.mem.eql(u8, name, \"prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"exec_prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"EXT_SUFFIX\")) break :{s} \".so\" else break :{s} null", .{ label, label, label, label });
+        }
+    }.emit);
 }
 
 fn genGetPath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("null"); return; }
-    const label = try self.emitInlineBlockStart("gp");
-    try self.emit("const name = "); try self.genExpr(args[0]);
-    try self.emitFmt("; if (std.mem.eql(u8, name, \"stdlib\")) break :{s} \"/usr/local/lib/python3.12\" else if (std.mem.eql(u8, name, \"purelib\")) break :{s} \"/usr/local/lib/python3.12/site-packages\" else if (std.mem.eql(u8, name, \"scripts\")) break :{s} \"/usr/local/bin\" else break :{s} null; ", .{ label, label, label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("gp", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const name = "); try c.genExpr(a[0]);
+            try c.emitFmt("; if (std.mem.eql(u8, name, \"stdlib\")) break :{s} \"/usr/local/lib/python3.12\" else if (std.mem.eql(u8, name, \"purelib\")) break :{s} \"/usr/local/lib/python3.12/site-packages\" else if (std.mem.eql(u8, name, \"scripts\")) break :{s} \"/usr/local/bin\" else break :{s} null", .{ label, label, label, label });
+        }
+    }.emit);
 }
