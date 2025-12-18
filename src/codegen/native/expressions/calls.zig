@@ -1656,15 +1656,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         try self.emit("&");
                     }
                 } else if (!is_anytype_callable and (arg_type == .pyvalue or type_traits.isUnknown(arg_type))) {
-                    // Two-Flow: PyValue/unknown argument - use comptime type dispatch to handle function param type
-                    // This handles cases where we pass a PyValue to a function expecting string/int/etc
-                    // For uncertain types, let the runtime handle conversion via PyValue
+                    // Two-Flow: PyValue/unknown argument - pass directly without conversion
+                    // The callee should handle PyValue parameters appropriately
+                    // For uncertain types, pass the value as-is (either PyValue or the actual value)
                     // EXCEPTION: Skip wrapping when calling an anytype callable - pass args directly
-                    const label = try self.emitInlineBlockStart("pyval_arg");
-                    try self.emit("const __pv = ");
+                    // NOTE: Removed hardcoded .asString() conversion - it was breaking functions expecting other types
                     try genExpr(self, arg);
-                    try self.emitFmt("; break :{s} if (@TypeOf(__pv) == runtime.PyValue) __pv.asString() else __pv; ", .{label});
-                    try self.emitInlineBlockEnd();
                     continue;
                 }
                 try genExpr(self, arg);
