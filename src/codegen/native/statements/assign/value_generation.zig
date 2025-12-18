@@ -64,17 +64,13 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
     // Generate: const __unpack_tmp_N = value_expr;
-    // Add 'try' if value is a function call (may return error union)
+    // Don't add 'try' here - let genExpr handle error propagation internally
+    // Blocks that construct tuples/lists from error union results handle 'try' inside the block
+    // Adding 'try' here would double-wrap and cause "expected error union" errors
     try self.emitIndent();
     try self.emit("const ");
     try self.emit(tmp_name);
     try self.emit(" = ");
-    const is_call = assign.value.* == .call;
-    if (is_call) {
-        // Always use 'try' for function calls in unpacking
-        // If not in try body, use 'try' anyway (let it propagate to caller)
-        try self.emit("try ");
-    }
     try self.genExpr(assign.value.*);
     try self.emit(";\n");
 
@@ -357,15 +353,19 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
     // Generate: const __unpack_tmp_N = value_expr;
-    // Add 'try' if value is a function call (may return error union)
+    // Add 'try' only if value is a function call that returns an error union
+    // (blocks that construct lists from error union results are NOT error unions themselves)
     try self.emitIndent();
     try self.emit("const ");
     try self.emit(tmp_name);
     try self.emit(" = ");
     const is_call = assign.value.* == .call;
-    if (is_call) {
-        // Always use 'try' for function calls in unpacking
-        // If not in try body, use 'try' anyway (let it propagate to caller)
+    // Only add 'try' if it's a call AND the return type is NOT a plain tuple/list
+    // Tuples/lists returned from blocks don't need 'try' even if constructed from error union results
+    // The error handling happens inside the block, not at the unpacking site
+    const returns_tuple_or_list = source_tag == .tuple or source_tag == .list;
+    const needs_try = is_call and !returns_tuple_or_list;
+    if (needs_try) {
         try self.emit("try ");
     }
     try self.genExpr(assign.value.*);
