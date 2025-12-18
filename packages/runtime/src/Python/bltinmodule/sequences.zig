@@ -6,6 +6,7 @@ const errors = @import("../errors.zig");
 const conversions = @import("conversions.zig");
 const pyobject_utils = @import("../../runtime/pyobject_utils.zig");
 const cpython = @import("../../cpython.zig");
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 // ============================================================================
 // Sequence Functions
@@ -16,6 +17,18 @@ const cpython = @import("../../cpython.zig");
 /// Returns usize directly (not error union) for codegen compatibility
 pub fn len_builtin(value: anytype) usize {
     const T = @TypeOf(value);
+
+    // Handle PyValue (Two-Flow type system)
+    if (T == PyValue) {
+        return switch (value) {
+            .list => |list| list.items.len,
+            .tuple => |tuple| tuple.len,
+            .string => |s| s.len,
+            .bytes => |b| b.data.len,
+            else => 0,
+        };
+    }
+
     return switch (@typeInfo(T)) {
         .pointer => |ptr_info| {
             if (ptr_info.size == .slice) {
@@ -42,6 +55,20 @@ pub fn len_builtin(value: anytype) usize {
                 return value.len;
             }
             return struct_info.fields.len; // Tuple-like struct
+        },
+        .@"union" => |union_info| {
+            // Handle tagged unions (like PyValue) at comptime
+            _ = union_info;
+            if (T == PyValue) {
+                return switch (value) {
+                    .list => |list| list.items.len,
+                    .tuple => |tuple| tuple.len,
+                    .string => |s| s.len,
+                    .bytes => |b| b.data.len,
+                    else => 0,
+                };
+            }
+            return 0;
         },
         else => 0, // Fallback
     };

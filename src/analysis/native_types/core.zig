@@ -468,7 +468,7 @@ pub const NativeType = union(enum) {
             .callable => |_| try buf.appendSlice(allocator, "runtime.builtins.PyCallable"),
             .cdll => try buf.appendSlice(allocator, "runtime.ctypes.CDLL"),
             .c_func => try buf.appendSlice(allocator, "*const fn() callconv(.c) anyopaque"),
-            .pyobject => try buf.appendSlice(allocator, "runtime.PyValue"),
+            .pyobject => try buf.appendSlice(allocator, "*runtime.cpython.PyObject"),
             // subprocess types
             .subprocess_result => try buf.appendSlice(allocator, "struct { returncode: i64, stdout: []const u8, stderr: []const u8 }"),
             .subprocess_status_output => try buf.appendSlice(allocator, "struct { @\"0\": i64, @\"1\": []const u8 }"),
