@@ -26,10 +26,11 @@ fn genModuleSpec(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const id = self.nextNameId();
-    try self.emitFmt("(__m{d}_mspec: {{ const __v = ", .{id});
+    const label = try b.emitInlineBlockStart("mspec");
+    try self.emit("const __v = ");
     try self.genExpr(args[0]);
-    try self.emitFmt("; break :__m{d}_mspec .{{ .name = __v, .loader = null, .origin = null, .submodule_search_locations = null }}; }})", .{id});
+    try self.emitFmt("; break :{s} .{{ .name = __v, .loader = null, .origin = null, .submodule_search_locations = null }}; ", .{label});
+    try b.emitInlineBlockEnd();
 }
 
 fn genBuiltinImporter(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
