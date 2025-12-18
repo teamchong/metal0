@@ -351,12 +351,23 @@ pub fn collectImports(
                     },
                     // Scan nested blocks for imports
                     .try_stmt => |t| {
-                        try scanStatements(s, t.body, mod_names);
-                        for (t.handlers) |h| {
-                            try scanStatements(s, h.body, mod_names);
+                        // Check if this is an optional import pattern (try: import X except ImportError: X = None)
+                        // If so, mark the module as skipped and DON'T add it to mod_names
+                        const try_except_mod = @import("../statements/try_except.zig");
+                        const optional_module = try_except_mod.detectOptionalImportPattern(t, s);
+                        if (optional_module) |mod_name| {
+                            // Mark as skipped immediately so genImports won't emit it
+                            try s.markSkippedModule(mod_name);
+                            // Don't scan the try body (which contains the import) - it will be handled specially
+                        } else {
+                            // Normal try/except - scan all blocks
+                            try scanStatements(s, t.body, mod_names);
+                            for (t.handlers) |h| {
+                                try scanStatements(s, h.body, mod_names);
+                            }
+                            try scanStatements(s, t.else_body, mod_names);
+                            try scanStatements(s, t.finalbody, mod_names);
                         }
-                        try scanStatements(s, t.else_body, mod_names);
-                        try scanStatements(s, t.finalbody, mod_names);
                     },
                     .if_stmt => |i| {
                         try scanStatements(s, i.body, mod_names);

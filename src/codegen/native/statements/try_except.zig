@@ -26,7 +26,7 @@ fn isSuperMethodCall(call: ast.Node.Call) bool {
 
 /// Detect try/except import pattern: try: import X except: X = None
 /// Returns the module name if pattern matches and module is unavailable
-fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) ?[]const u8 {
+pub fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) ?[]const u8 {
     // Check if try body has exactly one import statement
     if (try_node.body.len != 1) return null;
     const try_stmt = try_node.body[0];
@@ -51,13 +51,39 @@ fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodegen) 
                         else
                             false;
                         if (is_none) {
-                            // Pattern matches! Check if module is available
-                            // First check the static stdlib list, then the dynamic registry
+                            // Pattern matches! Check if module has VALID implementation
                             const stdlib_gen = @import("../stdlib_modules_gen.zig");
                             const in_stdlib = stdlib_gen.hasModule(module_name);
-                            const in_registry = codegen.import_registry.lookup(module_name) != null;
-                            if (!in_stdlib and !in_registry) {
-                                // Module is not in stdlib or registry - it's unavailable
+
+                            // Check if module is in registry AND has valid implementation
+                            const has_valid_impl = blk: {
+                                if (codegen.import_registry.lookup(module_name)) |info| {
+                                    // Check if strategy is supported and has implementation paths
+                                    switch (info.strategy) {
+                                        .unsupported => break :blk false, // Explicitly marked as unsupported
+                                        .zig_runtime, .c_library => {
+                                            // Must have either direct_import or zig_import path
+                                            const has_path = info.direct_import != null or info.zig_import != null;
+                                            if (!has_path) {
+                                                // FAIL FAST: Module in registry but no implementation!
+                                                std.debug.print("\n[FATAL] Module '{s}' in import_registry with strategy={s} but NO implementation paths!\n", .{ module_name, @tagName(info.strategy) });
+                                                std.debug.print("  direct_import = {any}\n", .{info.direct_import});
+                                                std.debug.print("  zig_import = {any}\n", .{info.zig_import});
+                                                std.debug.print("  This indicates registry corruption or missing module implementation.\n", .{});
+                                                std.debug.print("  Either implement the module or mark it as .unsupported in registry.\n\n", .{});
+                                                @panic("Import registry has module without valid implementation!");
+                                            }
+                                            break :blk has_path;
+                                        },
+                                        .compile_python => break :blk true, // Will be compiled
+                                    }
+                                } else {
+                                    break :blk false; // Not in registry
+                                }
+                            };
+
+                            if (!in_stdlib and !has_valid_impl) {
+                                // Module is genuinely unavailable - mark as optional
                                 return module_name;
                             }
                         }
