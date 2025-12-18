@@ -1604,18 +1604,61 @@ pub const NativeCodegen = struct {
         return null;
     }
 
-    /// Emit inline block start: (__m{id}_hint: {
-    /// Uses builder for label generation but writes to codegen output
-    /// Returns the label name for use in break statements
+    /// Emit inline block with callback pattern - automatically handles labels, braces, and semicolons
+    ///
+    /// Usage:
+    ///   try self.withInlineBlock("hint", args, struct {
+    ///       fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+    ///           try c.genExpr(a[0]);
+    ///           try c.emitBreak(label, "result");
+    ///       }
+    ///   }.emit);
+    ///
+    /// Output: (__m{id}_hint: { <generated_code> break :__m{id}_hint result; })
+    ///
+    /// Features:
+    /// - Automatically adds semicolon only when needed (no double ;;)
+    /// - Can't forget to close the block
+    /// - Label is managed for you
+    pub fn withInlineBlock(self: *NativeCodegen, hint: []const u8, context: anytype, body_fn: anytype) CodegenError!void {
+        const id = self.nextNameId();
+        const label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_{s}", .{ id, hint });
+
+        try self.emitFmt("({s}: {{ ", .{label});
+        const start_pos = self.output.items.len;
+
+        // Call body with context
+        try body_fn(self, label, context);
+
+        const end_pos = self.output.items.len;
+        const had_content = end_pos > start_pos;
+
+        // Add semicolon only if body emitted content and doesn't already end with one
+        if (had_content) {
+            const last_byte = self.output.items[end_pos - 1];
+            if (last_byte != ';') {
+                try self.emit("; ");
+            }
+        }
+
+        try self.emit("})");
+    }
+
+    /// Helper to emit break statement inside inline block
+    pub fn emitBreak(self: *NativeCodegen, label: []const u8, value: []const u8) CodegenError!void {
+        try self.emitFmt("break :{s} {s}", .{ label, value });
+    }
+
+    /// DEPRECATED: Use emitInlineBlock with callback instead
+    /// These are kept for backward compatibility during migration
     pub fn emitInlineBlockStart(self: *NativeCodegen, hint: []const u8) CodegenError![]const u8 {
-        const b = try self.getBuilder();
-        const label = try b.freshInlineLabel(hint);
+        const id = self.nextNameId();
+        const label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_{s}", .{ id, hint });
         try self.emitFmt("({s}: {{ ", .{label});
         return label;
     }
 
-    /// Emit inline block end: })
-    /// Writes directly to codegen output
+    /// DEPRECATED: Use emitInlineBlock with callback instead
     pub fn emitInlineBlockEnd(self: *NativeCodegen) CodegenError!void {
         try self.emit("})");
     }

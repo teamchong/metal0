@@ -151,51 +151,57 @@ fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 fn genListdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const label = try self.emitInlineBlockStart("listdir");
-    if (args.len >= 1) {
-        try self.emit("const _dir_path = ");
-        try self.genExpr(args[0]);
-        try self.emit("; ");
-    } else {
-        try self.emit("const _dir_path = \".\"; ");
-    }
-    try self.emitFmt("var _entries: std.ArrayListUnmanaged([]const u8) = .{{}}; var _dir = std.fs.cwd().openDir(_dir_path, .{{ .iterate = true }}) catch break :{s} _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| {{ const _name = __global_allocator.dupe(u8, entry.name) catch continue; _entries.append(__global_allocator, _name) catch continue; }} break :{s} _entries; ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("listdir", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            if (a.len >= 1) {
+                try c.emit("const _dir_path = ");
+                try c.genExpr(a[0]);
+                try c.emit("; ");
+            } else {
+                try c.emit("const _dir_path = \".\"; ");
+            }
+            try c.emitFmt("var _entries: std.ArrayListUnmanaged([]const u8) = .{{}}; var _dir = std.fs.cwd().openDir(_dir_path, .{{ .iterate = true }}) catch break :{s} _entries; defer _dir.close(); var _iter = _dir.iterate(); while (_iter.next() catch null) |entry| {{ const _name = __global_allocator.dupe(u8, entry.name) catch continue; _entries.append(__global_allocator, _name) catch continue; }} break :{s} _entries", .{ label, label });
+        }
+    }.emit);
 }
 
 fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.getenv() requires at least 1 argument
     if (args.len == 0) return error.UnsupportedSyntax;
-    const label = try self.emitInlineBlockStart("getenv");
-    // Note: std.posix.getenv unavailable on Windows - use comptime check
-    try self.emit("const _key = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; _ = _key; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, ", .{label});
-    if (args.len >= 2) {
-        try self.genExpr(args[1]);
-    } else {
-        try self.emit("null");
-    }
-    try self.emit(") else (std.posix.getenv(_key) orelse ");
-    if (args.len >= 2) {
-        try self.genExpr(args[1]);
-    } else {
-        try self.emit("\"\"");
-    }
-    try self.emit("); ");
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("getenv", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            // Note: std.posix.getenv unavailable on Windows - use comptime check
+            try c.emit("const _key = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; _ = _key; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, ", .{label});
+            if (a.len >= 2) {
+                try c.genExpr(a[1]);
+            } else {
+                try c.emit("null");
+            }
+            try c.emit(") else (std.posix.getenv(_key) orelse ");
+            if (a.len >= 2) {
+                try c.genExpr(a[1]);
+            } else {
+                try c.emit("\"\"");
+            }
+            try c.emit(")");
+        }
+    }.emit);
 }
 
 fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // os.rename() requires 2 arguments
     if (args.len < 2) return error.UnsupportedSyntax;
-    const label = try self.emitInlineBlockStart("rename");
-    try self.emit("const _old = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const _new = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt("; std.fs.cwd().rename(_old, _new) catch {{}}; break :{s} {{}}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("rename", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const _old = ");
+            try c.genExpr(a[0]);
+            try c.emit("; const _new = ");
+            try c.genExpr(a[1]);
+            try c.emitFmt("; std.fs.cwd().rename(_old, _new) catch {{}}; break :{s} {{}}", .{label});
+        }
+    }.emit);
 }
 
 fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
