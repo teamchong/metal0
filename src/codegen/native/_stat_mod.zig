@@ -282,12 +282,14 @@ fn genFilemode(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.string("----------"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("fm");
-    try self.emit("const mode = ");
-    try self.genExpr(args[0]);
-    try self.emit("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :");
-    try self.emitFmt("{s} &perm; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("fm", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const mode = ");
+            try c.genExpr(a[0]);
+            try c.emit("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :");
+            try c.emitFmt("{s} &perm", .{label});
+        }
+    }.emit);
 }
 
 // stat_result field indices

@@ -25,11 +25,13 @@ fn genStartNewThread(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
         try b.emitValue(builder_mod.ZigValue.raw("@as(i64, -1)"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("thr_snt");
-    try self.emit("const __func = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; const __thread = std.Thread.spawn(.{{}}, __func, .{{}}) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intFromPtr(__thread)); ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("thr_snt", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const __func = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; const __thread = std.Thread.spawn(.{{}}, __func, .{{}}) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intFromPtr(__thread))", .{ label, label });
+        }
+    }.emit);
 }
 
 fn genInterruptMain(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

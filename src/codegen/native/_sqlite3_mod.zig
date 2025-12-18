@@ -50,11 +50,13 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genConnect(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("sql");
-        try self.emit("const __v = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} .{{ .database = __v, .isolation_level = \"\", .row_factory = null }}; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("sql", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; break :{s} .{{ .database = __v, .isolation_level = \"\", .row_factory = null }}", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }"), builder_mod.EmitConfig.forExpression());
     }

@@ -72,11 +72,13 @@ fn genGetfqdn(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 fn genGethostbyname(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        const label = try self.emitInlineBlockStart("ghn");
-        try self.emit("const __v = ");
-        try self.genExpr(args[0]);
-        try self.emitFmt("; _ = __v; break :{s} \"127.0.0.1\"; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("ghn", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v = ");
+                try c.genExpr(a[0]);
+                try c.emitFmt("; _ = __v; break :{s} \"127.0.0.1\"", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.string("127.0.0.1"), builder_mod.EmitConfig.forExpression());
     }

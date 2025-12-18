@@ -20,12 +20,14 @@ fn genDecimal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         try b.emitValue(builder_mod.ZigValue.raw(default), builder_mod.EmitConfig.forExpression());
         return;
     }
-    const label = try self.emitInlineBlockStart("dec");
-    try self.emit("_ = ");
-    try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} ", .{label});
-    try self.emit(default ++ "; ");
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("dec", args, struct {
+        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("_ = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} ", .{label});
+            try c.emit(default);
+        }
+    }.emit);
 }
 
 fn genContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
