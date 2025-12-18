@@ -51,12 +51,14 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 try self.genExpr(expr);
                 return;
             }
-            // Assertion methods (assertEqual, assertNotEqual, etc.) generate complete if statements
+            // Assertion methods on self (assertEqual, assertNotEqual, etc.) generate complete if statements
             // with their own semicolons - don't add another one
             if (std.mem.eql(u8, obj_name, "self") and std.mem.startsWith(u8, method_name, "assert")) {
                 try self.genExpr(expr);
                 return;
             }
+            // Note: unittest.assert*() calls are regular function calls that DO need semicolons
+            // (handled by the normal path below)
         }
     }
 

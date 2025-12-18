@@ -581,7 +581,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                     try parent.genExpr(self, call_a.args[0]);
                     try self.emit(") != @TypeOf(");
                     try parent.genExpr(self, call_b.args[0]);
-                    try self.emit(")) return error.AssertionFailed;");
+                    try self.emit(")) return error.AssertionFailed;\n");
                     return;
                 }
             }
@@ -598,7 +598,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[0].call.args[0]); // The iterator/iterable
         try self.emit(", ");
         try parent.genExpr(self, args[1]); // The expected list/array
-        try self.emit(")) return error.AssertionFailed;");
+        try self.emit(")) return error.AssertionFailed;\n");
         return;
     }
     if (args[1] == .call and args[1].call.func.* == .name and
@@ -608,7 +608,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[1].call.args[0]); // The iterator/iterable
         try self.emit(", ");
         try parent.genExpr(self, args[0]); // The expected list/array
-        try self.emit(")) return error.AssertionFailed;");
+        try self.emit(")) return error.AssertionFailed;\n");
         return;
     }
 
@@ -630,7 +630,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[0]);
         try self.emit(").eql(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
         return;
     }
 
@@ -643,7 +643,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(") != (");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;");
+                try self.emit(")) return error.AssertionFailed;\n");
                 return;
             },
             .float => {
@@ -651,7 +651,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(") != (");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;");
+                try self.emit(")) return error.AssertionFailed;\n");
                 return;
             },
             .bool => {
@@ -659,7 +659,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(") != (");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;");
+                try self.emit(")) return error.AssertionFailed;\n");
                 return;
             },
             .string => {
@@ -667,7 +667,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
                 try parent.genExpr(self, args[0]);
                 try self.emit(", ");
                 try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;");
+                try self.emit(")) return error.AssertionFailed;\n");
                 return;
             },
             else => {},
@@ -678,13 +678,13 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     if (isEmptyListLiteral(args[1])) {
         try self.emit("if (runtime.builtinLen(");
         try parent.genExpr(self, args[0]);
-        try self.emit(") != 0) return error.AssertionFailed;");
+        try self.emit(") != 0) return error.AssertionFailed;\n");
         return;
     }
     if (isEmptyListLiteral(args[0])) {
         try self.emit("if (runtime.builtinLen(");
         try parent.genExpr(self, args[1]);
-        try self.emit(") != 0) return error.AssertionFailed;");
+        try self.emit(") != 0) return error.AssertionFailed;\n");
         return;
     }
 
@@ -734,7 +734,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try self.emit(elem_type.?);
         try self.emit(", __ae_slice_a, __ae_slice_b); ");
         try self.emitInlineBlockEnd();
-        try self.emit(") return error.AssertionFailed;");
+        try self.emit(") return error.AssertionFailed;\n");
         return;
     }
 
@@ -745,7 +745,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[0]);
         try self.emit(").eql(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
         return;
     }
 
@@ -759,7 +759,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try parent.genExpr(self, args[0]);
         try self.emit(").eql(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
         return;
     }
 
@@ -775,7 +775,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     try parent.genExpr(self, args[0]);
     try self.emit(", ");
     try parent.genExpr(self, args[1]);
-    try self.emit(")) return error.AssertionFailed;");
+    try self.emit(")) return error.AssertionFailed;\n");
 }
 
 pub const genAssertTrue = gen1ArgAssert("assertTrue");
@@ -800,14 +800,14 @@ pub fn genAssertGreater(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) C
         try parent.genExpr(self, args[0]);
         try self.emit(").gt(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
     } else {
         // Direct comparison for certain types - native speed
         try self.emit("if (!(");
         try parent.genExpr(self, args[0]);
         try self.emit(" > ");
         try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;");
+        try self.emit(")) return error.AssertionFailed;\n");
     }
 }
 
@@ -830,14 +830,14 @@ pub fn genAssertLess(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         try parent.genExpr(self, args[0]);
         try self.emit(").lt(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
     } else {
         // Direct comparison for certain types - native speed
         try self.emit("if (!(");
         try parent.genExpr(self, args[0]);
         try self.emit(" < ");
         try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;");
+        try self.emit(")) return error.AssertionFailed;\n");
     }
 }
 
@@ -860,14 +860,14 @@ pub fn genAssertGreaterEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.No
         try parent.genExpr(self, args[0]);
         try self.emit(").ge(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
     } else {
         // Direct comparison for certain types - native speed
         try self.emit("if (!(");
         try parent.genExpr(self, args[0]);
         try self.emit(" >= ");
         try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;");
+        try self.emit(")) return error.AssertionFailed;\n");
     }
 }
 
@@ -890,14 +890,14 @@ pub fn genAssertLessEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node)
         try parent.genExpr(self, args[0]);
         try self.emit(").le(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
     } else {
         // Direct comparison for certain types - native speed
         try self.emit("if (!(");
         try parent.genExpr(self, args[0]);
         try self.emit(" <= ");
         try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;");
+        try self.emit(")) return error.AssertionFailed;\n");
     }
 }
 
@@ -920,7 +920,7 @@ pub fn genAssertNotEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
         try parent.genExpr(self, args[0]);
         try self.emit(").eql(runtime.PyValue.from(");
         try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;");
+        try self.emit("))) return error.AssertionFailed;\n");
     } else {
         // Use unittest fallback for certain types - handles structs, arrays, etc.
         try self.emit("try unittest.assertNotEqual(");
