@@ -974,52 +974,42 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 try self.type_inferrer.putScopedVar(for_stmt.target.name.id, elem_type);
             }
 
-            // If any tuple element is a callable type, register loop variable as callable
-            // This enables .call() syntax for calls like pow_op(a, b) -> pow_op.call(a, b)
-            // where the tuple is (pow, operator.pow) - both callable structs
-            if (type_traits.isCallable(elem_type)) {
-                const owned_name = try self.arena.allocator().dupe(u8, var_name);
-                try self.callable_vars.put(owned_name, {});
-            }
+            // Callable tracking is handled below (lines 986-1021) with more precise logic
+            // that checks for mixed PyCallable + function pointer tuples
         }
 
-        // Check if iterating over tuple containing callable builtin references
-        // e.g., for pow_op in pow, operator.pow:
-        // Both pow and operator.pow are callable structs, need .call() syntax
+        // Check if iterating over tuple containing only callable builtins (not function refs)
+        // e.g., for pow_op in (pow,):  - pow is a PyCallable struct, needs .call()
+        // But NOT: for pow_op in (pow, operator.pow):  - operator.pow is a function, doesn't need .call()
+        // Inline for with mixed types (PyCallable + function pointer) breaks because Zig will
+        // monomorphize both iterations, and function pointers don't have .call() method
         if (for_stmt.iter.* == .tuple) {
             const tuple_elts = for_stmt.iter.tuple.elts;
-            var has_pow = false;
+            var has_pow_builtin = false;
+            var has_function_ref = false;
+
             for (tuple_elts) |elt| {
-                // Check for builtin references: pow, operator.pow, etc.
                 if (elt == .name) {
                     const name = elt.name.id;
                     if (std.mem.eql(u8, name, "pow")) {
-                        // Loop variable iterates over callable structs
-                        const owned_name = try self.arena.allocator().dupe(u8, var_name);
-                        try self.callable_vars.put(owned_name, {});
-                        has_pow = true;
-                        break;
+                        has_pow_builtin = true;
                     }
                 } else if (elt == .attribute) {
                     const attr = elt.attribute;
                     if (attr.value.* == .name) {
                         const mod_name = attr.value.name.id;
                         if (std.mem.eql(u8, mod_name, "operator")) {
-                            if (std.mem.eql(u8, attr.attr, "pow") or std.mem.eql(u8, attr.attr, "mod")) {
-                                // Loop variable iterates over callable structs
-                                const owned_name = try self.arena.allocator().dupe(u8, var_name);
-                                try self.callable_vars.put(owned_name, {});
-                                if (std.mem.eql(u8, attr.attr, "pow")) {
-                                    has_pow = true;
-                                }
-                                break;
-                            }
+                            // operator.* are function references, not PyCallable structs
+                            has_function_ref = true;
                         }
                     }
                 }
             }
-            // pow returns error union for ZeroDivisionError
-            if (has_pow) {
+
+            // Only mark as callable if ALL elements are PyCallable (no function refs)
+            if (has_pow_builtin and !has_function_ref) {
+                const owned_name = try self.arena.allocator().dupe(u8, var_name);
+                try self.callable_vars.put(owned_name, {});
                 const owned_name2 = try self.arena.allocator().dupe(u8, var_name);
                 try self.error_callable_vars.put(owned_name2, {});
             }

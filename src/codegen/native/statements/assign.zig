@@ -624,26 +624,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
-            // Track operator module callable structs: mod = operator.mod, pow_op = operator.pow
-            // These become callable structs that need .call() syntax when invoked
-            if (assign.value.* == .attribute) {
-                const attr_val = assign.value.attribute;
-                if (attr_val.value.* == .name) {
-                    const module_name = attr_val.value.name.id;
-                    if (std.mem.eql(u8, module_name, "operator")) {
-                        if (std.mem.eql(u8, attr_val.attr, "mod") or std.mem.eql(u8, attr_val.attr, "pow")) {
-                            // Register as callable variable so calls use .call() syntax
-                            const owned_name = try self.arena.allocator().dupe(u8, var_name);
-                            try self.callable_vars.put(owned_name, {});
-                            // operator.pow returns error union for ZeroDivisionError
-                            if (std.mem.eql(u8, attr_val.attr, "pow")) {
-                                const owned_name2 = try self.arena.allocator().dupe(u8, var_name);
-                                try self.error_callable_vars.put(owned_name2, {});
-                            }
-                        }
-                    }
-                }
-            }
+            // Function references (like mod = operator.mod) don't need special tracking
+            // Zig allows calling function pointers directly: const f = &func; f(args) works
+            // The .call() pattern is only for PyCallable structs from runtime (closures/iterables)
 
             // Special case: float.fromhex and float.hex are function references
             // Generate as assignment without type (works for both new vars and reassignment)

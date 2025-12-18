@@ -167,27 +167,24 @@ pub fn pos(a: anytype) @TypeOf(a) {
 }
 
 /// Power: a ** b
-pub fn pow(base: anytype, exp: @TypeOf(base)) @TypeOf(base) {
+/// Returns error for invalid operations like 0**-1 (ZeroDivisionError)
+pub fn pow(base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
     const T = @TypeOf(base);
+    const op_ops = @import("../runtime/operator_ops.zig");
+
+    // Dispatch to error-checking implementations
+    if (T == i64) return op_ops.powI64(base, exp);
+    if (T == f64) return op_ops.powF64(base, exp);
+
+    // Fallback for other numeric types
     if (@typeInfo(T) == .float) {
-        return std.math.pow(T, base, exp);
+        return @floatCast(try op_ops.powF64(@floatCast(base), @floatCast(exp)));
     }
-    // Integer power
-    if (exp == 0) return 1;
-    if (exp == 1) return base;
-
-    var result: T = 1;
-    var b = base;
-    var e = exp;
-
-    while (e > 0) {
-        if (e & 1 == 1) {
-            result *= b;
-        }
-        b *= b;
-        e >>= 1;
-    }
-    return result;
+    // Integer fallback
+    const base_f: f64 = @floatFromInt(base);
+    const exp_f: f64 = @floatFromInt(exp);
+    const result = try op_ops.powF64(base_f, exp_f);
+    return @intFromFloat(result);
 }
 
 // ============================================================================

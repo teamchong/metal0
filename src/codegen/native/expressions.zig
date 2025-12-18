@@ -153,10 +153,16 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try self.emit(")");
             } else if (isBuiltinFunction(name_to_use) and !self.func_local_vars.contains(name_to_use)) {
                 // Builtin functions as first-class values: len, callable, etc.
-                // Emit a function reference that can be passed around
-                // But only if not shadowed by a local variable
-                try self.emit("runtime.builtins.");
-                try self.emit(name_to_use);
+                // For structs with .call() method (like pow), emit function pointer: &runtime.builtins.pow.call
+                // This allows them to be used in tuples alongside regular functions like &operator.pow
+                // For function-like builtins, emit as-is: runtime.builtins.len
+                if (std.mem.eql(u8, name_to_use, "pow")) {
+                    // pow is a struct with .call() method - emit function pointer
+                    try self.emit("&runtime.builtins.pow.call");
+                } else {
+                    try self.emit("runtime.builtins.");
+                    try self.emit(name_to_use);
+                }
             } else if (self.closure_vars.contains(n.id)) {
                 // Closure variable - use the renamed version (e.g., f -> __closure_f_0)
                 // The closure was registered with original name, but we emit the renamed wrapper
