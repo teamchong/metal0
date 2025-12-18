@@ -3,8 +3,32 @@
 //! Provides reading and writing of bzip2-compressed files and streams.
 //!
 //! Mirrors: CPython Lib/bz2.py
+//!
+//! Like CPython, this links against system libbz2 (bzlib.h).
+//! CPython equivalent: Modules/_bz2module.c
 
 const std = @import("std");
+
+// Link against system libbz2 (same as CPython does)
+const c = @cImport({
+    @cInclude("bzlib.h");
+});
+
+// BZ2 library constants from bzlib.h
+const BZ_OK = 0;
+const BZ_RUN_OK = 1;
+const BZ_FLUSH_OK = 2;
+const BZ_FINISH_OK = 3;
+const BZ_STREAM_END = 4;
+const BZ_SEQUENCE_ERROR = -1;
+const BZ_PARAM_ERROR = -2;
+const BZ_MEM_ERROR = -3;
+const BZ_DATA_ERROR = -4;
+const BZ_DATA_ERROR_MAGIC = -5;
+const BZ_IO_ERROR = -6;
+const BZ_UNEXPECTED_EOF = -7;
+const BZ_OUTBUFF_FULL = -8;
+const BZ_CONFIG_ERROR = -9;
 
 // ============================================================================
 // Constants
@@ -85,25 +109,48 @@ pub const BZ2File = struct {
         const file_size = try self.file.?.getEndPos();
         var compressed = try self.allocator.alloc(u8, file_size);
         defer self.allocator.free(compressed);
-        _ = try self.file.?.readAll(compressed);
+        const bytes_read = try self.file.?.readAll(compressed);
 
         // Verify magic
-        if (compressed.len < 4) {
+        if (bytes_read < 4) {
             return error.InvalidBz2Header;
         }
         if (!std.mem.eql(u8, compressed[0..3], &BZ2_MAGIC)) {
             return error.InvalidBz2Magic;
         }
 
-        // BZ2 decompression requires Burrows-Wheeler Transform implementation
-        // Zig stdlib provides deflate/gzip but not bz2
-        // Full implementation would need either:
-        // 1. Pure Zig BWT implementation (~2000 lines)
-        // 2. Linking against libbz2
-        const max_size = size orelse 1024 * 1024 * 10;
-        _ = max_size;
+        // Decompress using libbz2 (same as CPython)
+        const max_size = size orelse 1024 * 1024 * 10; // 10MB default
+        var output = try self.allocator.alloc(u8, max_size);
+        errdefer self.allocator.free(output);
 
-        return error.Bz2NotImplemented;
+        var output_len: c_uint = @intCast(max_size);
+        const result = c.BZ2_bzBuffToBuffDecompress(
+            output.ptr,
+            &output_len,
+            compressed.ptr,
+            @intCast(bytes_read),
+            0, // small mode (0 = normal, 1 = small memory)
+            0, // verbosity
+        );
+
+        if (result != BZ_OK) {
+            self.allocator.free(output);
+            return switch (result) {
+                BZ_MEM_ERROR => error.OutOfMemory,
+                BZ_DATA_ERROR, BZ_DATA_ERROR_MAGIC => error.InvalidBz2Data,
+                BZ_PARAM_ERROR => error.InvalidParameter,
+                BZ_OUTBUFF_FULL => error.OutputBufferTooSmall,
+                else => error.Bz2DecompressionFailed,
+            };
+        }
+
+        // Resize to actual decompressed size
+        if (output_len < max_size) {
+            output = self.allocator.realloc(output, output_len) catch output;
+        }
+
+        return output[0..output_len];
     }
 
     /// Write data to be compressed
@@ -122,11 +169,37 @@ pub const BZ2File = struct {
 
         if (self.mode == .write or self.mode == .append) {
             if (self.file) |*f| {
-                // BZ2 compression requires BWT implementation (see read() comment)
-                // Write header + raw data as placeholder for testing file structure
-                try f.writeAll(&BZ2_MAGIC);
-                try f.writeByte('0' + @as(u8, @intCast(self.compresslevel)));
-                try f.writeAll(self.buffer.items);
+                // Compress buffered data using libbz2 (same as CPython)
+                if (self.buffer.items.len > 0) {
+                    const input_len = self.buffer.items.len;
+                    // BZ2 worst case: input + (input/100) + 600 bytes
+                    const max_compressed = input_len + (input_len / 100) + 600;
+                    var compressed = try self.allocator.alloc(u8, max_compressed);
+                    defer self.allocator.free(compressed);
+
+                    var compressed_len: c_uint = @intCast(max_compressed);
+                    const result = c.BZ2_bzBuffToBuffCompress(
+                        compressed.ptr,
+                        &compressed_len,
+                        self.buffer.items.ptr,
+                        @intCast(input_len),
+                        self.compresslevel, // blockSize100k (1-9)
+                        0, // verbosity
+                        30, // workFactor (0-250, default 30)
+                    );
+
+                    if (result != BZ_OK) {
+                        return switch (result) {
+                            BZ_MEM_ERROR => error.OutOfMemory,
+                            BZ_PARAM_ERROR => error.InvalidParameter,
+                            BZ_OUTBUFF_FULL => error.OutputBufferTooSmall,
+                            else => error.Bz2CompressionFailed,
+                        };
+                    }
+
+                    // Write compressed data
+                    try f.writeAll(compressed[0..compressed_len]);
+                }
 
                 f.close();
                 self.file = null;
@@ -285,17 +358,43 @@ pub fn openBz2(allocator: std.mem.Allocator, filename: []const u8, mode: []const
 }
 
 /// Compress data in one shot
+/// Compress data in one shot (same as CPython's bz2.compress)
 pub fn compress(allocator: std.mem.Allocator, data: []const u8, compresslevel: i32) ![]u8 {
-    var comp = BZ2Compressor.init(allocator, compresslevel);
-    defer comp.deinit();
+    // BZ2 worst case: input + (input/100) + 600 bytes
+    const max_compressed = data.len + (data.len / 100) + 600;
+    var output = try allocator.alloc(u8, max_compressed);
+    errdefer allocator.free(output);
 
-    const empty = try comp.compress(data);
-    allocator.free(empty);
+    var output_len: c_uint = @intCast(max_compressed);
+    const result = c.BZ2_bzBuffToBuffCompress(
+        output.ptr,
+        &output_len,
+        @constCast(data.ptr),
+        @intCast(data.len),
+        compresslevel, // blockSize100k (1-9)
+        0, // verbosity
+        30, // workFactor
+    );
 
-    return try comp.flush();
+    if (result != BZ_OK) {
+        allocator.free(output);
+        return switch (result) {
+            BZ_MEM_ERROR => error.OutOfMemory,
+            BZ_PARAM_ERROR => error.InvalidParameter,
+            BZ_OUTBUFF_FULL => error.OutputBufferTooSmall,
+            else => error.Bz2CompressionFailed,
+        };
+    }
+
+    // Resize to actual compressed size
+    if (output_len < max_compressed) {
+        output = allocator.realloc(output, output_len) catch output;
+    }
+
+    return output[0..output_len];
 }
 
-/// Decompress bz2 data in one shot
+/// Decompress bz2 data in one shot (same as CPython's bz2.decompress)
 pub fn decompress(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
     // Verify header
     if (data.len < 4) {
@@ -305,10 +404,38 @@ pub fn decompress(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
         return error.InvalidBz2Magic;
     }
 
-    // BZ2 decompression requires BWT implementation
-    // Return error to indicate this isn't real decompression
-    _ = allocator;
-    return error.Bz2NotImplemented;
+    // Decompress using libbz2
+    const max_size: usize = 1024 * 1024 * 10; // 10MB default
+    var output = try allocator.alloc(u8, max_size);
+    errdefer allocator.free(output);
+
+    var output_len: c_uint = @intCast(max_size);
+    const result = c.BZ2_bzBuffToBuffDecompress(
+        output.ptr,
+        &output_len,
+        @constCast(data.ptr),
+        @intCast(data.len),
+        0, // small mode
+        0, // verbosity
+    );
+
+    if (result != BZ_OK) {
+        allocator.free(output);
+        return switch (result) {
+            BZ_MEM_ERROR => error.OutOfMemory,
+            BZ_DATA_ERROR, BZ_DATA_ERROR_MAGIC => error.InvalidBz2Data,
+            BZ_PARAM_ERROR => error.InvalidParameter,
+            BZ_OUTBUFF_FULL => error.OutputBufferTooSmall,
+            else => error.Bz2DecompressionFailed,
+        };
+    }
+
+    // Resize to actual size
+    if (output_len < max_size) {
+        output = allocator.realloc(output, output_len) catch output;
+    }
+
+    return output[0..output_len];
 }
 
 // ============================================================================
