@@ -337,6 +337,53 @@ pub const ZigBuilder = struct {
         if (needs_parens) try self.write(")");
     }
 
+    /// Emit an expression as a complete statement (adds semicolon and newline)
+    /// Handles:
+    /// - Automatic `_ =` prefix for value-returning expressions
+    /// - Proper semicolon placement
+    /// - No semicolon for complete if statements
+    pub fn emitExprStmt(self: *ZigBuilder, value: ZigValue) !void {
+        // Check if this is a complete if statement (doesn't need semicolon)
+        const is_if_stmt = switch (value) {
+            .raw => |r| std.mem.startsWith(u8, r, "if ("),
+            else => false,
+        };
+
+        if (is_if_stmt) {
+            // Complete if statement - just emit with newline, no semicolon
+            try self.emitValue(value, EmitConfig.forStatement());
+            try self.write("\n");
+            return;
+        }
+
+        // For value-returning expressions, add `_ =` prefix
+        const needs_discard = self.valueReturnsValue(value);
+        if (needs_discard) {
+            try self.write("_ = ");
+        }
+
+        try self.emitValue(value, EmitConfig.forStatement());
+        try self.write(";\n");
+    }
+
+    /// Check if a value returns a value that needs to be discarded
+    fn valueReturnsValue(self: *ZigBuilder, value: ZigValue) bool {
+        _ = self;
+        return switch (value) {
+            .call => true, // Most calls return values
+            .raw => |r| blk: {
+                // Check for value-returning patterns
+                if (std.mem.startsWith(u8, r, "try runtime.") or
+                    std.mem.startsWith(u8, r, "try unittest."))
+                {
+                    break :blk std.mem.indexOf(u8, r, "(") != null;
+                }
+                break :blk false;
+            },
+            else => false,
+        };
+    }
+
     /// Core value emission (no wrapping)
     fn emitValueCore(self: *ZigBuilder, value: ZigValue) !void {
         switch (value) {

@@ -51,13 +51,24 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 try self.genExpr(expr);
                 return;
             }
-            // Assertion methods on self (assertEqual, assertNotEqual, etc.) generate complete if statements
-            // with their own semicolons - don't add another one
-            if (std.mem.eql(u8, obj_name, "self") and std.mem.startsWith(u8, method_name, "assert")) {
-                try self.genExpr(expr);
-                return;
+            // ONLY these assertion methods generate inline if statements with their own semicolons:
+            // assertEqual, assertNotEqual, assertTrue, assertFalse, assertLess, assertLessEqual,
+            // assertGreater, assertGreaterEqual, assertIn, assertNotIn
+            // Others like assertIs, assertIsNot, assertIsInstance, assertRaises generate function calls that need semicolons
+            const inline_assertions = [_][]const u8{
+                "assertEqual", "assertNotEqual", "assertTrue", "assertFalse",
+                "assertLess", "assertLessEqual", "assertGreater", "assertGreaterEqual",
+                "assertIn", "assertNotIn",
+            };
+            if (std.mem.eql(u8, obj_name, "self")) {
+                for (inline_assertions) |inline_assert| {
+                    if (std.mem.eql(u8, method_name, inline_assert)) {
+                        try self.genExpr(expr);
+                        return;
+                    }
+                }
             }
-            // Note: unittest.assert*() calls are regular function calls that DO need semicolons
+            // Note: unittest.assert*() calls and non-inline self.assert*() calls are regular function calls that DO need semicolons
             // (handled by the normal path below)
         }
     }
