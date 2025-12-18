@@ -357,8 +357,10 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("contextlib", .zig_runtime, "std", null);
     try registry.register("string", .zig_runtime, "std", null);
     try registry.register("_string", .zig_runtime, "std", null);
-    // CPython test infrastructure modules - mark as unsupported (stub modules)
-    try registry.register("_testcapi", .unsupported, null, null);
+    // CPython test infrastructure modules
+    // _testcapi: Provides constants and functions to test our Python C API implementation (415 Zig files)
+    try registry.register("_testcapi", .zig_runtime, "runtime.Lib._testcapi", "runtime.Lib._testcapi");
+    // _testbuffer, _testinternalcapi: Not yet implemented (less commonly used)
     try registry.register("_testbuffer", .unsupported, null, null);
     try registry.register("_testinternalcapi", .unsupported, null, null);
     try registry.register("_remote_debugging", .zig_runtime, null, null);
