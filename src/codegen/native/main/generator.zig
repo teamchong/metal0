@@ -1436,9 +1436,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const sys_exec_id = self.nextNameId();
         try self.emitFmt("__sys_executable = (__m{d}_sys_exec: {{\n", .{sys_exec_id});
         try self.emitIndent();
-        try self.emit("    const b = @import(\"builtin\");\n");
+        try self.emit("    const __m0_builtin = @import(\"builtin\");\n");
         try self.emitIndent();
-        try self.emit("    const is_wasm = b.os.tag == .wasi or b.os.tag == .freestanding;\n");
+        try self.emit("    const is_wasm = __m0_builtin.os.tag == .wasi or __m0_builtin.os.tag == .freestanding;\n");
         try self.emitIndent();
         try self.emitFmt("    if (comptime is_wasm) break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
         try self.emitIndent();
