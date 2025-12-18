@@ -73,6 +73,7 @@ pub fn build(b: *std.Build) void {
     const platform = b.addModule("utils.platform", .{
         .root_source_file = b.path("src/utils/platform.zig"),
     });
+    // Note: prefetch module is only used by batch_build.zig, not main metal0 binary
     const name_gen = b.addModule("codegen.name_gen", .{
         .root_source_file = b.path("src/codegen/native/name_gen.zig"),
     });

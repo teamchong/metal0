@@ -166,6 +166,25 @@ pub fn build(b: *std.Build) void {
     };
     const manifest_content = buf[0..manifest_size];
 
+    // Prefetch all Zig source files in parallel before compilation
+    // This hints the OS to load files into page cache, speeding up Zig compiler I/O
+    {
+        const prefetch = @import("../../utils/prefetch.zig");
+        var prefetch_paths = std.ArrayList([]const u8).init(b.allocator);
+        defer prefetch_paths.deinit();
+
+        var prefetch_iter = std.mem.splitScalar(u8, manifest_content, '\n');
+        while (prefetch_iter.next()) |line| {
+            if (line.len == 0) continue;
+            var parts = std.mem.splitScalar(u8, line, ':');
+            const zig_path = parts.next() orelse continue;
+            prefetch_paths.append(zig_path) catch continue;
+        }
+
+        // Prefetch in background - errors are silently ignored (best-effort)
+        prefetch.prefetchSourceFiles(b.allocator, prefetch_paths.items) catch {};
+    }
+
     // Parse manifest: each line is "zig_path:bin_name"
     var line_iter = std.mem.splitScalar(u8, manifest_content, '\n');
 

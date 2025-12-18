@@ -422,7 +422,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 }
 
                 // Use thread-local allocator for codegen
-                var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+                // c_allocator provides better thread-local performance than page_allocator
+                var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
                 defer arena.deinit();
 
                 const opts = CompileOptions{

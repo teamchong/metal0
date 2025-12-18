@@ -1,5 +1,6 @@
 /// Pathlib runtime - Path operations for AOT compilation
 const std = @import("std");
+const builtin = @import("builtin");
 
 /// Lazy file contents - mmap'd or read on demand
 pub const LazyFile = struct {
@@ -42,6 +43,15 @@ pub const LazyFile = struct {
                 0,
             )) |mapped| {
                 self.mmap_data = mapped;
+                // Hint OS to prefetch pages into cache (inline madvise call)
+                if (comptime builtin.os.tag == .macos or builtin.os.tag == .freebsd) {
+                    const madvise = @extern(*const fn ([*]align(std.mem.page_size) const u8, usize, c_int) callconv(.C) c_int, .{
+                        .name = "madvise",
+                        .library_name = "c",
+                    });
+                    const MADV_WILLNEED = 3;
+                    _ = madvise(mapped.ptr, mapped.len, MADV_WILLNEED);
+                }
                 return mapped;
             } else |_| {
                 // mmap failed, fall through to regular read
