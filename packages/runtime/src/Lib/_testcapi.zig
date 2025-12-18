@@ -79,19 +79,161 @@ pub const Py_Version: u32 = 0x030d0000; // Python 3.13 equivalent
 // Exception type for recursion tests
 pub const RecursingInfinitelyError = error.RecursingInfinitelyError;
 
-// Type stubs - these are classes/types used in tests
-// TODO: Implement these as actual types when needed
-pub const CodeLike = struct {}; // Placeholder for code-like object
-pub const Generic = struct {}; // Generic type for testing
-pub const GenericAlias = struct {}; // Generic alias type
-pub const MethClass = struct {}; // Class with class methods
-pub const MethInstance = struct {}; // Instance method descriptor
-pub const MethStatic = struct {}; // Static method descriptor
-pub const MethodDescriptorBase = struct {}; // Base method descriptor
-pub const MethodDescriptorDerived = struct {}; // Derived method descriptor
-pub const MethodDescriptorNopGet = struct {}; // Method descriptor without __get__
-pub const MethodDescriptor2 = struct {}; // Method descriptor variant
-pub const testBuf = struct {}; // Buffer test type
+// ============================================================================
+// Test types based on CPython's _testcapi module
+// ============================================================================
+
+/// CodeLike - A code-like object for testing code object protocol
+/// Used in tests/cpython/test_code.py
+pub const CodeLike = struct {
+    co_filename: []const u8,
+    co_name: []const u8,
+    co_firstlineno: i32,
+
+    pub fn init(filename: []const u8, name: []const u8, firstlineno: i32) CodeLike {
+        return .{
+            .co_filename = filename,
+            .co_name = name,
+            .co_firstlineno = firstlineno,
+        };
+    }
+};
+
+/// Generic - Generic type for testing type system
+/// Used in tests/cpython/test_genericalias.py
+pub const Generic = struct {
+    _type_params: []const PyObject = &[_]PyObject{},
+
+    pub fn init() Generic {
+        return .{};
+    }
+};
+
+/// GenericAlias - Generic alias type (e.g., list[int])
+/// Used in tests/cpython/test_genericalias.py
+pub const GenericAlias = struct {
+    origin: PyObject,
+    args: []const PyObject,
+
+    pub fn init(origin: PyObject, args: []const PyObject) GenericAlias {
+        return .{ .origin = origin, .args = args };
+    }
+};
+
+/// MethClass - Class with class methods for testing method descriptors
+/// Used in tests/cpython/test_capi.py
+pub const MethClass = struct {
+    name: []const u8,
+
+    pub fn init(name: []const u8) MethClass {
+        return .{ .name = name };
+    }
+
+    pub fn class_method(self: *MethClass) []const u8 {
+        return self.name;
+    }
+};
+
+/// MethInstance - Instance method descriptor for testing
+/// Used in tests/cpython/test_capi.py
+pub const MethInstance = struct {
+    func: *const fn(*MethInstance) PyObject,
+
+    pub fn init(func: *const fn(*MethInstance) PyObject) MethInstance {
+        return .{ .func = func };
+    }
+};
+
+/// MethStatic - Static method descriptor for testing
+/// Used in tests/cpython/test_capi.py
+pub const MethStatic = struct {
+    func: *const fn() PyObject,
+
+    pub fn init(func: *const fn() PyObject) MethStatic {
+        return .{ .func = func };
+    }
+};
+
+/// MethodDescriptorBase - Base class for method descriptors
+/// From CPython Modules/_testcapi/vectorcall.c:316-326
+/// Has tp_vectorcall_offset and Py_TPFLAGS_METHOD_DESCRIPTOR
+pub const MethodDescriptorBase = struct {
+    vectorcall: ?*anyopaque, // vectorcallfunc pointer
+
+    pub fn init() MethodDescriptorBase {
+        return .{ .vectorcall = null };
+    }
+
+    pub fn set_vectorcall(self: *MethodDescriptorBase, func: *anyopaque) void {
+        self.vectorcall = func;
+    }
+};
+
+/// MethodDescriptorDerived - Derived from MethodDescriptorBase
+/// From CPython Modules/_testcapi/vectorcall.c:328-332
+/// Inherits vectorcall behavior from base
+pub const MethodDescriptorDerived = struct {
+    base: MethodDescriptorBase,
+
+    pub fn init() MethodDescriptorDerived {
+        return .{ .base = MethodDescriptorBase.init() };
+    }
+};
+
+/// MethodDescriptorNopGet - Method descriptor that doesn't bind (__get__ is nop)
+/// From CPython Modules/_testcapi/vectorcall.c:334-340
+/// Used to test method descriptor protocol without binding behavior
+pub const MethodDescriptorNopGet = struct {
+    base: MethodDescriptorBase,
+
+    pub fn init() MethodDescriptorNopGet {
+        return .{ .base = MethodDescriptorBase.init() };
+    }
+
+    pub fn nop_get(self: *MethodDescriptorNopGet, obj: PyObject, objtype: PyObject) *MethodDescriptorNopGet {
+        // NOP descriptor - just returns self without binding
+        _ = obj;
+        _ = objtype;
+        return self;
+    }
+};
+
+/// MethodDescriptor2 - Method descriptor with offset vectorcall
+/// From CPython Modules/_testcapi/vectorcall.c:359-367
+/// Has vectorcall at different offset than base (for testing offset logic)
+pub const MethodDescriptor2 = struct {
+    base: MethodDescriptorBase,
+    vectorcall2: ?*anyopaque, // Second vectorcall slot at different offset
+
+    pub fn init() MethodDescriptor2 {
+        return .{ .base = MethodDescriptorBase.init(), .vectorcall2 = null };
+    }
+};
+
+/// testBuf - Buffer protocol test type
+/// From CPython Modules/_testcapi/buffer.c:8-92
+/// Implements buffer protocol for testing PyBuffer APIs
+pub const testBuf = struct {
+    obj: PyObject, // Underlying bytes object
+    references: isize, // Reference count for buffer views
+
+    pub fn init(obj: PyObject) testBuf {
+        return .{ .obj = obj, .references = 0 };
+    }
+
+    pub fn getbuffer(self: *testBuf) !void {
+        // Increment reference count when buffer is acquired
+        self.references += 1;
+    }
+
+    pub fn releasebuffer(self: *testBuf) void {
+        // Decrement reference count when buffer is released
+        self.references -= 1;
+        if (self.references < 0) {
+            @panic("testBuf: negative reference count");
+        }
+    }
+};
 
 // W_STOPCODE - Process stop code constant
 pub const W_STOPCODE: fn(i32) i32 = struct {
