@@ -769,15 +769,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (needs_labeled_block) {
                 try b.writeIndent();
                 try b.writeFmt("_ = __ar_blk_{d}: {{\n", .{block_id});
-                self.indent();
-            }
-
-            // Flush builder output before generating body statements
-            // Body generation uses self.generateStmt/genExpr which write to self.output
-            {
-                const body_prefix = b.getBody();
-                try self.output.appendSlice(self.allocator, body_prefix);
-                b.body.clearRetainingCapacity();
+                b.indent();
             }
 
             // Save and reset control_flow_terminated for the block body
@@ -792,30 +784,24 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // For expression statements, wrap to catch errors
                 // The expression is assigned to __ar_val, then if it's an error union or error set, catch it
                 if (stmt == .expr_stmt) {
-                    try self.emitIndent();
-                    try self.emit("{\n");
-                    self.indent();
-                    try self.emitIndent();
-                    try self.emit("const __ar_val = ");
-                    const before_expr = self.output.items.len;
-                    try self.genExpr(stmt.expr_stmt.value.*);
-                    // Check if the generated expression already ends with semicolon (e.g., if statements)
-                    // If so, don't add another semicolon
-                    const generated = self.output.items[before_expr..];
-                    if (generated.len == 0 or generated[generated.len - 1] != ';') {
-                        try self.emit(";\n");
-                    } else {
-                        try self.emit("\n");
-                    }
-                    try self.emitIndent();
+                    try b.writeIndent();
+                    try b.write("{\n");
+                    b.indent();
+                    try b.writeIndent();
+                    try b.write("const __ar_val = ");
+                    const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
+                    try b.emitValue(expr_val, .{});
+                    try b.write(";\n");
+                    try b.writeIndent();
                     // Use unittest.expectError() which handles both error and non-error types
                     // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
-                    try self.emitFmt("if (!unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
-                    self.dedent();
-                    try self.emitIndent();
-                    try self.emit("}\n");
+                    try b.writeFmt("if (!unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
+                    b.dedent();
+                    try b.writeIndent();
+                    try b.write("}\n");
                 } else {
-                    try self.generateStmt(stmt);
+                    const stmt_code = try self.captureStmt(stmt);
+                    try b.write(stmt_code);
                 }
             }
 
@@ -823,12 +809,12 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (needs_labeled_block) {
                 // If body completed normally without raising, test fails
                 if (!self.control_flow_terminated) {
-                    try self.emitIndent();
-                    try self.emit("return error.ExpectedExceptionNotRaised;\n");
+                    try b.writeIndent();
+                    try b.write("return error.ExpectedExceptionNotRaised;\n");
                 }
-                self.dedent();
-                try self.emitIndent();
-                try self.emit("};\n");
+                b.dedent();
+                try b.writeIndent();
+                try b.write("};\n");
             } else {
                 // No expression/raise statements - body has non-error statements
                 // This is a test case that expects error from non-expr stmt (if condition, etc)
@@ -846,7 +832,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         } else {
             // For assertWarns, assertLogs, subTest - just generate body normally
             for (with_node.body) |stmt| {
-                try self.generateStmt(stmt);
+                const stmt_code = try self.captureStmt(stmt);
+                try b.write(stmt_code);
             }
         }
 
@@ -1117,11 +1104,6 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         }
     }
 
-    // Flush builder output to self.output BEFORE generating body
-    // This ensures context manager setup is emitted before body statements
-    const builder_output = b.getBody();
-    try self.output.appendSlice(self.allocator, builder_output);
-
     // Generate body
     // If we're inside an assertRaises context (from a parent with statement),
     // wrap expression statements in error-catching code
@@ -1134,16 +1116,19 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // Don't wrap - assertions generate complete statements like:
                 // if (!...) return error.AssertionFailed;
                 // Wrapping would cause double-semicolon syntax error
-                try self.generateStmt(stmt);
+                const stmt_code = try self.captureStmt(stmt);
+                try b.write(stmt_code);
             } else {
                 // Wrap non-assertion expressions for error catching
-                try self.emitIndent();
-                try self.emit("{ const __ar_expr = ");
-                try self.genExpr(stmt.expr_stmt.value.*);
-                try self.emit("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+                try b.writeIndent();
+                try b.write("{ const __ar_expr = ");
+                const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
+                try b.emitValue(expr_val, .{});
+                try b.write("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
             }
         } else {
-            try self.generateStmt(stmt);
+            const stmt_code = try self.captureStmt(stmt);
+            try b.write(stmt_code);
         }
     }
 
@@ -1160,7 +1145,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     // Close block for both cases - with variable and without
     // When there's a variable, we opened a block for defer scope
     // When there's no variable, we also opened a block
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+    b.dedent();
+    try b.writeIndent();
+    try b.write("}\n");
+
+    // Final flush at end
+    const final_output = b.getBody();
+    try self.output.appendSlice(self.allocator, final_output);
 }

@@ -1147,6 +1147,64 @@ pub const ZigBuilder = struct {
         // Call body with context manager name
         try body_fn(self, ctx_name, context);
     }
+
+    /// While loop with callback style (can't forget to close)
+    pub fn withWhile(self: *ZigBuilder, condition: ZigValue, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.write("while (");
+        try self.emitValue(condition, .{});
+        try self.write(") {\n");
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// For loop with callback style
+    pub fn withFor(self: *ZigBuilder, iterable: ZigValue, capture: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.write("for (");
+        try self.emitValue(iterable, .{});
+        try self.writeFmt(") |{s}| {{\n", .{capture});
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// If statement with callback style
+    pub fn withIf(self: *ZigBuilder, condition: ZigValue, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.write("if (");
+        try self.emitValue(condition, .{});
+        try self.write(") {\n");
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Generic block with callback style
+    pub fn withBlock(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.write("{\n");
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
 };
 
 /// Function parameter info

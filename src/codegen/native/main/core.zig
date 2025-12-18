@@ -1693,6 +1693,27 @@ pub const NativeCodegen = struct {
         return builder_mod.ZigValue.raw(code);
     }
 
+    /// Capture a statement's generated code (for builder integration)
+    /// Similar to captureExpr but for statements
+    pub fn captureStmt(self: *NativeCodegen, stmt: ast.Node) CodegenError![]const u8 {
+        const start_pos = self.output.items.len;
+        try self.generateStmt(stmt);
+        const generated = self.output.items[start_pos..];
+        const code = try self.arena.allocator().dupe(u8, generated);
+        self.output.shrinkRetainingCapacity(start_pos);
+        return code;
+    }
+
+    /// Capture scope discards (for builder integration)
+    pub fn captureScopedDiscards(self: *NativeCodegen) CodegenError![]const u8 {
+        const start_pos = self.output.items.len;
+        try self.emitScopedDiscards();
+        const generated = self.output.items[start_pos..];
+        const code = try self.arena.allocator().dupe(u8, generated);
+        self.output.shrinkRetainingCapacity(start_pos);
+        return code;
+    }
+
     /// Emit a ZigValue to the output buffer
     /// This allows mixing builder-style values with emit-style output
     pub fn emitZigValue(self: *NativeCodegen, value: builder_mod.ZigValue) CodegenError!void {

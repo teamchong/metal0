@@ -5,71 +5,66 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 const bool_conv = @import("../../../helpers/bool_conv.zig");
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
 
 /// Generate while loop
 pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!void {
     const b = try self.getBuilder();
 
-    try b.writeIndent();
-    try b.write("while (");
-
     // Check condition type - need to handle non-boolean conditions
     const cond_type = self.type_inferrer.inferExpr(while_stmt.condition.*) catch .unknown;
-    // TWO-FLOW: Check for both .unknown and .pyvalue (uncertain types)
-    if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
-        // Unknown/PyValue type - use runtime truthiness check
-        try b.write("runtime.pyTruthy(");
-        const cond_val = try self.captureExpr(while_stmt.condition.*);
-        try b.emitValue(cond_val, .{});
-        try b.write(")");
-    } else {
-        // Use type-specific inline bool conversion to avoid anytype monomorphization
-        const prefix = bool_conv.getBoolPrefix(cond_type);
-        const suffix = bool_conv.getBoolSuffix(cond_type);
-        try b.write(prefix);
-        const cond_val = try self.captureExpr(while_stmt.condition.*);
-        try b.emitValue(cond_val, .{});
-        try b.write(suffix);
-    }
 
-    try b.write(") {\n");
+    // Build condition value
+    const cond_val = if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue)
+        // TWO-FLOW: Unknown/PyValue type - use runtime truthiness check
+        blk: {
+            const expr = try self.captureExpr(while_stmt.condition.*);
+            // TODO: Wrap in pyTruthy() call - for now use raw
+            break :blk expr;
+        }
+    else
+        // Use type-specific inline bool conversion
+        try self.captureExpr(while_stmt.condition.*);
 
-    // Flush builder before generating body
-    const builder_output = b.getBody();
-    try self.output.appendSlice(self.allocator, builder_output);
+    // Use callback style to ensure proper closing
+    try b.withWhile(cond_val, struct {
+        fn body(builder: *ZigBuilder, ctx: anytype) !void {
+            const codegen: *NativeCodegen = ctx.codegen;
+            const stmt_node = ctx.while_stmt;
 
-    // Indent for loop body
-    self.indent();
+            // Push new scope for loop body
+            try codegen.pushScope();
+            defer codegen.popScope();
 
-    // Push new scope for loop body
-    try self.pushScope();
+            // Set scope ID for scope-aware mutation tracking
+            const saved_scope_id = codegen.current_scope_id;
+            codegen.current_scope_id = @intFromPtr(stmt_node.body.ptr);
+            defer codegen.current_scope_id = saved_scope_id;
 
-    // Set scope ID for scope-aware mutation tracking
-    // Each loop body is a unique scope (using pointer address)
-    const saved_scope_id = self.current_scope_id;
-    self.current_scope_id = @intFromPtr(while_stmt.body.ptr);
-    defer self.current_scope_id = saved_scope_id;
+            // Generate body statements using captureStmt
+            for (stmt_node.body) |stmt| {
+                const stmt_code = try codegen.captureStmt(stmt);
+                try builder.write(stmt_code);
+            }
 
-    for (while_stmt.body) |stmt| {
-        try self.generateStmt(stmt);
-    }
-
-    // Emit discards for loop-scoped variables before they go out of scope
-    try self.emitScopedDiscards();
-    // Pop scope when exiting loop
-    self.popScope();
-
-    // Close while block
-    self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+            // Emit discards for loop-scoped variables
+            const discards = try codegen.captureScopedDiscards();
+            try builder.write(discards);
+        }
+    }.body, .{ .codegen = self, .while_stmt = while_stmt });
 
     // Handle optional else clause (while/else)
     // Note: In Python, else runs if loop completes without break.
     // For now, we emit it unconditionally (correct for loops without break)
     if (while_stmt.orelse_body) |else_body| {
         for (else_body) |stmt| {
-            try self.generateStmt(stmt);
+            const stmt_code = try self.captureStmt(stmt);
+            try b.write(stmt_code);
         }
     }
+
+    // Final flush
+    const output = b.getBody();
+    try self.output.appendSlice(self.allocator, output);
 }
