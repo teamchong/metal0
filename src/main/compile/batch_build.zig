@@ -168,9 +168,8 @@ pub fn build(b: *std.Build) void {
 
     // Prefetch all Zig source files in parallel before compilation
     // This hints the OS to load files into page cache, speeding up Zig compiler I/O
-    // NOTE: Prefetch import is optional (relative path may not exist in generated build.zig)
+    // NOTE: Prefetch import was removed - relative path invalid in generated build.zig
     // Skip prefetching in batch builds - it's mainly useful for individual file compilation
-    _ = manifest_content;
 
     // Parse manifest: each line is "zig_path:bin_name"
     var line_iter = std.mem.splitScalar(u8, manifest_content, '\n');
