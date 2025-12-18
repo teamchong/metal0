@@ -18,6 +18,7 @@ pub const script_helper = @import("support/script_helper.zig");
 pub const hashlib_helper = @import("support/hashlib_helper.zig");
 pub const hypothesis_helper = @import("support/hypothesis_helper.zig");
 pub const numbers = @import("support/numbers.zig");
+pub const interpreters = @import("support/interpreters.zig");
 pub const multibytecodec_support = @import("multibytecodec_support.zig");
 
 // Self-reference for "from test.support import support" pattern

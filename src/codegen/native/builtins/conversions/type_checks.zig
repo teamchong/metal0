@@ -14,12 +14,11 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 /// For 3 args: Dynamically creates a class (uses runtime.DynamicClass)
 pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 1) {
-        // Generate: runtime.pyTypeName(@TypeOf(obj), obj)
+        // Generate: runtime.pyTypeName(obj)
+        // Uses runtime dispatch to avoid comptime explosion (O(n²) compilation)
         // This handles PyPowResult (returns "float" or "complex" based on variant)
         // and other special types that need runtime type name resolution
-        try self.emit("runtime.pyTypeName(@TypeOf(");
-        try self.genExpr(args[0]);
-        try self.emit("), ");
+        try self.emit("runtime.pyTypeName(");
         try self.genExpr(args[0]);
         try self.emit(")");
     } else if (args.len == 3) {

@@ -360,9 +360,20 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     // CPython test infrastructure modules
     // _testcapi: Provides constants and functions to test our Python C API implementation (415 Zig files)
     try registry.register("_testcapi", .zig_runtime, "runtime.Lib._testcapi", "runtime.Lib._testcapi");
-    // _testbuffer, _testinternalcapi: Not yet implemented (less commonly used)
+    // _testinternalcapi: Internal CPython testing API (dispatched through module_functions.zig)
+    try registry.register("_testinternalcapi", .zig_runtime, null, null);
+    // _testconsole: Windows console testing (stubs on non-Windows, raises error at runtime)
+    try registry.register("_testconsole", .zig_runtime, "runtime.Lib._testconsole", "runtime.Lib._testconsole");
+    // _testexternalinspection: External process inspection testing (stubs, not implemented)
+    try registry.register("_testexternalinspection", .zig_runtime, "runtime.Lib._testexternalinspection", "runtime.Lib._testexternalinspection");
+    // _testbuffer: Not yet implemented (less commonly used)
     try registry.register("_testbuffer", .unsupported, null, null);
-    try registry.register("_testinternalcapi", .unsupported, null, null);
+
+    // Platform-specific modules (compile on all platforms, check at runtime)
+    // winreg: Windows registry access (stubs on non-Windows, raises error at runtime)
+    try registry.register("winreg", .zig_runtime, "runtime.Lib.winreg", "runtime.Lib.winreg");
+    // msvcrt: Microsoft Visual C Runtime (stubs on non-Windows, raises error at runtime)
+    try registry.register("msvcrt", .zig_runtime, "runtime.Lib.msvcrt", "runtime.Lib.msvcrt");
     try registry.register("_remote_debugging", .zig_runtime, null, null);
     try registry.register("shutil", .zig_runtime, "std", null);
     try registry.register("glob", .zig_runtime, "std", null);
@@ -385,6 +396,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("cmath", .zig_runtime, "std", null);
     try registry.register("html", .zig_runtime, "std", null);
     try registry.register("xml", .zig_runtime, "std", null);
+    try registry.register("pyexpat", .zig_runtime, "runtime.Lib.pyexpat", "runtime.Lib.pyexpat");
     try registry.register("email", .zig_runtime, "std", null);
     try registry.register("signal", .zig_runtime, "std", null);
     try registry.register("multiprocessing", .zig_runtime, "std", null);
@@ -433,6 +445,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("test.support.script_helper", .zig_runtime, "runtime.test_support.script_helper", null);
     try registry.register("test.support.hashlib_helper", .zig_runtime, "runtime.test_support.hashlib_helper", null);
     try registry.register("test.support.numbers", .zig_runtime, "runtime.test_support.numbers", null);
+    try registry.register("test.support.interpreters", .zig_runtime, "runtime.test_support.interpreters", null);
     try registry.register("test.list_tests", .zig_runtime, "runtime.list_tests", null);
 
     // __future__ - Python 2/3 compatibility flags

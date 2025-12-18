@@ -5,34 +5,45 @@ const std = @import("std");
 const builtins = @import("builtins.zig");
 const PyPowResult = builtins.PyPowResult;
 
-/// Get Python type name for type() builtin
-/// Handles special cases like PyPowResult which can be float or complex
-pub fn pyTypeName(comptime T: type, value: T) []const u8 {
+/// Get Python type name for type() builtin using runtime dispatch
+/// This version uses anytype with runtime type introspection to avoid comptime explosion
+/// when used with many different types (prevents O(n²) compilation time)
+pub fn pyTypeName(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+
     // Special handling for PyPowResult - check which variant it is
     if (T == PyPowResult) {
         return value.typeName();
     }
 
-    // Map Zig types to Python type names
+    // Map Zig types to Python type names using runtime introspection
     const info = @typeInfo(T);
-    if (info == .float or info == .comptime_float) {
-        return "float";
-    }
-    if (info == .int or info == .comptime_int) {
-        return "int";
-    }
-    if (info == .bool) {
-        return "bool";
-    }
-    if (T == []const u8 or T == []u8) {
-        return "str";
-    }
-
-    // For structs, check if it has a Python type name
-    if (info == .@"struct") {
-        if (@hasDecl(T, "__name__")) {
-            return T.__name__;
-        }
+    switch (info) {
+        .float, .comptime_float => return "float",
+        .int, .comptime_int => return "int",
+        .bool => return "bool",
+        .pointer => |ptr_info| {
+            // Handle []const u8 and []u8 (strings)
+            if (ptr_info.size == .Slice) {
+                const Child = ptr_info.child;
+                if (Child == u8) {
+                    return "str";
+                }
+            }
+            // For other pointers, check if pointing to a struct with __name__
+            if (@typeInfo(ptr_info.child) == .@"struct") {
+                if (@hasDecl(ptr_info.child, "__name__")) {
+                    return ptr_info.child.__name__;
+                }
+            }
+        },
+        .@"struct" => {
+            // Check if struct has __name__ field (Python classes)
+            if (@hasDecl(T, "__name__")) {
+                return T.__name__;
+            }
+        },
+        else => {},
     }
 
     // Default: use Zig type name

@@ -620,11 +620,12 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     const var_name = arg.name.id;
                     if (ExceptionTypes.has(var_name)) continue;
                     if (!varUsedInStatements(with_node.body, var_name)) {
-                        try self.emitIndent();
+                        const arg_val = try self.captureExpr(arg);
+                        try b.writeIndent();
                         // Use _ = &var to avoid "pointless discard of local constant" error
-                        try self.emit("_ = &");
-                        try self.genExpr(arg);
-                        try self.emit(";\n");
+                        try b.write("_ = &");
+                        try b.emitValue(arg_val, .{});
+                        try b.write(";\n");
                     }
                 }
             }
@@ -633,11 +634,12 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 if (kw.value == .name) {
                     const var_name = kw.value.name.id;
                     if (!varUsedInStatements(with_node.body, var_name)) {
-                        try self.emitIndent();
+                        const kw_val = try self.captureExpr(kw.value);
+                        try b.writeIndent();
                         // Use _ = &var to avoid "pointless discard of local constant" error
-                        try self.emit("_ = &");
-                        try self.genExpr(kw.value);
-                        try self.emit(";\n");
+                        try b.write("_ = &");
+                        try b.emitValue(kw_val, .{});
+                        try b.write(";\n");
                     }
                 }
             }
@@ -657,23 +659,23 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // Only emit declaration if variable not already declared
                 // For repeated with statements using same variable, the const is already set
                 if (needs_decl) {
-                    try self.emitIndent();
+                    try b.writeIndent();
                     // Use const for context manager variables (they're read-only)
-                    try self.emit("const ");
-                    try self.emit(var_name);
-                    try self.emit(" = runtime.unittest.ContextManager{};\n");
+                    try b.write("const ");
+                    try b.write(var_name);
+                    try b.write(" = runtime.unittest.ContextManager{};\n");
                     // Always discard pointer to suppress unused warning
                     // Using pointer avoids "pointless discard" when variable IS used later
-                    try self.emitIndent();
-                    try self.emit("_ = &");
-                    try self.emit(var_name);
-                    try self.emit(";\n");
+                    try b.writeIndent();
+                    try b.write("_ = &");
+                    try b.write(var_name);
+                    try b.write(";\n");
                     try self.declareVar(var_name);
                 } else if (is_hoisted) {
                     // Variable was hoisted by scope analyzer - still need to assign value
-                    try self.emitIndent();
-                    try self.emit(var_name);
-                    try self.emit(" = runtime.unittest.ContextManager{};\n");
+                    try b.writeIndent();
+                    try b.write(var_name);
+                    try b.write(" = runtime.unittest.ContextManager{};\n");
                 }
             }
         }
@@ -695,30 +697,43 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     // Check if this is a unittest context manager (assertRaises, etc.)
                     if (isUnittestContextManager(cm_expr)) {
                         // Emit dummy ContextManager for assertRaises/assertRaisesRegex
-                        try self.emitIndent();
+                        try b.writeIndent();
                         if (needs_decl) {
-                            try self.emit("const ");
+                            try b.write("const ");
                         }
+                        // Capture escaped identifier
+                        const start_pos = self.output.items.len;
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                        try self.emit(" = runtime.unittest.ContextManager{};\n");
-                        try self.emitIndent();
-                        try self.emit("_ = &");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                        try self.emit(";\n");
+                        const escaped_var = self.output.items[start_pos..];
+                        const escaped_copy = try self.arena.allocator().dupe(u8, escaped_var);
+                        self.output.shrinkRetainingCapacity(start_pos);
+                        try b.write(escaped_copy);
+                        try b.write(" = runtime.unittest.ContextManager{};\n");
+                        try b.writeIndent();
+                        try b.write("_ = &");
+                        try b.write(escaped_copy);
+                        try b.write(";\n");
                     } else {
                         // Emit actual context manager (e.g., support.Stopwatch())
-                        try self.emitIndent();
+                        try b.writeIndent();
                         if (needs_decl) {
-                            try self.emit("var ");
+                            try b.write("var ");
                         }
+                        // Capture escaped identifier
+                        const start_pos = self.output.items.len;
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                        try self.emit(" = ");
-                        try self.genExpr(cm_expr);
-                        try self.emit(";\n");
-                        try self.emitIndent();
-                        try self.emit("defer ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                        try self.emit(".close();\n");
+                        const escaped_var = self.output.items[start_pos..];
+                        const escaped_copy = try self.arena.allocator().dupe(u8, escaped_var);
+                        self.output.shrinkRetainingCapacity(start_pos);
+                        try b.write(escaped_copy);
+                        try b.write(" = ");
+                        const cm_val = try self.captureExpr(cm_expr);
+                        try b.emitValue(cm_val, .{});
+                        try b.write(";\n");
+                        try b.writeIndent();
+                        try b.write("defer ");
+                        try b.write(escaped_copy);
+                        try b.write(".close();\n");
                     }
                     if (needs_decl) {
                         try self.declareVar(var_name);
@@ -752,9 +767,17 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             self.current_assert_raises_block_id = block_id;
 
             if (needs_labeled_block) {
-                try self.emitIndent();
-                try self.emitFmt("_ = __ar_blk_{d}: {{\n", .{block_id});
+                try b.writeIndent();
+                try b.writeFmt("_ = __ar_blk_{d}: {{\n", .{block_id});
                 self.indent();
+            }
+
+            // Flush builder output before generating body statements
+            // Body generation uses self.generateStmt/genExpr which write to self.output
+            {
+                const body_prefix = b.getBody();
+                try self.output.appendSlice(self.allocator, body_prefix);
+                b.body.clearRetainingCapacity();
             }
 
             // Save and reset control_flow_terminated for the block body
@@ -826,6 +849,10 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try self.generateStmt(stmt);
             }
         }
+
+        // Flush builder output before early return
+        const builder_output = b.getBody();
+        try self.output.appendSlice(self.allocator, builder_output);
         return;
     }
 

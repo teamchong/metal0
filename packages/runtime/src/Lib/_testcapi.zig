@@ -289,26 +289,14 @@ pub fn pyobject_vectorcall(alloc: std.mem.Allocator, func: PyObject, func_args: 
         }
     };
 
-    // Call the function using our runtime call mechanism
+    // Call the function using PyObject call mechanism
     // In CPython this would use PyObject_Vectorcall()
-    // We translate to our runtime.call() with args/kwargs split
-    if (kwnames_tuple) |kw| {
-        const pos_args = args_slice[0..nargs];
-        const kw_values = args_slice[nargs..];
-
-        // Build kwargs dict from kwnames tuple and values
-        var kwargs = std.StringHashMap(PyObject).init(alloc);
-        defer kwargs.deinit();
-
-        for (kw.items, 0..) |key_obj, i| {
-            const key_str = try key_obj.toString();
-            try kwargs.put(key_str, kw_values[i]);
-        }
-
-        return try runtime.builtins.call(alloc, func, pos_args, kwargs);
-    } else {
-        return try runtime.builtins.call(alloc, func, args_slice, null);
-    }
+    // For now, return a placeholder - full implementation needs actual call support
+    _ = alloc;
+    _ = func;
+    _ = kwnames_tuple;
+    // Note: nargs is used above on line 285, so we don't discard it
+    return error.NotImplemented; // TODO: Implement proper vectorcall
 }
 
 /// Call a Python object using vectorcall protocol with kwargs dict
@@ -337,7 +325,13 @@ pub fn pyobject_fastcalldict(alloc: std.mem.Allocator, func: PyObject, func_args
         }
     };
 
-    return try runtime.builtins.call(alloc, func, args_slice, kwargs_map);
+    // Call the function using PyObject call mechanism
+    // For now, return a placeholder - full implementation needs actual call support
+    _ = alloc;
+    _ = func;
+    _ = args_slice;
+    _ = kwargs_map;
+    return error.NotImplemented; // TODO: Implement proper fastcalldict
 }
 
 /// Create a class with vectorcall support for testing
