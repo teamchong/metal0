@@ -12,11 +12,13 @@ fn genSqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(".{ .re = 0.0, .im = 0.0 }");
         return;
     }
-    const label = try self.emitInlineBlockStart("cmath_sqrt");
-    try self.emit("const __x = @as(f64, @floatFromInt(");
-    try self.genExpr(args[0]);
-    try self.emitFmt(")); if (__x >= 0) break :{s} .{{ .re = @sqrt(__x), .im = 0.0 }}; break :{s} .{{ .re = 0.0, .im = @sqrt(-__x) }}; ", .{ label, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("cmath_sqrt", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const __x = @as(f64, @floatFromInt(");
+            try c.genExpr(a[0]);
+            try c.emitFmt(")); if (__x >= 0) break :{s} .{{ .re = @sqrt(__x), .im = 0.0 }}; break :{s} .{{ .re = 0.0, .im = @sqrt(-__x) }}", .{ label, label });
+        }
+    }.emit);
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{

@@ -55,13 +55,15 @@ fn genBdb(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 fn genBreakpoint(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len >= 2) {
-        const label = try self.emitInlineBlockStart("bp");
-        try self.emit("const __v0 = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const __v1 = ");
-        try self.genExpr(args[1]);
-        try self.emitFmt("; break :{s} .{{ .file = __v0, .line = __v1, .temporary = false, .cond = null, .funcname = null, .enabled = true, .ignore = 0, .hits = 0 }}; ", .{label});
-        try self.emitInlineBlockEnd();
+        try self.withInlineBlock("bp", args, struct {
+            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try c.emit("const __v0 = ");
+                try c.genExpr(a[0]);
+                try c.emit("; const __v1 = ");
+                try c.genExpr(a[1]);
+                try c.emitFmt("; break :{s} .{{ .file = __v0, .line = __v1, .temporary = false, .cond = null, .funcname = null, .enabled = true, .ignore = 0, .hits = 0 }}", .{label});
+            }
+        }.emit);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .file = \"\", .line = 0, .temporary = false, .cond = null, .funcname = null, .enabled = true, .ignore = 0, .hits = 0 }"), builder_mod.EmitConfig.forExpression());
     }

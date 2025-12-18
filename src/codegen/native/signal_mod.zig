@@ -34,8 +34,11 @@ const CodegenError = h.CodegenError;
 
 fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit("{}"); return; }
-    const label = try self.emitInlineBlockStart("rs");
-    try self.emit("const sig = @as(u6, @intCast("); try self.genExpr(args[0]);
-    try self.emitFmt(")); _ = std.posix.raise(sig); break :{s} {{}}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("rs", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const sig = @as(u6, @intCast(");
+            try c.genExpr(a[0]);
+            try c.emitFmt(")); _ = std.posix.raise(sig); break :{s} {{}}", .{label});
+        }
+    }.emit);
 }

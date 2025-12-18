@@ -20,8 +20,11 @@ const CodegenError = h.CodegenError;
 
 fn genFileCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) { try self.emit(".{ .filename = @as(?[]const u8, null), .delayload = false }"); return; }
-    const label = try self.emitInlineBlockStart("fcj");
-    try self.emit("const filename = "); try self.genExpr(args[0]);
-    try self.emitFmt("; break :{s} .{{ .filename = filename, .delayload = false }}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("fcj", args, struct {
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try c.emit("const filename = ");
+            try c.genExpr(a[0]);
+            try c.emitFmt("; break :{s} .{{ .filename = filename, .delayload = false }}", .{label});
+        }
+    }.emit);
 }
