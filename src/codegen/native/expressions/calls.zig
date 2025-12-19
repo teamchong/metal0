@@ -55,6 +55,7 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 // ============================================
 
 /// Emit runtime function call start: runtime.funcName(
+/// Note: Opens paren that caller must close
 fn emitRuntimeCallStart(self: *NativeCodegen, func_name: []const u8) CodegenError!void {
     try emitConst(self, "runtime.");
     try emitConst(self, func_name);
@@ -62,17 +63,23 @@ fn emitRuntimeCallStart(self: *NativeCodegen, func_name: []const u8) CodegenErro
 }
 
 /// Emit class init call start: ClassName.init(__global_allocator
+/// Note: Opens paren that caller must close
 fn emitInitCallStart(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
     try emitConst(self, class_name);
     try emitConst(self, ".init(__global_allocator");
 }
 
 /// Emit PyValue.from wrapper: runtime.PyValue.from(expr)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const genExpr = @import("../expressions.zig").genExpr;
-    try emitConst(self, "runtime.PyValue.from(");
-    try genExpr(self, expr);
-    try emitConst(self, ")");
+    try emitConst(self, "runtime.PyValue.from");
+    const Ctx = struct { e: ast.Node };
+    try self.withParensCtx(Ctx{ .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExpr(s, ctx.e);
+        }
+    }.f);
 }
 
 // Import trait functions for type checking
