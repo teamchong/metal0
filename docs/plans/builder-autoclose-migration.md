@@ -75,10 +75,10 @@ Priority order (by complexity and usage):
 2. ✅ **expressions/operators/arithmetic.zig** - Binary ops dispatcher (commit 17032ecc)
 3. ✅ **expressions/operators/comparison.zig** - Comparison ops (commit 76b00b39)
 4. ✅ **expressions/operators/logical.zig** - `and`, `or`, `not` (commit d5e8732c)
-5. **expressions/subscript.zig** - Array/dict subscripting
-6. **expressions/calls.zig** - Function calls
-7. **statements/control/conditionals.zig** - if/else
-8. **statements/control/loops/*.zig** - for/while loops
+5. ✅ **expressions/subscript.zig** - Array/dict subscripting (commit 5dbe9f6e)
+6. ✅ **expressions/calls.zig** - Function calls (commit d640ba8b)
+7. ✅ **statements/control/conditionals.zig** - No migration needed (no bracket patterns)
+8. ✅ **statements/control/loops/*.zig** - Minimal patterns already safe
 
 ### Phase 3: Migrate Remaining Files
 
