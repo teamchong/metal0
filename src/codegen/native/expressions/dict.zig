@@ -35,6 +35,39 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
     try self.output.appendSlice(self.allocator, output);
 }
 
+// ============================================
+// Dict operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit hashmap_helper.StringHashMap(value_type).init(alloc)
+fn emitStringHashMapInit(self: *NativeCodegen, value_type: []const u8, alloc_name: []const u8) CodegenError!void {
+    try emitConst(self, "hashmap_helper.StringHashMap(");
+    try emitConst(self, value_type);
+    try emitConst(self, ").init(");
+    try emitConst(self, alloc_name);
+    try emitConst(self, ")");
+}
+
+/// Emit std.AutoArrayHashMap(key_type, value_type).init(alloc)
+fn emitAutoArrayHashMapInit(self: *NativeCodegen, key_type: []const u8, value_type: []const u8, alloc_name: []const u8) CodegenError!void {
+    try emitConst(self, "std.AutoArrayHashMap(");
+    try emitConst(self, key_type);
+    try emitConst(self, ", ");
+    try emitConst(self, value_type);
+    try emitConst(self, ").init(");
+    try emitConst(self, alloc_name);
+    try emitConst(self, ")");
+}
+
+/// Emit try alloc.dupe(u8, str) for string duplication
+fn emitAllocDupe(self: *NativeCodegen, alloc_name: []const u8, str: []const u8) CodegenError!void {
+    try emitConst(self, "try ");
+    try emitConst(self, alloc_name);
+    try emitConst(self, ".dupe(u8, ");
+    try emitConst(self, str);
+    try emitConst(self, ")");
+}
+
 
 
 
@@ -141,22 +174,17 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
 
         if (has_int_keys and has_str_keys) {
             // Mixed key types - use StringHashMap with runtime.PyValue values
-            // Convert all keys to strings at runtime
-            try emitConst(self, "hashmap_helper.StringHashMap(runtime.PyValue).init(");
+            try emitStringHashMapInit(self, "runtime.PyValue", alloc_name);
         } else if (has_int_keys) {
             // Use AutoArrayHashMap for int keys (has .keys() and .values() like Python)
-            // Also use i64 value type since d[i] = i typically has int value too
-            try emitConst(self, "std.AutoArrayHashMap(i64, i64).init(");
+            try emitAutoArrayHashMapInit(self, "i64", "i64", alloc_name);
         } else if (has_str_keys) {
             // String keys with mutations - use i64 value type for common pattern d['key'] = 1
-            try emitConst(self, "hashmap_helper.StringHashMap(i64).init(");
+            try emitStringHashMapInit(self, "i64", alloc_name);
         } else {
             // Default to StringHashMap for unknown empty dicts
-            // Use runtime.PyValue for maximum flexibility with heterogeneous values
-            try emitConst(self, "hashmap_helper.StringHashMap(runtime.PyValue).init(");
+            try emitStringHashMapInit(self, "runtime.PyValue", alloc_name);
         }
-        try emitConst(self, alloc_name);
-        try emitConst(self, ")");
         return;
     }
 
@@ -601,9 +629,7 @@ fn genValueToString(
         try emitConst(self, ") \"True\" else \"False\")");
     } else if (type_traits.isNone(value_type)) {
         // None: just use literal "None"
-        try emitConst(self, "try ");
-        try emitConst(self, alloc_name);
-        try emitConst(self, ".dupe(u8, \"None\")");
+        try emitAllocDupe(self, alloc_name, "\"None\"");
     } else {
         try emitConst(self, "try std.fmt.allocPrint(");
         try emitConst(self, alloc_name);

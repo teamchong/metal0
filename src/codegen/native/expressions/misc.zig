@@ -35,6 +35,24 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
     try self.output.appendSlice(self.allocator, output);
 }
 
+// ============================================
+// Misc expression helpers - auto-closing patterns
+// ============================================
+
+/// Emit @as(i64, operand) for integer constant wrapping
+fn emitAsI64(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "@as(i64, ");
+    try self.emitZigValue(operand);
+    try emitConst(self, ")");
+}
+
+/// Emit @as(f64, operand) for float constant wrapping
+fn emitAsF64(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "@as(f64, ");
+    try self.emitZigValue(operand);
+    try emitConst(self, ")");
+}
+
 
 
 
@@ -126,21 +144,15 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
 
         // Wrap integer constants to avoid comptime_int at runtime
         if (elem == .constant and elem.constant.value == .int) {
-            try emitConst(self, "@as(i64, ");
-            try self.emitZigValue(operand);
-            try emitConst(self, ")");
+            try emitAsI64(self, operand);
         } else if (elem == .unaryop and elem.unaryop.op == .USub and
             elem.unaryop.operand.* == .constant and elem.unaryop.operand.constant.value == .int)
         {
             // Negative integer: -1 -> @as(i64, -1)
-            try emitConst(self, "@as(i64, ");
-            try self.emitZigValue(operand);
-            try emitConst(self, ")");
+            try emitAsI64(self, operand);
         } else if (elem == .constant and elem.constant.value == .float) {
             // Float constants to avoid comptime_float
-            try emitConst(self, "@as(f64, ");
-            try self.emitZigValue(operand);
-            try emitConst(self, ")");
+            try emitAsF64(self, operand);
         } else {
             try self.emitZigValue(operand);
         }
