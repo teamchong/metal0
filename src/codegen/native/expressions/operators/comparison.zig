@@ -45,76 +45,117 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 // ============================================
 
 /// Emit string equality comparison: std.mem.eql(u8, left, right)
-/// Auto-closes the parenthesis - can't forget closing
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitStrEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitConst(self, "std.mem.eql(u8, ");
-    try genExpr(self, left);
-    try emitConst(self, ", ");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    try emitConst(self, "std.mem.eql");
+    const Ctx = struct { l: ast.Node, r: ast.Node };
+    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "u8, ");
+            try genExpr(s, ctx.l);
+            try emitConst(s, ", ");
+            try genExpr(s, ctx.r);
+        }
+    }.f);
 }
 
 /// Emit negated string equality: !std.mem.eql(u8, left, right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitStrNotEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitConst(self, "!std.mem.eql(u8, ");
-    try genExpr(self, left);
-    try emitConst(self, ", ");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    try emitConst(self, "!std.mem.eql");
+    const Ctx = struct { l: ast.Node, r: ast.Node };
+    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "u8, ");
+            try genExpr(s, ctx.l);
+            try emitConst(s, ", ");
+            try genExpr(s, ctx.r);
+        }
+    }.f);
 }
 
 /// Emit simple binary comparison: (left op right)
+/// Uses emitBinOp auto-close helper
 fn emitBinCmp(self: *NativeCodegen, left: ast.Node, comptime op: []const u8, right: ast.Node) CodegenError!void {
-    try emitConst(self, "(");
-    try genExpr(self, left);
-    try emitConst(self, op);
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    try self.emitBinOp(left, op, right);
 }
 
 /// Emit runtime equality: runtime.pyAnyEql(left, right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitPyAnyEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitConst(self, "runtime.pyAnyEql(");
-    try genExpr(self, left);
-    try emitConst(self, ", ");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    try emitConst(self, "runtime.pyAnyEql");
+    const Ctx = struct { l: ast.Node, r: ast.Node };
+    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExpr(s, ctx.l);
+            try emitConst(s, ", ");
+            try genExpr(s, ctx.r);
+        }
+    }.f);
 }
 
 /// Emit string containment check: (std.mem.indexOf(u8, haystack, needle) != null)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitStrContains(self: *NativeCodegen, haystack: ast.Node, needle: ast.Node) CodegenError!void {
-    try emitConst(self, "(std.mem.indexOf(u8, ");
-    try genExpr(self, haystack);
-    try emitConst(self, ", ");
-    try genExpr(self, needle);
-    try emitConst(self, ") != null)");
+    const Ctx = struct { h: ast.Node, n: ast.Node };
+    try self.withParensCtx(Ctx{ .h = haystack, .n = needle }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "std.mem.indexOf");
+            const Inner = struct { h: ast.Node, n: ast.Node };
+            try s.withParensCtx(Inner{ .h = ctx.h, .n = ctx.n }, struct {
+                pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
+                    try emitConst(si, "u8, ");
+                    try genExpr(si, inner.h);
+                    try emitConst(si, ", ");
+                    try genExpr(si, inner.n);
+                }
+            }.g);
+            try emitConst(s, " != null");
+        }
+    }.f);
 }
 
 /// Emit negated string containment: (std.mem.indexOf(u8, haystack, needle) == null)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitStrNotContains(self: *NativeCodegen, haystack: ast.Node, needle: ast.Node) CodegenError!void {
-    try emitConst(self, "(std.mem.indexOf(u8, ");
-    try genExpr(self, haystack);
-    try emitConst(self, ", ");
-    try genExpr(self, needle);
-    try emitConst(self, ") == null)");
+    const Ctx = struct { h: ast.Node, n: ast.Node };
+    try self.withParensCtx(Ctx{ .h = haystack, .n = needle }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "std.mem.indexOf");
+            const Inner = struct { h: ast.Node, n: ast.Node };
+            try s.withParensCtx(Inner{ .h = ctx.h, .n = ctx.n }, struct {
+                pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
+                    try emitConst(si, "u8, ");
+                    try genExpr(si, inner.h);
+                    try emitConst(si, ", ");
+                    try genExpr(si, inner.n);
+                }
+            }.g);
+            try emitConst(s, " == null");
+        }
+    }.f);
 }
 
 /// Emit set equality: runtime.setEqual(left, right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitSetEqual(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitConst(self, "runtime.setEqual(");
-    try genExpr(self, left);
-    try emitConst(self, ", ");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    try emitConst(self, "runtime.setEqual");
+    const Ctx = struct { l: ast.Node, r: ast.Node };
+    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExpr(s, ctx.l);
+            try emitConst(s, ", ");
+            try genExpr(s, ctx.r);
+        }
+    }.f);
 }
 
 /// Emit complex number equality: (left).eql(right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitComplexEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitConst(self, "(");
-    try genExpr(self, left);
-    try emitConst(self, ").eql(");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    try self.emitParens(left);
+    try emitConst(self, ".eql");
+    try self.emitParens(right);
 }
 
 
