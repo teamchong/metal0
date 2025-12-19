@@ -325,25 +325,43 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     };
 
     // Emit: runtime.bigint_ops.xxx(left, right, allocator)
+    // Uses auto-close pattern for guaranteed bracket matching
     try emitConst(self, "runtime.bigint_ops.");
     try emitConst(self, runtime_fn);
-    try emitConst(self, "(");
+    const Ctx = struct {
+        s: *NativeCodegen,
+        lt: NativeType,
+        lo: ZigValue,
+        rt: NativeType,
+        ro: ZigValue,
+        op: ast.Operator,
+    };
+    try self.withParensCtx(Ctx{
+        .s = self,
+        .lt = left_type,
+        .lo = left_operand,
+        .rt = right_type,
+        .ro = right_operand,
+        .op = binop.op,
+    }, struct {
+        pub fn f(si: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            // Emit left operand (convert to BigInt if needed)
+            try emitBigIntOperandValue(ctx.s, ctx.lt, ctx.lo);
+            try emitConst(si, ", ");
 
-    // Emit left operand (convert to BigInt if needed)
-    try emitBigIntOperandValue(self, left_type, left_operand);
-    try emitConst(self, ", ");
+            // For shift/pow operations, right operand is a primitive (usize/u32)
+            if (ctx.op == .LShift or ctx.op == .RShift) {
+                try emitShiftOperand(ctx.s, ctx.ro);
+            } else if (ctx.op == .Pow) {
+                try emitPowExponent(ctx.s, ctx.ro);
+            } else {
+                // Standard binary ops: right operand is also BigInt
+                try emitBigIntOperandValue(ctx.s, ctx.rt, ctx.ro);
+            }
 
-    // For shift/pow operations, right operand is a primitive (usize/u32)
-    if (binop.op == .LShift or binop.op == .RShift) {
-        try emitShiftOperand(self, right_operand);
-    } else if (binop.op == .Pow) {
-        try emitPowExponent(self, right_operand);
-    } else {
-        // Standard binary ops: right operand is also BigInt
-        try emitBigIntOperandValue(self, right_type, right_operand);
-    }
-
-    try emitConst(self, ", __global_allocator)");
+            try emitConst(si, ", __global_allocator");
+        }
+    }.f);
 }
 
 /// Emit an operand as a BigInt value (AST node version)

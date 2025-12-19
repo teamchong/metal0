@@ -282,11 +282,14 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate: @as(i64, str[0])
     // Assumes single-char string
     // Need extra parens when arg is a slice subscript (generates labeled block)
+    // Uses emitParens for auto-close when needed
     const needs_parens = args[0] == .subscript and args[0].subscript.slice == .slice;
     try emitConst(self, "@as(i64, ");
-    if (needs_parens) try emitConst(self, "(");
-    try self.genExpr(args[0]);
-    if (needs_parens) try emitConst(self, ")");
+    if (needs_parens) {
+        try self.emitParens(args[0]);
+    } else {
+        try self.genExpr(args[0]);
+    }
     try emitConst(self, "[0])");
 }
 

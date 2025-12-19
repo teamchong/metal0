@@ -162,11 +162,19 @@ pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
 
     // Emit: (runtime.PyValue.from(...)).method(runtime.PyValue.from(...))
-    try emitConst(self, "(");
-    try emitPyValueFrom(self, binop.left.*, left_operand);
-    try emitConst(self, ").");
+    // Uses auto-close patterns for guaranteed bracket matching
+    const LeftCtx = struct { s: *NativeCodegen, l: ast.Node, lo: ZigValue };
+    try self.withParensCtx(LeftCtx{ .s = self, .l = binop.left.*, .lo = left_operand }, struct {
+        pub fn f(_: *NativeCodegen, ctx: LeftCtx) CodegenError!void {
+            try emitPyValueFrom(ctx.s, ctx.l, ctx.lo);
+        }
+    }.f);
+    try emitConst(self, ".");
     try emitConst(self, method_name);
-    try emitConst(self, "(");
-    try emitPyValueFrom(self, binop.right.*, right_operand);
-    try emitConst(self, ")");
+    const RightCtx = struct { s: *NativeCodegen, r: ast.Node, ro: ZigValue };
+    try self.withParensCtx(RightCtx{ .s = self, .r = binop.right.*, .ro = right_operand }, struct {
+        pub fn f(_: *NativeCodegen, ctx: RightCtx) CodegenError!void {
+            try emitPyValueFrom(ctx.s, ctx.r, ctx.ro);
+        }
+    }.f);
 }
