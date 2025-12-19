@@ -6,6 +6,34 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const builder_mod = @import("codegen.builder");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// Math helpers - auto-closing patterns
+// ============================================
+
+/// Emit method call suffix: .methodName(
+fn emitMethodStart(self: *NativeCodegen, method: []const u8) CodegenError!void {
+    try emitConst(self, ".");
+    try emitConst(self, method);
+    try emitConst(self, "(");
+}
+
+/// Emit @builtin call start: @builtinName(
+fn emitBuiltinStart(self: *NativeCodegen, builtin: []const u8) CodegenError!void {
+    try emitConst(self, "@");
+    try emitConst(self, builtin);
+    try emitConst(self, "(");
+}
+
 /// Check if argument is None constant
 fn isNoneArg(arg: ast.Node) bool {
     if (arg == .constant) {
@@ -44,10 +72,7 @@ fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // abs() requires exactly one argument - generate an error union for assertRaises
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
@@ -55,10 +80,7 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (isExprUncertain(self, args[0])) {
         // Route to PyValue.pyAbs() for runtime type safety
         try self.genExpr(args[0]);
-        const b = try self.getBuilder();
-        try b.write(".pyAbs()");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, ".pyAbs()");
         return;
     }
 
@@ -67,36 +89,16 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (type_traits.isBoolean(arg_type)) {
         // abs(True) = 1, abs(False) = 0
         // Just convert bool to int: @intFromBool(...)
-        {
-            const b = try self.getBuilder();
-            try b.write("@as(i64, @intFromBool(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@as(i64, @intFromBool(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write("))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "))");
         return;
     }
 
     // Generate: @abs(n)
-    {
-        const b = try self.getBuilder();
-        try b.write("@abs(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitBuiltinStart(self, "abs");
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
 
 /// Generate code for min(a, b, ...)
@@ -104,29 +106,16 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: routes uncertain operands to PyValue.pyMin()
 pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
     if (args.len == 1) {
         // Single argument - iterable case: min([1, 2, 3]) or min(some_sequence)
         // Use runtime function that handles any iterable
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.builtins.minIterable(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.builtins.minIterable(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")");
         return;
     }
 
@@ -144,47 +133,22 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // min(a, b, c) => a.pyMin(b).pyMin(c)
         try self.genExpr(args[0]);
         for (args[1..]) |arg| {
-            {
-                const b = try self.getBuilder();
-                try b.write(".pyMin(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitMethodStart(self, "pyMin");
             try self.genExpr(arg);
-            {
-                const b = try self.getBuilder();
-                try b.write(")");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ")");
         }
         return;
     }
 
     // Generate: @min(a, @min(b, c))
-    {
-        const b = try self.getBuilder();
-        try b.write("@min(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitBuiltinStart(self, "min");
     try self.genExpr(args[0]);
 
     for (args[1..]) |arg| {
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(arg);
     }
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
 
 /// Generate code for max(a, b, ...)
@@ -192,29 +156,16 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: routes uncertain operands to PyValue.pyMax()
 pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
     if (args.len == 1) {
         // Single argument - iterable case: max([1, 2, 3]) or max(some_sequence)
         // Use runtime function that handles any iterable
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.builtins.maxIterable(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.builtins.maxIterable(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")");
         return;
     }
 
@@ -232,103 +183,48 @@ pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // max(a, b, c) => a.pyMax(b).pyMax(c)
         try self.genExpr(args[0]);
         for (args[1..]) |arg| {
-            {
-                const b = try self.getBuilder();
-                try b.write(".pyMax(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitMethodStart(self, "pyMax");
             try self.genExpr(arg);
-            {
-                const b = try self.getBuilder();
-                try b.write(")");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ")");
         }
         return;
     }
 
     // Generate: @max(a, @max(b, c))
-    {
-        const b = try self.getBuilder();
-        try b.write("@max(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitBuiltinStart(self, "max");
     try self.genExpr(args[0]);
 
     for (args[1..]) |arg| {
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(arg);
     }
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
 
 /// Generate code for round(n) or round(n, ndigits)
 /// Rounds to nearest integer or specified decimal places
 pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        const b = try self.getBuilder();
-        try b.write("@as(f64, 0.0)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "@as(f64, 0.0)");
         return;
     }
 
     // round(n) or round(n, None) - round to nearest integer
     if (args.len == 1 or (args.len == 2 and isNoneArg(args[1]))) {
         // Use runtime.builtins.pyRound to handle both int and float
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.builtins.pyRound(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.builtins.pyRound(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")");
         return;
     }
 
     // round(n, ndigits) - round to ndigits decimal places
-    // For ndigits=0, just use @round
-    // Otherwise use: @round(n * 10^ndigits) / 10^ndigits
     // Use runtime round function to handle both int and float values
-    {
-        const b = try self.getBuilder();
-        try b.write("(try runtime.builtins.round(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "(try runtime.builtins.round(");
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        try b.write(", .{");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", .{");
     try self.genExpr(args[1]);
-    {
-        const b = try self.getBuilder();
-        try b.write("}))");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "}))");
 }
 
 /// Generate code for pow(base, exp) or pow(base, exp, mod)
@@ -336,67 +232,28 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Uses runtime.builtins.pow which raises ZeroDivisionError for 0 ** negative
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
     if (args.len == 3) {
         // pow(base, exp, mod) - modular exponentiation
         // Generate: @rem(@as(i64, @intFromFloat(std.math.pow(f64, base, exp))), mod)
-        {
-            const b = try self.getBuilder();
-            try b.write("@rem(@as(i64, @intFromFloat(std.math.pow(f64, @as(f64, @floatFromInt(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@rem(@as(i64, @intFromFloat(std.math.pow(f64, @as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")), @as(f64, @floatFromInt(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")), @as(f64, @floatFromInt(");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write("))))), ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "))))), ");
         try self.genExpr(args[2]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")");
     } else {
         // pow(base, exp) - standard power
         // Use runtime.builtins.pow which raises ZeroDivisionError for 0 ** negative
-        // Generate: (try runtime.builtins.pow.call(base, exp))
-        {
-            const b = try self.getBuilder();
-            try b.write("(try runtime.builtins.pow.call(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "(try runtime.builtins.pow.call(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write("))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "))");
     }
 }
 
@@ -404,37 +261,21 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Converts integer to character
 pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
     // Generate: &[_]u8{@intCast(n)}
-    {
-        const b = try self.getBuilder();
-        try b.write("&[_]u8{@intCast(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "&[_]u8{@intCast(");
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        try b.write(")}");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")}");
 }
 
 /// Generate code for ord(c)
 /// Converts character to integer
 pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
@@ -442,31 +283,18 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Assumes single-char string
     // Need extra parens when arg is a slice subscript (generates labeled block)
     const needs_parens = args[0] == .subscript and args[0].subscript.slice == .slice;
-    {
-        const b = try self.getBuilder();
-        try b.write("@as(i64, ");
-        if (needs_parens) try b.write("(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "@as(i64, ");
+    if (needs_parens) try emitConst(self, "(");
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        if (needs_parens) try b.write(")");
-        try b.write("[0])");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    if (needs_parens) try emitConst(self, ")");
+    try emitConst(self, "[0])");
 }
 
 /// Generate code for divmod(a, b)
 /// Returns tuple (a // b, a % b)
 pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 2) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
@@ -477,64 +305,24 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (left_type == .bigint or right_type == .bigint or left_type == .unknown or right_type == .unknown) {
         // BigInt or unknown type - use runtime.bigIntDivmod
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.bigIntDivmod(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.bigIntDivmod(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            try b.write(alloc_name);
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
+        try emitConst(self, alloc_name);
+        try emitConst(self, ")");
     } else {
         // Generate: .{ @divFloor(a, b), @mod(a, b) }
-        {
-            const b = try self.getBuilder();
-            try b.write(".{ @divFloor(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ".{ @divFloor(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write("), @mod(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "), @mod(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write(") }");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ") }");
     }
 }
 
@@ -543,10 +331,7 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: always uses runtime.pyHash() which handles all types (including PyValue, tuples, etc.)
 pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        const b = try self.getBuilder();
-        try b.write("(error.TypeError)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "(error.TypeError)");
         return;
     }
 
@@ -556,52 +341,22 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     switch (arg_type) {
         .bool => {
             // For bools: 1 for True, 0 for False (fast path)
-            {
-                const b = try self.getBuilder();
-                try b.write("@as(i64, if (");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "@as(i64, if (");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(") 1 else 0)");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ") 1 else 0)");
         },
         .string => {
             // For strings: use std.hash.Wyhash (fast path)
-            {
-                const b = try self.getBuilder();
-                try b.write("@as(i64, @bitCast(std.hash.Wyhash.hash(0, ");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "@as(i64, @bitCast(std.hash.Wyhash.hash(0, ");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(")))");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ")))");
         },
         else => {
             // For all other types (int, float, tuple, PyValue, unknown, etc.):
             // use runtime.pyHash which handles all types including tuples and PyValue
-            {
-                const b = try self.getBuilder();
-                try b.write("runtime.pyHash(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "runtime.pyHash(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(")");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ")");
         },
     }
 }
