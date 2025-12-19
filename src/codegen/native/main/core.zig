@@ -1665,6 +1665,182 @@ pub const NativeCodegen = struct {
         try emitConst(self, "})");
     }
 
+    // ============================================================================
+    // AUTO-CLOSE HELPERS
+    // ============================================================================
+    // These helpers guarantee bracket matching by using callbacks.
+    // The opening bracket is emitted, callback is executed, closing bracket is emitted.
+    // It's impossible to forget or mismatch brackets.
+    //
+    // Usage pattern:
+    //   try self.withParens(struct {
+    //       pub fn f(c: *NativeCodegen) !void {
+    //           try c.genExpr(expr);
+    //       }
+    //   }.f);
+    //
+    // Or with context capture:
+    //   try self.withParensCtx(expr, struct {
+    //       pub fn f(c: *NativeCodegen, e: ast.Node) !void {
+    //           try c.genExpr(e);
+    //       }
+    //   }.f);
+    // ============================================================================
+
+    /// Auto-close parentheses: ( ... )
+    pub fn withParens(self: *NativeCodegen, body_fn: anytype) CodegenError!void {
+        try emitConst(self, "(");
+        try body_fn(self);
+        try emitConst(self, ")");
+    }
+
+    /// Auto-close parentheses with context: ( ... )
+    pub fn withParensCtx(self: *NativeCodegen, ctx: anytype, body_fn: anytype) CodegenError!void {
+        try emitConst(self, "(");
+        try body_fn(self, ctx);
+        try emitConst(self, ")");
+    }
+
+    /// Auto-close braces: { ... }
+    pub fn withBraces(self: *NativeCodegen, body_fn: anytype) CodegenError!void {
+        try emitConst(self, "{ ");
+        try body_fn(self);
+        try emitConst(self, " }");
+    }
+
+    /// Auto-close braces with context: { ... }
+    pub fn withBracesCtx(self: *NativeCodegen, ctx: anytype, body_fn: anytype) CodegenError!void {
+        try emitConst(self, "{ ");
+        try body_fn(self, ctx);
+        try emitConst(self, " }");
+    }
+
+    /// Auto-close brackets: [ ... ]
+    pub fn withBrackets(self: *NativeCodegen, body_fn: anytype) CodegenError!void {
+        try emitConst(self, "[");
+        try body_fn(self);
+        try emitConst(self, "]");
+    }
+
+    /// Auto-close brackets with context: [ ... ]
+    pub fn withBracketsCtx(self: *NativeCodegen, ctx: anytype, body_fn: anytype) CodegenError!void {
+        try emitConst(self, "[");
+        try body_fn(self, ctx);
+        try emitConst(self, "]");
+    }
+
+    /// Emit expression wrapped in parentheses: (expr)
+    /// Convenience helper for the common case of wrapping a single expression
+    pub fn emitParens(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+        try emitConst(self, "(");
+        try self.genExpr(expr);
+        try emitConst(self, ")");
+    }
+
+    /// Emit binary operation: (left op right)
+    /// Auto-wraps in parentheses to ensure correct precedence
+    pub fn emitBinOp(self: *NativeCodegen, left: ast.Node, op: []const u8, right: ast.Node) CodegenError!void {
+        try emitConst(self, "(");
+        try self.genExpr(left);
+        try emitConst(self, op);
+        try self.genExpr(right);
+        try emitConst(self, ")");
+    }
+
+    /// Emit function/method call: name(args_body)
+    /// The body_fn should emit the arguments
+    pub fn emitCall(self: *NativeCodegen, name: []const u8, body_fn: anytype) CodegenError!void {
+        try emitConst(self, name);
+        try emitConst(self, "(");
+        try body_fn(self);
+        try emitConst(self, ")");
+    }
+
+    /// Emit function/method call with context: name(args_body)
+    pub fn emitCallCtx(self: *NativeCodegen, name: []const u8, ctx: anytype, body_fn: anytype) CodegenError!void {
+        try emitConst(self, name);
+        try emitConst(self, "(");
+        try body_fn(self, ctx);
+        try emitConst(self, ")");
+    }
+
+    /// Emit struct literal: .{ ... }
+    pub fn withStructLit(self: *NativeCodegen, body_fn: anytype) CodegenError!void {
+        try emitConst(self, ".{ ");
+        try body_fn(self);
+        try emitConst(self, " }");
+    }
+
+    /// Emit struct literal with context: .{ ... }
+    pub fn withStructLitCtx(self: *NativeCodegen, ctx: anytype, body_fn: anytype) CodegenError!void {
+        try emitConst(self, ".{ ");
+        try body_fn(self, ctx);
+        try emitConst(self, " }");
+    }
+
+    /// Emit if expression: if (cond) then_expr else else_expr
+    pub fn emitIfExpr(self: *NativeCodegen, cond: ast.Node, then_expr: ast.Node, else_expr: ast.Node) CodegenError!void {
+        try emitConst(self, "if (");
+        try self.genExpr(cond);
+        try emitConst(self, ") ");
+        try self.genExpr(then_expr);
+        try emitConst(self, " else ");
+        try self.genExpr(else_expr);
+    }
+
+    /// Emit try expression: try expr
+    pub fn emitTry(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+        try emitConst(self, "try ");
+        try self.genExpr(expr);
+    }
+
+    /// Emit orelse expression: expr orelse default
+    pub fn emitOrelse(self: *NativeCodegen, expr: ast.Node, default: []const u8) CodegenError!void {
+        try self.genExpr(expr);
+        try emitConst(self, " orelse ");
+        try emitConst(self, default);
+    }
+
+    /// Emit catch expression: expr catch default
+    pub fn emitCatch(self: *NativeCodegen, expr: ast.Node, default: []const u8) CodegenError!void {
+        try self.genExpr(expr);
+        try emitConst(self, " catch ");
+        try emitConst(self, default);
+    }
+
+    /// Emit slice expression: value[start..end]
+    pub fn emitSlice(self: *NativeCodegen, value: ast.Node, start: ?ast.Node, end: ?ast.Node) CodegenError!void {
+        try self.genExpr(value);
+        try emitConst(self, "[");
+        if (start) |s| try self.genExpr(s);
+        try emitConst(self, "..");
+        if (end) |e| try self.genExpr(e);
+        try emitConst(self, "]");
+    }
+
+    /// Emit subscript expression: value[index]
+    pub fn emitSubscript(self: *NativeCodegen, value: ast.Node, index: ast.Node) CodegenError!void {
+        try self.genExpr(value);
+        try emitConst(self, "[");
+        try self.genExpr(index);
+        try emitConst(self, "]");
+    }
+
+    /// Emit field access: value.field
+    pub fn emitField(self: *NativeCodegen, value: ast.Node, field: []const u8) CodegenError!void {
+        try self.genExpr(value);
+        try emitConst(self, ".");
+        try emitConst(self, field);
+    }
+
+    /// Emit comma-separated list of expressions
+    pub fn emitExprList(self: *NativeCodegen, exprs: []const ast.Node) CodegenError!void {
+        for (exprs, 0..) |expr, i| {
+            if (i > 0) try emitConst(self, ", ");
+            try self.genExpr(expr);
+        }
+    }
+
     /// Capture an AST expression as a raw ZigValue
     /// This is the bridge between existing emit-based codegen and the new builder API
     /// Usage: const val = try self.captureExpr(expr);
