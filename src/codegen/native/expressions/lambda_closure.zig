@@ -581,11 +581,29 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
                 try emitConst(self, ")");
             } else {
-                try emitConst(self, "(");
-                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try emitConst(self, BinOpStrings.get(@tagName(b.op)) orelse " ? ");
-                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try emitConst(self, ")");
+                // Standard binary ops with auto-close pattern
+                const BinOpCtx = struct {
+                    s: *NativeCodegen,
+                    cv: [][]const u8,
+                    pfx: []const u8,
+                    left: ast.Node,
+                    right: ast.Node,
+                    op_str: []const u8,
+                };
+                try self.withParensCtx(BinOpCtx{
+                    .s = self,
+                    .cv = captured_vars,
+                    .pfx = prefix,
+                    .left = b.left.*,
+                    .right = b.right.*,
+                    .op_str = BinOpStrings.get(@tagName(b.op)) orelse " ? ",
+                }, struct {
+                    pub fn f(_: *NativeCodegen, ctx: BinOpCtx) CodegenError!void {
+                        try genExprWithCapturePrefix(ctx.s, ctx.left, ctx.cv, ctx.pfx);
+                        try emitConst(ctx.s, ctx.op_str);
+                        try genExprWithCapturePrefix(ctx.s, ctx.right, ctx.cv, ctx.pfx);
+                    }
+                }.f);
             }
         },
         .constant => |c| {
@@ -627,14 +645,27 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                                 if (method_calls.UnittestMethods.get(func_attr.attr)) |handler| {
                                     try handler(self, func_attr.value.*, c.args);
                                 } else {
-                                    // Unknown unittest method - generate as-is
+                                    // Unknown unittest method - generate as-is with auto-close
                                     try genExprWithCapturePrefix(self, c.func.*, captured_vars, prefix);
-                                    try emitConst(self, "(");
-                                    for (c.args, 0..) |arg, i| {
-                                        if (i > 0) try emitConst(self, ", ");
-                                        try genExprWithCapturePrefix(self, arg, captured_vars, prefix);
-                                    }
-                                    try emitConst(self, ")");
+                                    const UnkCallCtx = struct {
+                                        s: *NativeCodegen,
+                                        cv: [][]const u8,
+                                        pfx: []const u8,
+                                        args: []ast.Node,
+                                    };
+                                    try self.withParensCtx(UnkCallCtx{
+                                        .s = self,
+                                        .cv = captured_vars,
+                                        .pfx = prefix,
+                                        .args = c.args,
+                                    }, struct {
+                                        pub fn f(_: *NativeCodegen, ctx: UnkCallCtx) CodegenError!void {
+                                            for (ctx.args, 0..) |arg, i| {
+                                                if (i > 0) try emitConst(ctx.s, ", ");
+                                                try genExprWithCapturePrefix(ctx.s, arg, ctx.cv, ctx.pfx);
+                                            }
+                                        }
+                                    }.f);
                                 }
                                 temp_args.deinit(self.allocator);
                                 return;
@@ -644,12 +675,26 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 }
             }
             try genExprWithCapturePrefix(self, c.func.*, captured_vars, prefix);
-            try emitConst(self, "(");
-            for (c.args, 0..) |arg, i| {
-                if (i > 0) try emitConst(self, ", ");
-                try genExprWithCapturePrefix(self, arg, captured_vars, prefix);
-            }
-            try emitConst(self, ")");
+            // Call arguments with auto-close pattern
+            const CallCtx = struct {
+                s: *NativeCodegen,
+                cv: [][]const u8,
+                pfx: []const u8,
+                args: []ast.Node,
+            };
+            try self.withParensCtx(CallCtx{
+                .s = self,
+                .cv = captured_vars,
+                .pfx = prefix,
+                .args = c.args,
+            }, struct {
+                pub fn f(_: *NativeCodegen, ctx: CallCtx) CodegenError!void {
+                    for (ctx.args, 0..) |arg, i| {
+                        if (i > 0) try emitConst(ctx.s, ", ");
+                        try genExprWithCapturePrefix(ctx.s, arg, ctx.cv, ctx.pfx);
+                    }
+                }
+            }.f);
         },
         .compare => |cmp| {
             try genExprWithCapturePrefix(self, cmp.left.*, captured_vars, prefix);
