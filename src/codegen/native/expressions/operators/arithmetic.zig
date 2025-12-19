@@ -46,27 +46,37 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 // ============================================
 
 /// Emit dunder method call: try left.method(__global_allocator, right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, right: ast.Node) CodegenError!void {
     try emitConst(self, "try ");
     try genExpr(self, left);
     try emitConst(self, ".");
     try emitConst(self, method);
-    try emitConst(self, "(__global_allocator, ");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    const Ctx = struct { r: ast.Node };
+    try self.withParensCtx(Ctx{ .r = right }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "__global_allocator, ");
+            try genExpr(s, ctx.r);
+        }
+    }.f);
 }
 
 /// Emit runtime.addNum or runtime.subtractNum(left, right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: ast.Node) CodegenError!void {
     if (is_add) {
-        try emitConst(self, "runtime.addNum(");
+        try emitConst(self, "runtime.addNum");
     } else {
-        try emitConst(self, "runtime.subtractNum(");
+        try emitConst(self, "runtime.subtractNum");
     }
-    try genExpr(self, left);
-    try emitConst(self, ", ");
-    try genExpr(self, right);
-    try emitConst(self, ")");
+    const Ctx = struct { l: ast.Node, r: ast.Node };
+    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExpr(s, ctx.l);
+            try emitConst(s, ", ");
+            try genExpr(s, ctx.r);
+        }
+    }.f);
 }
 
 
