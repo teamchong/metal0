@@ -4,6 +4,8 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
 
 // Import submodules
 const var_tracking = @import("nested/var_tracking.zig");
@@ -40,7 +42,11 @@ pub fn genNestedFunctionDef(
         }
 
         // No captures and not recursive - use ZeroClosure comptime pattern
-        try self.emitIndent();
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        const output = b.getBody();
+        try self.output.appendSlice(self.allocator, output);
+
         try zero_capture.genZeroCaptureClosure(self, func);
         return;
     }
