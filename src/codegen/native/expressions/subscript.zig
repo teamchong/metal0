@@ -42,39 +42,55 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 // ============================================
 
 /// Emit @as(usize, @intCast(expr))
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitAsUsize(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try emitConst(self, "@as(usize, @intCast(");
-    try genExpr(self, expr);
-    try emitConst(self, "))");
+    try emitConst(self, "@as(usize, @intCast");
+    try self.emitParens(expr);
+    try emitConst(self, ")");
 }
 
 /// Emit base.get(key).? for dict access
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitDictGet(self: *NativeCodegen, base: ast.Node, key: ast.Node) CodegenError!void {
     try genExpr(self, base);
-    try emitConst(self, ".get(");
-    try genExpr(self, key);
-    try emitConst(self, ").?");
+    try emitConst(self, ".get");
+    try self.emitParens(key);
+    try emitConst(self, ".?");
 }
 
 /// Emit base.getPtr(key).?.* for mutable dict access
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitDictGetPtr(self: *NativeCodegen, key: ast.Node) CodegenError!void {
-    try emitConst(self, ".getPtr(");
-    try genExpr(self, key);
-    try emitConst(self, ").?.*");
+    try emitConst(self, ".getPtr");
+    try self.emitParens(key);
+    try emitConst(self, ".?.*");
 }
 
 /// Emit .items[@as(usize, @intCast(index))] for ArrayList access
+/// Uses auto-close pattern with withBrackets
 fn emitArrayListIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
-    try emitConst(self, ".items[@as(usize, @intCast(");
-    try genExpr(self, index);
-    try emitConst(self, "))]");
+    try emitConst(self, ".items");
+    const Ctx = struct { i: ast.Node };
+    try self.withBracketsCtx(Ctx{ .i = index }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "@as(usize, @intCast");
+            try s.emitParens(ctx.i);
+            try emitConst(s, ")");
+        }
+    }.f);
 }
 
 /// Emit [@as(usize, @intCast(index))] for array access
+/// Uses auto-close pattern with withBrackets
 fn emitArrayIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
-    try emitConst(self, "[@as(usize, @intCast(");
-    try genExpr(self, index);
-    try emitConst(self, "))]");
+    const Ctx = struct { i: ast.Node };
+    try self.withBracketsCtx(Ctx{ .i = index }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitConst(s, "@as(usize, @intCast");
+            try s.emitParens(ctx.i);
+            try emitConst(s, ")");
+        }
+    }.f);
 }
 
 
