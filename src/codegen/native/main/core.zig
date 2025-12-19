@@ -21,6 +21,24 @@ const name_gen_mod = @import("codegen.name_gen");
 const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - used by all codegen modules
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output - used by all codegen modules
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 const hashmap_helper = @import("utils.hashmap_helper");
 const scratch_buffer_mod = @import("../../../utils/scratch_buffer.zig");
 const ScratchBuffer = scratch_buffer_mod.ScratchBuffer;
@@ -1064,14 +1082,14 @@ pub const NativeCodegen = struct {
         if (ctx.is_defer_based) return; // Defer handles it
 
         try self.emitIndent();
-        try self.emit("{ // finally (inline)\n");
+        try emitConst(self, "{ // finally (inline)\n");
         self.indent();
         for (ctx.finalbody) |stmt| {
             try self.generateStmt(stmt);
         }
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self, "}\n");
     }
 
     /// Emit ALL active finally blocks inline (from innermost to outermost).
@@ -1115,14 +1133,14 @@ pub const NativeCodegen = struct {
     pub fn genInternTable(self: *NativeCodegen) !void {
         if (self.intern_list.items.len == 0) return;
 
-        try self.emit("\n// Interned string literals (O(1) equality via pointer comparison)\n");
-        try self.emit("const __intern = struct {\n");
+        try emitConst(self, "\n// Interned string literals (O(1) equality via pointer comparison)\n");
+        try emitConst(self, "const __intern = struct {\n");
 
         for (self.intern_list.items, 0..) |str, i| {
             try self.output.writer(self.allocator).print("    pub const s{d}: []const u8 = \"{s}\";\n", .{ i, str });
         }
 
-        try self.emit("};\n\n");
+        try emitConst(self, "};\n\n");
     }
 
     /// Get the reference to an interned string by index
@@ -1527,29 +1545,8 @@ pub const NativeCodegen = struct {
         return self.async_function_defs.get(name);
     }
 
-    // Helper functions - public for use by statements.zig and expressions.zig
-    pub fn emit(self: *NativeCodegen, s: []const u8) CodegenError!void {
-        try self.output.appendSlice(self.allocator, s);
-        // Track newlines for debug info (Zig line counting)
-        for (s) |c| {
-            if (c == '\n') {
-                self.zig_line_counter += 1;
-            }
-        }
-    }
-
-    /// Emit formatted string
-    pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-        const start_len = self.output.items.len;
-        try self.output.writer(self.allocator).print(fmt, args);
-        // Track newlines for debug info (Zig line counting)
-        const new_content = self.output.items[start_len..];
-        for (new_content) |c| {
-            if (c == '\n') {
-                self.zig_line_counter += 1;
-            }
-        }
-    }
+    // DEPRECATED: emit/emitFmt have been removed - use emitConst helper or builder APIs
+    // All code should use the ZigBuilder pattern for structured code generation
 
     /// Get an ExprEmitter for safe expression wrapping
     /// Use for parenthesization, catch handling, and labeled blocks
@@ -1562,13 +1559,13 @@ pub const NativeCodegen = struct {
     pub fn emitUniqueBlockLabel(self: *NativeCodegen, comptime prefix: []const u8) CodegenError!u32 {
         const block_id = self.general_block_id;
         self.general_block_id += 1;
-        try self.emitFmt(prefix ++ "_blk_{d}", .{block_id});
+        try emitFmtConst(self, prefix ++ "_blk_{d}", .{block_id});
         return block_id;
     }
 
     /// Emit a break statement with a unique block ID
     pub fn emitBreakToBlock(self: *NativeCodegen, comptime prefix: []const u8, block_id: u32) CodegenError!void {
-        try self.emitFmt("break :" ++ prefix ++ "_blk_{d}", .{block_id});
+        try emitFmtConst(self, "break :" ++ prefix ++ "_blk_{d}", .{block_id});
     }
 
     /// Generate a fresh unique name using the unified NameGen system
@@ -1629,7 +1626,7 @@ pub const NativeCodegen = struct {
         const id = self.nextNameId();
         const label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_{s}", .{ id, hint });
 
-        try self.emitFmt("({s}: {{ ", .{label});
+        try emitFmtConst(self, "({s}: {{ ", .{label});
         const start_pos = self.output.items.len;
 
         // Call body with context
@@ -1642,16 +1639,16 @@ pub const NativeCodegen = struct {
         if (had_content) {
             const last_byte = self.output.items[end_pos - 1];
             if (last_byte != ';') {
-                try self.emit("; ");
+                try emitConst(self, "; ");
             }
         }
 
-        try self.emit("})");
+        try emitConst(self, "})");
     }
 
     /// Helper to emit break statement inside inline block
     pub fn emitBreak(self: *NativeCodegen, label: []const u8, value: []const u8) CodegenError!void {
-        try self.emitFmt("break :{s} {s}", .{ label, value });
+        try emitFmtConst(self, "break :{s} {s}", .{ label, value });
     }
 
     /// DEPRECATED: Use emitInlineBlock with callback instead
@@ -1659,21 +1656,33 @@ pub const NativeCodegen = struct {
     pub fn emitInlineBlockStart(self: *NativeCodegen, hint: []const u8) CodegenError![]const u8 {
         const id = self.nextNameId();
         const label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_{s}", .{ id, hint });
-        try self.emitFmt("({s}: {{ ", .{label});
+        try emitFmtConst(self, "({s}: {{ ", .{label});
         return label;
     }
 
     /// DEPRECATED: Use emitInlineBlock with callback instead
     pub fn emitInlineBlockEnd(self: *NativeCodegen) CodegenError!void {
-        try self.emit("})");
+        try emitConst(self, "})");
     }
 
     /// Capture an AST expression as a raw ZigValue
     /// This is the bridge between existing emit-based codegen and the new builder API
     /// Usage: const val = try self.captureExpr(expr);
     /// The returned ZigValue.raw() contains the emitted Zig code for the expression
+    /// IMPORTANT: Saves and restores builder state to prevent nested genExpr
+    /// calls from flushing accumulated builder content from parent scopes.
     pub fn captureExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!builder_mod.ZigValue {
         const expressions = @import("../expressions.zig");
+
+        // Save builder state - nested code may use builder and flush
+        // Copy to arena to avoid aliasing issues when restoring
+        const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+            const content = b.getBodyAndClear();
+            if (content.len > 0) {
+                break :blk try self.arena.allocator().dupe(u8, content);
+            }
+            break :blk null;
+        } else null;
 
         // Save current output position
         const start_pos = self.output.items.len;
@@ -1690,17 +1699,44 @@ pub const NativeCodegen = struct {
         // Remove the generated code from output (we're capturing it, not emitting it)
         self.output.shrinkRetainingCapacity(start_pos);
 
+        // Restore builder state
+        if (builder_save) |saved| {
+            if (self.builder) |b| {
+                try b.write(saved);
+            }
+        }
+
         return builder_mod.ZigValue.raw(code);
     }
 
     /// Capture a statement's generated code (for builder integration)
     /// Similar to captureExpr but for statements
+    /// IMPORTANT: Saves and restores builder state to prevent nested generateStmt
+    /// calls from flushing accumulated builder content from parent scopes.
     pub fn captureStmt(self: *NativeCodegen, stmt: ast.Node) CodegenError![]const u8 {
+        // Save builder state - nested code may use builder and flush
+        // Copy to arena to avoid aliasing issues when restoring
+        const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+            const content = b.getBodyAndClear();
+            if (content.len > 0) {
+                break :blk try self.arena.allocator().dupe(u8, content);
+            }
+            break :blk null;
+        } else null;
+
         const start_pos = self.output.items.len;
         try self.generateStmt(stmt);
         const generated = self.output.items[start_pos..];
         const code = try self.arena.allocator().dupe(u8, generated);
         self.output.shrinkRetainingCapacity(start_pos);
+
+        // Restore builder state
+        if (builder_save) |saved| {
+            if (self.builder) |b| {
+                try b.write(saved);
+            }
+        }
+
         return code;
     }
 
@@ -1720,50 +1756,50 @@ pub const NativeCodegen = struct {
         const b = try self.getBuilder();
         switch (value) {
             .none => {},
-            .certain_int => |v| try self.emitFmt("{d}", .{v}),
+            .certain_int => |v| try emitFmtConst(self, "{d}", .{v}),
             .certain_float => |v| {
                 if (std.math.isNan(v)) {
-                    try self.emit("std.math.nan(f64)");
+                    try emitConst(self, "std.math.nan(f64)");
                 } else if (std.math.isInf(v)) {
                     if (v > 0) {
-                        try self.emit("std.math.inf(f64)");
+                        try emitConst(self, "std.math.inf(f64)");
                     } else {
-                        try self.emit("-std.math.inf(f64)");
+                        try emitConst(self, "-std.math.inf(f64)");
                     }
                 } else {
-                    try self.emitFmt("{d}", .{v});
+                    try emitFmtConst(self, "{d}", .{v});
                 }
             },
-            .certain_bool => |v| try self.emit(if (v) "true" else "false"),
+            .certain_bool => |v| try emitConst(self, if (v) "true" else "false"),
             .certain_str => |s| {
-                try self.emit("\"");
+                try emitConst(self, "\"");
                 for (s) |c| {
                     switch (c) {
-                        '\n' => try self.emit("\\n"),
-                        '\r' => try self.emit("\\r"),
-                        '\t' => try self.emit("\\t"),
-                        '\\' => try self.emit("\\\\"),
-                        '"' => try self.emit("\\\""),
+                        '\n' => try emitConst(self, "\\n"),
+                        '\r' => try emitConst(self, "\\r"),
+                        '\t' => try emitConst(self, "\\t"),
+                        '\\' => try emitConst(self, "\\\\"),
+                        '"' => try emitConst(self, "\\\""),
                         else => {
                             if (c < 32 or c > 126) {
-                                try self.emitFmt("\\x{x:0>2}", .{c});
+                                try emitFmtConst(self, "\\x{x:0>2}", .{c});
                             } else {
                                 try self.output.append(self.allocator, c);
                             }
                         },
                     }
                 }
-                try self.emit("\"");
+                try emitConst(self, "\"");
             },
-            .certain_null => try self.emit("null"),
-            .named => |name| try self.emit(name),
-            .raw_expr => |expr| try self.emit(expr),
+            .certain_null => try emitConst(self, "null"),
+            .named => |name| try emitConst(self, name),
+            .raw_expr => |expr| try emitConst(self, expr),
             else => {
                 // For complex values, use builder to emit and copy
                 const start = b.body.items.len;
                 try b.emitValue(value, builder_mod.EmitConfig.forExpression());
                 const emitted = b.body.items[start..];
-                try self.emit(emitted);
+                try emitConst(self, emitted);
                 // Roll back builder
                 b.body.shrinkRetainingCapacity(start);
             },
@@ -1797,7 +1833,7 @@ pub const NativeCodegen = struct {
 
     pub fn emitIndent(self: *NativeCodegen) CodegenError!void {
         const level = @min(self.indent_level, INDENT_STRINGS.len - 1);
-        try self.emit(INDENT_STRINGS[level]);
+        try emitConst(self, INDENT_STRINGS[level]);
     }
 
     pub fn indent(self: *NativeCodegen) void {
@@ -1815,7 +1851,7 @@ pub const NativeCodegen = struct {
     ///   try self.emitFmt("blk_{d}: {{\n", .{id});
     ///   // ... block body ...
     ///   try self.emitFmt("break :blk_{d} result;\n", .{id});
-    ///   try self.emit("}");
+    ///   try emitConst(self, "}");
     pub fn nextLabelId(self: *NativeCodegen) usize {
         const id = self.block_label_counter;
         self.block_label_counter += 1;
@@ -1827,13 +1863,13 @@ pub const NativeCodegen = struct {
     /// Usage: const id = try self.emitLabeledBlock("blk"); ... try self.emitBreakLabel("blk", id);
     pub fn emitLabeledBlock(self: *NativeCodegen, prefix: []const u8) CodegenError!usize {
         const id = self.nextLabelId();
-        try self.emitFmt("{s}_{d}: {{\n", .{ prefix, id });
+        try emitFmtConst(self, "{s}_{d}: {{\n", .{ prefix, id });
         return id;
     }
 
     /// Emit a break statement for a labeled block
     pub fn emitBreakLabel(self: *NativeCodegen, prefix: []const u8, id: usize) CodegenError!void {
-        try self.emitFmt("break :{s}_{d}", .{ prefix, id });
+        try emitFmtConst(self, "break :{s}_{d}", .{ prefix, id });
     }
 
     /// Convert NativeType to Zig type string for code generation
@@ -1994,9 +2030,9 @@ pub const NativeCodegen = struct {
             // If variable only appears once (or not at all), it's unused
             if (occurrence_count <= 1) {
                 try self.emitIndent();
-                try self.emit("_ = &");
+                try emitConst(self, "_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
-                try self.emit(";\n");
+                try emitConst(self, ";\n");
             }
 
             // Mark for removal from pending_discards
@@ -2047,9 +2083,9 @@ pub const NativeCodegen = struct {
             // If variable only appears once (or not at all), it's unused
             if (occurrence_count <= 1) {
                 try self.emitIndent();
-                try self.emit("_ = &");
+                try emitConst(self, "_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
-                try self.emit(";\n");
+                try emitConst(self, ";\n");
             }
         }
         // Clear pending discards after emitting

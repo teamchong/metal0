@@ -7,6 +7,18 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 // Trait imports for type checking
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
@@ -24,7 +36,7 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     const label_id = em.reserveLabelId();
 
     // Generate: (gen_N: { ... })
-    try self.emit(try std.fmt.allocPrint(self.allocator, "(gen_{d}: {{\n", .{label_id}));
+    try emitConst(self, try std.fmt.allocPrint(self.allocator, "(gen_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Determine element type from the expression being yielded
@@ -49,9 +61,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
         // Generate if conditions for this generator
         for (gen.ifs) |if_cond| {
             try self.emitIndent();
-            try self.emit("if (");
+            try emitConst(self, "if (");
             try comp_conditions.genComprehensionConditionNoSubs(self, if_cond);
-            try self.emit(") {\n");
+            try emitConst(self, ") {\n");
             self.indent();
         }
     }
@@ -60,18 +72,18 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     try self.emitIndent();
     try self.output.writer(self.allocator).print("try __comp_result_{d}.append(__global_allocator, ", .{label_id});
     try genExpr(self, genexp.elt.*);
-    try self.emit(");\n");
+    try emitConst(self, ");\n");
 
     // Close all if conditions and for loops
     for (genexp.generators) |gen| {
         for (gen.ifs) |_| {
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self, "}\n");
         }
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self, "}\n");
     }
 
     // Generate: break :gen_N __comp_result_N;
@@ -80,7 +92,7 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self, "})");
 }
 
 /// Generate range loop for generator expression
@@ -126,14 +138,14 @@ fn genGenExpRangeLoop(
         if (args.len >= 2) {
             try genExpr(self, args[0]);
         } else {
-            try self.emit("0");
+            try emitConst(self, "0");
         }
-        try self.emit(";\n");
+        try emitConst(self, ";\n");
 
         try self.emitIndent();
         try self.output.writer(self.allocator).print("while ({s} < ", .{var_name});
         try genExpr(self, args[if (args.len == 1) 0 else 1]);
-        try self.emit(") {\n");
+        try emitConst(self, ") {\n");
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("defer {s} += 1;\n", .{var_name});
@@ -170,11 +182,11 @@ fn genGenExpIterLoop(
     if (is_direct_iterable) {
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
-        try self.emit(";\n");
+        try emitConst(self, ";\n");
     } else {
         try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
-        try self.emit(";\n");
+        try emitConst(self, ";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __list_{d}_{d}.items;\n", .{ label_id, gen_idx, label_id, gen_idx });
     }
@@ -192,7 +204,7 @@ fn genGenExpIterLoop(
         try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
         const unique_id = self.nextLabelId();
         const maybe_mangled = try comp_conditions.emitForLoopTarget(self, gen.target.*, unique_id);
-        try self.emit("| {\n");
+        try emitConst(self, "| {\n");
         self.indent();
 
         // If loop target shadows an imported module, register the rename mapping

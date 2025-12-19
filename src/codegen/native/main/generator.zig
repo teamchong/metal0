@@ -14,6 +14,26 @@ const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 const build_dirs = @import("../../../build_dirs.zig");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
+
 // Import trait modules for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
@@ -190,23 +210,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // Always import std and runtime - DCE removes if unused
-    try self.emit("const std = @import(\"std\");\n");
-    try self.emit("const runtime = @import(\"runtime\");\n");
+    try emitConst(self, "const std = @import(\"std\");\n");
+    try emitConst(self, "const runtime = @import(\"runtime\");\n");
     if (analysis.needs_string_utils) {
         // string_utils is a submodule of runtime, access via runtime.string_utils
-        try self.emit("const string_utils = runtime.string_utils;\n");
+        try emitConst(self, "const string_utils = runtime.string_utils;\n");
     }
     if (analysis.needs_hashmap_helper) {
         // Use runtime.hashmap_helper - hashmap_helper is re-exported from runtime module
-        try self.emit("const hashmap_helper = runtime.hashmap_helper;\n");
+        try emitConst(self, "const hashmap_helper = runtime.hashmap_helper;\n");
     }
     // Always import allocator_helper - needs_allocator defaults to true and most code uses it
     // Use runtime.allocator_helper - allocator_helper is re-exported from runtime module
-    try self.emit("const allocator_helper = runtime.allocator_helper;\n");
+    try emitConst(self, "const allocator_helper = runtime.allocator_helper;\n");
 
     // Emit @import statements for compiled user/stdlib modules (collected in PHASE 1.6)
     for (inlined_modules.items) |import_stmt| {
-        try self.emit(import_stmt);
+        try emitConst(self, import_stmt);
     }
 
     // PHASE 3.5: Generate C library imports (if any detected)
@@ -214,13 +234,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const c_import_block = try ctx.generateCImportBlock(self.allocator);
         defer self.allocator.free(c_import_block);
         if (c_import_block.len > 0) {
-            try self.emit(c_import_block);
+            try emitConst(self, c_import_block);
         }
     }
 
     // PHASE 3.6: Generate c_interop import if C extension modules are used
     if (self.c_extension_modules.count() > 0) {
-        try self.emit("const c_interop = @import(\"c_interop\");\n");
+        try emitConst(self, "const c_interop = @import(\"c_interop\");\n");
     }
 
     // PHASE 3.7: Emit module assignments for registry modules
@@ -257,7 +277,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     // Use Zig import from registry
                     // Prefer direct_import for DCE-friendly imports, fallback to zig_import
                     const import_path = info.direct_import orelse info.zig_import;
-                    try self.emit("const ");
+                    try emitConst(self, "const ");
                     // For dotted names (e.g., test.pickletester), use writeEscapedDottedIdent
                     // For simple names that would shadow methods (e.g., copy), use writeLocalVarName
                     if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
@@ -265,14 +285,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     } else {
                         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
                     }
-                    try self.emit(" = ");
+                    try emitConst(self, " = ");
                     if (import_path) |path| {
-                        try self.emit(path);
+                        try emitConst(self, path);
                     } else {
                         // No direct import path - try stdlib_modules_gen as fallback
                         const stdlib_gen = @import("../stdlib_modules_gen.zig");
                         if (stdlib_gen.hasModule(mod_name)) {
-                            try self.emit("runtime.Lib.");
+                            try emitConst(self, "runtime.Lib.");
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         } else {
                             // Module not implemented - emit compile error for clear failure
@@ -282,7 +302,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             );
                         }
                     }
-                    try self.emit(";\n");
+                    try emitConst(self, ";\n");
                 },
                 .compile_python, .unsupported => {
                     // These modules are handled via @import above (if compiled)
@@ -294,17 +314,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             const stdlib_gen = @import("../stdlib_modules_gen.zig");
             if (stdlib_gen.hasModule(mod_name)) {
                 // Generate import from runtime.Lib
-                try self.emit("const ");
+                try emitConst(self, "const ");
                 // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
                 if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                     try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                 } else {
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
                 }
-                try self.emit(" = runtime.Lib.");
+                try emitConst(self, " = runtime.Lib.");
                 // Replace dots with @"" for nested modules
                 try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
-                try self.emit(";\n");
+                try emitConst(self, ";\n");
             }
             // User modules without registry entry are handled via @import above
         }
@@ -318,14 +338,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         if (self.isCExtensionModule(module_name) or self.isCExtensionModule(alias)) {
             continue;
         }
-        try self.emit("const ");
+        try emitConst(self, "const ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias);
-        try self.emit(" = ");
+        try emitConst(self, " = ");
         try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), module_name);
-        try self.emit(";\n");
+        try emitConst(self, ";\n");
     }
 
-    try self.emit("\n");
+    try emitConst(self, "\n");
 
     // PHASE 3.6: Generate from-import symbol re-exports
     try from_imports_gen.generateFromImports(self);
@@ -365,46 +385,46 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
-    try self.emit("const __name__ = \"__main__\";\n");
+    try emitConst(self, "const __name__ = \"__main__\";\n");
     // Track __name__ as module-level so local assignments get renamed to avoid shadowing
     try self.module_level_vars.put("__name__", {});
 
     // PHASE 4.0.1: Define __file__ constant (Python magic variable for source file path)
-    try self.emit("const __file__: []const u8 = \"");
+    try emitConst(self, "const __file__: []const u8 = \"");
     if (self.source_file_path) |path| {
         // Escape special characters in the path
         for (path) |c| {
             if (c == '\\') {
-                try self.emit("\\\\");
+                try emitConst(self, "\\\\");
             } else if (c == '"') {
-                try self.emit("\\\"");
+                try emitConst(self, "\\\"");
             } else {
                 try self.output.append(self.allocator, c);
             }
         }
     } else {
-        try self.emit("<unknown>");
+        try emitConst(self, "<unknown>");
     }
-    try self.emit("\";\n\n");
+    try emitConst(self, "\";\n\n");
     // Track __file__ as module-level so local assignments get renamed to avoid shadowing
     try self.module_level_vars.put("__file__", {});
 
     // PHASE 4.1: Emit source directory for runtime eval subprocess
     // This allows eval() to spawn metal0 subprocess with correct import paths
     if (source_file_dir) |dir| {
-        try self.emit("// metal0 metadata for runtime eval subprocess\n");
-        try self.emit("pub const __metal0_source_dir: []const u8 = \"");
+        try emitConst(self, "// metal0 metadata for runtime eval subprocess\n");
+        try emitConst(self, "pub const __metal0_source_dir: []const u8 = \"");
         // Escape any special characters in the path
         for (dir) |c| {
             if (c == '\\') {
-                try self.emit("\\\\");
+                try emitConst(self, "\\\\");
             } else if (c == '"') {
-                try self.emit("\\\"");
+                try emitConst(self, "\\\"");
             } else {
                 try self.output.append(self.allocator, c);
             }
         }
-        try self.emit("\";\n\n");
+        try emitConst(self, "\";\n\n");
     }
 
     // PHASE 4.5: Pre-generate closure wrapper types for functions that return closures
@@ -433,15 +453,15 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         // Module mode: emit __global_allocator for f-strings and other allocating operations
         // This is needed because modules are compiled separately and don't have main() setup
         if (analysis.needs_allocator) {
-            try self.emit("\n// Module-level allocator for f-strings and dynamic allocations\n");
-            try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
-            try self.emit("var __global_allocator: std.mem.Allocator = __gpa.allocator();\n\n");
+            try emitConst(self, "\n// Module-level allocator for f-strings and dynamic allocations\n");
+            try emitConst(self, "var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
+            try emitConst(self, "var __global_allocator: std.mem.Allocator = __gpa.allocator();\n\n");
         }
 
         if (self.module_name) |mod_name| {
-            try self.emit("pub const ");
+            try emitConst(self, "pub const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
-            try self.emit(" = struct {\n");
+            try emitConst(self, " = struct {\n");
             self.indent();
         }
     }
@@ -458,17 +478,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Record debug line mapping for class definitions
             self.recordLineMappingForName(stmt.class_def.name);
             try statements.genClassDef(self, stmt.class_def);
-            try self.emit("\n");
+            try emitConst(self, "\n");
         } else if (stmt == .function_def) {
             // Record debug line mapping for function definitions
             self.recordLineMappingForName(stmt.function_def.name);
             if (self.mode == .module) {
                 // In module mode, make functions pub
                 try self.emitIndent();
-                try self.emit("pub ");
+                try emitConst(self, "pub ");
             }
             try statements.genFunctionDef(self, stmt.function_def);
-            try self.emit("\n");
+            try emitConst(self, "\n");
             // Clear func_local_uses after module-level function generation
             // This prevents the state from leaking into subsequent class definitions
             // which could incorrectly trigger `_ = &ClassName;` emission at struct level
@@ -488,11 +508,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.emitIndent();
                     const tmp_name = try self.freshName("module_unpack");
 
-                    try self.emit("const ");
-                    try self.emit(tmp_name);
-                    try self.emit(" = ");
+                    try emitConst(self, "const ");
+                    try emitConst(self, tmp_name);
+                    try emitConst(self, " = ");
                     try expressions.genExpr(self, stmt.assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self, ";\n");
 
                     // Generate pub const for each target (skip if already declared - reassignment)
                     for (target_elts, 0..) |target, j| {
@@ -505,7 +525,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             }
                             try self.declareVar(var_name);
                             try self.emitIndent();
-                            try self.emit("pub const ");
+                            try emitConst(self, "pub const ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                             try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, j });
                         }
@@ -557,7 +577,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     }
 
                     try self.emitIndent();
-                    try self.emit("pub const ");
+                    try emitConst(self, "pub const ");
                     // Generate target name
                     for (stmt.assign.targets, 0..) |target, target_idx| {
                         if (target == .name) {
@@ -566,12 +586,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         }
                         if (target_idx < stmt.assign.targets.len - 1) {
-                            try self.emit(", ");
+                            try emitConst(self, ", ");
                         }
                     }
-                    try self.emit(" = ");
+                    try emitConst(self, " = ");
                     try expressions.genExpr(self, stmt.assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self, ";\n");
                 }
             }
         }
@@ -581,7 +601,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     if (self.mode == .module) {
         if (self.module_name != null) {
             self.dedent();
-            try self.emit("};\n");
+            try emitConst(self, "};\n");
         }
         // Module mode doesn't generate main, just return
         return self.output.toOwnedSlice(self.allocator);
@@ -593,26 +613,26 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 5.5: Generate module-level allocator (only if needed)
     if (analysis.needs_allocator) {
-        try self.emit("\n// Module-level allocator for async functions and f-strings\n");
-        try self.emit("// Browser WASM: FixedBufferAllocator (no std.Thread), Native: GPA\n");
-        try self.emit("const __is_freestanding = @import(\"builtin\").os.tag == .freestanding;\n");
-        try self.emit("// Freestanding uses fixed buffer (64KB), native uses GPA\n");
-        try self.emit("var __wasm_buffer: [64 * 1024]u8 = undefined;\n");
-        try self.emit("var __fba = std.heap.FixedBufferAllocator.init(&__wasm_buffer);\n");
-        try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
-        try self.emit("var __global_allocator: std.mem.Allocator = undefined;\n");
-        try self.emit("var __allocator_initialized: bool = false;\n");
+        try emitConst(self, "\n// Module-level allocator for async functions and f-strings\n");
+        try emitConst(self, "// Browser WASM: FixedBufferAllocator (no std.Thread), Native: GPA\n");
+        try emitConst(self, "const __is_freestanding = @import(\"builtin\").os.tag == .freestanding;\n");
+        try emitConst(self, "// Freestanding uses fixed buffer (64KB), native uses GPA\n");
+        try emitConst(self, "var __wasm_buffer: [64 * 1024]u8 = undefined;\n");
+        try emitConst(self, "var __fba = std.heap.FixedBufferAllocator.init(&__wasm_buffer);\n");
+        try emitConst(self, "var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
+        try emitConst(self, "var __global_allocator: std.mem.Allocator = undefined;\n");
+        try emitConst(self, "var __allocator_initialized: bool = false;\n");
         // sys.argv mutable global - can be assigned by Python code
-        try self.emit("var __sys_argv: [][]const u8 = &[_][]const u8{};\n");
+        try emitConst(self, "var __sys_argv: [][]const u8 = &[_][]const u8{};\n");
         // sys module pre-computed globals (avoid repeated block label collisions)
-        try self.emit("var __sys_executable: []const u8 = \"\";\n");
-        try self.emit("var __sys_platform: []const u8 = \"unknown\";\n");
-        try self.emit("var __sys_byteorder: []const u8 = \"little\";\n\n");
+        try emitConst(self, "var __sys_executable: []const u8 = \"\";\n");
+        try emitConst(self, "var __sys_platform: []const u8 = \"unknown\";\n");
+        try emitConst(self, "var __sys_byteorder: []const u8 = \"little\";\n\n");
     }
 
     // PHASE 5.6: Generate module-level global variables (for 'global' keyword support)
     if (analysis.global_vars.len > 0) {
-        try self.emit("\n// Module-level variables declared with 'global' keyword\n");
+        try emitConst(self, "\n// Module-level variables declared with 'global' keyword\n");
         for (analysis.global_vars) |var_name| {
             // Track in module_level_vars so local variables with same name get renamed
             // to avoid Zig's module-level shadowing error
@@ -789,9 +809,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Pre-declare list comprehensions as std.ArrayList(runtime.PyValue)
             // This handles the common case where element type is complex
             if (is_listcomp_assignment) {
-                try self.emit("var ");
-                try self.emit(var_name);
-                try self.emit(": std.ArrayList(runtime.PyValue) = undefined;\n");
+                try emitConst(self, "var ");
+                try emitConst(self, var_name);
+                try emitConst(self, ": std.ArrayList(runtime.PyValue) = undefined;\n");
                 try self.symbol_table.declare(var_name, .unknown, true);
                 try self.markGlobalVar(var_name);
                 continue;
@@ -817,20 +837,20 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // [*range(n)] and (*range(n),) patterns for loop variable types)
             if (dictcomp_node) |dc_node| {
                 const dc_type = self.type_inferrer.inferExpr(dc_node.*) catch .unknown;
-                try self.emit("var ");
-                try self.emit(var_name);
-                try self.emit(": ");
+                try emitConst(self, "var ");
+                try emitConst(self, var_name);
+                try emitConst(self, ": ");
                 if (container_traits.isDict(dc_type)) {
                     // Use the inferred dict type with correct key/value types
                     var type_buf: std.ArrayListUnmanaged(u8) = .{};
                     defer type_buf.deinit(self.allocator);
                     try dc_type.toZigType(self.allocator, &type_buf);
-                    try self.emit(type_buf.items);
+                    try emitConst(self, type_buf.items);
                 } else {
                     // Fallback to generic dict type
-                    try self.emit("hashmap_helper.StringHashMap(*runtime.PyObject)");
+                    try emitConst(self, "hashmap_helper.StringHashMap(*runtime.PyObject)");
                 }
-                try self.emit(" = undefined;\n");
+                try emitConst(self, " = undefined;\n");
                 try self.symbol_table.declare(var_name, dc_type, true);
                 try self.markGlobalVar(var_name);
                 continue;
@@ -996,11 +1016,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         break :blk "std.AutoArrayHashMap(i64, i64)";
                     } else "hashmap_helper.StringHashMap(i64)"; // Default for empty dict()
 
-                    try self.emit("var ");
-                    try self.emit(var_name);
-                    try self.emit(": ");
-                    try self.emit(zig_type);
-                    try self.emit(" = undefined;\n");
+                    try emitConst(self, "var ");
+                    try emitConst(self, var_name);
+                    try emitConst(self, ": ");
+                    try emitConst(self, zig_type);
+                    try emitConst(self, " = undefined;\n");
                     try self.symbol_table.declare(var_name, .unknown, true);
                     try self.markGlobalVar(var_name);
                     // Track for assignment handling - skip assignment, will be initialized in main
@@ -1086,11 +1106,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Emit module constants as const with correct type
             if (is_module_constant) {
                 if (module_const_type) |const_type| {
-                    try self.emit("const ");
+                    try emitConst(self, "const ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                    try self.emit(": ");
-                    try self.emit(const_type);
-                    try self.emit(" = support.");
+                    try emitConst(self, ": ");
+                    try emitConst(self, const_type);
+                    try emitConst(self, " = support.");
                     // Find the attribute name from the assignment
                     for (module.body) |stmt| {
                         if (stmt == .assign) {
@@ -1098,14 +1118,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             for (assign.targets) |target| {
                                 if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
                                     if (assign.value.* == .attribute) {
-                                        try self.emit(assign.value.attribute.attr);
+                                        try emitConst(self, assign.value.attribute.attr);
                                         break;
                                     }
                                 }
                             }
                         }
                     }
-                    try self.emit(";\n");
+                    try emitConst(self, ";\n");
                     try self.symbol_table.declare(var_name, if (std.mem.eql(u8, const_type, "i64")) .{ .int = .bounded } else if (std.mem.eql(u8, const_type, "f64")) .float else if (std.mem.eql(u8, const_type, "bool")) .bool else .unknown, true);
                     try self.markGlobalVar(var_name);
                     continue;
@@ -1115,13 +1135,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Handle feature_macros related variables with correct types
             // These derive from FeatureMacros struct which returns strings, not PyObjects
             if (std.mem.eql(u8, var_name, "EXPECTED_FEATURE_MACROS")) {
-                try self.emit("var EXPECTED_FEATURE_MACROS: hashmap_helper.StringHashMap(void) = undefined;\n");
+                try emitConst(self, "var EXPECTED_FEATURE_MACROS: hashmap_helper.StringHashMap(void) = undefined;\n");
                 try self.symbol_table.declare(var_name, .unknown, true);
                 try self.markGlobalVar(var_name);
                 continue;
             }
             if (std.mem.eql(u8, var_name, "WINDOWS_FEATURE_MACROS")) {
-                try self.emit("var WINDOWS_FEATURE_MACROS: hashmap_helper.StringHashMap([]const u8) = undefined;\n");
+                try emitConst(self, "var WINDOWS_FEATURE_MACROS: hashmap_helper.StringHashMap([]const u8) = undefined;\n");
                 try self.symbol_table.declare(var_name, .unknown, true);
                 try self.markGlobalVar(var_name);
                 continue;
@@ -1286,11 +1306,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             };
             defer if (needs_free) self.allocator.free(zig_type);
 
-            try self.emit("var ");
-            try self.emit(var_name);
-            try self.emit(": ");
-            try self.emit(zig_type);
-            try self.emit(" = undefined;\n");
+            try emitConst(self, "var ");
+            try emitConst(self, var_name);
+            try emitConst(self, ": ");
+            try emitConst(self, zig_type);
+            try emitConst(self, " = undefined;\n");
 
             // Mark these as declared at module level (scope 0)
             try self.symbol_table.declare(var_name, var_type orelse .{ .int = .bounded }, true);
@@ -1298,14 +1318,14 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Also track them as global vars in codegen for assignment handling
             try self.markGlobalVar(var_name);
         }
-        try self.emit("\n");
+        try emitConst(self, "\n");
     }
 
     // PHASE 5.7: Generate callable global assignments at module level
     // These are function references like `fromHex = float.fromhex` that need to be
     // accessible from class methods (which are defined outside main())
     if (self.callable_global_vars.count() > 0) {
-        try self.emit("\n// Module-level callable references\n");
+        try emitConst(self, "\n// Module-level callable references\n");
         for (module.body) |stmt| {
             if (stmt == .assign) {
                 const assign = stmt.assign;
@@ -1315,11 +1335,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         const var_name = target.name.id;
                         if (self.callable_global_vars.contains(var_name)) {
                             // Emit at module level: const fromHex = runtime.floatFromHex;
-                            try self.emit("const ");
+                            try emitConst(self, "const ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                            try self.emit(" = ");
+                            try emitConst(self, " = ");
                             try self.genExpr(assign.value.*);
-                            try self.emit(";\n");
+                            try emitConst(self, ";\n");
                             // Mark as declared so we skip it in main()
                             try self.declareVar(var_name);
                         }
@@ -1327,13 +1347,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 }
             }
         }
-        try self.emit("\n");
+        try emitConst(self, "\n");
     }
 
     // PHASE 5.8: Generate import_module() const declarations
     // These are compile-time module type references like `ctypes_test = import_module("ctypes")`
     if (self.import_module_vars.count() > 0) {
-        try self.emit("\n// Module references from import_module()\n");
+        try emitConst(self, "\n// Module references from import_module()\n");
         for (module.body) |stmt| {
             if (stmt == .assign) {
                 const assign = stmt.assign;
@@ -1342,11 +1362,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         const var_name = target.name.id;
                         if (self.import_module_vars.contains(var_name)) {
                             // Emit: const ctypes_test = import_module("ctypes");
-                            try self.emit("const ");
+                            try emitConst(self, "const ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                            try self.emit(" = ");
+                            try emitConst(self, " = ");
                             try self.genExpr(assign.value.*);
-                            try self.emit(";\n");
+                            try emitConst(self, ";\n");
                             // Mark as declared so we skip in main()
                             try self.declareVar(var_name);
                         }
@@ -1354,17 +1374,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 }
             }
         }
-        try self.emit("\n");
+        try emitConst(self, "\n");
     }
 
     // PHASE 6: Generate main function (script mode only)
     // For WASM: Zig's std.start automatically exports _start if pub fn main exists
-    try self.emit("pub fn main() ");
+    try emitConst(self, "pub fn main() ");
     // Main returns !void if allocator or runtime is used (runtime functions can fail)
     if (analysis.needs_allocator or analysis.needs_runtime) {
-        try self.emit("!void {\n");
+        try emitConst(self, "!void {\n");
     } else {
-        try self.emit("void {\n");
+        try emitConst(self, "void {\n");
     }
     self.indent();
 
@@ -1372,91 +1392,91 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // Strategy: c_allocator in release (fast, OS cleanup), GPA in debug/WASM (safe)
     if (analysis.needs_allocator) {
         try self.emitIndent();
-        try self.emit("const allocator = blk: {\n");
+        try emitConst(self, "const allocator = blk: {\n");
         try self.emitIndent();
-        try self.emit("    if (comptime __is_freestanding) {\n");
+        try emitConst(self, "    if (comptime __is_freestanding) {\n");
         try self.emitIndent();
-        try self.emit("        // Browser WASM: FixedBufferAllocator (no std.Thread)\n");
+        try emitConst(self, "        // Browser WASM: FixedBufferAllocator (no std.Thread)\n");
         try self.emitIndent();
-        try self.emit("        break :blk __fba.allocator();\n");
+        try emitConst(self, "        break :blk __fba.allocator();\n");
         try self.emitIndent();
-        try self.emit("    } else if (comptime allocator_helper.useFastAllocator()) {\n");
+        try emitConst(self, "    } else if (comptime allocator_helper.useFastAllocator()) {\n");
         try self.emitIndent();
-        try self.emit("        // Release mode: use c_allocator, OS reclaims at exit\n");
+        try emitConst(self, "        // Release mode: use c_allocator, OS reclaims at exit\n");
         try self.emitIndent();
-        try self.emit("        break :blk std.heap.c_allocator;\n");
+        try emitConst(self, "        break :blk std.heap.c_allocator;\n");
         try self.emitIndent();
-        try self.emit("    } else {\n");
+        try emitConst(self, "    } else {\n");
         try self.emitIndent();
-        try self.emit("        // Debug: use GPA for leak detection\n");
+        try emitConst(self, "        // Debug: use GPA for leak detection\n");
         try self.emitIndent();
-        try self.emit("        break :blk __gpa.allocator();\n");
+        try emitConst(self, "        break :blk __gpa.allocator();\n");
         try self.emitIndent();
-        try self.emit("    }\n");
+        try emitConst(self, "    }\n");
         try self.emitIndent();
-        try self.emit("};\n\n");
+        try emitConst(self, "};\n\n");
 
         // Initialize module-level allocator
         try self.emitIndent();
-        try self.emit("__global_allocator = allocator;\n");
+        try emitConst(self, "__global_allocator = allocator;\n");
         try self.emitIndent();
-        try self.emit("__allocator_initialized = true;\n");
+        try emitConst(self, "__allocator_initialized = true;\n");
         // Initialize sys.argv from OS args (skip in shared lib mode where argv is invalid)
         try self.emitIndent();
-        try self.emit("__sys_argv = blk: {\n");
+        try emitConst(self, "__sys_argv = blk: {\n");
         try self.emitIndent();
-        try self.emit("    // In shared library mode or WASM, std.os.argv is invalid\n");
+        try emitConst(self, "    // In shared library mode or WASM, std.os.argv is invalid\n");
         try self.emitIndent();
-        try self.emit("    const builtin = @import(\"builtin\");\n");
+        try emitConst(self, "    const builtin = @import(\"builtin\");\n");
         try self.emitIndent();
-        try self.emit("    const is_wasm = builtin.os.tag == .wasi or builtin.os.tag == .freestanding;\n");
+        try emitConst(self, "    const is_wasm = builtin.os.tag == .wasi or builtin.os.tag == .freestanding;\n");
         try self.emitIndent();
-        try self.emit("    const is_lib = builtin.output_mode == .Lib or builtin.link_mode == .dynamic;\n");
+        try emitConst(self, "    const is_lib = builtin.output_mode == .Lib or builtin.link_mode == .dynamic;\n");
         try self.emitIndent();
-        try self.emit("    if (comptime builtin.output_mode == .Exe and !is_wasm and !is_lib) {\n");
+        try emitConst(self, "    if (comptime builtin.output_mode == .Exe and !is_wasm and !is_lib) {\n");
         try self.emitIndent();
-        try self.emit("        const os_args = std.os.argv;\n");
+        try emitConst(self, "        const os_args = std.os.argv;\n");
         try self.emitIndent();
-        try self.emit("        var argv_list = std.ArrayListUnmanaged([]const u8){};\n");
+        try emitConst(self, "        var argv_list = std.ArrayListUnmanaged([]const u8){};\n");
         try self.emitIndent();
-        try self.emit("        for (os_args) |arg| argv_list.append(allocator, std.mem.span(arg)) catch continue;\n");
+        try emitConst(self, "        for (os_args) |arg| argv_list.append(allocator, std.mem.span(arg)) catch continue;\n");
         try self.emitIndent();
-        try self.emit("        break :blk argv_list.items;\n");
+        try emitConst(self, "        break :blk argv_list.items;\n");
         try self.emitIndent();
-        try self.emit("    } else {\n");
+        try emitConst(self, "    } else {\n");
         try self.emitIndent();
-        try self.emit("        break :blk &[_][]const u8{};\n");
+        try emitConst(self, "        break :blk &[_][]const u8{};\n");
         try self.emitIndent();
-        try self.emit("    }\n");
+        try emitConst(self, "    }\n");
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self, "};\n");
 
         // Initialize sys.executable (compute once to avoid block label collisions)
         try self.emitIndent();
         const sys_exec_id = self.nextNameId();
-        try self.emitFmt("__sys_executable = (__m{d}_sys_exec: {{\n", .{sys_exec_id});
+        try emitFmtConst(self, "__sys_executable = (__m{d}_sys_exec: {{\n", .{sys_exec_id});
         try self.emitIndent();
-        try self.emit("    const __m0_builtin = @import(\"builtin\");\n");
+        try emitConst(self, "    const __m0_builtin = @import(\"builtin\");\n");
         try self.emitIndent();
-        try self.emit("    const is_wasm = __m0_builtin.os.tag == .wasi or __m0_builtin.os.tag == .freestanding;\n");
+        try emitConst(self, "    const is_wasm = __m0_builtin.os.tag == .wasi or __m0_builtin.os.tag == .freestanding;\n");
         try self.emitIndent();
-        try self.emitFmt("    if (comptime is_wasm) break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
+        try emitFmtConst(self, "    if (comptime is_wasm) break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
         try self.emitIndent();
-        try self.emit("    const args = std.os.argv;\n");
+        try emitConst(self, "    const args = std.os.argv;\n");
         try self.emitIndent();
-        try self.emitFmt("    if (args.len > 0) break :__m{d}_sys_exec std.mem.span(args[0]);\n", .{sys_exec_id});
+        try emitFmtConst(self, "    if (args.len > 0) break :__m{d}_sys_exec std.mem.span(args[0]);\n", .{sys_exec_id});
         try self.emitIndent();
-        try self.emitFmt("    break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
-        try self.emit("});\n");
+        try emitFmtConst(self, "    break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
+        try emitConst(self, "});\n");
 
         // Initialize sys.platform (compute once)
         try self.emitIndent();
-        try self.emit("__sys_platform = switch (@import(\"builtin\").os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" };\n");
+        try emitConst(self, "__sys_platform = switch (@import(\"builtin\").os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" };\n");
 
         // Initialize sys.byteorder (compute once)
         try self.emitIndent();
-        try self.emit("__sys_byteorder = if (@import(\"builtin\").cpu.arch.endian() == .little) \"little\" else \"big\";\n");
-        try self.emit("\n");
+        try emitConst(self, "__sys_byteorder = if (@import(\"builtin\").cpu.arch.endian() == .little) \"little\" else \"big\";\n");
+        try emitConst(self, "\n");
 
         // Initialize runtime modules that need allocator (from registry needs_init flag)
         for (self.imported_modules.keys()) |mod_name| {
@@ -1465,7 +1485,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.emitIndent();
                     // Use writeEscapedDottedIdent for dotted module names like "test.support"
                     try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
-                    try self.emit(".init(__global_allocator);\n");
+                    try emitConst(self, ".init(__global_allocator);\n");
                 }
             }
         }
@@ -1489,18 +1509,18 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 7.5: Apply decorators (after statements so variables like 'app' are defined)
     if (self.decorated_functions.items.len > 0) {
-        try self.emit("\n");
+        try emitConst(self, "\n");
         try self.emitIndent();
-        try self.emit("// Apply decorators\n");
+        try emitConst(self, "// Apply decorators\n");
         for (self.decorated_functions.items) |decorated_func| {
             for (decorated_func.decorators) |decorator| {
                 try self.emitIndent();
-                try self.emit("_ = ");
+                try emitConst(self, "_ = ");
                 try self.genExpr(decorator);
                 // Use .call() method to apply decorator (works for Flask route decorators)
-                try self.emit(".call(&");
-                try self.emit(decorated_func.name);
-                try self.emit(");\n");
+                try emitConst(self, ".call(&");
+                try emitConst(self, decorated_func.name);
+                try emitConst(self, ");\n");
             }
         }
     }
@@ -1508,11 +1528,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // If user defined main(), call it (but not for async main - user calls via asyncio.run)
     if (analysis.has_user_main and !analysis.has_async_user_main) {
         try self.emitIndent();
-        try self.emit("__user_main();\n");
+        try emitConst(self, "__user_main();\n");
     }
 
     self.dedent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     // PHASE 8: Prepend lambda functions if any were generated
     if (self.lambda_functions.items.len > 0) {
@@ -1524,18 +1544,18 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         self.output = std.ArrayList(u8){};
 
         // Add imports
-        try self.emit("const std = @import(\"std\");\n");
-        try self.emit("const runtime = @import(\"runtime\");\n");
+        try emitConst(self, "const std = @import(\"std\");\n");
+        try emitConst(self, "const runtime = @import(\"runtime\");\n");
         if (analysis.needs_string_utils) {
-            try self.emit("const string_utils = runtime.string_utils;\n");
+            try emitConst(self, "const string_utils = runtime.string_utils;\n");
         }
         if (analysis.needs_hashmap_helper) {
             // Use runtime.hashmap_helper - hashmap_helper is re-exported from runtime module
-            try self.emit("const hashmap_helper = runtime.hashmap_helper;\n");
+            try emitConst(self, "const hashmap_helper = runtime.hashmap_helper;\n");
         }
         // Always import allocator_helper (matches the non-lambda path)
         // Use runtime.allocator_helper - allocator_helper is re-exported from runtime module
-        try self.emit("const allocator_helper = runtime.allocator_helper;\n");
+        try emitConst(self, "const allocator_helper = runtime.allocator_helper;\n");
 
         // Add module imports (Phase 3.7 copy for lambda path)
         // First, emit @import for compiled Python modules
@@ -1563,20 +1583,20 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     .zig_runtime, .c_library => {
                         // Prefer direct_import for DCE-friendly imports
                         const import_path = info.direct_import orelse info.zig_import;
-                        try self.emit("const ");
+                        try emitConst(self, "const ");
                         // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
                         if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         } else {
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
                         }
-                        try self.emit(" = ");
+                        try emitConst(self, " = ");
                         if (import_path) |path| {
-                            try self.emit(path);
+                            try emitConst(self, path);
                         } else {
-                            try self.emit("struct {}");
+                            try emitConst(self, "struct {}");
                         }
-                        try self.emit(";\n");
+                        try emitConst(self, ";\n");
                     },
                     else => {},
                 }
@@ -1586,20 +1606,20 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     .zig_runtime, .c_library => {
                         // Prefer direct_import for DCE-friendly imports
                         const import_path = info.direct_import orelse info.zig_import;
-                        try self.emit("const ");
+                        try emitConst(self, "const ");
                         // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
                         if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         } else {
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
                         }
-                        try self.emit(" = ");
+                        try emitConst(self, " = ");
                         if (import_path) |path| {
-                            try self.emit(path);
+                            try emitConst(self, path);
                         } else {
-                            try self.emit("struct {}");
+                            try emitConst(self, "struct {}");
                         }
-                        try self.emit(";\n");
+                        try emitConst(self, ";\n");
                     },
                     else => {},
                 }
@@ -1613,47 +1633,47 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 // Emit @import for compiled module
                 const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
                 defer if (escaped_name.ptr != root_mod_name.ptr) self.allocator.free(escaped_name);
-                try self.emit("const ");
-                try self.emit(escaped_name);
-                try self.emit(" = @import(\"");
-                try self.emit(IMPORT_PREFIX);
-                try self.emit(root_mod_name);
-                try self.emit(MODULE_EXT);
-                try self.emit("\");\n");
+                try emitConst(self, "const ");
+                try emitConst(self, escaped_name);
+                try emitConst(self, " = @import(\"");
+                try emitConst(self, IMPORT_PREFIX);
+                try emitConst(self, root_mod_name);
+                try emitConst(self, MODULE_EXT);
+                try emitConst(self, "\");\n");
 
                 try lambda_imported_roots.put(root_mod_name, {});
             }
         }
-        try self.emit("\n");
+        try emitConst(self, "\n");
 
         // Add from-import symbol re-exports (Phase 3.6 copy for lambda path)
         try from_imports_gen.generateFromImports(self);
 
         // Add __name__ constant
-        try self.emit("const __name__ = \"__main__\";\n");
+        try emitConst(self, "const __name__ = \"__main__\";\n");
         try self.module_level_vars.put("__name__", {});
 
         // Add __file__ constant
-        try self.emit("const __file__: []const u8 = \"");
+        try emitConst(self, "const __file__: []const u8 = \"");
         if (self.source_file_path) |path| {
             for (path) |c| {
                 if (c == '\\') {
-                    try self.emit("\\\\");
+                    try emitConst(self, "\\\\");
                 } else if (c == '"') {
-                    try self.emit("\\\"");
+                    try emitConst(self, "\\\"");
                 } else {
                     try self.output.append(self.allocator, c);
                 }
             }
         } else {
-            try self.emit("<unknown>");
+            try emitConst(self, "<unknown>");
         }
-        try self.emit("\";\n\n");
+        try emitConst(self, "\";\n\n");
         try self.module_level_vars.put("__file__", {});
 
         // Add lambda functions
         for (self.lambda_functions.items) |lambda_code| {
-            try self.emit(lambda_code);
+            try emitConst(self, lambda_code);
         }
 
         // Find where class/function definitions start (after imports, __name__, __file__)
@@ -1675,8 +1695,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         var i: usize = 0;
         while (lines2.next()) |line| : (i += 1) {
             if (i >= skip_count) {
-                try self.emit(line);
-                try self.emit("\n");
+                try emitConst(self, line);
+                try emitConst(self, "\n");
             }
         }
     }
@@ -1737,25 +1757,25 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 const gen_result_name = self.var_renames.get("__gen_result") orelse "__gen_result";
                 // Inside defer blocks, 'try' is not allowed - use 'catch {}' instead
                 if (self.inside_defer) {
-                    try self.emit(gen_result_name);
-                    try self.emit(".append(__global_allocator, runtime.PyValue.from(");
+                    try emitConst(self, gen_result_name);
+                    try emitConst(self, ".append(__global_allocator, runtime.PyValue.from(");
                     if (yield.value) |val| {
                         try expressions.genExpr(self, val.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(")) catch {};\n");
+                    try emitConst(self, ")) catch {};\n");
                 } else {
-                    try self.emit("try ");
-                    try self.emit(gen_result_name);
-                    try self.emit(".append(__global_allocator, runtime.PyValue.from(");
+                    try emitConst(self, "try ");
+                    try emitConst(self, gen_result_name);
+                    try emitConst(self, ".append(__global_allocator, runtime.PyValue.from(");
                     if (yield.value) |val| {
                         try expressions.genExpr(self, val.*);
                     } else {
                         // yield without value yields None in Python
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit("));\n");
+                    try emitConst(self, "));\n");
                 }
             } else {
                 try statements.genPass(self);
@@ -2045,7 +2065,7 @@ fn emitModuleLevelTypeAliases(self: *NativeCodegen, body: []const ast.Node) !voi
 
                     if (is_type_alias) {
                         if (!emitted_any) {
-                            try self.emit("\n// Module-level type aliases\n");
+                            try emitConst(self, "\n// Module-level type aliases\n");
                             emitted_any = true;
                         }
 
@@ -2053,14 +2073,14 @@ fn emitModuleLevelTypeAliases(self: *NativeCodegen, body: []const ast.Node) !voi
                         try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
 
                         // Emit: const F = fractions.Fraction;
-                        try self.emit("const ");
+                        try emitConst(self, "const ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                        try self.emit(" = ");
+                        try emitConst(self, " = ");
                         // Emit module.attribute
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
-                        try self.emit(".");
+                        try emitConst(self, ".");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                        try self.emit(";\n");
+                        try emitConst(self, ";\n");
 
                         // Mark as declared so main() doesn't re-declare it
                         try self.declareVar(var_name);

@@ -13,53 +13,90 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genDeque(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len > 0) {
         try self.withInlineBlock("deque", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("var d = std.ArrayListUnmanaged(@TypeOf(");
+                const b = try c.getBuilder();
+                try b.write("var d = std.ArrayListUnmanaged(@TypeOf(");
+                const output1 = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
-                try c.emit("[0])).init(__global_allocator); d.appendSlice(");
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.write("[0])).init(__global_allocator); d.appendSlice(");
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
                 try c.genExpr(a[0]);
-                try c.emitFmt(") catch unreachable; break :{s} .{{ .items = d.items, .maxlen = null }}", .{label});
+                {
+                    const b3 = try c.getBuilder();
+                    try b3.writeFmt(") catch unreachable; break :{s} .{{ .items = d.items, .maxlen = null }}", .{label});
+                    const output3 = b3.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output3);
+                }
             }
         }.emit);
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }"), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write(".{ .items = &[_]@TypeOf(0){}, .maxlen = null }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 
 fn genDequeIterator(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len > 0) {
         try self.withInlineBlock("diter", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const d = ");
+                const b = try c.getBuilder();
+                try b.write("const d = ");
+                const output1 = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
-                try c.emitFmt("; break :{s} .{{ .deque = d, .index = 0 }}", .{label});
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.writeFmt("; break :{s} .{{ .deque = d, .index = 0 }}", .{label});
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
             }
         }.emit);
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw(".{ .deque = null, .index = 0 }"), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write(".{ .deque = null, .index = 0 }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 
 fn genDequeReverseIterator(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len > 0) {
         try self.withInlineBlock("driter", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const d = ");
+                const b = try c.getBuilder();
+                try b.write("const d = ");
+                const output1 = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
-                try c.emitFmt("; break :{s} .{{ .deque = d, .index = d.items.len }}", .{label});
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.writeFmt("; break :{s} .{{ .deque = d, .index = d.items.len }}", .{label});
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
             }
         }.emit);
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw(".{ .deque = null, .index = 0 }"), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write(".{ .deque = null, .index = 0 }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 
 fn genCountElements(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    try b.write("{}");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }

@@ -13,11 +13,20 @@ fn genRobotFileParser(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!v
     const b = try self.getBuilder();
     if (args.len > 0) {
         // With argument: .{ .url = __v, .last_checked = @as(i64, 0) }
-        try self.emit(".{ .url = ");
+        try b.write(".{ .url = ");
+        const output1 = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
-        try self.emit(", .last_checked = @as(i64, 0) }");
+        {
+            const b2 = try self.getBuilder();
+            try b2.write(", .last_checked = @as(i64, 0) }");
+            const output2 = b2.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output2);
+        }
     } else {
         // Without argument: default struct
-        try b.emitValue(builder_mod.ZigValue.raw(".{ .url = \"\", .last_checked = @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
+        try b.write(".{ .url = \"\", .last_checked = @as(i64, 0) }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }

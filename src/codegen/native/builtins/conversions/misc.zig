@@ -3,30 +3,59 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
+const builder_mod = @import("codegen.builder");
 
 /// Generate code for complex(real, imag)
 /// Creates a complex number
 pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // complex() with no args returns 0j
-        try self.emit("runtime.PyComplex.create(0.0, 0.0)");
+        const b = try self.getBuilder();
+        try b.write("runtime.PyComplex.create(0.0, 0.0)");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
 
     if (args.len == 1) {
         // complex(x) - x can be a number or string
-        try self.emit("runtime.PyComplex.fromValue(");
+        {
+            const b = try self.getBuilder();
+            try b.write("runtime.PyComplex.fromValue(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(")");
+        {
+            const b = try self.getBuilder();
+            try b.write(")");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         return;
     }
 
     // complex(real, imag)
-    try self.emit("runtime.PyComplex.create(");
+    {
+        const b = try self.getBuilder();
+        try b.write("runtime.PyComplex.create(");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     try self.genExpr(args[0]);
-    try self.emit(", ");
+    {
+        const b = try self.getBuilder();
+        try b.write(", ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     try self.genExpr(args[1]);
-    try self.emit(")");
+    {
+        const b = try self.getBuilder();
+        try b.write(")");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 /// Generate code for object()
@@ -37,5 +66,8 @@ pub fn genObject(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate a unique object using a struct that has unique identity per call
     // In Python, object() returns a base object that can be used as a sentinel
     // We use runtime.createObject() which returns a unique *PyObject
-    try self.emit("runtime.createObject()");
+    const b = try self.getBuilder();
+    try b.write("runtime.createObject()");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }

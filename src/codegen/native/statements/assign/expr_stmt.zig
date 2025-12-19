@@ -1,4 +1,5 @@
 /// Expression statement code generation
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -6,6 +7,14 @@ const CodegenError = @import("../../main.zig").CodegenError;
 
 // Trait imports for type checking
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 const ValueReturningBuiltins = std.StaticStringMap(void).initComptime(.{
     .{ "list", {} }, .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "frozenset", {} },
@@ -34,7 +43,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         if (std.mem.eql(u8, func_name, "print")) {
             const io = @import("../../builtins/io.zig");
             try io.genPrintWithKeywords(self, expr.call.args, expr.call.keyword_args);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
             return;
         }
     }
@@ -78,7 +87,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Discard string constants (docstrings) by assigning to _
     // Zig requires all non-void values to be used
     if (expr == .constant and expr.constant.value == .string) {
-        try self.emit("_ = ");
+        try emitConst(self,"_ = ");
         added_discard_prefix = true;
     }
 
@@ -87,12 +96,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (expr == .binop) {
         const left_type = try self.inferExprScoped(expr.binop.left.*);
         if (type_traits.isClassInstance(left_type)) {
-            try self.emit("_ = ");
+            try emitConst(self,"_ = ");
             added_discard_prefix = true;
         } else {
             const right_type = try self.inferExprScoped(expr.binop.right.*);
             if (type_traits.isClassInstance(right_type)) {
-                try self.emit("_ = ");
+                try emitConst(self,"_ = ");
                 added_discard_prefix = true;
             }
         }
@@ -104,37 +113,37 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
         // Builtin functions that return non-void values need _ = prefix
         if (ValueReturningBuiltins.has(func_name)) {
-            try self.emit("_ = ");
+            try emitConst(self,"_ = ");
             added_discard_prefix = true;
         } else if (self.closure_vars.contains(func_name)) {
             // Check if this is a void-returning closure (like one that calls assertRaises)
             if (self.void_closure_vars.contains(func_name)) {
                 // Void closure - just call it directly without catch
                 try self.genExpr(expr);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 return;
             }
             // Closure calls return error unions - discard both value and error
             // The closure call generates "(try closure.call(...))" which unwraps the error
             // We need to use _ = to discard the return value
             // DO NOT add "catch {}" because "try" already unwraps the error
-            try self.emit("_ = ");
+            try emitConst(self,"_ = ");
             added_discard_prefix = true;
             try self.genExpr(expr);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
             return;
         } else if (self.type_inferrer.func_return_types.get(func_name)) |return_type| {
             // Check if function returns non-void type
             // Skip void returns
             if (return_type != .unknown) {
-                try self.emit("_ = ");
+                try emitConst(self,"_ = ");
                 added_discard_prefix = true;
             }
         } else if (self.var_renames.get(func_name)) |renamed| {
             // Variables renamed from type attributes (e.g., int_class -> _local_int_class)
             // These hold type constructors like int which return values
             _ = renamed;
-            try self.emit("_ = ");
+            try emitConst(self,"_ = ");
             added_discard_prefix = true;
         }
     }
@@ -150,7 +159,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 if (type_attr_key) |key| {
                     if (self.class_type_attrs.get(key)) |_| {
                         // This is a type attribute call - it returns a value
-                        try self.emit("_ = ");
+                        try emitConst(self,"_ = ");
                         added_discard_prefix = true;
                     }
                 }
@@ -177,11 +186,11 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 if (self.import_registry.getFunctionMeta(full_module, func_name)) |meta| {
                     // If function has metadata, it's a known module function that returns a value
                     _ = meta;
-                    try self.emit("_ = ");
+                    try emitConst(self,"_ = ");
                     added_discard_prefix = true;
                 } else if (self.local_from_imports.contains(module_alias)) {
                     // Module was imported but function not in registry - assume it returns a value
-                    try self.emit("_ = ");
+                    try emitConst(self,"_ = ");
                     added_discard_prefix = true;
                 }
             }
@@ -269,8 +278,8 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         // Reset to before indent and re-emit with _ =
         self.output.shrinkRetainingCapacity(expr_start);
         try self.emitIndent();
-        try self.emit("_ = ");
-        try self.emit(gen_copy[indent_len..]); // Skip the indent we already re-emitted
+        try emitConst(self,"_ = ");
+        try emitConst(self,gen_copy[indent_len..]); // Skip the indent we already re-emitted
         added_discard_prefix = true;
     }
 
@@ -352,8 +361,8 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }
 
     if (needs_semicolon) {
-        try self.emit(";\n");
+        try emitConst(self,";\n");
     } else {
-        try self.emit("\n");
+        try emitConst(self,"\n");
     }
 }

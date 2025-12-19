@@ -14,21 +14,39 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genFormatterFieldNameSplit(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        try self.emit("runtime._string.formatterFieldNameSplit(__global_allocator, ");
+        try b.write("runtime._string.formatterFieldNameSplit(__global_allocator, ");
+        const output1 = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
-        try self.emit(")");
+        {
+            const b2 = try self.getBuilder();
+            try b2.write(")");
+            const output2 = b2.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output2);
+        }
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw("runtime._string.FieldNameSplitResult{ .first = \"\", .rest = &[_]runtime._string.FieldAccessor{} }"), builder_mod.EmitConfig.forExpression());
+        try b.write("runtime._string.FieldNameSplitResult{ .first = \"\", .rest = &[_]runtime._string.FieldAccessor{} }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 
 fn genFormatterParser(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
-        try self.emit("(runtime._string.formatterParser(__global_allocator, ");
+        try b.write("(runtime._string.formatterParser(__global_allocator, ");
+        const output1 = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
-        try self.emit("))");
+        {
+            const b2 = try self.getBuilder();
+            try b2.write("))");
+            const output2 = b2.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output2);
+        }
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw("&[_]runtime._string.FormatterResult{}"), builder_mod.EmitConfig.forExpression());
+        try b.write("&[_]runtime._string.FormatterResult{}");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }

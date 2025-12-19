@@ -1109,6 +1109,19 @@ pub const ZigBuilder = struct {
         return self.body.items;
     }
 
+    /// Get current body content and clear the buffer
+    /// Use this when flushing builder output to another buffer
+    pub fn getBodyAndClear(self: *ZigBuilder) []const u8 {
+        const result = self.body.items;
+        self.body.clearRetainingCapacity();
+        return result;
+    }
+
+    /// Clear the body buffer without returning content
+    pub fn clearBody(self: *ZigBuilder) void {
+        self.body.clearRetainingCapacity();
+    }
+
     /// Get type pool reference
     pub fn getTypePool(self: *ZigBuilder) *TypePool {
         return &self.type_pool;

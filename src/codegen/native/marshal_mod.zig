@@ -12,23 +12,49 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         if (args[0] == .constant and args[0].constant.value == .bool) {
-            try self.emit(if (args[0].constant.value.bool) "\"T\"" else "\"F\"");
+            try b.write(if (args[0].constant.value.bool) "\"T\"" else "\"F\"");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
             return;
         }
         const uid = self.output.items.len;
-        try self.emitFmt("marshal_dumps_{d}: {{ const val = ", .{uid});
+        try b.writeFmt("marshal_dumps_{d}: {{ const val = ", .{uid});
+        const output1 = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
-        try self.emitFmt("; _ = val; break :marshal_dumps_{d} \"\"; }}", .{uid});
-    } else try self.emit("\"\"");
+        {
+            const b2 = try self.getBuilder();
+            try b2.writeFmt("; _ = val; break :marshal_dumps_{d} \"\"; }}", .{uid});
+            const output2 = b2.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output2);
+        }
+    } else {
+        try b.write("\"\"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len > 0) {
         const uid = self.output.items.len;
-        try self.emitFmt("marshal_load_{d}: {{ const file = ", .{uid});
+        try b.writeFmt("marshal_load_{d}: {{ const file = ", .{uid});
+        const output1 = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
-        try self.emitFmt("; _ = file; break :marshal_load_{d} null; }}", .{uid});
-    } else try self.emit("null");
+        {
+            const b2 = try self.getBuilder();
+            try b2.writeFmt("; _ = file; break :marshal_load_{d} null; }}", .{uid});
+            const output2 = b2.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output2);
+        }
+    } else {
+        try b.write("null");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }

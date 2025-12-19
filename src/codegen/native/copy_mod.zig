@@ -15,31 +15,57 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 /// Generate copy.copy(obj) - shallow copy using runtime helper
 /// Emits: try runtime.copy_ops.shallowCopy(@TypeOf(obj), __global_allocator, obj)
 fn genCopy(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
+        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw("void{}"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    try self.emit("try runtime.copy_ops.shallowCopy(@TypeOf(");
+    const b = try self.getBuilder();
+    try b.write("try runtime.copy_ops.shallowCopy(@TypeOf(");
+    const output1 = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output1);
     try self.genExpr(args[0]);
-    try self.emit("), __global_allocator, ");
+    {
+        const b2 = try self.getBuilder();
+        try b2.write("), __global_allocator, ");
+        const output2 = b2.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output2);
+    }
     try self.genExpr(args[0]);
-    try self.emit(")");
+    {
+        const b3 = try self.getBuilder();
+        try b3.write(")");
+        const output3 = b3.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output3);
+    }
 }
 
 /// Generate copy.deepcopy(obj) - deep copy using runtime helper
 /// Emits: try runtime.copy_ops.deepCopy(@TypeOf(obj), __global_allocator, obj)
 pub fn genDeepcopy(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
+        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw("void{}"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    try self.emit("try runtime.copy_ops.deepCopy(@TypeOf(");
+    const b = try self.getBuilder();
+    try b.write("try runtime.copy_ops.deepCopy(@TypeOf(");
+    const output1 = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output1);
     try self.genExpr(args[0]);
-    try self.emit("), __global_allocator, ");
+    {
+        const b2 = try self.getBuilder();
+        try b2.write("), __global_allocator, ");
+        const output2 = b2.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output2);
+    }
     try self.genExpr(args[0]);
-    try self.emit(")");
+    {
+        const b3 = try self.getBuilder();
+        try b3.write(")");
+        const output3 = b3.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output3);
+    }
 }
 
 fn genReplace(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {

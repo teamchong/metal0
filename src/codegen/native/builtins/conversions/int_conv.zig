@@ -1,4 +1,5 @@
 /// Integer conversion builtins: int(), len(), bool()
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -9,11 +10,27 @@ const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
 pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("(blk_len: { @panic(\"len() requires exactly 1 argument\"); })");
+        try emitConst(self,"(blk_len: { @panic(\"len() requires exactly 1 argument\"); })");
         return;
     }
 
@@ -34,9 +51,9 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // If we found a __len__ method, generate method call
     // __len__ returns PythonError!i64, so we need to unwrap with try
     if (has_magic_method and args[0] == .name) {
-        try self.emit("(try ");
+        try emitConst(self,"(try ");
         try self.genExpr(args[0]);
-        try self.emit(".__len__())");
+        try emitConst(self,".__len__())");
         return;
     }
 
@@ -111,59 +128,59 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // - @typeInfo(...).fields.len for tuples
     // - obj.len for slices/arrays/strings
     // All results are cast to i64 since Python len() returns int
-    try self.emit("@as(i64, @intCast(");
+    try emitConst(self,"@as(i64, @intCast(");
 
     // Wrap block expressions in temp variable with unique label
     var em = self.exprEmitter();
     const len_label_id = em.peekLabelId();
     if (needs_wrap) {
         _ = em.reserveLabelId();
-        try self.emitFmt("len_{d}: {{ const __obj = ", .{len_label_id});
+        try emitFmtConst(self, "len_{d}: {{ const __obj = ", .{len_label_id});
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :len_{d} ", .{len_label_id});
+        try emitFmtConst(self, "; break :len_{d} ", .{len_label_id});
     }
 
     if (is_pyobject) {
         // Unknown type - use runtime.builtinLen which handles all cases
         // (simpler than inlining comptime type checks everywhere)
         if (needs_wrap) {
-            try self.emit("runtime.builtinLen(__obj)");
+            try emitConst(self,"runtime.builtinLen(__obj)");
         } else {
-            try self.emit("runtime.builtinLen(");
+            try emitConst(self,"runtime.builtinLen(");
             try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitConst(self,")");
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
         if (needs_wrap) {
-            try self.emit("runtime.PyDict.len(__obj)");
+            try emitConst(self,"runtime.PyDict.len(__obj)");
         } else {
-            try self.emit("runtime.PyDict.len(");
+            try emitConst(self,"runtime.PyDict.len(");
             try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitConst(self,")");
         }
     } else if (is_arraylist or is_deque) {
         // ArrayList and deque both use .items.len
         if (needs_wrap) {
-            try self.emit("__obj.items.len");
+            try emitConst(self,"__obj.items.len");
         } else {
             try self.genExpr(args[0]);
-            try self.emit(".items.len");
+            try emitConst(self,".items.len");
         }
     } else if (is_tuple) {
         if (needs_wrap) {
-            try self.emit("@typeInfo(@TypeOf(__obj)).@\"struct\".fields.len");
+            try emitConst(self,"@typeInfo(@TypeOf(__obj)).@\"struct\".fields.len");
         } else {
-            try self.emit("@typeInfo(@TypeOf(");
+            try emitConst(self,"@typeInfo(@TypeOf(");
             try self.genExpr(args[0]);
-            try self.emit(")).@\"struct\".fields.len");
+            try emitConst(self,")).@\"struct\".fields.len");
         }
     } else if (is_dict or is_set or is_counter) {
         if (needs_wrap) {
-            try self.emit("__obj.count()");
+            try emitConst(self,"__obj.count()");
         } else {
             try self.genExpr(args[0]);
-            try self.emit(".count()");
+            try emitConst(self,".count()");
         }
     } else if (is_class_instance) {
         // Check if this is array.array (inline struct with non-error __len__)
@@ -171,38 +188,38 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (is_python_array) {
             // array.array inline struct has __len__ returning usize (not error union)
             if (needs_wrap) {
-                try self.emit("__obj.__len__()");
+                try emitConst(self,"__obj.__len__()");
             } else {
                 try self.genExpr(args[0]);
-                try self.emit(".__len__()");
+                try emitConst(self,".__len__()");
             }
         } else {
             // User-defined class with __len__ method
             // __len__ returns PythonError!i64, so we need to unwrap with try
             if (needs_wrap) {
-                try self.emit("(try __obj.__len__())");
+                try emitConst(self,"(try __obj.__len__())");
             } else {
-                try self.emit("(try ");
+                try emitConst(self,"(try ");
                 try self.genExpr(args[0]);
-                try self.emit(".__len__())");
+                try emitConst(self,".__len__())");
             }
         }
     } else {
         // For arrays, slices, strings - use builtins.len which handles all types
         // including ArrayLists and pointers to ArrayLists
         if (needs_wrap) {
-            try self.emit("runtime.builtinLen(__obj)");
+            try emitConst(self,"runtime.builtinLen(__obj)");
         } else {
-            try self.emit("runtime.builtinLen(");
+            try emitConst(self,"runtime.builtinLen(");
             try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitConst(self,")");
         }
     }
 
     if (needs_wrap) {
-        try self.emitFmt("; }}", .{});
+        try emitFmtConst(self, "; }}", .{});
     }
-    try self.emit("))");
+    try emitConst(self,"))");
 }
 
 /// Generate code for int(obj) or int(string, base)
@@ -210,7 +227,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // int() with no args returns 0
-        try self.emit("@as(i64, 0)");
+        try emitConst(self,"@as(i64, 0)");
         return;
     }
 
@@ -257,11 +274,11 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (base_needs_runtime_check and self.in_assert_raises_context) {
             // In assertRaises with potentially invalid base - use runtime validation
             // Must use 'try' since intWithBase returns error union and we're in an error-returning context
-            try self.emit("(try runtime.builtins.intWithBase(__global_allocator, ");
+            try emitConst(self,"(try runtime.builtins.intWithBase(__global_allocator, ");
             try self.genExpr(args[0]);
-            try self.emit(", ");
+            try emitConst(self,", ");
             try self.genExpr(args[1]);
-            try self.emit("))");
+            try emitConst(self,"))");
             return;
         }
 
@@ -280,36 +297,36 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Use runtime.parseIntUnicode to handle Unicode whitespace (like Python's int())
         if (self.in_assert_raises_context) {
             // Return raw error union for assertRaises to catch
-            try self.emit("runtime.parseIntUnicode(");
+            try emitConst(self,"runtime.parseIntUnicode(");
             try self.genExpr(args[0]);
-            try self.emit(", @intCast(");
+            try emitConst(self,", @intCast(");
             if (base_is_indexable_class) {
                 try self.genExpr(args[1]);
-                try self.emit(".__index__()");
+                try emitConst(self,".__index__()");
             } else {
                 try self.genExpr(args[1]);
             }
-            try self.emit("))");
+            try emitConst(self,"))");
         } else {
             // Cast to i64 for normal integers (using @as for explicit type)
-            try self.emit("@as(i64, @intCast(try runtime.parseIntUnicode(");
+            try emitConst(self,"@as(i64, @intCast(try runtime.parseIntUnicode(");
             try self.genExpr(args[0]);
-            try self.emit(", @intCast(");
+            try emitConst(self,", @intCast(");
             if (base_is_indexable_class) {
                 // For class with __index__, create instance and call __index__()
                 try self.genExpr(args[1]);
-                try self.emit(".__index__()");
+                try emitConst(self,".__index__()");
             } else {
                 try self.genExpr(args[1]);
             }
-            try self.emit("))))");
+            try emitConst(self,"))))");
         }
         return;
     }
 
     if (args.len != 1) {
         // More than 2 args - not valid, emit error
-        try self.emit("(blk_int: { @panic(\"int() takes at most 2 arguments\"); })");
+        try emitConst(self,"(blk_int: { @panic(\"int() takes at most 2 arguments\"); })");
         return;
     }
 
@@ -346,20 +363,20 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
             if (needs_bigint) {
                 // Use BigInt for large numbers
-                try self.emitFmt("(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
+                try emitFmtConst(self, "(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
                 try self.genExpr(args[0]);
-                try self.emit(", 10))");
+                try emitConst(self,", 10))");
                 return;
             }
             // Small literal - use i64
             if (self.in_assert_raises_context) {
-                try self.emit("runtime.parseIntUnicode(");
+                try emitConst(self,"runtime.parseIntUnicode(");
                 try self.genExpr(args[0]);
-                try self.emit(", 10)");
+                try emitConst(self,", 10)");
             } else {
-                try self.emit("@as(i64, @intCast(try runtime.parseIntUnicode(");
+                try emitConst(self,"@as(i64, @intCast(try runtime.parseIntUnicode(");
                 try self.genExpr(args[0]);
-                try self.emit(", 10)))");
+                try emitConst(self,", 10)))");
             }
             return;
         }
@@ -367,9 +384,9 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Runtime string (variable, subscript, etc.) - use BigInt for Python compatibility
         // since we can't know at compile time if the value will overflow i64
         // Always use 'try' to allow error propagation for try/except blocks
-        try self.emitFmt("(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
+        try emitFmtConst(self, "(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try self.emit(", 10))");
+        try emitConst(self,", 10))");
         return;
     }
 
@@ -396,34 +413,34 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (float_val > max_i128 or float_val < min_i128) {
                 // Value exceeds i128 range - use BigInt
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emitFmt("(runtime.BigInt.fromFloat({s}, ", .{alloc_name});
+                try emitFmtConst(self, "(runtime.BigInt.fromFloat({s}, ", .{alloc_name});
                 try self.genExpr(args[0]);
-                try self.emit(") catch unreachable)");
+                try emitConst(self,") catch unreachable)");
                 return;
             }
             const max_i64: f64 = 9223372036854775807.0; // 2^63 - 1
             if (@abs(float_val) > max_i64) {
                 // Use i128 for values between i64 and i128 range
-                try self.emit("@as(i128, @intFromFloat(");
+                try emitConst(self,"@as(i128, @intFromFloat(");
                 try self.genExpr(args[0]);
-                try self.emit("))");
+                try emitConst(self,"))");
                 return;
             }
         }
         // For runtime float values, use toIntBig which handles overflow to BigInt
         // Call .asI64() to extract i64, throws OverflowError for BigInt values
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emitFmt("(try (try runtime.toIntBig({s}, ", .{alloc_name});
+        try emitFmtConst(self, "(try (try runtime.toIntBig({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try self.emit(")).asI64())");
+        try emitConst(self,")).asI64())");
         return;
     }
 
     // Cast bool to int (True -> 1, False -> 0)
     if (type_traits.isBoolean(arg_type)) {
-        try self.emit("@as(i64, @intFromBool(");
+        try emitConst(self,"@as(i64, @intFromBool(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self,"))");
         return;
     }
 
@@ -452,18 +469,18 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // In assertRaises context: return error union for expectError() to check
         // Otherwise: catch and return 0
         if (self.inside_try_body and !self.in_assert_raises_context) {
-            try self.emit("(try ");
+            try emitConst(self,"(try ");
             try self.genExpr(args[0]);
-            try self.emit(".__int__())");
+            try emitConst(self,".__int__())");
         } else if (self.in_assert_raises_context) {
             // Return error union as-is - statement-level expectError() will handle it
-            try self.emit("(");
+            try emitConst(self,"(");
             try self.genExpr(args[0]);
-            try self.emit(".__int__())");
+            try emitConst(self,".__int__())");
         } else {
-            try self.emit("(");
+            try emitConst(self,"(");
             try self.genExpr(args[0]);
-            try self.emit(".__int__() catch 0)");
+            try emitConst(self,".__int__() catch 0)");
         }
         return;
     }
@@ -471,18 +488,18 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // If class has __index__ but not __int__, use __index__
     if (dunder_info.has_index and args[0] == .name) {
         if (self.inside_try_body and !self.in_assert_raises_context) {
-            try self.emit("(try ");
+            try emitConst(self,"(try ");
             try self.genExpr(args[0]);
-            try self.emit(".__index__())");
+            try emitConst(self,".__index__())");
         } else if (self.in_assert_raises_context) {
             // Return error union as-is - statement-level expectError() will handle it
-            try self.emit("(");
+            try emitConst(self,"(");
             try self.genExpr(args[0]);
-            try self.emit(".__index__())");
+            try emitConst(self,".__index__())");
         } else {
-            try self.emit("(");
+            try emitConst(self,"(");
             try self.genExpr(args[0]);
-            try self.emit(".__index__() catch 0)");
+            try emitConst(self,".__index__() catch 0)");
         }
         return;
     }
@@ -493,29 +510,29 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // toIntBig returns !IntResult which safely handles large floats
     // We call .asI64() to extract i64, which throws OverflowError for BigInt values
     const alloc_name_unknown = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emitFmt("(try (try runtime.toIntBig({s}, ", .{alloc_name_unknown});
+    try emitFmtConst(self, "(try (try runtime.toIntBig({s}, ", .{alloc_name_unknown});
     try self.genExpr(args[0]);
-    try self.emit(")).asI64())");
+    try emitConst(self,")).asI64())");
 }
 
 /// Generate code for hex(x) - convert int to hex string prefixed with "0x"
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("(blk_hex: { @panic(\"hex() takes exactly one argument\"); })");
+        try emitConst(self,"(blk_hex: { @panic(\"hex() takes exactly one argument\"); })");
         return;
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Extract int from PyValue using asInt()
-        try self.emit("runtime.builtins.hex(__global_allocator, (");
+        try emitConst(self,"runtime.builtins.hex(__global_allocator, (");
         try self.genExpr(args[0]);
-        try self.emit(").asInt())");
+        try emitConst(self,").asInt())");
     } else {
-        try self.emit("runtime.builtins.hex(__global_allocator, ");
+        try emitConst(self,"runtime.builtins.hex(__global_allocator, ");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     }
 }
 
@@ -523,20 +540,20 @@ pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("(blk_oct: { @panic(\"oct() takes exactly one argument\"); })");
+        try emitConst(self,"(blk_oct: { @panic(\"oct() takes exactly one argument\"); })");
         return;
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Extract int from PyValue using asInt()
-        try self.emit("runtime.builtins.oct(__global_allocator, (");
+        try emitConst(self,"runtime.builtins.oct(__global_allocator, (");
         try self.genExpr(args[0]);
-        try self.emit(").asInt())");
+        try emitConst(self,").asInt())");
     } else {
-        try self.emit("runtime.builtins.oct(__global_allocator, ");
+        try emitConst(self,"runtime.builtins.oct(__global_allocator, ");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     }
 }
 
@@ -544,20 +561,20 @@ pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("(blk_bin: { @panic(\"bin() takes exactly one argument\"); })");
+        try emitConst(self,"(blk_bin: { @panic(\"bin() takes exactly one argument\"); })");
         return;
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Extract int from PyValue using asInt()
-        try self.emit("runtime.builtins.bin(__global_allocator, (");
+        try emitConst(self,"runtime.builtins.bin(__global_allocator, (");
         try self.genExpr(args[0]);
-        try self.emit(").asInt())");
+        try emitConst(self,").asInt())");
     } else {
-        try self.emit("runtime.builtins.bin(__global_allocator, ");
+        try emitConst(self,"runtime.builtins.bin(__global_allocator, ");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     }
 }
 
@@ -575,20 +592,20 @@ pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // bool() with no args returns False
     if (args.len == 0) {
-        try self.emit("false");
+        try emitConst(self,"false");
         return;
     }
 
     // Check if we have extra args - need error handling for TypeError
     if (args.len > 1) {
-        try self.emit("(try runtime.boolBuiltinCall(");
+        try emitConst(self,"(try runtime.boolBuiltinCall(");
         try self.genExpr(args[0]);
-        try self.emit(", .{");
+        try emitConst(self,", .{");
         for (args[1..], 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self,", ");
             try self.genExpr(arg);
         }
-        try self.emit("}))");
+        try emitConst(self,"}))");
         return;
     }
 
@@ -604,9 +621,9 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_simple) {
         // Use runtime.toBool for simple types - no error propagation needed
-        try self.emit("runtime.toBool(");
+        try emitConst(self,"runtime.toBool(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
@@ -633,13 +650,13 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (dunder_info.has_bool and args[0] == .name) {
         // __bool__ must return bool, may raise TypeError
         if (self.inside_try_body) {
-            try self.emit("(try ");
+            try emitConst(self,"(try ");
             try self.genExpr(args[0]);
-            try self.emit(".__bool__())");
+            try emitConst(self,".__bool__())");
         } else {
-            try self.emit("(");
+            try emitConst(self,"(");
             try self.genExpr(args[0]);
-            try self.emit(".__bool__() catch false)");
+            try emitConst(self,".__bool__() catch false)");
         }
         return;
     }
@@ -647,20 +664,20 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // If class has __len__ but not __bool__, use len != 0
     if (dunder_info.has_len and args[0] == .name) {
         if (self.inside_try_body) {
-            try self.emit("((try ");
+            try emitConst(self,"((try ");
             try self.genExpr(args[0]);
-            try self.emit(".__len__()) != 0)");
+            try emitConst(self,".__len__()) != 0)");
         } else {
-            try self.emit("((");
+            try emitConst(self,"((");
             try self.genExpr(args[0]);
-            try self.emit(".__len__() catch 0) != 0)");
+            try emitConst(self,".__len__() catch 0) != 0)");
         }
         return;
     }
 
     // Fall back to boolBuiltinCall for unknown types (runtime dispatch)
     // This handles PyValue and other dynamic types
-    try self.emit("(try runtime.boolBuiltinCall(");
+    try emitConst(self,"(try runtime.boolBuiltinCall(");
     try self.genExpr(args[0]);
-    try self.emit(", .{}))");
+    try emitConst(self,", .{}))");
 }

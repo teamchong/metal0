@@ -1,4 +1,5 @@
 /// With statement code generation (context managers)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const zig_keywords = @import("utils.zig_keywords");
@@ -8,6 +9,14 @@ const shared = @import("../../shared_maps.zig");
 const ExceptionTypes = shared.RuntimeExceptions;
 const var_hoisting = @import("../functions/var_hoisting.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 /// Check if a variable name is used in an expression
 fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
@@ -420,9 +429,9 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                                 actual_name = renamed;
                             }
                             try self.emitIndent();
-                            try self.emit("const ");
-                            try self.emit(actual_name);
-                            try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                            try emitConst(self,"const ");
+                            try emitConst(self,actual_name);
+                            try emitConst(self,": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
                             try self.hoisted_vars.put(var_name, {});
                         }
                     } else {
@@ -453,9 +462,9 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                                     actual_cm_name = renamed_cm;
                                 }
                                 try self.emitIndent();
-                                try self.emit("const ");
-                                try self.emit(actual_cm_name);
-                                try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                                try emitConst(self,"const ");
+                                try emitConst(self,actual_cm_name);
+                                try emitConst(self,": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
                                 try self.hoisted_vars.put(cm_var_name, {});
                             }
                         } else {
@@ -478,21 +487,21 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                     // Hoist tuple iteration variable - determine type from tuple elements
                     if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
                         try self.emitIndent();
-                        try self.emit("var ");
+                        try emitConst(self,"var ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                         // Determine type from first tuple element
                         const tuple_elts = for_s.iter.tuple.elts;
                         if (tuple_elts.len > 0 and tuple_elts[0] == .constant) {
                             switch (tuple_elts[0].constant.value) {
-                                .int => try self.emit(": i64 = undefined;\n"),
-                                .float => try self.emit(": f64 = undefined;\n"),
-                                .bool => try self.emit(": bool = undefined;\n"),
-                                .string => try self.emit(": []const u8 = undefined;\n"),
-                                else => try self.emit(": []const u8 = undefined;\n"),
+                                .int => try emitConst(self,": i64 = undefined;\n"),
+                                .float => try emitConst(self,": f64 = undefined;\n"),
+                                .bool => try emitConst(self,": bool = undefined;\n"),
+                                .string => try emitConst(self,": []const u8 = undefined;\n"),
+                                else => try emitConst(self,": []const u8 = undefined;\n"),
                             }
                         } else {
                             // Default to []const u8 for non-constant tuples
-                            try self.emit(": []const u8 = undefined;\n");
+                            try emitConst(self,": []const u8 = undefined;\n");
                         }
                         try self.hoisted_vars.put(var_name, {});
                     }
@@ -545,22 +554,22 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
         }
 
         try self.emitIndent();
-        try self.emit("var ");
+        try emitConst(self,"var ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
 
         if (!has_self_reference and var_hoisting.initExprIsSafe(init_expr, &safe_vars)) {
             // Safe to use @TypeOf - no forward references and no self-references
-            try self.emit(": @TypeOf(");
+            try emitConst(self,": @TypeOf(");
             try self.genExpr(init_expr.*);
-            try self.emit(")");
+            try emitConst(self,")");
         } else {
             // Has forward refs or self-reference - use fallback type
             const fallback = var_hoisting.inferFallbackType(init_expr, .for_loop);
-            try self.emit(": ");
-            try self.emit(fallback);
+            try emitConst(self,": ");
+            try emitConst(self,fallback);
         }
 
-        try self.emit(" = undefined;\n");
+        try emitConst(self," = undefined;\n");
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
@@ -571,11 +580,11 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
 /// Unlike hoistVarWithExpr, this skips isDeclared/hoisted checks (caller already verified)
 fn hoistVarWithExprDirect(self: *NativeCodegen, actual_name: []const u8, init_expr: *const ast.Node) CodegenError!void {
     try self.emitIndent();
-    try self.emit("var ");
+    try emitConst(self,"var ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
-    try self.emit(": @TypeOf(");
+    try emitConst(self,": @TypeOf(");
     try self.genExpr(init_expr.*);
-    try self.emit(") = undefined;\n");
+    try emitConst(self,") = undefined;\n");
 
     // Mark original name as hoisted (caller should handle the original->renamed mapping)
     try self.hoisted_vars.put(actual_name, {});
@@ -838,7 +847,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         }
 
         // Flush builder output before early return
-        const builder_output = b.getBody();
+        const builder_output = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, builder_output);
         return;
     }
@@ -1150,6 +1159,6 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     try b.write("}\n");
 
     // Final flush at end
-    const final_output = b.getBody();
+    const final_output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, final_output);
 }

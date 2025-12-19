@@ -5,6 +5,18 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 /// String context for unified escape handling
 pub const StringContext = struct {
     is_bytes: bool = false, // b"..." - \x is raw byte, no Unicode escapes
@@ -27,41 +39,41 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
         },
         .float => |f| {
             if (std.math.isInf(f)) {
-                try self.emit(if (f < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+                try emitConst(self, if (f < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
             } else if (std.math.isNan(f)) {
-                try self.emit("std.math.nan(f64)");
+                try emitConst(self, "std.math.nan(f64)");
             } else if (@mod(f, 1.0) == 0.0) {
                 try self.output.writer(self.allocator).print("@as(f64, {d:.1})", .{f});
             } else {
                 try self.output.writer(self.allocator).print("@as(f64, {d})", .{f});
             }
         },
-        .bool => try self.emit(if (constant.value.bool) "true" else "false"),
-        .none => try self.emit("null"),
+        .bool => try emitConst(self, if (constant.value.bool) "true" else "false"),
+        .none => try emitConst(self, "null"),
         .complex => |imag| {
             // Handle inf/nan in imaginary part like we do for floats
-            try self.emit("runtime.PyComplex.create(0.0, ");
+            try emitConst(self, "runtime.PyComplex.create(0.0, ");
             if (std.math.isInf(imag)) {
-                try self.emit(if (imag < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+                try emitConst(self, if (imag < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
             } else if (std.math.isNan(imag)) {
-                try self.emit("std.math.nan(f64)");
+                try emitConst(self, "std.math.nan(f64)");
             } else {
                 try self.output.writer(self.allocator).print("{d}", .{imag});
             }
-            try self.emit(")");
+            try emitConst(self, ")");
         },
         .string => |s| {
             // String content already has quotes stripped by parser
-            try self.emit("\"");
+            try emitConst(self, "\"");
             try emitZigStringContent(self, s, StringContext.default);
-            try self.emit("\"");
+            try emitConst(self, "\"");
         },
         .bytes => |s| {
             // Bytes content: use runtime helper to preserve Python bytes type
             // This enables repr() to correctly output b'...' format
-            try self.emit("runtime.builtins.bytesLiteral(\"");
+            try emitConst(self, "runtime.builtins.bytesLiteral(\"");
             try emitZigStringContent(self, s, StringContext.bytes);
-            try self.emit("\")");
+            try emitConst(self, "\")");
         },
     }
 }
@@ -98,47 +110,47 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
             switch (next) {
                 // Standard escapes - same for all string types
                 'n' => {
-                    try self.emit("\\n");
+                    try emitConst(self, "\\n");
                     i += 1;
                 },
                 'r' => {
-                    try self.emit("\\r");
+                    try emitConst(self, "\\r");
                     i += 1;
                 },
                 't' => {
-                    try self.emit("\\t");
+                    try emitConst(self, "\\t");
                     i += 1;
                 },
                 '\\' => {
-                    try self.emit("\\\\");
+                    try emitConst(self, "\\\\");
                     i += 1;
                 },
                 '\'' => {
-                    try self.emit("'");
+                    try emitConst(self, "'");
                     i += 1;
                 },
                 '"' => {
-                    try self.emit("\\\"");
+                    try emitConst(self, "\\\"");
                     i += 1;
                 },
                 '0' => {
-                    try self.emit("\\x00");
+                    try emitConst(self, "\\x00");
                     i += 1;
                 },
                 'a' => {
-                    try self.emit("\\x07"); // Bell
+                    try emitConst(self, "\\x07"); // Bell
                     i += 1;
                 },
                 'b' => {
-                    try self.emit("\\x08"); // Backspace
+                    try emitConst(self, "\\x08"); // Backspace
                     i += 1;
                 },
                 'f' => {
-                    try self.emit("\\x0c"); // Form feed
+                    try emitConst(self, "\\x0c"); // Form feed
                     i += 1;
                 },
                 'v' => {
-                    try self.emit("\\x0b"); // Vertical tab
+                    try emitConst(self, "\\x0b"); // Vertical tab
                     i += 1;
                 },
 
@@ -147,7 +159,7 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                     if (i + 3 < content.len) {
                         const hex = content[i + 2 .. i + 4];
                         const byte_val = std.fmt.parseInt(u8, hex, 16) catch {
-                            try self.emit("\\\\x");
+                            try emitConst(self, "\\\\x");
                             i += 1;
                             continue;
                         };
@@ -164,7 +176,7 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                         }
                         i += 3;
                     } else {
-                        try self.emit("\\\\x");
+                        try emitConst(self, "\\\\x");
                         i += 1;
                     }
                 },
@@ -172,43 +184,43 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                 // Unicode escapes - only for strings, not bytes
                 'u' => {
                     if (ctx.is_bytes) {
-                        try self.emit("\\\\u");
+                        try emitConst(self, "\\\\u");
                         i += 1;
                     } else if (i + 5 < content.len) {
                         const hex = content[i + 2 .. i + 6];
                         const codepoint = std.fmt.parseInt(u21, hex, 16) catch {
-                            try self.emit("\\\\u");
+                            try emitConst(self, "\\\\u");
                             i += 1;
                             continue;
                         };
                         try emitUtf8Bytes(self, codepoint);
                         i += 5;
                     } else {
-                        try self.emit("\\\\u");
+                        try emitConst(self, "\\\\u");
                         i += 1;
                     }
                 },
                 'U' => {
                     if (ctx.is_bytes) {
-                        try self.emit("\\\\U");
+                        try emitConst(self, "\\\\U");
                         i += 1;
                     } else if (i + 9 < content.len) {
                         const hex = content[i + 2 .. i + 10];
                         const codepoint = std.fmt.parseInt(u21, hex, 16) catch {
-                            try self.emit("\\\\U");
+                            try emitConst(self, "\\\\U");
                             i += 1;
                             continue;
                         };
                         try emitUtf8Bytes(self, codepoint);
                         i += 9;
                     } else {
-                        try self.emit("\\\\U");
+                        try emitConst(self, "\\\\U");
                         i += 1;
                     }
                 },
                 'N' => {
                     if (ctx.is_bytes) {
-                        try self.emit("\\\\N");
+                        try emitConst(self, "\\\\N");
                         i += 1;
                     } else if (i + 2 < content.len and content[i + 2] == '{') {
                         var end_idx = i + 3;
@@ -219,15 +231,15 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                                 try emitUtf8Bytes(self, cp);
                                 i = end_idx;
                             } else {
-                                try self.emit("\\\\N");
+                                try emitConst(self, "\\\\N");
                                 i += 1;
                             }
                         } else {
-                            try self.emit("\\\\N");
+                            try emitConst(self, "\\\\N");
                             i += 1;
                         }
                     } else {
-                        try self.emit("\\\\N");
+                        try emitConst(self, "\\\\N");
                         i += 1;
                     }
                 },
@@ -235,17 +247,17 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                 // Brace escapes - for fstrings
                 '{' => {
                     if (ctx.escape_braces) {
-                        try self.emit("{{");
+                        try emitConst(self, "{{");
                     } else {
-                        try self.emit("{");
+                        try emitConst(self, "{");
                     }
                     i += 1;
                 },
                 '}' => {
                     if (ctx.escape_braces) {
-                        try self.emit("}}");
+                        try emitConst(self, "}}");
                     } else {
-                        try self.emit("}");
+                        try emitConst(self, "}");
                     }
                     i += 1;
                 },
@@ -259,7 +271,7 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
                     {}
                     const octal_str = content[i + 1 .. octal_end];
                     const byte_val = std.fmt.parseInt(u8, octal_str, 8) catch {
-                        try self.emit("\\\\");
+                        try emitConst(self, "\\\\");
                         continue;
                     };
                     try self.output.writer(self.allocator).print("\\x{x:0>2}", .{byte_val});
@@ -282,22 +294,22 @@ pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: Stri
 
                 // Unknown escape - emit literal backslash + char
                 else => {
-                    try self.emit("\\\\");
+                    try emitConst(self, "\\\\");
                 },
             }
         }
         // Handle raw characters that need escaping in Zig
         else if (c == '\\') {
             // Raw backslash (not part of escape sequence) needs escaping in Zig
-            try self.emit("\\\\");
+            try emitConst(self, "\\\\");
         } else if (c == '"') {
-            try self.emit("\\\"");
+            try emitConst(self, "\\\"");
         } else if (c == '\n') {
-            try self.emit("\\n");
+            try emitConst(self, "\\n");
         } else if (c == '\r') {
-            try self.emit("\\r");
+            try emitConst(self, "\\r");
         } else if (c == '\t') {
-            try self.emit("\\t");
+            try emitConst(self, "\\t");
         }
         // Brace handling for format strings (unescaped braces)
         else if (ctx.escape_braces and (c == '{' or c == '}')) {

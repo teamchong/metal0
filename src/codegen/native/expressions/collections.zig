@@ -18,6 +18,55 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// Collection operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit runtime.builtins.PyCallable.fromAny(@TypeOf(expr), expr)
+fn emitPyCallableFromAny(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try emitConst(self, "runtime.builtins.PyCallable.fromAny(@TypeOf(");
+    try genExpr(self, expr);
+    try emitConst(self, "), ");
+    try genExpr(self, expr);
+    try emitConst(self, ")");
+}
+
+/// Emit runtime.builtins.PyCallable.fromAny(@TypeOf(name.init), name.init) for class constructors
+fn emitPyCallableFromInit(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
+    try emitConst(self, "runtime.builtins.PyCallable.fromAny(@TypeOf(");
+    try emitConst(self, class_name);
+    try emitConst(self, ".init), ");
+    try emitConst(self, class_name);
+    try emitConst(self, ".init)");
+}
+
+/// Emit @as(f64, @floatFromInt(operand)) for int-to-float conversion
+fn emitFloatFromInt(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "@as(f64, @floatFromInt(");
+    try self.emitZigValue(operand);
+    try emitConst(self, "))");
+}
+
+
+
+
 // Re-export dict generation from dict.zig
 const dict = @import("dict.zig");
 pub const genDict = dict.genDict;
@@ -94,11 +143,11 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: NativeTyp
             if (elem == .name) {
                 if (BuiltinTypeNames.get(elem.name.id)) |builtin_fn| {
                     // Use PyCallable.fromAny with the runtime builtin function
-                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-                    try self.emit(builtin_fn);
-                    try self.emit("), ");
-                    try self.emit(builtin_fn);
-                    try self.emit(")");
+                    try emitConst(self, "runtime.builtins.PyCallable.fromAny(@TypeOf(");
+                    try emitConst(self, builtin_fn);
+                    try emitConst(self, "), ");
+                    try emitConst(self, builtin_fn);
+                    try emitConst(self, ")");
                     return;
                 }
             }
@@ -107,19 +156,11 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: NativeTyp
         },
         .function => {
             // Lambda or function - wrap using fromAny for type erasure
-            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-            try genExpr(self, elem);
-            try self.emit("), ");
-            try genExpr(self, elem);
-            try self.emit(")");
+            try emitPyCallableFromAny(self, elem);
         },
         .class_instance => |class_name| {
             // Class used as constructor - wrap in PyCallable
-            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-            try self.emit(class_name);
-            try self.emit(".init), ");
-            try self.emit(class_name);
-            try self.emit(".init)");
+            try emitPyCallableFromInit(self, class_name);
         },
         else => {
             // Unknown callable type - try to wrap it generically
@@ -128,20 +169,12 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: NativeTyp
                 const name = elem.name.id;
                 // Check if it's a known class in class_fields
                 if (self.type_inferrer.class_fields.contains(name)) {
-                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-                    try self.emit(name);
-                    try self.emit(".init), ");
-                    try self.emit(name);
-                    try self.emit(".init)");
+                    try emitPyCallableFromInit(self, name);
                     return;
                 }
             }
             // Fallback - wrap using fromAny for type erasure
-            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-            try genExpr(self, elem);
-            try self.emit("), ");
-            try genExpr(self, elem);
-            try self.emit(")");
+            try emitPyCallableFromAny(self, elem);
         },
     }
 }
@@ -161,19 +194,19 @@ fn genArrayLiteral(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     };
 
     // Emit array literal: [_]T{elem1, elem2, ...}
-    try self.emit("[_]");
-    try self.emit(elem_type_str);
-    try self.emit("{");
+    try emitConst(self, "[_]");
+    try emitConst(self, elem_type_str);
+    try emitConst(self, "{");
 
     for (list.elts, 0..) |elem, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self, ", ");
 
         // Capture and emit element value
         const operand = try self.captureExpr(elem);
         try self.emitZigValue(operand);
     }
 
-    try self.emit("}");
+    try emitConst(self, "}");
 }
 
 /// Generate list literal as ArrayList (Python lists are always mutable)
@@ -185,7 +218,7 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             // Check if function_traits analysis determined this list needs PyValue type
             // (will be assigned heterogeneous types later via += or append)
             if (self.varNeedsPyValue(target_name)) {
-                try self.emit("std.ArrayListUnmanaged(runtime.PyValue){}");
+                try emitConst(self, "std.ArrayListUnmanaged(runtime.PyValue){}");
                 return;
             }
 
@@ -202,20 +235,20 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
                     // containing *runtime.PyObject (which are valid typed elements)
                     if (std.mem.eql(u8, type_buf.items, "std.ArrayListUnmanaged(*runtime.PyObject)"))
                     {
-                        try self.emit("std.ArrayListUnmanaged([]const u8){}");
+                        try emitConst(self, "std.ArrayListUnmanaged([]const u8){}");
                         return;
                     }
                     // Use the inferred type directly if it's an ArrayList
                     if (std.mem.startsWith(u8, type_buf.items, "std.ArrayListUnmanaged(")) {
-                        try self.emit(type_buf.items);
-                        try self.emit("{}");
+                        try emitConst(self, type_buf.items);
+                        try emitConst(self, "{}");
                         return;
                     }
                 }
             }
         }
         // Default to i64 for empty lists without type context
-        try self.emit("std.ArrayListUnmanaged(i64){}");
+        try emitConst(self, "std.ArrayListUnmanaged(i64){}");
         return;
     }
 
@@ -269,41 +302,41 @@ fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void 
     // Generate unique names using NameGen to prevent shadowing
     const id = self.nextNameId();
 
-    try self.emitFmt("__list_blk_{d}: {{\n", .{id});
+    try emitFmtConst(self, "__list_blk_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
     // Generate comptime tuple
-    try self.emitFmt("const __values_{d} = .{{ ", .{id});
+    try emitFmtConst(self, "const __values_{d} = .{{ ", .{id});
     for (list.elts, 0..) |elem, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self, ", ");
         const operand = try self.captureExpr(elem);
         try self.emitZigValue(operand);
     }
-    try self.emit(" };\n");
+    try emitConst(self, " };\n");
 
     // Let Zig's comptime infer the type and generate optimal code
     try self.emitIndent();
-    try self.emitFmt("const __T_{d} = comptime runtime.InferListType(@TypeOf(__values_{d}));\n", .{ id, id });
+    try emitFmtConst(self, "const __T_{d} = comptime runtime.InferListType(@TypeOf(__values_{d}));\n", .{ id, id });
 
     try self.emitIndent();
-    try self.emitFmt("var __list_{d} = std.ArrayListUnmanaged(__T_{d}){{}};\n", .{ id, id });
+    try emitFmtConst(self, "var __list_{d} = std.ArrayListUnmanaged(__T_{d}){{}};\n", .{ id, id });
 
     // Inline loop - call runtime helper for type casting (reduces monomorphization)
     try self.emitIndent();
-    try self.emitFmt("inline for (__values_{d}) |val| {{\n", .{id});
+    try emitFmtConst(self, "inline for (__values_{d}) |val| {{\n", .{id});
     self.indent();
     try self.emitIndent();
-    try self.emitFmt("try runtime.list_ops.appendCast(__T_{d}, &__list_{d}, __global_allocator, val);\n", .{ id, id });
+    try emitFmtConst(self, "try runtime.list_ops.appendCast(__T_{d}, &__list_{d}, __global_allocator, val);\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     try self.emitIndent();
-    try self.emitFmt("break :__list_blk_{d} __list_{d};\n", .{ id, id });
+    try emitFmtConst(self, "break :__list_blk_{d} __list_{d};\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try emitConst(self, "}");
 }
 
 /// Widen tuple types element-wise, making positions optional if any element has None
@@ -346,7 +379,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Generate unique names using NameGen to prevent shadowing
     const id = self.nextNameId();
 
-    try self.emitFmt("__list_rt_{d}: {{\n", .{id});
+    try emitFmtConst(self, "__list_rt_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
@@ -359,14 +392,14 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         elem_type = try widenTupleTypes(self.allocator, elem_type, this_type);
     }
 
-    try self.emitFmt("var __list_var_{d} = std.ArrayListUnmanaged(", .{id});
+    try emitFmtConst(self, "var __list_var_{d} = std.ArrayListUnmanaged(", .{id});
     try elem_type.toZigType(self.allocator, &self.output);
-    try self.emit("){};\n");
+    try emitConst(self, "){};\n");
 
     // Append each element (with type coercion if needed)
     for (list.elts) |elem| {
         try self.emitIndent();
-        try self.emitFmt("try __list_var_{d}.append(__global_allocator, ", .{id});
+        try emitFmtConst(self, "try __list_var_{d}.append(__global_allocator, ", .{id});
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
@@ -378,9 +411,7 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
         const operand = try self.captureExpr(elem);
 
         if (needs_cast) {
-            try self.emit("@as(f64, @floatFromInt(");
-            try self.emitZigValue(operand);
-            try self.emit("))");
+            try emitFloatFromInt(self, operand);
         } else if (type_traits.isCallable(elem_type)) {
             // List of callables - wrap non-PyCallable elements
             try genCallableElement(self, elem, this_type);
@@ -388,28 +419,28 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             try self.emitZigValue(operand);
         }
 
-        try self.emit(");\n");
+        try emitConst(self, ");\n");
     }
 
     try self.emitIndent();
-    try self.emitFmt("break :__list_rt_{d} __list_var_{d};\n", .{ id, id });
+    try emitFmtConst(self, "break :__list_rt_{d} __list_var_{d};\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try emitConst(self, "}");
 }
 
 /// Generate set literal as StringHashMap(void) for strings, AutoHashMap for others
 pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     // Empty sets shouldn't happen (parsed as empty dict), but handle it
     if (set_node.elts.len == 0) {
-        try self.emit("hashmap_helper.StringHashMap(void).init(__global_allocator)");
+        try emitConst(self, "hashmap_helper.StringHashMap(void).init(__global_allocator)");
         return;
     }
 
     // Generate unique names using NameGen to prevent shadowing
     const id = self.nextNameId();
 
-    try self.emitFmt("__set_blk_{d}: {{\n", .{id});
+    try emitFmtConst(self, "__set_blk_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
 
@@ -425,14 +456,14 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
     const is_string = string_traits.isString(elem_type);
     const is_float = type_traits.isFloating(elem_type);
     if (is_string) {
-        try self.emitFmt("var __set_{d} = hashmap_helper.StringHashMap(void).init(__global_allocator);\n", .{id});
+        try emitFmtConst(self, "var __set_{d} = hashmap_helper.StringHashMap(void).init(__global_allocator);\n", .{id});
     } else if (is_float) {
         // Floats can't be hashed directly in Zig, use u64 bit representation
-        try self.emitFmt("var __set_{d} = std.AutoHashMap(u64, void).init(__global_allocator);\n", .{id});
+        try emitFmtConst(self, "var __set_{d} = std.AutoHashMap(u64, void).init(__global_allocator);\n", .{id});
     } else {
-        try self.emitFmt("var __set_{d} = std.AutoHashMap(", .{id});
+        try emitFmtConst(self, "var __set_{d} = std.AutoHashMap(", .{id});
         try elem_type.toZigType(self.allocator, &self.output);
-        try self.emit(", void).init(__global_allocator);\n");
+        try emitConst(self, ", void).init(__global_allocator);\n");
     }
 
     // Add each element (use try for error handling)
@@ -443,19 +474,19 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         try self.emitIndent();
         if (is_float) {
             // Convert float to bits for hashing
-            try self.emitFmt("try __set_{d}.put(@bitCast(", .{id});
+            try emitFmtConst(self, "try __set_{d}.put(@bitCast(", .{id});
             try self.emitZigValue(operand);
-            try self.emit("), {});\n");
+            try emitConst(self, "), {});\n");
         } else {
-            try self.emitFmt("try __set_{d}.put(", .{id});
+            try emitFmtConst(self, "try __set_{d}.put(", .{id});
             try self.emitZigValue(operand);
-            try self.emit(", {});\n");
+            try emitConst(self, ", {});\n");
         }
     }
 
     try self.emitIndent();
-    try self.emitFmt("break :__set_blk_{d} __set_{d};\n", .{ id, id });
+    try emitFmtConst(self, "break :__set_blk_{d} __set_{d};\n", .{ id, id });
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try emitConst(self, "}");
 }

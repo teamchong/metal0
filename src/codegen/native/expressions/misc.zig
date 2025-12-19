@@ -18,6 +18,26 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
+
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
@@ -56,7 +76,7 @@ fn isVoidAssertionCall(elem: ast.Node) bool {
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Empty tuples become empty struct
     if (tuple.elts.len == 0) {
-        try self.emit(".{}");
+        try emitConst(self, ".{}");
         return;
     }
 
@@ -74,7 +94,7 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         // Emit each assertion as a statement followed by newline
         // Don't wrap in tuple literal - assertions generate if-statements
         for (tuple.elts, 0..) |elem, i| {
-            if (i > 0) try self.emit("\n");
+            if (i > 0) try emitConst(self, "\n");
             const operand = try self.captureExpr(elem);
             try self.emitZigValue(operand);
         }
@@ -85,9 +105,9 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Type inference generates struct types: struct { @"0": T, @"1": T, ... }
     // So we must generate struct literals: .{ elem1, elem2, ... }
     // IMPORTANT: Integer constants must be cast to i64 to avoid comptime_int issues
-    try self.emit(".{ ");
+    try emitConst(self, ".{ ");
     for (tuple.elts, 0..) |elem, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self, ", ");
 
         // Handle void assertion calls inside mixed tuples by emitting {}
         if (isVoidAssertionCall(elem)) {
@@ -95,8 +115,8 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
             const label = try self.emitInlineBlockStart("void_assert");
             const operand = try self.captureExpr(elem);
             try self.emitZigValue(operand);
-            try self.emitFmt(" break :{s} ", .{label});
-            try self.emit("{}; ");
+            try emitFmtConst(self, " break :{s} ", .{label});
+            try emitConst(self, "{}; ");
             try self.emitInlineBlockEnd();
             continue;
         }
@@ -106,26 +126,26 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
 
         // Wrap integer constants to avoid comptime_int at runtime
         if (elem == .constant and elem.constant.value == .int) {
-            try self.emit("@as(i64, ");
+            try emitConst(self, "@as(i64, ");
             try self.emitZigValue(operand);
-            try self.emit(")");
+            try emitConst(self, ")");
         } else if (elem == .unaryop and elem.unaryop.op == .USub and
             elem.unaryop.operand.* == .constant and elem.unaryop.operand.constant.value == .int)
         {
             // Negative integer: -1 -> @as(i64, -1)
-            try self.emit("@as(i64, ");
+            try emitConst(self, "@as(i64, ");
             try self.emitZigValue(operand);
-            try self.emit(")");
+            try emitConst(self, ")");
         } else if (elem == .constant and elem.constant.value == .float) {
             // Float constants to avoid comptime_float
-            try self.emit("@as(f64, ");
+            try emitConst(self, "@as(f64, ");
             try self.emitZigValue(operand);
-            try self.emit(")");
+            try emitConst(self, ")");
         } else {
             try self.emitZigValue(operand);
         }
     }
-    try self.emit(" }");
+    try emitConst(self, " }");
 }
 
 /// Generate array/dict subscript with tuple support (a[b])
@@ -170,10 +190,10 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Use _ = on the tuple value to mark it as used, then return error
                     // This allows the error to be caught by assertRaisesRegex context
                     const label = try self.emitInlineBlockStart("typeerr");
-                    try self.emit("_ = &");
+                    try emitConst(self, "_ = &");
                     try genExpr(self, subscript.value.*);
-                    try self.emitFmt("; break :{s} try @as(anyerror!@TypeOf(", .{label});
-                    try self.emit("{}), error.TypeError); ");
+                    try emitFmtConst(self, "; break :{s} try @as(anyerror!@TypeOf(", .{label});
+                    try emitConst(self, "{}), error.TypeError); ");
                     try self.emitInlineBlockEnd();
                 } else {
                     // Non-constant tuple index - use runtime helper to avoid comptime explosion
@@ -211,12 +231,12 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         const bool_val = attr.value.constant.value.bool;
         if (std.mem.eql(u8, attr.attr, "real")) {
             // True.real = 1, False.real = 0
-            try self.emit(if (bool_val) "1" else "0");
+            try emitConst(self, if (bool_val) "1" else "0");
             return;
         }
         if (std.mem.eql(u8, attr.attr, "imag")) {
             // True.imag = 0, False.imag = 0
-            try self.emit("0");
+            try emitConst(self, "0");
             return;
         }
     }
@@ -230,7 +250,7 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
         if (std.mem.eql(u8, attr.attr, "imag")) {
             // int.imag = 0
-            try self.emit("0");
+            try emitConst(self, "0");
             return;
         }
     }
@@ -261,11 +281,11 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         var lazy_key_buf: [256]u8 = undefined;
         const lazy_key = std.fmt.bufPrint(&lazy_key_buf, "{s}.{s}", .{ module_name, attr_name }) catch module_name;
         if (self.lazy_class_attrs.contains(lazy_key)) {
-            try self.emit("(try ");
+            try emitConst(self, "(try ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
-            try self.emit(".");
+            try emitConst(self, ".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-            try self.emit("(__global_allocator))");
+            try emitConst(self, "(__global_allocator))");
             return;
         }
 
@@ -273,14 +293,14 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         if (std.mem.eql(u8, module_name, "int")) {
             if (std.mem.eql(u8, attr_name, "__new__")) {
                 // int.__new__(cls, value) - creates new int subclass instance
-                try self.emit("runtime.int__new__");
+                try emitConst(self, "runtime.int__new__");
                 return;
             }
         }
 
         if (std.mem.eql(u8, module_name, "float")) {
             if (FloatClassMethods.get(attr_name)) |runtime_func| {
-                try self.emit(runtime_func);
+                try emitConst(self, runtime_func);
                 return;
             }
         }
@@ -326,16 +346,16 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                 // emit a reference to the runtime function using the local import
                 // e.g., operator.eq -> &operator.eq (operator is already imported)
                 // The module is imported at file top, so just use its local name
-                try self.emit("&");
+                try emitConst(self, "&");
                 // Use writeLocalVarName to handle renamed modules (e.g., copy -> copy_)
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), module_name);
-                try self.emit(".");
+                try emitConst(self, ".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
             } else {
                 // For compiled Python modules, reference directly
                 // e.g., _py_abc.ABCMeta -> _py_abc.ABCMeta (module @import gives direct access)
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
-                try self.emit(".");
+                try emitConst(self, ".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
             }
             return;
@@ -347,7 +367,7 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Since we compile to native code, we return a stub CodeObject
     if (std.mem.eql(u8, attr.attr, "__code__")) {
         // Return a stub code object
-        try self.emit("runtime.builtins.CodeObject{}");
+        try emitConst(self, "runtime.builtins.CodeObject{}");
         return;
     }
 
@@ -356,9 +376,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (value_type == .file) {
         if (std.mem.eql(u8, attr.attr, "closed")) {
             // File.closed property - call getClosed helper
-            try self.emit("runtime.PyFile.getClosed(");
+            try emitConst(self, "runtime.PyFile.getClosed(");
             try genExpr(self, attr.value.*);
-            try self.emit(")");
+            try emitConst(self, ")");
             return;
         }
     }
@@ -368,18 +388,18 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         if (std.mem.eql(u8, attr.attr, "status") or std.mem.eql(u8, attr.attr, "status_code")) {
             // Python expects integer status code - call statusCode() method
             try genExpr(self, attr.value.*);
-            try self.emit(".statusCode()");
+            try emitConst(self, ".statusCode()");
             return;
         }
         if (std.mem.eql(u8, attr.attr, "text") or std.mem.eql(u8, attr.attr, "content")) {
             // text/content returns body as string
             try genExpr(self, attr.value.*);
-            try self.emit(".body");
+            try emitConst(self, ".body");
             return;
         }
         // For other attributes (body, headers, etc.), use direct access
         try genExpr(self, attr.value.*);
-        try self.emit(".");
+        try emitConst(self, ".");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         return;
     }
@@ -391,9 +411,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         // For now, we emit a placeholder that will be resolved at runtime
         // The actual signature would need to be determined from argtypes/restype
         try genExpr(self, attr.value.*);
-        try self.emit(".lookup(*const fn() callconv(.c) isize, \"");
-        try self.emit(attr.attr);
-        try self.emit("\")");
+        try emitConst(self, ".lookup(*const fn() callconv(.c) isize, \"");
+        try emitConst(self, attr.attr);
+        try emitConst(self, "\")");
         return;
     }
 
@@ -401,9 +421,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (value_type == .path) {
         if (PathProperties.has(attr.attr)) {
             try genExpr(self, attr.value.*);
-            try self.emit(".");
+            try emitConst(self, ".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-            try self.emit("()"); // Call as method in Zig
+            try emitConst(self, "()"); // Call as method in Zig
             return;
         }
     }
@@ -411,9 +431,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Legacy check for Path.parent access (Python property -> Zig method)
     if (isPathProperty(attr)) {
         try genExpr(self, attr.value.*);
-        try self.emit(".");
+        try emitConst(self, ".");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-        try self.emit("()"); // Call as method in Zig
+        try emitConst(self, "()"); // Call as method in Zig
         return;
     }
 
@@ -423,7 +443,7 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         std.mem.eql(u8, value_type.class_instance, "array.array"))
     {
         try genExpr(self, attr.value.*);
-        try self.emit(".");
+        try emitConst(self, ".");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         return;
     }
@@ -437,8 +457,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Check if this is a unittest assertion method reference (e.g., eq = self.assertEqual)
     if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
         if (UnittestAssertions.has(attr.attr)) {
-            try self.emit("runtime.unittest.");
-            try self.emit(attr.attr);
+            try emitConst(self, "runtime.unittest.");
+            try emitConst(self, attr.attr);
             return;
         }
 
@@ -453,12 +473,12 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                         // Lazy attribute: call it with allocator
                         // (try @This().attr_name(__global_allocator))
                         // Use __global_allocator since method may have unnamed allocator param
-                        try self.emit("(try @This().");
+                        try emitConst(self, "(try @This().");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-                        try self.emit("(__global_allocator))");
+                        try emitConst(self, "(__global_allocator))");
                     } else {
                         // Return a reference to the static function: @This().attr_name
-                        try self.emit("@This().");
+                        try emitConst(self, "@This().");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                     }
                     return;
@@ -475,18 +495,18 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         // Check if there's a getter function name to use (for property() assignments)
         const getter_name = try getPropertyGetter(self, attr);
         try genExpr(self, attr.value.*);
-        try self.emit(".");
+        try emitConst(self, ".");
         if (getter_name) |gn| {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), gn);
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         }
-        try self.emit("()");
+        try emitConst(self, "()");
     } else if (is_dynamic) {
         // Special case: __dict__ attribute is the dict itself, not a key in the dict
         if (std.mem.eql(u8, attr.attr, "__dict__")) {
             try genExpr(self, attr.value.*);
-            try self.emit(".__dict__");
+            try emitConst(self, ".__dict__");
         } else {
             // Dynamic attribute: use __dict__.get() and extract value
             // Determine the appropriate PyValue field from class field types if available
@@ -526,18 +546,18 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             // - @TypeOf(list) = ArrayListUnmanaged(T) which is a struct
             // - fields[0].type = items field type = []T (slice)
             // - @typeInfo([]T).pointer.child = T
-            try self.emit("runtime.list_ops.BoundListMethod(@typeInfo(@typeInfo(@TypeOf(");
+            try emitConst(self, "runtime.list_ops.BoundListMethod(@typeInfo(@typeInfo(@TypeOf(");
             try genExpr(self, attr.value.*);
-            try self.emit(")).@\"struct\".fields[0].type).pointer.child).init(&");
+            try emitConst(self, ")).@\"struct\".fields[0].type).pointer.child).init(&");
             try genExpr(self, attr.value.*);
-            try self.emit(", __global_allocator)");
+            try emitConst(self, ", __global_allocator)");
             return;
         }
 
         // Known attribute: direct field access
         // Escape attribute name if it's a Zig keyword (e.g., "test")
         try genExpr(self, attr.value.*);
-        try self.emit(".");
+        try emitConst(self, ".");
 
         // Handle Python name mangling for private attributes
         // Python mangles __attr to _ClassName__attr when accessed from outside

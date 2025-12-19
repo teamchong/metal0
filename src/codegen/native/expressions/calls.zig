@@ -33,6 +33,26 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
+
 // Import trait functions for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
@@ -114,42 +134,42 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         const func_name = call.func.name.id;
         if (self.ctypes_functions.get(func_name)) |ctypes_info| {
             // Generate call using tracked argtypes/restype
-            try self.emit("((");
-            try self.emit(ctypes_info.library_var);
-            try self.emit(".lookup(*const fn(");
+            try emitConst(self, "((");
+            try emitConst(self, ctypes_info.library_var);
+            try emitConst(self, ".lookup(*const fn(");
             // Generate parameter types from tracked argtypes
             if (ctypes_info.argtypes.len > 0) {
                 for (ctypes_info.argtypes, 0..) |argtype, i| {
-                    if (i > 0) try self.emit(", ");
-                    try self.emit(ctypesToZig(argtype));
+                    if (i > 0) try emitConst(self, ", ");
+                    try emitConst(self, ctypesToZig(argtype));
                 }
             } else {
                 // No argtypes set - infer from arguments
                 for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try emitConst(self, ", ");
                     const arg_type = try self.type_inferrer.inferExpr(arg);
-                    try self.emit(inferCType(arg_type));
+                    try emitConst(self, inferCType(arg_type));
                 }
             }
-            try self.emit(") callconv(.c) ");
-            try self.emit(ctypesToZig(ctypes_info.restype));
-            try self.emit(", \"");
-            try self.emit(ctypes_info.func_name);
-            try self.emit("\")) orelse @panic(\"Symbol not found: ");
-            try self.emit(ctypes_info.func_name);
-            try self.emit("\"))(");
+            try emitConst(self, ") callconv(.c) ");
+            try emitConst(self, ctypesToZig(ctypes_info.restype));
+            try emitConst(self, ", \"");
+            try emitConst(self, ctypes_info.func_name);
+            try emitConst(self, "\")) orelse @panic(\"Symbol not found: ");
+            try emitConst(self, ctypes_info.func_name);
+            try emitConst(self, "\"))(");
             // Generate arguments - convert to C types if needed
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 const arg_type = try self.type_inferrer.inferExpr(arg);
                 if (string_traits.isString(arg_type)) {
                     try genExpr(self, arg);
-                    try self.emit(".ptr");
+                    try emitConst(self, ".ptr");
                 } else {
                     try genExpr(self, arg);
                 }
             }
-            try self.emit(")");
+            try emitConst(self, ")");
             return;
         }
     }
@@ -165,11 +185,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (self.from_import_needs_allocator.contains("loads")) {
                 // json.loads wrapper - call with allocator
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit("try loads(");
+                try emitConst(self, "try loads(");
                 try genExpr(self, call.args[0]);
-                try self.emit(", ");
-                try self.emit(alloc_name);
-                try self.emit(")");
+                try emitConst(self, ", ");
+                try emitConst(self, alloc_name);
+                try emitConst(self, ")");
                 return;
             }
             // For pickle.loads: const loads = pickle.loads expects (data, allocator)
@@ -186,7 +206,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, call.args[1]);
             } else {
                 // array("B") with no initializer -> empty bytes
-                try self.emit("\"\"");
+                try emitConst(self, "\"\"");
             }
             return;
         }
@@ -217,19 +237,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
-        try self.emit("(");
+        try emitConst(self, "(");
 
         for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self, ", ");
             try genExpr(self, arg);
         }
 
         for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try self.emit(", ");
+            if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
             try genExpr(self, kwarg.value);
         }
 
-        try self.emit(")");
+        try emitConst(self, ")");
         return;
     }
 
@@ -278,17 +298,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         try self.lambda_functions.append(self.allocator, try lambda_func.toOwnedSlice(self.allocator));
 
         // Generate direct function call (no & prefix for immediate calls)
-        try self.emit(lambda_name);
-        try self.emit("(");
+        try emitConst(self, lambda_name);
+        try emitConst(self, "(");
         for (call.args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self, ", ");
             try genExpr(self, arg);
         }
         for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try self.emit(", ");
+            if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
             try genExpr(self, kwarg.value);
         }
-        try self.emit(")");
+        try emitConst(self, ")");
         return;
     }
 
@@ -303,17 +323,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Generate: AliasedName.init(__global_allocator, args...)
                 // Class-body-level nested classes return @This(), NOT error union
                 // So we don't need try here (unlike method-local nested classes)
-                try self.emit(aliased_name);
-                try self.emit(".init(__global_allocator");
+                try emitConst(self, aliased_name);
+                try emitConst(self, ".init(__global_allocator");
                 for (call.args) |arg| {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                     try genExpr(self, arg);
                 }
                 for (call.keyword_args) |kwarg| {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                     try genExpr(self, kwarg.value);
                 }
-                try self.emit(")");
+                try emitConst(self, ")");
                 return;
             }
         }
@@ -324,33 +344,33 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (base_type == .cdll) {
             // Generate: (lib.lookup(*const fn(...) callconv(.c) T, "func_name") orelse unreachable)(args)
             // Infer parameter types from argument types
-            try self.emit("((");
+            try emitConst(self, "((");
             try genExpr(self, attr.value.*);
-            try self.emit(".lookup(*const fn(");
+            try emitConst(self, ".lookup(*const fn(");
             // Generate parameter types based on argument inference
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 const arg_type = try self.type_inferrer.inferExpr(arg);
-                try self.emit(inferCType(arg_type));
+                try emitConst(self, inferCType(arg_type));
             }
-            try self.emit(") callconv(.c) usize, \"");
-            try self.emit(attr.attr);
-            try self.emit("\")) orelse @panic(\"Symbol not found: ");
-            try self.emit(attr.attr);
-            try self.emit("\"))(");
+            try emitConst(self, ") callconv(.c) usize, \"");
+            try emitConst(self, attr.attr);
+            try emitConst(self, "\")) orelse @panic(\"Symbol not found: ");
+            try emitConst(self, attr.attr);
+            try emitConst(self, "\"))(");
             // Generate arguments - convert to C types if needed
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 const arg_type = try self.type_inferrer.inferExpr(arg);
                 if (string_traits.isString(arg_type)) {
                     // Convert Python string to C string pointer
                     try genExpr(self, arg);
-                    try self.emit(".ptr");
+                    try emitConst(self, ".ptr");
                 } else {
                     try genExpr(self, arg);
                 }
             }
-            try self.emit(")");
+            try emitConst(self, ")");
             return;
         }
 
@@ -359,11 +379,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "object")) {
             if (std.mem.eql(u8, attr.attr, "__hash__")) {
                 // object.__hash__(x) -> runtime.pyHash(x) for consistency with hash()
-                try self.emit("runtime.pyHash(");
+                try emitConst(self, "runtime.pyHash(");
                 if (call.args.len > 0) {
                     try genExpr(self, call.args[0]);
                 }
-                try self.emit(")");
+                try emitConst(self, ")");
                 return;
             }
         }
@@ -372,11 +392,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
             if (std.mem.eql(u8, attr.attr, "__getformat__")) {
                 // float.__getformat__('double') -> runtime.floatGetFormat("double")
-                try self.emit("runtime.floatGetFormat(");
+                try emitConst(self, "runtime.floatGetFormat(");
                 if (call.args.len > 0) {
                     try genExpr(self, call.args[0]);
                 }
-                try self.emit(")");
+                try emitConst(self, ")");
                 return;
             }
         }
@@ -394,23 +414,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // int.from_bytes(bytes, byteorder) -> runtime.intFromBytes(bytes, byteorder)
                     // bool.from_bytes(bytes, byteorder) -> (runtime.intFromBytes(bytes, byteorder) != 0)
                     if (is_bool_type) {
-                        try self.emit("(runtime.intFromBytes(");
+                        try emitConst(self, "(runtime.intFromBytes(");
                     } else {
-                        try self.emit("runtime.intFromBytes(");
+                        try emitConst(self, "runtime.intFromBytes(");
                     }
                     if (call.args.len > 0) {
                         try genExpr(self, call.args[0]);
                     }
                     if (call.args.len > 1) {
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                         try genExpr(self, call.args[1]);
                     } else {
-                        try self.emit(", \"big\"");
+                        try emitConst(self, ", \"big\"");
                     }
                     if (is_bool_type) {
-                        try self.emit(") != 0)");
+                        try emitConst(self, ") != 0)");
                     } else {
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     }
                     return;
                 }
@@ -419,12 +439,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // int.to_bytes(value, length, byteorder) -> runtime.intToBytes(value, length, byteorder)
                     // Note: In Python it's value.to_bytes(length, byteorder)
                     // but int.to_bytes(value, length, byteorder) is also valid
-                    try self.emit("runtime.intToBytes(__global_allocator, ");
+                    try emitConst(self, "runtime.intToBytes(__global_allocator, ");
                     for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
+                        if (i > 0) try emitConst(self, ", ");
                         try genExpr(self, arg);
                     }
-                    try self.emit(")");
+                    try emitConst(self, ")");
                     return;
                 }
             }
@@ -439,18 +459,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (type_attr_key) |key| {
                     if (self.class_type_attrs.get(key)) |type_value| {
                         // This is a type attribute - call as @This().attr_name(args)
-                        try self.emit("@This().");
+                        try emitConst(self, "@This().");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-                        try self.emit("(");
+                        try emitConst(self, "(");
                         for (call.args, 0..) |arg, i| {
-                            if (i > 0) try self.emit(", ");
+                            if (i > 0) try emitConst(self, ", ");
                             try genExpr(self, arg);
                         }
                         // For int type attributes with optional base param, add null if not provided
                         if (std.mem.eql(u8, type_value, "int") and call.args.len == 1) {
-                            try self.emit(", null");
+                            try emitConst(self, ", null");
                         }
-                        try self.emit(")");
+                        try emitConst(self, ")");
                         return;
                     }
                 }
@@ -601,7 +621,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     needs_try = traits.can_error;
                 } else {
                     // Function not found in local module - emit compile error
-                    try self.emitFmt("@compileError(\"Unknown function: {s}.{s}\")", .{ mod, func_name });
+                    try emitFmtConst(self, "@compileError(\"Unknown function: {s}.{s}\")", .{ mod, func_name });
                     return;
                 }
             } else {
@@ -634,50 +654,50 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try blk.startBreak();
             // In defer blocks, 'try' is not allowed - use catch {} instead
             if (emit_try and !self.inside_defer) {
-                try self.emit("try ");
+                try emitConst(self, "try ");
             }
             // For @staticmethod: use @TypeOf(__obj.*).method() since staticmethod has no self parameter
             // Instance method call with no self parameter requires type-based invocation
             if (is_static_method) {
-                try self.emit("@TypeOf(__obj.*).");
+                try emitConst(self, "@TypeOf(__obj.*).");
             } else {
-                try self.emit("__obj.");
+                try emitConst(self, "__obj.");
             }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-            try self.emit("(");
+            try emitConst(self, "(");
 
             // For module calls or class method calls, add allocator as first argument only if needed
             if ((is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                try emitConst(self, alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                 }
             }
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 try genExpr(self, arg);
             }
 
             // Add keyword arguments as positional arguments
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
                 try genExpr(self, kwarg.value);
             }
 
             // In defer blocks, append 'catch {}' to silence errors
             if (emit_try and self.inside_defer) {
-                try self.emit(") catch {}");
+                try emitConst(self, ") catch {}");
             } else {
-                try self.emit(")");
+                try emitConst(self, ")");
             }
             try blk.close();
         } else {
             // Normal path - no wrapping needed
             // In defer blocks, 'try' is not allowed - use catch {} at the end instead
             if (emit_try and !self.inside_defer) {
-                try self.emit("try ");
+                try emitConst(self, "try ");
             }
 
             // Generic method call: obj.method(args)
@@ -688,27 +708,27 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 (attr.value.constant.value == .int or attr.value.constant.value == .float);
             // For @staticmethod: use @TypeOf(obj.*).method() since staticmethod has no self parameter
             if (is_static_method) {
-                try self.emit("@TypeOf(");
-                if (needs_parens) try self.emit("(");
+                try emitConst(self, "@TypeOf(");
+                if (needs_parens) try emitConst(self, "(");
                 try genExpr(self, attr.value.*);
-                if (needs_parens) try self.emit(")");
-                try self.emit(".*).");
+                if (needs_parens) try emitConst(self, ")");
+                try emitConst(self, ".*).");
             } else {
-                if (needs_parens) try self.emit("(");
+                if (needs_parens) try emitConst(self, "(");
                 try genExpr(self, attr.value.*);
-                if (needs_parens) try self.emit(")");
-                try self.emit(".");
+                if (needs_parens) try emitConst(self, ")");
+                try emitConst(self, ".");
             }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-            try self.emit("(");
+            try emitConst(self, "(");
 
             // For module calls or class method calls, add allocator as first argument only if needed
             const allocator_emitted = (is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc;
             if (allocator_emitted) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                try emitConst(self, alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                 }
             }
 
@@ -725,44 +745,44 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                 // Emit regular args first (up to vararg_start_index)
                 for (call.args[0..@min(vararg_start_index, call.args.len)], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try emitConst(self, ", ");
                     try genExpr(self, arg);
                 }
 
                 // Add comma before varargs slice if we emitted regular args
                 if (vararg_start_index > 0 and call.args.len > vararg_start_index) {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                 }
 
                 // Wrap remaining arguments (after vararg_start_index) in a PyValue slice literal
-                try self.emit("&[_]runtime.PyValue{");
+                try emitConst(self, "&[_]runtime.PyValue{");
                 var arg_idx: usize = 0;
                 for (call.args[@min(vararg_start_index, call.args.len)..]) |arg| {
-                    if (arg_idx > 0) try self.emit(", ");
-                    try self.emit("runtime.PyValue.from(");
+                    if (arg_idx > 0) try emitConst(self, ", ");
+                    try emitConst(self, "runtime.PyValue.from(");
                     try genExpr(self, arg);
-                    try self.emit(")");
+                    try emitConst(self, ")");
                     arg_idx += 1;
                 }
                 // Add keyword arguments as positional arguments
                 for (call.keyword_args) |kwarg| {
-                    if (arg_idx > 0) try self.emit(", ");
-                    try self.emit("runtime.PyValue.from(");
+                    if (arg_idx > 0) try emitConst(self, ", ");
+                    try emitConst(self, "runtime.PyValue.from(");
                     try genExpr(self, kwarg.value);
-                    try self.emit(")");
+                    try emitConst(self, ")");
                     arg_idx += 1;
                 }
-                try self.emit("}");
+                try emitConst(self, "}");
             } else {
                 // Normal argument emission
                 for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try emitConst(self, ", ");
                     try genExpr(self, arg);
                 }
 
                 // Add keyword arguments as positional arguments
                 for (call.keyword_args, 0..) |kwarg, i| {
-                    if (i > 0 or call.args.len > 0) try self.emit(", ");
+                    if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
                     try genExpr(self, kwarg.value);
                 }
             }
@@ -779,8 +799,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             const missing_args = if (sig.total_params > provided_args) sig.total_params - provided_args else 0;
                             for (0..missing_args) |j| {
                                 // Add comma if: allocator was emitted OR args were provided OR this is not the first null
-                                if (allocator_emitted or provided_args > 0 or j > 0) try self.emit(", ");
-                                try self.emit("null");
+                                if (allocator_emitted or provided_args > 0 or j > 0) try emitConst(self, ", ");
+                                try emitConst(self, "null");
                             }
                         }
                     }
@@ -789,9 +809,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // In defer blocks, append 'catch {}' to silence errors
             if (emit_try and self.inside_defer) {
-                try self.emit(") catch {}");
+                try emitConst(self, ") catch {}");
             } else {
-                try self.emit(")");
+                try emitConst(self, ")");
             }
         }
         return;
@@ -813,19 +833,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Lambda call: square(5) -> square(5)
             // Function pointers in Zig are called directly
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit("(");
+            try emitConst(self, "(");
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 try genExpr(self, arg);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
                 try genExpr(self, kwarg.value);
             }
 
-            try self.emit(")");
+            try emitConst(self, ")");
             return;
         }
 
@@ -836,7 +856,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // EXCEPTION: void-returning closures don't need try wrapping
             const is_void_closure = self.void_closure_vars.contains(raw_func_name);
             if (!is_void_closure) {
-                try self.emit("(try ");
+                try emitConst(self, "(try ");
             }
             // For hoisted DynamicClosures (from if/else branches), use raw_func_name
             // since they're declared as "var get_output: DynamicClosure = undefined;"
@@ -846,30 +866,30 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             else
                 func_name;
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), closure_name);
-            try self.emit(".call(");
+            try emitConst(self, ".call(");
 
             // Pass args to closure - wrap integer literals with @as(i64, ...) to force
             // runtime types. Without this, integer literals become comptime_int which
             // can't be used with runtime control flow inside the closure body.
             // Class instances are already pointers (*Self from init()), never add &
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 // Check if arg is an integer constant that needs wrapping
                 if (isIntegerConstant(arg)) {
-                    try self.emit("@as(i64, ");
+                    try emitConst(self, "@as(i64, ");
                     try genExpr(self, arg);
-                    try self.emit(")");
+                    try emitConst(self, ")");
                 } else {
                     try genExpr(self, arg);
                 }
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
                 if (isIntegerConstant(kwarg.value)) {
-                    try self.emit("@as(i64, ");
+                    try emitConst(self, "@as(i64, ");
                     try genExpr(self, kwarg.value);
-                    try self.emit(")");
+                    try emitConst(self, ")");
                 } else {
                     try genExpr(self, kwarg.value);
                 }
@@ -885,17 +905,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     for (0..missing_count) |i| {
                         // Need comma before null if there were provided args, or between nulls
                         if (provided_args > 0 or i > 0) {
-                            try self.emit(", ");
+                            try emitConst(self, ", ");
                         }
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
                 }
             }
 
             if (!is_void_closure) {
-                try self.emit("))");  // Close both .call() and (try ...)
+                try emitConst(self, "))");  // Close both .call() and (try ...)
             } else {
-                try self.emit(")");  // Close just .call() - no try wrapper
+                try emitConst(self, ")");  // Close just .call() - no try wrapper
             }
             return;
         }
@@ -907,25 +927,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Callable call: f("100") -> (try f.call("100")) for error callables
             //                f("100") -> f.call("100") for regular callables
             if (returns_error) {
-                try self.emit("(try ");
+                try emitConst(self, "(try ");
             }
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit(".call(");
+            try emitConst(self, ".call(");
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 try genExpr(self, arg);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
                 try genExpr(self, kwarg.value);
             }
 
             if (returns_error) {
-                try self.emit("))");
+                try emitConst(self, "))");
             } else {
-                try self.emit(")");
+                try emitConst(self, ")");
             }
             return;
         }
@@ -937,21 +957,21 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (std.mem.eql(u8, captured_name, raw_func_name)) {
                     // Captured callable: mutate(d) -> __self.__captured_mutate.*(d)
                     // The captured variable is a pointer to a callable, dereference and call
-                    try self.emit("__self.__captured_");
-                    try self.emit(raw_func_name);
-                    try self.emit(".*(");
+                    try emitConst(self, "__self.__captured_");
+                    try emitConst(self, raw_func_name);
+                    try emitConst(self, ".*(");
 
                     for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
+                        if (i > 0) try emitConst(self, ", ");
                         try genExpr(self, arg);
                     }
 
                     for (call.keyword_args, 0..) |kwarg, i| {
-                        if (i > 0 or call.args.len > 0) try self.emit(", ");
+                        if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
                         try genExpr(self, kwarg.value);
                     }
 
-                    try self.emit(")");
+                    try emitConst(self, ")");
                     return;
                 }
             }
@@ -967,12 +987,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (self.class_registry.findMethod(class_name, "__call__") != null) {
                     // Generate: instance.__call__()
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-                    try self.emit(".__call__(");
+                    try emitConst(self, ".__call__(");
                     for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
+                        if (i > 0) try emitConst(self, ", ");
                         try genExpr(self, arg);
                     }
-                    try self.emit(")");
+                    try emitConst(self, ")");
                     return;
                 }
             }
@@ -1011,22 +1031,22 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Generic classes: Box(42) -> Box(i64).init(42)
             if (self.generic_classes.get(raw_func_name)) |_| {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-                try self.emit("(");
+                try emitConst(self, "(");
                 // Infer type from first argument
                 if (call.args.len > 0) {
                     const zig_type = inferTypeFromExpr(call.args[0]);
-                    try self.emit(zig_type);
+                    try emitConst(self, zig_type);
                 } else {
                     // No args - default to i64
-                    try self.emit("i64");
+                    try emitConst(self, "i64");
                 }
-                try self.emit(").init(");
+                try emitConst(self, ").init(");
                 // Generate arguments
                 for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try emitConst(self, ", ");
                     try genExpr(self, arg);
                 }
-                try self.emit(")");
+                try emitConst(self, ")");
                 return;
             }
 
@@ -1054,22 +1074,22 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // ndarray(items, shape=shape, strides=strides, ...) ->
                 // ndarray.init(items, .{ .shape = shape, .strides = strides, ... })
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-                try self.emit(".init(");
+                try emitConst(self, ".init(");
 
                 // First positional arg is items
                 if (call.args.len > 0) {
                     try genExpr(self, call.args[0]);
                 } else {
-                    try self.emit("&[_]i64{}");
+                    try emitConst(self, "&[_]i64{}");
                 }
 
                 // Build options struct from keyword args
-                try self.emit(", .{");
+                try emitConst(self, ", .{");
                 for (call.keyword_args, 0..) |kwarg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try self.emit(" .");
-                    try self.emit(kwarg.name);
-                    try self.emit(" = ");
+                    if (i > 0) try emitConst(self, ", ");
+                    try emitConst(self, " .");
+                    try emitConst(self, kwarg.name);
+                    try emitConst(self, " = ");
                     // ndarray options expect slices, not arrays - wrap list literals with &
                     // Constant lists get generated as array literals, need & prefix
                     if (kwarg.value == .list) {
@@ -1081,7 +1101,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             break :blk kwarg.value.list.elts.len > 0;
                         };
                         if (is_constant) {
-                            try self.emit("&");
+                            try emitConst(self, "&");
                         }
                     }
                     // Dynamic lists produce ArrayList - need .items to get slice
@@ -1094,9 +1114,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             break :blk kwarg.value.list.elts.len > 0;
                         };
                         if (!is_constant and kwarg.value.list.elts.len > 0) {
-                            try self.emit("(");
+                            try emitConst(self, "(");
                             try genExpr(self, kwarg.value);
-                            try self.emit(").items");
+                            try emitConst(self, ").items");
                         } else {
                             try genExpr(self, kwarg.value);
                         }
@@ -1104,7 +1124,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         try genExpr(self, kwarg.value);
                     }
                 }
-                try self.emit(" })");
+                try emitConst(self, " })");
                 return;
             }
 
@@ -1162,29 +1182,29 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         if (self.inside_try_body and !self.in_assert_raises_context) {
                             // Inside try/except (NOT assertRaises): use return to propagate error to TryHelper
                             // Plain block (no label) with return - noreturn type works with _ = assignment
-                            try self.emit("{\n");
+                            try emitConst(self, "{\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                            try emitConst(self, "runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
-                            try self.emit("() does not take keyword arguments\", @src().line);\n");
+                            try emitConst(self, "() does not take keyword arguments\", @src().line);\n");
                             try self.emitIndent();
-                            try self.emit("return error.TypeError;\n");
+                            try emitConst(self, "return error.TypeError;\n");
                             self.dedent();
                             try self.emitIndent();
-                            try self.emit("}");
+                            try emitConst(self, "}");
                         } else {
                             // assertRaises or normal context: use block expression
                             // emitInlineBlockStart already emits "(__label: { "
                             const label = try self.emitInlineBlockStart("kwarg_err");
-                            try self.emit("\n");
+                            try emitConst(self, "\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                            try emitConst(self, "runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
-                            try self.emit("() does not take keyword arguments\", @src().line);\n");
+                            try emitConst(self, "() does not take keyword arguments\", @src().line);\n");
                             try self.emitIndent();
-                            try self.emitFmt("break :{s} error.TypeError;\n", .{label});
+                            try emitFmtConst(self, "break :{s} error.TypeError;\n", .{label});
                             self.dedent();
                             try self.emitIndent();
                             // emitInlineBlockEnd already emits "})"
@@ -1198,10 +1218,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (is_user_class) {
                 // User-defined class: nested classes and error init classes need try
                 if (needs_try) {
-                    try self.emit("(try ");
+                    try emitConst(self, "(try ");
                 }
                 if (is_self_class_call) {
-                    try self.emit("@This()");
+                    try emitConst(self, "@This()");
                 } else {
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                     // Track that we actually used this nested class in generated Zig code
@@ -1211,33 +1231,33 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
                 }
                 if (needs_allocator) {
-                    try self.emit(".init(__global_allocator");
+                    try emitConst(self, ".init(__global_allocator");
                 } else {
-                    try self.emit(".init(");
+                    try emitConst(self, ".init(");
                 }
             } else if (is_runtime_exception) {
                 // Runtime exception type: Exception(arg) -> runtime.Exception.initWithArg(__global_allocator, arg)
-                try self.emit("(try runtime.");
+                try emitConst(self, "(try runtime.");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
                 // Use initWithArg for single arg, initWithArgs for multiple, init for no args
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
-                    try self.emit(".init(__global_allocator))");
+                    try emitConst(self, ".init(__global_allocator))");
                     return;
                 } else if (call.args.len == 1 and call.keyword_args.len == 0) {
-                    try self.emit(".initWithArg(__global_allocator, ");
+                    try emitConst(self, ".initWithArg(__global_allocator, ");
                     try genExpr(self, call.args[0]);
-                    try self.emit("))");
+                    try emitConst(self, "))");
                     return;
                 } else {
                     // Multiple args - build PyValue array
-                    try self.emit(".initWithArgs(__global_allocator, &[_]runtime.PyValue{");
+                    try emitConst(self, ".initWithArgs(__global_allocator, &[_]runtime.PyValue{");
                     for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try self.emit("runtime.PyValue.from(");
+                        if (i > 0) try emitConst(self, ", ");
+                        try emitConst(self, "runtime.PyValue.from(");
                         try genExpr(self, arg);
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     }
-                    try self.emit("}))");
+                    try emitConst(self, "}))");
                     return;
                 }
             } else {
@@ -1247,25 +1267,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // (e.g., due to scoping issues). User-defined init() returns struct directly.
                 // Need to emit (try ...) wrapper if class has error init
                 if (needs_try) {
-                    try self.emit("(try ");
+                    try emitConst(self, "(try ");
                 }
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
-                    try self.emit(".init(__global_allocator");
+                    try emitConst(self, ".init(__global_allocator");
                 } else {
-                    try self.emit(".init(__global_allocator, ");
+                    try emitConst(self, ".init(__global_allocator, ");
                 }
             }
 
             // Check if this class has captured variables - pass pointers to them
             if (self.nested_class_captures.get(raw_func_name)) |captured_vars| {
                 for (captured_vars) |var_name| {
-                    try self.emit(", &");
+                    try emitConst(self, ", &");
                     // Use renamed variable if inside TryHelper or other scope
                     if (self.var_renames.get(var_name)) |renamed| {
-                        try self.emit(renamed);
+                        try emitConst(self, renamed);
                     } else {
-                        try self.emit(var_name);
+                        try emitConst(self, var_name);
                     }
                 }
             }
@@ -1294,19 +1314,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (builtin_base_info) |base_info| {
                 // No user args but class inherits from builtin - use defaults
                 for (base_info.init_args) |arg| {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                     if (arg.default) |default_val| {
-                        try self.emit(default_val);
+                        try emitConst(self, default_val);
                     } else {
                         // Required arg with no default - shouldn't happen for proper Python code
-                        try self.emit("undefined");
+                        try emitConst(self, "undefined");
                     }
                 }
             } else {
                 // User-provided args
                 // Only add comma if allocator was emitted
                 if ((call.args.len > 0 or call.keyword_args.len > 0) and needs_allocator) {
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                 }
 
                 // Check if class inherits from builtin type (int, float, tuple, list, etc.)
@@ -1346,7 +1366,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 };
 
                 for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try emitConst(self, ", ");
 
                     // Handle starred expression: *tuple unpacks to tuple.@"0", tuple.@"1", ...
                     if (arg == .starred) {
@@ -1357,7 +1377,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         var blk1 = try em.labeledBlock("unpack", "__t", arg.starred.value.*);
                         try blk1.breakWith("__t.@\"0\"");
                         try blk1.close();
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                         var blk2 = try em.labeledBlock("unpack", "__t", arg.starred.value.*);
                         try blk2.breakWith("__t.@\"1\"");
                         try blk2.close();
@@ -1378,21 +1398,21 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try genExpr(self, arg);
                         } else if (type_traits.isClassInstance(arg_type)) {
                             // Known class instance - use floatBuiltinCall
-                            try self.emit("(runtime.floatBuiltinCall(");
+                            try emitConst(self, "(runtime.floatBuiltinCall(");
                             try genExpr(self, arg);
-                            try self.emit(", .{}) catch 0.0)");
+                            try emitConst(self, ", .{}) catch 0.0)");
                         } else {
                             // Unknown type - use runtime conversion that handles both
-                            try self.emit("runtime.toFloat(");
+                            try emitConst(self, "runtime.toFloat(");
                             try genExpr(self, arg);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         }
                     } else if (inherits_tuple_or_list and i == 0) {
                         // For tuple/list subclass, first arg is __base_value__ which needs PyValue
                         // Use fromAlloc to properly convert arrays/tuples to PyValue tuples
-                        try self.emit("(try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try emitConst(self, "(try runtime.PyValue.fromAlloc(__global_allocator, ");
                         try genExpr(self, arg);
-                        try self.emit("))");
+                        try emitConst(self, "))");
                     } else {
                         // Check if passing 'self' from method context to class constructor
                         // In Zig, 'self' in methods is *const @This(), but constructors expect value type
@@ -1401,7 +1421,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             std.mem.eql(u8, arg.name.id, "self") and
                             self.current_class_name != null;
                         if (is_self_in_method) {
-                            try self.emit("self.*");
+                            try emitConst(self, "self.*");
                         } else {
                             try genExpr(self, arg);
                         }
@@ -1409,7 +1429,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
 
                 for (call.keyword_args, 0..) |kwarg, i| {
-                    if (i > 0 or call.args.len > 0) try self.emit(", ");
+                    if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
 
                     // Check if parameter type is *runtime.PyObject (widened from incompatible types)
                     // If so, wrap tuple/list literals in runtime.PyValue.tuple(...).toObject()
@@ -1421,7 +1441,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         if (type_traits.isUnknown(pt) and kwarg.value == .tuple) {
                             // Tuple arg to PyObject param - dynamically typed, use undefined placeholder
                             // This field will be set at runtime via __dict__ or similar mechanism
-                            try self.emit("undefined");
+                            try emitConst(self, "undefined");
                             continue;
                         }
                     }
@@ -1445,7 +1465,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         while (param_idx < init_params.len) : (param_idx += 1) {
                             const param = init_params[param_idx];
                             if (param.default) |default_expr| {
-                                try self.emit(", ");
+                                try emitConst(self, ", ");
                                 try genExpr(self, default_expr.*);
                             }
                         }
@@ -1455,10 +1475,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // All paths here use single closing paren for .init(...)
             // Runtime exception path with (try ...) already returned earlier at line 588/592/603
-            try self.emit(")");
+            try emitConst(self, ")");
             // Close the (try ...) wrapper for nested class or error-init constructors
             if (needs_try) {
-                try self.emit(")");
+                try emitConst(self, ")");
             }
             return;
         }
@@ -1478,14 +1498,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Wrap result in PyValue.fromAlloc for use in heterogeneous containers (e.g., lists populated in vararg loops)
         // Generate: try runtime.PyValue.fromAlloc(__global_allocator, try c.init(allocator, args...))
         if (self.vararg_loop_vars.contains(raw_func_name)) {
-            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, try ");
+            try emitConst(self, "try runtime.PyValue.fromAlloc(__global_allocator, try ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-            try self.emit(".init(__global_allocator");
+            try emitConst(self, ".init(__global_allocator");
             for (call.args) |arg| {
-                try self.emit(", ");
+                try emitConst(self, ", ");
                 try genExpr(self, arg);
             }
-            try self.emit("))");
+            try emitConst(self, "))");
             return;
         }
 
@@ -1520,7 +1540,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // At module level (scope 0), 'try' is invalid in Zig - error unions must be handled differently
         const at_module_level = self.symbol_table.currentScopeLevel() == 0;
         if (!at_module_level and (user_func_needs_alloc or is_async_func or func_needs_error)) {
-            try self.emit("try ");
+            try emitConst(self, "try ");
         }
 
         // Use renamed func_name for output, with special handling for main
@@ -1530,9 +1550,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Escape Zig reserved keywords (e.g., "test" -> @"test")
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
         if (is_async_func) {
-            try self.emit("_async");
+            try emitConst(self, "_async");
         }
-        try self.emit("(");
+        try emitConst(self, "(");
 
         // Track whether allocator was emitted (needed for comma before default nulls)
         var allocator_was_emitted = false;
@@ -1541,10 +1561,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
         if (user_func_needs_alloc and !is_async_func) {
             const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-            try self.emit(alloc_name);
+            try emitConst(self, alloc_name);
             allocator_was_emitted = true;
             if (call.args.len > 0 or call.keyword_args.len > 0 or is_vararg_func) {
-                try self.emit(", ");
+                try emitConst(self, ", ");
             }
         }
 
@@ -1557,7 +1577,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Emit regular args first (up to vararg_start_index)
             for (call.args[0..@min(vararg_start_index, call.args.len)], 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
                 try genExpr(self, arg);
             }
 
@@ -1572,7 +1592,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Add comma before varargs slice if we emitted regular args
             if (vararg_start_index > 0 and call.args.len > vararg_start_index) {
-                try self.emit(", ");
+                try emitConst(self, ", ");
             } else if (vararg_start_index == 0 and call.args.len > 0) {
                 // No regular args, varargs slice is the first arg
             }
@@ -1585,7 +1605,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     if (arg == .starred) {
                         // Generate the value with & prefix to convert array to slice
                         // *[1,2] becomes &[_]Type{1, 2} which is []const Type
-                        try self.emit("&");
+                        try emitConst(self, "&");
                         try genExpr(self, arg.starred.value.*);
                         found_starred = true;
                         break;
@@ -1593,17 +1613,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
                 if (!found_starred) {
                     // Shouldn't happen, but handle gracefully
-                    try self.emit("&.{}");
+                    try emitConst(self, "&.{}");
                 }
             } else {
                 // Normal case: wrap remaining args (after vararg_start_index) in slice
                 // Use &.{...} to let Zig infer the slice type from arguments
-                try self.emit("&.{");
+                try emitConst(self, "&.{");
                 for (call.args[@min(vararg_start_index, call.args.len)..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try emitConst(self, ", ");
                     try genExpr(self, arg);
                 }
-                try self.emit("}");
+                try emitConst(self, "}");
             }
         } else {
             // Check if we're calling an anytype parameter (e.g., op(a, b) where op: anytype)
@@ -1615,7 +1635,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 false;
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self, ", ");
 
                 // Handle starred expression from vararg loop: op(*instances) where instances was built from vararg
                 // For such cases, generate list item access: list.items[0], list.items[1]
@@ -1627,9 +1647,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             // Generate unpacking for 2-element case (most common for binary operators)
                             // Uses runtime length check but generates fixed-arity calls
                             try genExpr(self, arg.starred.value.*);
-                            try self.emit(".items[0], ");
+                            try emitConst(self, ".items[0], ");
                             try genExpr(self, arg.starred.value.*);
-                            try self.emit(".items[1]");
+                            try emitConst(self, ".items[1]");
                             continue;
                         }
                     }
@@ -1653,7 +1673,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         false;
                     if (!is_renamed_var and !is_anytype_param) {
                         // Pass class instances by pointer to allow mutations to propagate
-                        try self.emit("&");
+                        try emitConst(self, "&");
                     }
                 } else if (!is_anytype_callable and (arg_type == .pyvalue or type_traits.isUnknown(arg_type))) {
                     // Two-Flow: PyValue/unknown argument - pass directly without conversion
@@ -1670,28 +1690,28 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // For kwarg functions: build PyDict from keyword arguments
             if (is_kwarg_func) {
                 // Generate a block expression that creates and populates a PyDict
-                if (call.args.len > 0) try self.emit(", ");
+                if (call.args.len > 0) try emitConst(self, ", ");
                 const label = try self.emitInlineBlockStart("kwargs");
-                try self.emit("\n");
+                try emitConst(self, "\n");
                 self.indent_level += 1;
                 try self.emitIndent();
-                try self.emit("const __kwargs = try runtime.PyDict.create(__global_allocator);\n");
+                try emitConst(self, "const __kwargs = try runtime.PyDict.create(__global_allocator);\n");
 
                 // Add each keyword argument to the dict
                 for (call.keyword_args) |kwarg| {
                     try self.emitIndent();
-                    try self.emit("try runtime.PyDict.set(__kwargs, \"");
-                    try self.emit(kwarg.name);
-                    try self.emit("\", ");
+                    try emitConst(self, "try runtime.PyDict.set(__kwargs, \"");
+                    try emitConst(self, kwarg.name);
+                    try emitConst(self, "\", ");
 
                     // Wrap the value in PyValue (handles int, str, float, etc.)
-                    try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                    try emitConst(self, "try runtime.PyValue.fromAlloc(__global_allocator, ");
                     try genExpr(self, kwarg.value);
-                    try self.emit("));\n");
+                    try emitConst(self, "));\n");
                 }
 
                 try self.emitIndent();
-                try self.emitFmt("break :{s} __kwargs;\n", .{label});
+                try emitFmtConst(self, "break :{s} __kwargs;\n", .{label});
                 self.indent_level -= 1;
                 try self.emitIndent();
                 try self.emitInlineBlockEnd();
@@ -1707,7 +1727,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                     // For each remaining parameter position, find matching keyword arg or emit null
                     for (sig.param_names[start_pos..]) |param_name| {
-                        if (emitted_count > 0 or call.args.len > 0 or allocator_was_emitted) try self.emit(", ");
+                        if (emitted_count > 0 or call.args.len > 0 or allocator_was_emitted) try emitConst(self, ", ");
 
                         // Find keyword argument with this parameter name
                         var found = false;
@@ -1721,7 +1741,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                         // No matching keyword arg - use null for default parameter
                         if (!found) {
-                            try self.emit("null");
+                            try emitConst(self, "null");
                         }
 
                         emitted_count += 1;
@@ -1731,7 +1751,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 } else {
                     // No function signature available - emit keyword args in order (fallback)
                     for (call.keyword_args, 0..) |kwarg, i| {
-                        if (i > 0 or call.args.len > 0 or allocator_was_emitted) try self.emit(", ");
+                        if (i > 0 or call.args.len > 0 or allocator_was_emitted) try emitConst(self, ", ");
                         try genExpr(self, kwarg.value);
                     }
 
@@ -1749,7 +1769,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         if (type_attr_key) |key| {
                             if (self.class_type_attrs.get(key)) |type_value| {
                                 if (std.mem.eql(u8, type_value, "int") and call.args.len == 1) {
-                                    try self.emit(", null");
+                                    try emitConst(self, ", null");
                                 }
                             }
                         }
@@ -1761,13 +1781,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // For from-imported functions: inject allocator as LAST argument
         if (from_import_needs_alloc) {
             if (call.args.len > 0 or call.keyword_args.len > 0) {
-                try self.emit(", ");
+                try emitConst(self, ", ");
             }
             const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-            try self.emit(alloc_name);
+            try emitConst(self, alloc_name);
         }
 
-        try self.emit(")");
+        try emitConst(self, ")");
         return;
     }
 
@@ -1785,19 +1805,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
     }
 
-    try self.emit("(");
+    try emitConst(self, "(");
 
     for (call.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self, ", ");
         try genExpr(self, arg);
     }
 
     for (call.keyword_args, 0..) |kwarg, i| {
-        if (i > 0 or call.args.len > 0) try self.emit(", ");
+        if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
         try genExpr(self, kwarg.value);
     }
 
-    try self.emit(")");
+    try emitConst(self, ")");
 }
 
 /// Infer Zig type from AST expression (for generic class instantiation)

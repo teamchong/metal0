@@ -23,6 +23,101 @@ const expr_emitter = @import("../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// Comparison helper functions - auto-closing patterns
+// ============================================
+
+/// Emit string equality comparison: std.mem.eql(u8, left, right)
+/// Auto-closes the parenthesis - can't forget closing
+fn emitStrEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
+    try emitConst(self, "std.mem.eql(u8, ");
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+/// Emit negated string equality: !std.mem.eql(u8, left, right)
+fn emitStrNotEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
+    try emitConst(self, "!std.mem.eql(u8, ");
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+/// Emit simple binary comparison: (left op right)
+fn emitBinCmp(self: *NativeCodegen, left: ast.Node, comptime op: []const u8, right: ast.Node) CodegenError!void {
+    try emitConst(self, "(");
+    try genExpr(self, left);
+    try emitConst(self, op);
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+/// Emit runtime equality: runtime.pyAnyEql(left, right)
+fn emitPyAnyEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
+    try emitConst(self, "runtime.pyAnyEql(");
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+/// Emit string containment check: (std.mem.indexOf(u8, haystack, needle) != null)
+fn emitStrContains(self: *NativeCodegen, haystack: ast.Node, needle: ast.Node) CodegenError!void {
+    try emitConst(self, "(std.mem.indexOf(u8, ");
+    try genExpr(self, haystack);
+    try emitConst(self, ", ");
+    try genExpr(self, needle);
+    try emitConst(self, ") != null)");
+}
+
+/// Emit negated string containment: (std.mem.indexOf(u8, haystack, needle) == null)
+fn emitStrNotContains(self: *NativeCodegen, haystack: ast.Node, needle: ast.Node) CodegenError!void {
+    try emitConst(self, "(std.mem.indexOf(u8, ");
+    try genExpr(self, haystack);
+    try emitConst(self, ", ");
+    try genExpr(self, needle);
+    try emitConst(self, ") == null)");
+}
+
+/// Emit set equality: runtime.setEqual(left, right)
+fn emitSetEqual(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
+    try emitConst(self, "runtime.setEqual(");
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+/// Emit complex number equality: (left).eql(right)
+fn emitComplexEql(self: *NativeCodegen, left: ast.Node, right: ast.Node) CodegenError!void {
+    try emitConst(self, "(");
+    try genExpr(self, left);
+    try emitConst(self, ").eql(");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+
 /// Check if expression is a string constant (NOT bytes)
 fn isStringConstant(expr: ast.Node) bool {
     if (expr != .constant) return false;
@@ -81,8 +176,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
     // Always wrap comparison in parentheses to make it safe as a sub-expression
     // This prevents: "False is (x is y)" from generating "false == x == y"
     // which Zig rejects as chained comparison
-    try self.emit("(");
-    defer self.emit(")") catch {};
+    try emitConst(self, "(");
 
     // Check if we're comparing strings (need std.mem.eql instead of ==)
     const left_type = try self.inferExprScoped(compare.left.*);
@@ -90,18 +184,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
     // For chained comparisons (more than 1 op), wrap everything in parens
     const is_chained = compare.ops.len > 1;
     if (is_chained) {
-        try self.emit("(");
+        try emitConst(self, "(");
     }
 
     for (compare.ops, 0..) |op, i| {
         // Add "and" between comparisons for chained comparisons
         if (i > 0) {
-            try self.emit(" and ");
+            try emitConst(self, " and ");
         }
 
         // For chained comparisons, wrap each individual comparison in parens
         if (is_chained) {
-            try self.emit("(");
+            try emitConst(self, "(");
         }
 
         const right_type = try self.inferExprScoped(compare.comparators[i]);
@@ -157,17 +251,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         else
                             getBytesContent(right_expr.constant.value.bytes);
                         if (std.mem.eql(u8, left_content, right_content)) {
-                            try self.emit("true");
+                            try emitConst(self, "true");
                         } else {
-                            try self.emit("false");
+                            try emitConst(self, "false");
                         }
                     } else {
                         // Regular string/bytes comparison
-                        try self.emit("std.mem.eql(u8, ");
-                        try genExpr(self, current_left);
-                        try self.emit(", ");
-                        try genExpr(self, right_expr);
-                        try self.emit(")");
+                        try emitStrEql(self, current_left, right_expr);
                     }
                 },
                 .NotEq => {
@@ -182,62 +272,50 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         else
                             getBytesContent(right_expr.constant.value.bytes);
                         if (!std.mem.eql(u8, left_content, right_content)) {
-                            try self.emit("true");
+                            try emitConst(self, "true");
                         } else {
-                            try self.emit("false");
+                            try emitConst(self, "false");
                         }
                     } else {
-                        try self.emit("!std.mem.eql(u8, ");
-                        try genExpr(self, current_left);
-                        try self.emit(", ");
-                        try genExpr(self, right_expr);
-                        try self.emit(")");
+                        try emitStrNotEql(self, current_left, right_expr);
                     }
                 },
                 .In => {
                     // String substring check: std.mem.indexOf(u8, haystack, needle) != null
-                    try self.emit("(std.mem.indexOf(u8, ");
-                    try genExpr(self, compare.comparators[i]); // haystack
-                    try self.emit(", ");
-                    try genExpr(self, current_left); // needle
-                    try self.emit(") != null)");
+                    try emitStrContains(self, compare.comparators[i], current_left);
                 },
                 .NotIn => {
                     // String substring check (negated)
-                    try self.emit("(std.mem.indexOf(u8, ");
-                    try genExpr(self, compare.comparators[i]); // haystack
-                    try self.emit(", ");
-                    try genExpr(self, current_left); // needle
-                    try self.emit(") == null)");
+                    try emitStrNotContains(self, compare.comparators[i], current_left);
                 },
                 .Is => {
                     // Identity comparison for strings: compare pointer/length
-                    try self.emit("(");
+                    try emitConst(self, "(");
                     try genExpr(self, current_left);
-                    try self.emit(".ptr == ");
+                    try emitConst(self, ".ptr == ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(".ptr and ");
+                    try emitConst(self, ".ptr and ");
                     try genExpr(self, current_left);
-                    try self.emit(".len == ");
+                    try emitConst(self, ".len == ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(".len)");
+                    try emitConst(self, ".len)");
                 },
                 .IsNot => {
                     // Negated identity comparison for strings
-                    try self.emit("(");
+                    try emitConst(self, "(");
                     try genExpr(self, current_left);
-                    try self.emit(".ptr != ");
+                    try emitConst(self, ".ptr != ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(".ptr or ");
+                    try emitConst(self, ".ptr or ");
                     try genExpr(self, current_left);
-                    try self.emit(".len != ");
+                    try emitConst(self, ".len != ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(".len)");
+                    try emitConst(self, ".len)");
                 },
                 else => {
                     // String comparison operators other than == and != not supported
                     try genExpr(self, current_left);
-                    try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
+                    try emitConst(self, CompOpStrings.get(@tagName(op)) orelse " == ");
                     try genExpr(self, compare.comparators[i]);
                 },
             }
@@ -275,30 +353,30 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         try blk.emitFmt("!runtime.pyContains({s}, __list.items, ", .{type_str});
                     }
                     try genExpr(self, current_left); // item to search for
-                    try self.emit(")");
+                    try emitConst(self, ")");
                     try blk.close();
                 } else {
                     // For variables, .items access needed for ArrayList, but not for arrays
                     if (op == .In) {
-                        try self.emit("(runtime.pyContains(");
+                        try emitConst(self, "(runtime.pyContains(");
                     } else {
-                        try self.emit("(!runtime.pyContains(");
+                        try emitConst(self, "(!runtime.pyContains(");
                     }
-                    try self.emit(type_str);
-                    try self.emit(", ");
+                    try emitConst(self, type_str);
+                    try emitConst(self, ", ");
                     // Check if the container is an array type (no .items) vs ArrayList (.items needed)
                     const needs_items_access = container_traits.isList(right_type) or right_is_arraylist_var;
                     if (needs_items_access) {
                         try genExpr(self, compare.comparators[i]); // list variable
-                        try self.emit(".items, ");
+                        try emitConst(self, ".items, ");
                     } else {
                         // Array type - use &arr to get slice
-                        try self.emit("&");
+                        try emitConst(self, "&");
                         try genExpr(self, compare.comparators[i]); // array variable
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                     }
                     try genExpr(self, current_left); // item to search for
-                    try self.emit("))");
+                    try emitConst(self, "))");
                 }
             } else if (container_traits.isDict(right_type)) {
                 // Dict key check: dict.contains(key)
@@ -309,9 +387,9 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     // Empty dict - key in {} is always false, key not in {} is always true
                     if (dict_lit.keys.len == 0) {
                         if (op == .In) {
-                            try self.emit("false");
+                            try emitConst(self, "false");
                         } else {
-                            try self.emit("true");
+                            try emitConst(self, "true");
                         }
                     } else {
                         // Non-empty dict - check key type to use appropriate contains
@@ -319,49 +397,49 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const uses_int_keys = type_traits.isIntegral(key_type);
 
                         const label = try self.emitInlineBlockStart("dict_in");
-                        try self.emit("const __d = ");
+                        try emitConst(self, "const __d = ");
                         try genExpr(self, compare.comparators[i]); // dict literal
                         if (op == .In) {
-                            try self.emitFmt("; break :{s} __d.contains(", .{label});
+                            try emitFmtConst(self, "; break :{s} __d.contains(", .{label});
                         } else {
-                            try self.emitFmt("; break :{s} !__d.contains(", .{label});
+                            try emitFmtConst(self, "; break :{s} !__d.contains(", .{label});
                         }
                         if (uses_int_keys) {
                             // Cast to i64 for AutoHashMap key type
-                            try self.emit("@as(i64, ");
+                            try emitConst(self, "@as(i64, ");
                             try genExpr(self, current_left); // key
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else {
                             try genExpr(self, current_left); // key
                         }
-                        try self.emit("); ");
+                        try emitConst(self, "); ");
                         try self.emitInlineBlockEnd();
                     }
                 } else {
                     if (op == .In) {
                         try genExpr(self, compare.comparators[i]); // dict var
-                        try self.emit(".contains(");
+                        try emitConst(self, ".contains(");
                         try genExpr(self, current_left); // key
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     } else {
-                        try self.emit("!");
+                        try emitConst(self, "!");
                         try genExpr(self, compare.comparators[i]); // dict var
-                        try self.emit(".contains(");
+                        try emitConst(self, ".contains(");
                         try genExpr(self, current_left); // key
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     }
                 }
             } else if (type_traits.isClassInstance(right_type)) {
                 // Class instances with __contains__ method
                 // Generate: container.__contains__(allocator, item)
                 if (op == .NotIn) {
-                    try self.emit("!");
+                    try emitConst(self, "!");
                 }
-                try self.emit("(try ");
+                try emitConst(self, "(try ");
                 try genExpr(self, compare.comparators[i]); // class instance
-                try self.emit(".__contains__(__global_allocator, ");
+                try emitConst(self, ".__contains__(__global_allocator, ");
                 try genExpr(self, current_left); // item to search for
-                try self.emit("))");
+                try emitConst(self, "))");
             } else {
                 // Fallback for arrays and unrecognized types
                 // Infer element type from the item being searched for
@@ -377,22 +455,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (is_string_search) {
                     // For 'not in', wrap in negation by emitting ! first
                     if (op == .NotIn) {
-                        try self.emit("!");
+                        try emitConst(self, "!");
                     }
 
                     // Check if container is a tuple - need inline comparisons (can't iterate tuples at runtime)
                     if (compare.comparators[i] == .tuple) {
                         const tuple_elts = compare.comparators[i].tuple.elts;
-                        try self.emit("(");
+                        try emitConst(self, "(");
                         for (tuple_elts, 0..) |elt, j| {
-                            if (j > 0) try self.emit(" or ");
-                            try self.emit("std.mem.eql(u8, ");
-                            try genExpr(self, current_left);
-                            try self.emit(", ");
-                            try genExpr(self, elt);
-                            try self.emit(")");
+                            if (j > 0) try emitConst(self, " or ");
+                            try emitStrEql(self, current_left, elt);
                         }
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     } else {
                         // Generate inline block expression that loops through array
                         var em = self.exprEmitter();
@@ -471,21 +545,21 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (type_traits.isUnknown(current_left_type) or is_renamed_param or is_anytype_param) {
                     // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
                     if (op == .Is or op == .Eq) {
-                        try self.emit("(@TypeOf(");
+                        try emitConst(self, "(@TypeOf(");
                         try genExpr(self, current_left);
-                        try self.emit(") == @TypeOf(null))");
+                        try emitConst(self, ") == @TypeOf(null))");
                     } else {
-                        try self.emit("(@TypeOf(");
+                        try emitConst(self, "(@TypeOf(");
                         try genExpr(self, current_left);
-                        try self.emit(") != @TypeOf(null))");
+                        try emitConst(self, ") != @TypeOf(null))");
                     }
                 } else {
                     // Known optional types can use direct null comparison
                     try genExpr(self, current_left);
                     if (op == .Is or op == .Eq) {
-                        try self.emit(" == null");
+                        try emitConst(self, " == null");
                     } else {
-                        try self.emit(" != null");
+                        try emitConst(self, " != null");
                     }
                 }
             }
@@ -503,11 +577,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         else => "false",
                     };
                     // Just emit the known result - variables may be used elsewhere so no need to reference them
-                    try self.emit(result);
+                    try emitConst(self, result);
                 } else {
                     // Both are None - compare normally
                     try genExpr(self, current_left);
-                    try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
+                    try emitConst(self, CompOpStrings.get(@tagName(op)) orelse " == ");
                     try genExpr(self, compare.comparators[i]);
                 }
             }
@@ -521,60 +595,60 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // For == and != with eval() result and integer/bigint, use appropriate comparison
             if (op == .Eq or op == .NotEq) {
                 if (op == .NotEq) {
-                    try self.emit("!");
+                    try emitConst(self, "!");
                 }
                 if (left_is_eval and !right_is_eval) {
                     // eval(...) == value - check if value is BigInt
                     // Note: right_type is already in scope from line 103
                     if (right_type == .bigint or right_type == .unified_int) {
                         // BigInt/UnifiedInt comparison - use pyObjEqUnifiedInt
-                        try self.emit("runtime.pyObjEqUnifiedInt(");
+                        try emitConst(self, "runtime.pyObjEqUnifiedInt(");
                         try genExpr(self, current_left);
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(", __global_allocator)");
+                        try emitConst(self, ", __global_allocator)");
                     } else {
                         // Integer comparison
-                        try self.emit("runtime.pyObjEqInt(");
+                        try emitConst(self, "runtime.pyObjEqInt(");
                         try genExpr(self, current_left);
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     }
                 } else if (right_is_eval and !left_is_eval) {
                     // value == eval(...) - check if value is BigInt/UnifiedInt
                     // Note: current_left_type is already in scope from line 107
                     if (current_left_type == .bigint or current_left_type == .unified_int) {
                         // BigInt/UnifiedInt comparison - use pyObjEqUnifiedInt
-                        try self.emit("runtime.pyObjEqUnifiedInt(");
+                        try emitConst(self, "runtime.pyObjEqUnifiedInt(");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                         try genExpr(self, current_left);
-                        try self.emit(", __global_allocator)");
+                        try emitConst(self, ", __global_allocator)");
                     } else {
                         // Integer comparison
-                        try self.emit("runtime.pyObjEqInt(");
+                        try emitConst(self, "runtime.pyObjEqInt(");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit(", ");
+                        try emitConst(self, ", ");
                         try genExpr(self, current_left);
-                        try self.emit(")");
+                        try emitConst(self, ")");
                     }
                 } else {
                     // Both are eval() calls - compare as PyObject pointers
                     try genExpr(self, current_left);
-                    try self.emit(" == ");
+                    try emitConst(self, " == ");
                     try genExpr(self, compare.comparators[i]);
                 }
             } else {
                 // For <, >, <=, >= with eval(), extract int value then compare
-                try self.emit("(runtime.pyObjToInt(");
+                try emitConst(self, "(runtime.pyObjToInt(");
                 try genExpr(self, current_left);
-                try self.emit(")");
-                try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
-                if (right_is_eval) try self.emit("runtime.pyObjToInt(");
+                try emitConst(self, ")");
+                try emitConst(self, CompOpStrings.get(@tagName(op)) orelse " == ");
+                if (right_is_eval) try emitConst(self, "runtime.pyObjToInt(");
                 try genExpr(self, compare.comparators[i]);
-                if (right_is_eval) try self.emit(")");
-                try self.emit(")");
+                if (right_is_eval) try emitConst(self, ")");
+                try emitConst(self, ")");
             }
         }
         // Handle 'is' and 'is not' identity operators
@@ -594,13 +668,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (left_is_literal and right_is_literal) {
                 // Two distinct literals = two distinct objects
                 if (op == .Is) {
-                    try self.emit("false");
+                    try emitConst(self, "false");
                 } else {
-                    try self.emit("true");
+                    try emitConst(self, "true");
                 }
                 // Close the paren for chained comparisons
                 if (is_chained) {
-                    try self.emit(")");
+                    try emitConst(self, ")");
                 }
                 continue;
             }
@@ -611,15 +685,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
             if (is_class_instance) {
                 // Both are pointers to heap-allocated objects - direct pointer comparison
-                try self.emit("(");
+                try emitConst(self, "(");
                 try genExpr(self, current_left);
                 if (op == .Is) {
-                    try self.emit(" == ");
+                    try emitConst(self, " == ");
                 } else {
-                    try self.emit(" != ");
+                    try emitConst(self, " != ");
                 }
                 try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitConst(self, ")");
             } else if (needs_ptr_compare) {
                 // Compare pointers for identity
                 // For ArrayList aliases, the alias is a pointer (*ArrayList), so &alias gives **ArrayList
@@ -636,14 +710,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (left_is_alias) {
                     try genExpr(self, current_left);
                 } else {
-                    try self.emit("&");
+                    try emitConst(self, "&");
                     try genExpr(self, current_left);
                 }
                 try blk.emit("; const __is_right = ");
                 if (right_is_alias) {
                     try genExpr(self, compare.comparators[i]);
                 } else {
-                    try self.emit("&");
+                    try emitConst(self, "&");
                     try genExpr(self, compare.comparators[i]);
                 }
                 // Type check at comptime - different types means different identity
@@ -672,45 +746,45 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     // For slices, compare .ptr; for actual tuples, compare &
                     // Use container_dispatch.isSlice to reduce monomorphization
                     const label = try self.emitInlineBlockStart("tuple_is");
-                    try self.emit("\n");
-                    try self.emit("const __left = ");
+                    try emitConst(self, "\n");
+                    try emitConst(self, "const __left = ");
                     try genExpr(self, current_left);
-                    try self.emit(";\n");
-                    try self.emit("const __right = ");
+                    try emitConst(self, ";\n");
+                    try emitConst(self, "const __right = ");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(";\n");
-                    try self.emit("// Different types = different identity for 'is'\n");
-                    try self.emit("if (@TypeOf(__left) != @TypeOf(__right)) {\n");
+                    try emitConst(self, ";\n");
+                    try emitConst(self, "// Different types = different identity for 'is'\n");
+                    try emitConst(self, "if (@TypeOf(__left) != @TypeOf(__right)) {\n");
                     if (op == .Is) {
-                        try self.emitFmt("break :{s} false;\n", .{label});
+                        try emitFmtConst(self, "break :{s} false;\n", .{label});
                     } else {
-                        try self.emitFmt("break :{s} true;\n", .{label});
+                        try emitFmtConst(self, "break :{s} true;\n", .{label});
                     }
-                    try self.emit("}\n");
-                    try self.emit("// Same type - compare addresses (use container_dispatch to reduce monomorphization)\n");
-                    try self.emit("if (runtime.container_dispatch.isSlice(@TypeOf(__left))) {\n");
+                    try emitConst(self, "}\n");
+                    try emitConst(self, "// Same type - compare addresses (use container_dispatch to reduce monomorphization)\n");
+                    try emitConst(self, "if (runtime.container_dispatch.isSlice(@TypeOf(__left))) {\n");
                     // Slices - compare .ptr
                     if (op == .Is) {
-                        try self.emitFmt("break :{s} __left.ptr == __right.ptr;\n", .{label});
+                        try emitFmtConst(self, "break :{s} __left.ptr == __right.ptr;\n", .{label});
                     } else {
-                        try self.emitFmt("break :{s} __left.ptr != __right.ptr;\n", .{label});
+                        try emitFmtConst(self, "break :{s} __left.ptr != __right.ptr;\n", .{label});
                     }
-                    try self.emit("}} else {{\n");
+                    try emitConst(self, "}} else {{\n");
                     // Tuples/structs - compare addresses
                     if (op == .Is) {
-                        try self.emitFmt("break :{s} &__left == &__right;\n", .{label});
+                        try emitFmtConst(self, "break :{s} &__left == &__right;\n", .{label});
                     } else {
-                        try self.emitFmt("break :{s} &__left != &__right;\n", .{label});
+                        try emitFmtConst(self, "break :{s} &__left != &__right;\n", .{label});
                     }
-                    try self.emit("}}\n");
+                    try emitConst(self, "}}\n");
                     try self.emitInlineBlockEnd();
                 } else {
                     // For primitives (int, bool, None), identity is same as equality
                     try genExpr(self, current_left);
                     if (op == .Is) {
-                        try self.emit(" == ");
+                        try emitConst(self, " == ");
                     } else {
-                        try self.emit(" != ");
+                        try emitConst(self, " != ");
                     }
                     try genExpr(self, compare.comparators[i]);
                 }
@@ -722,13 +796,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         {
             // Use runtime.pyTupleEql for Python semantics (NaN identity)
             if (op == .NotEq) {
-                try self.emit("!");
+                try emitConst(self, "!");
             }
-            try self.emit("runtime.pyTupleEql(");
+            try emitConst(self, "runtime.pyTupleEql(");
             try genExpr(self, current_left);
-            try self.emit(", ");
+            try emitConst(self, ", ");
             try genExpr(self, compare.comparators[i]);
-            try self.emit(")");
+            try emitConst(self, ")");
         }
         // Handle set comparisons (HashMaps don't support ==)
         else if ((container_traits.isSet(current_left_type) or current_left == .set) and
@@ -737,7 +811,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // For sets, compare count and all keys match
             // This is a simplified comparison - full Python would check symmetric difference
             if (op == .NotEq) {
-                try self.emit("!");
+                try emitConst(self, "!");
             }
             var em = self.exprEmitter();
             var blk = try em.labeledBlock("set_cmp", "__s1", current_left);
@@ -755,7 +829,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         {
             // For dicts, compare count, all keys match, and all values equal
             if (op == .NotEq) {
-                try self.emit("!");
+                try emitConst(self, "!");
             }
             var em = self.exprEmitter();
             var blk = try em.labeledBlock("dict_cmp", "__d1", current_left);
@@ -807,48 +881,48 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (left_is_empty_list or right_is_empty_list) {
                 // Generate: (len check) - for empty list comparison, both sides must be empty
                 if (op == .NotEq) {
-                    try self.emit("!");
+                    try emitConst(self, "!");
                 }
-                try self.emit("(");
+                try emitConst(self, "(");
                 // Check left side length
                 if (left_is_empty_list) {
                     // Empty literal - length is always 0, just emit "true" for the left == 0 part
-                    try self.emit("true");
+                    try emitConst(self, "true");
                 } else if (left_is_array) {
-                    try self.emit("((");
+                    try emitConst(self, "((");
                     try genExpr(self, current_left);
-                    try self.emit(").len == 0)");
+                    try emitConst(self, ").len == 0)");
                 } else if (left_is_literal) {
-                    try self.emit("((");
+                    try emitConst(self, "((");
                     try genExpr(self, current_left);
-                    try self.emit(").items.len == 0)");
+                    try emitConst(self, ").items.len == 0)");
                 } else {
                     // Call or variable returning list - wrap and check .items.len
                     // For calls like list([]), this generates ArrayList which has .items
-                    try self.emit("((");
+                    try emitConst(self, "((");
                     try genExpr(self, current_left);
-                    try self.emit(").items.len == 0)");
+                    try emitConst(self, ").items.len == 0)");
                 }
-                try self.emit(" and ");
+                try emitConst(self, " and ");
                 // Check right side length
                 if (right_is_empty_list) {
                     // Empty literal - length is always 0
-                    try self.emit("true");
+                    try emitConst(self, "true");
                 } else if (right_is_array) {
-                    try self.emit("((");
+                    try emitConst(self, "((");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(").len == 0)");
+                    try emitConst(self, ").len == 0)");
                 } else if (right_is_literal) {
-                    try self.emit("((");
+                    try emitConst(self, "((");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(").items.len == 0)");
+                    try emitConst(self, ").items.len == 0)");
                 } else {
                     // Call or variable returning list - wrap and check .items.len
-                    try self.emit("((");
+                    try emitConst(self, "((");
                     try genExpr(self, compare.comparators[i]);
-                    try self.emit(").items.len == 0)");
+                    try emitConst(self, ").items.len == 0)");
                 }
-                try self.emit(")");
+                try emitConst(self, ")");
                 // No need to update current_left/current_left_type - they're recomputed at loop start
             } else {
                 // Get element type for pySliceEql
@@ -883,11 +957,11 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 "i64"; // Default to i64 (matches empty list code generation)
 
             if (op == .NotEq) {
-                try self.emit("!");
+                try emitConst(self, "!");
             }
-            try self.emit("runtime.pySliceEql(");
-            try self.emit(elem_type_str);
-            try self.emit(", ");
+            try emitConst(self, "runtime.pySliceEql(");
+            try emitConst(self, elem_type_str);
+            try emitConst(self, ", ");
 
             // Left operand
             if (left_is_slice_subscript) {
@@ -895,24 +969,24 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, current_left);
             } else if (left_is_array) {
                 // Constant array literal: use & to get slice
-                try self.emit("&(");
+                try emitConst(self, "&(");
                 try genExpr(self, current_left);
-                try self.emit(")");
+                try emitConst(self, ")");
             } else if (left_is_literal) {
                 // List with variables → ArrayList block: use .items
-                try self.emit("(");
+                try emitConst(self, "(");
                 try genExpr(self, current_left);
-                try self.emit(").items");
+                try emitConst(self, ").items");
             } else {
                 // ArrayList variable or call returning ArrayList OR slice variable
                 // Use container_dispatch helper to reduce monomorphization
-                try self.emit("runtime.container_dispatch.getSlice(@TypeOf(");
+                try emitConst(self, "runtime.container_dispatch.getSlice(@TypeOf(");
                 try genExpr(self, current_left);
-                try self.emit("), ");
+                try emitConst(self, "), ");
                 try genExpr(self, current_left);
-                try self.emit(")");
+                try emitConst(self, ")");
             }
-            try self.emit(", ");
+            try emitConst(self, ", ");
 
             // Right operand
             if (right_is_slice_subscript) {
@@ -920,24 +994,24 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 try genExpr(self, compare.comparators[i]);
             } else if (right_is_array) {
                 // Constant array literal: use & to get slice
-                try self.emit("&(");
+                try emitConst(self, "&(");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitConst(self, ")");
             } else if (right_is_literal) {
                 // List with variables → ArrayList block: use .items
-                try self.emit("(");
+                try emitConst(self, "(");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit(").items");
+                try emitConst(self, ").items");
             } else {
                 // ArrayList variable or call returning ArrayList OR slice variable
                 // Use container_dispatch helper to reduce monomorphization
-                try self.emit("runtime.container_dispatch.getSlice(@TypeOf(");
+                try emitConst(self, "runtime.container_dispatch.getSlice(@TypeOf(");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit("), ");
+                try emitConst(self, "), ");
                 try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitConst(self, ")");
             }
-            try self.emit(")");
+            try emitConst(self, ")");
             }
         }
         // Handle set comparisons - sets are HashMaps and don't support direct ==
@@ -947,21 +1021,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // Set comparison: use runtime.setCompare
             // For s == s (identity), both sides are the same HashMap pointer
             if (op == .Eq) {
-                try self.emit("runtime.setEqual(");
-                try genExpr(self, current_left);
-                try self.emit(", ");
-                try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitSetEqual(self, current_left, compare.comparators[i]);
             } else if (op == .NotEq) {
-                try self.emit("!runtime.setEqual(");
-                try genExpr(self, current_left);
-                try self.emit(", ");
-                try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitConst(self, "!");
+                try emitSetEqual(self, current_left, compare.comparators[i]);
             } else {
                 // Other comparisons not supported for sets, emit identity check
                 try genExpr(self, current_left);
-                try self.emit(" == ");
+                try emitConst(self, " == ");
                 try genExpr(self, compare.comparators[i]);
             }
         }
@@ -990,16 +1057,16 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         if (has_eq) {
                             // __eq__ returns bool (not error union), so no try needed
                             try genExpr(self, current_left);
-                            try self.emit(".__eq__(");
+                            try emitConst(self, ".__eq__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else {
                             // PyValue fallback - compiles once
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").eql(runtime.PyValue.from(");
+                            try emitConst(self, ").eql(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .NotEq => {
@@ -1009,23 +1076,23 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         if (has_ne) {
                             // __ne__ returns bool (not error union), so no try needed
                             try genExpr(self, current_left);
-                            try self.emit(".__ne__(");
+                            try emitConst(self, ".__ne__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else if (has_eq) {
                             // Use !__eq__() - no try needed
-                            try self.emit("!");
+                            try emitConst(self, "!");
                             try genExpr(self, current_left);
-                            try self.emit(".__eq__(");
+                            try emitConst(self, ".__eq__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else {
                             // PyValue fallback
-                            try self.emit("!runtime.PyValue.from(");
+                            try emitConst(self, "!runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").eql(runtime.PyValue.from(");
+                            try emitConst(self, ").eql(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .Lt => {
@@ -1033,18 +1100,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
                         if (has_lt) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, current_left);
-                            try self.emit(".__lt__(");
+                            try emitConst(self, ".__lt__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
                             // PyValue fallback
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").lt(runtime.PyValue.from(");
+                            try emitConst(self, ").lt(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .LtEq => {
@@ -1052,17 +1119,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
                         if (has_le) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, current_left);
-                            try self.emit(".__le__(");
+                            try emitConst(self, ".__le__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").le(runtime.PyValue.from(");
+                            try emitConst(self, ").le(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .Gt => {
@@ -1070,17 +1137,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
                         if (has_gt) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, current_left);
-                            try self.emit(".__gt__(");
+                            try emitConst(self, ".__gt__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").gt(runtime.PyValue.from(");
+                            try emitConst(self, ").gt(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .GtEq => {
@@ -1088,27 +1155,27 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
                         if (has_ge) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, current_left);
-                            try self.emit(".__ge__(");
+                            try emitConst(self, ".__ge__(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").ge(runtime.PyValue.from(");
+                            try emitConst(self, ").ge(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     else => {
                         // In, NotIn, Is, IsNot are handled above
                         // PyValue fallback for any other case
-                        try self.emit("runtime.PyValue.from(");
+                        try emitConst(self, "runtime.PyValue.from(");
                         try genExpr(self, current_left);
-                        try self.emit(").eql(runtime.PyValue.from(");
+                        try emitConst(self, ").eql(runtime.PyValue.from(");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit("))");
+                        try emitConst(self, "))");
                     },
                 }
             } else {
@@ -1124,17 +1191,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_gt = if (right_class_info) |info| info.methods.contains("__gt__") else false;
                         if (has_gt) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__gt__(");
+                            try emitConst(self, ".__gt__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").lt(runtime.PyValue.from(");
+                            try emitConst(self, ").lt(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .LtEq => {
@@ -1142,17 +1209,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_ge = if (right_class_info) |info| info.methods.contains("__ge__") else false;
                         if (has_ge) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__ge__(");
+                            try emitConst(self, ".__ge__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").le(runtime.PyValue.from(");
+                            try emitConst(self, ").le(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .Gt => {
@@ -1160,17 +1227,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_lt = if (right_class_info) |info| info.methods.contains("__lt__") else false;
                         if (has_lt) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__lt__(");
+                            try emitConst(self, ".__lt__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").gt(runtime.PyValue.from(");
+                            try emitConst(self, ").gt(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .GtEq => {
@@ -1178,17 +1245,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_le = if (right_class_info) |info| info.methods.contains("__le__") else false;
                         if (has_le) {
                             // Dunder returns object - wrap with try and convert to bool
-                            try self.emit("runtime.toBool(try ");
+                            try emitConst(self, "runtime.toBool(try ");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__le__(");
+                            try emitConst(self, ".__le__(");
                             try genExpr(self, current_left);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").ge(runtime.PyValue.from(");
+                            try emitConst(self, ").ge(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .Eq => {
@@ -1196,15 +1263,15 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         if (has_eq) {
                             // __eq__ returns bool (not error union), so no try needed
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__eq__(");
+                            try emitConst(self, ".__eq__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self, "runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").eql(runtime.PyValue.from(");
+                            try emitConst(self, ").eql(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     .NotEq => {
@@ -1213,31 +1280,31 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         if (has_ne) {
                             // __ne__ returns bool (not error union), so no try needed
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__ne__(");
+                            try emitConst(self, ".__ne__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else if (has_eq) {
                             // Use !__eq__() - no try needed
-                            try self.emit("!");
+                            try emitConst(self, "!");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit(".__eq__(");
+                            try emitConst(self, ".__eq__(");
                             try genExpr(self, current_left);
-                            try self.emit(")");
+                            try emitConst(self, ")");
                         } else {
-                            try self.emit("!runtime.PyValue.from(");
+                            try emitConst(self, "!runtime.PyValue.from(");
                             try genExpr(self, current_left);
-                            try self.emit(").eql(runtime.PyValue.from(");
+                            try emitConst(self, ").eql(runtime.PyValue.from(");
                             try genExpr(self, compare.comparators[i]);
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     },
                     else => {
                         // PyValue fallback
-                        try self.emit("runtime.PyValue.from(");
+                        try emitConst(self, "runtime.PyValue.from(");
                         try genExpr(self, current_left);
-                        try self.emit(").eql(runtime.PyValue.from(");
+                        try emitConst(self, ").eql(runtime.PyValue.from(");
                         try genExpr(self, compare.comparators[i]);
-                        try self.emit("))");
+                        try emitConst(self, "))");
                     },
                 }
             }
@@ -1245,32 +1312,25 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         // Handle BigInt comparisons
         else if (current_left_type == .bigint or right_type == .bigint) {
             // Use runtime.bigIntCompare for safe comparison
-            try self.emit("runtime.bigIntCompare(");
+            try emitConst(self, "runtime.bigIntCompare(");
             try genExpr(self, current_left);
-            try self.emit(", ");
+            try emitConst(self, ", ");
             try genExpr(self, compare.comparators[i]);
-            try self.emit(BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
+            try emitConst(self, BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
         }
         // Handle complex number comparisons (PyComplex struct doesn't support ==)
         else if (current_left_type == .complex or right_type == .complex) {
             // Complex numbers only support == and != (not ordered comparisons)
             if (op == .Eq) {
-                try self.emit("(");
-                try genExpr(self, current_left);
-                try self.emit(").eql(");
-                try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitComplexEql(self, current_left, compare.comparators[i]);
             } else if (op == .NotEq) {
-                try self.emit("!(");
-                try genExpr(self, current_left);
-                try self.emit(").eql(");
-                try genExpr(self, compare.comparators[i]);
-                try self.emit(")");
+                try emitConst(self, "!");
+                try emitComplexEql(self, current_left, compare.comparators[i]);
             } else {
                 // Complex numbers don't support <, >, <=, >= in Python
                 // Use unreachable - this will panic at runtime with a clear error
                 // In Zig, unreachable in debug mode panics with "reached unreachable code"
-                try self.emit("unreachable // TypeError: ordering comparison not supported for complex numbers");
+                try emitConst(self, "unreachable // TypeError: ordering comparison not supported for complex numbers");
             }
         }
         // Handle unknown type comparisons (anytype parameters) and PyValue (Two-Flow uncertain types)
@@ -1288,13 +1348,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Emit comptime type check: @TypeOf(x) == @TypeOf(null)
                 // This works whether x is null, a tuple, or any other type
                 if (op == .Is or op == .Eq) {
-                    try self.emit("(@TypeOf(");
+                    try emitConst(self, "(@TypeOf(");
                     try genExpr(self, if (left_is_none) compare.comparators[i] else current_left);
-                    try self.emit(") == @TypeOf(null))");
+                    try emitConst(self, ") == @TypeOf(null))");
                 } else {
-                    try self.emit("(@TypeOf(");
+                    try emitConst(self, "(@TypeOf(");
                     try genExpr(self, if (left_is_none) compare.comparators[i] else current_left);
-                    try self.emit(") != @TypeOf(null))");
+                    try emitConst(self, ") != @TypeOf(null))");
                 }
             } else {
                 // Unknown types - use runtime.pyAnyEql for Python semantics
@@ -1302,18 +1362,14 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // with proper NaN identity semantics
                 if (op == .Eq or op == .NotEq) {
                     if (op == .NotEq) {
-                        try self.emit("!");
+                        try emitConst(self, "!");
                     }
-                    try self.emit("runtime.pyAnyEql(");
-                    try genExpr(self, current_left);
-                    try self.emit(", ");
-                    try genExpr(self, compare.comparators[i]);
-                    try self.emit(")");
+                    try emitPyAnyEql(self, current_left, compare.comparators[i]);
                 } else {
                     // For <, >, <=, >= with unknown types, fall back to direct comparison
                     // This may fail at Zig compile time if types don't support ordering
                     try genExpr(self, current_left);
-                    try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
+                    try emitConst(self, CompOpStrings.get(@tagName(op)) orelse " == ");
                     try genExpr(self, compare.comparators[i]);
                 }
             }
@@ -1363,54 +1419,57 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             // pyAnyEql handles Python semantics: NaN identity, cross-type comparison, etc.
             // std.meta.eql doesn't handle NaN (nan == nan returns false) so we avoid it
             if (!both_primitive and (op == .Eq or op == .NotEq)) {
-                if (op == .NotEq) try self.emit("!");
+                if (op == .NotEq) try emitConst(self, "!");
                 // Always use pyAnyEql for Python-semantic comparison
-                try self.emit("runtime.pyAnyEql(");
-                if (left_needs_wrap) try self.emit("(");
+                try emitConst(self, "runtime.pyAnyEql(");
+                if (left_needs_wrap) try emitConst(self, "(");
                 try genExpr(self, current_left);
-                if (left_needs_wrap) try self.emit(")");
-                try self.emit(", ");
-                if (right_needs_wrap) try self.emit("(");
+                if (left_needs_wrap) try emitConst(self, ")");
+                try emitConst(self, ", ");
+                if (right_needs_wrap) try emitConst(self, "(");
                 try genExpr(self, compare.comparators[i]);
-                if (right_needs_wrap) try self.emit(")");
-                try self.emit(")");
+                if (right_needs_wrap) try emitConst(self, ")");
+                try emitConst(self, ")");
             } else {
                 // Cast left operand if needed
                 if (left_is_usize and needs_cast) {
-                    try self.emit("@as(i64, @intCast(");
+                    try emitConst(self, "@as(i64, @intCast(");
                 }
                 // Wrap block expressions in parentheses
-                if (left_needs_wrap) try self.emit("(");
+                if (left_needs_wrap) try emitConst(self, "(");
                 try genExpr(self, current_left);
-                if (left_needs_wrap) try self.emit(")");
+                if (left_needs_wrap) try emitConst(self, ")");
                 if (left_is_usize and needs_cast) {
-                    try self.emit("))");
+                    try emitConst(self, "))");
                 }
 
-                try self.emit(CompOpStrings.get(@tagName(op)) orelse " ? ");
+                try emitConst(self, CompOpStrings.get(@tagName(op)) orelse " ? ");
 
                 // Cast right operand if needed
                 if (right_is_usize and needs_cast) {
-                    try self.emit("@as(i64, @intCast(");
+                    try emitConst(self, "@as(i64, @intCast(");
                 }
                 // Wrap block expressions in parentheses
-                if (right_needs_wrap) try self.emit("(");
+                if (right_needs_wrap) try emitConst(self, "(");
                 try genExpr(self, compare.comparators[i]);
-                if (right_needs_wrap) try self.emit(")");
+                if (right_needs_wrap) try emitConst(self, ")");
                 if (right_is_usize and needs_cast) {
-                    try self.emit("))");
+                    try emitConst(self, "))");
                 }
             }
         }
 
         // Close individual comparison paren for chained comparisons
         if (is_chained) {
-            try self.emit(")");
+            try emitConst(self, ")");
         }
     }
 
     // Close outer paren for chained comparisons
     if (is_chained) {
-        try self.emit(")");
+        try emitConst(self, ")");
     }
+
+    // Close the outer parenthesis opened at the start of genCompare
+    try emitConst(self, ")");
 }

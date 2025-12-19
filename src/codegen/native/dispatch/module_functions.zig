@@ -1,9 +1,18 @@
 /// Module function dispatchers (json, http, asyncio, os, etc.)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 // Import specialized handlers
 const json = @import("../json.zig");
@@ -809,7 +818,7 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
                     safe_buf[idx] = if (c == '.') '_' else c;
                     idx += 1;
                 }
-                try self.emit(safe_buf[0..idx]);
+                try emitConst(self,safe_buf[0..idx]);
                 return true;
             } else if (arg == .fstring) {
                 // F-string with single literal part = static name
@@ -822,19 +831,19 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
                         safe_buf[idx] = if (c == '.') '_' else c;
                         idx += 1;
                     }
-                    try self.emit(safe_buf[0..idx]);
+                    try emitConst(self,safe_buf[0..idx]);
                     return true;
                 }
             }
         }
         // Dynamic module name - emit runtime import call (returns module struct)
-        try self.emit("runtime.importlib.importModule(__global_allocator, ");
+        try emitConst(self,"runtime.importlib.importModule(__global_allocator, ");
         if (call.args.len > 0) {
             try self.genExpr(call.args[0]);
         } else {
-            try self.emit("\"\"");
+            try emitConst(self,"\"\"");
         }
-        try self.emit(")");
+        try emitConst(self,")");
         return true;
     }
 
@@ -843,17 +852,17 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
     if (std.mem.eql(u8, module_name, "support")) {
         if (std.mem.eql(u8, func_name, "Stopwatch")) {
             // support.Stopwatch() -> support.Stopwatch.init()
-            try self.emit("support.Stopwatch.init()");
+            try emitConst(self,"support.Stopwatch.init()");
             return true;
         }
         if (std.mem.eql(u8, func_name, "adjust_int_max_str_digits")) {
             // support.adjust_int_max_str_digits(n) -> support.adjust_int_max_str_digits(n)
             // This is a function, not a struct, so it works normally
-            try self.emit("support.adjust_int_max_str_digits(");
+            try emitConst(self,"support.adjust_int_max_str_digits(");
             if (call.args.len > 0) {
                 try self.genExpr(call.args[0]);
             }
-            try self.emit(")");
+            try emitConst(self,")");
             return true;
         }
     }
@@ -861,37 +870,37 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
     // Handle _pylong.compute_powers with kwargs support
     if (std.mem.eql(u8, module_name, "_pylong") and std.mem.eql(u8, func_name, "compute_powers")) {
         if (call.args.len < 3) {
-            try self.emit("(runtime.pylong.computePowers(__global_allocator, 0, 2, 0, false))");
+            try emitConst(self,"(runtime.pylong.computePowers(__global_allocator, 0, 2, 0, false))");
             return true;
         }
-        try self.emit("(runtime.pylong.computePowers(__global_allocator, @intCast(");
+        try emitConst(self,"(runtime.pylong.computePowers(__global_allocator, @intCast(");
         try self.genExpr(call.args[0]);
-        try self.emit("), @intCast(");
+        try emitConst(self,"), @intCast(");
         try self.genExpr(call.args[1]);
-        try self.emit("), @intCast(");
+        try emitConst(self,"), @intCast(");
         try self.genExpr(call.args[2]);
-        try self.emit("), ");
+        try emitConst(self,"), ");
         // Handle need_hi kwarg - convert to bool with != 0 in case it's i64
         var found_need_hi = false;
         for (call.keyword_args) |kw| {
             if (std.mem.eql(u8, kw.name, "need_hi")) {
-                try self.emit("(");
+                try emitConst(self,"(");
                 try self.genExpr(kw.value);
-                try self.emit(" != 0)");
+                try emitConst(self," != 0)");
                 found_need_hi = true;
                 break;
             }
         }
         if (!found_need_hi) {
             if (call.args.len > 3) {
-                try self.emit("(");
+                try emitConst(self,"(");
                 try self.genExpr(call.args[3]);
-                try self.emit(" != 0)");
+                try emitConst(self," != 0)");
             } else {
-                try self.emit("false");
+                try emitConst(self,"false");
             }
         }
-        try self.emit("))");
+        try emitConst(self,"))");
         return true;
     }
 
@@ -925,14 +934,14 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
             if (type_traits.isBoolean(arg_type)) {
                 if (protocol_value != null and protocol_value.? >= 2) {
                     // Protocol 2+: use binary format - return as PyBytes for correct type
-                    try self.emit("runtime.builtins.bytesLiteral(if (");
+                    try emitConst(self,"runtime.builtins.bytesLiteral(if (");
                     try self.genExpr(call.args[0]);
-                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\")");
+                    try emitConst(self,") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\")");
                 } else {
                     // Protocol 0/1: use text format - return as PyBytes for correct type
-                    try self.emit("runtime.builtins.bytesLiteral(if (");
+                    try emitConst(self,"runtime.builtins.bytesLiteral(if (");
                     try self.genExpr(call.args[0]);
-                    try self.emit(") \"I01\\n.\" else \"I00\\n.\")");
+                    try emitConst(self,") \"I01\\n.\" else \"I00\\n.\")");
                 }
                 return true;
             }
@@ -959,25 +968,25 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         }
 
         // Generate timedelta struct
-        try self.emit("runtime.datetime.Timedelta{ .days = ");
+        try emitConst(self,"runtime.datetime.Timedelta{ .days = ");
         if (days_expr) |d| {
             try self.genExpr(d);
         } else {
-            try self.emit("0");
+            try emitConst(self,"0");
         }
-        try self.emit(", .seconds = ");
+        try emitConst(self,", .seconds = ");
         if (seconds_expr) |s| {
             try self.genExpr(s);
         } else {
-            try self.emit("0");
+            try emitConst(self,"0");
         }
-        try self.emit(", .microseconds = ");
+        try emitConst(self,", .microseconds = ");
         if (microseconds_expr) |ms| {
             try self.genExpr(ms);
         } else {
-            try self.emit("0");
+            try emitConst(self,"0");
         }
-        try self.emit(" }");
+        try emitConst(self," }");
         return true;
     }
 

@@ -2,7 +2,6 @@
 /// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
-const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -27,109 +26,168 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genNew(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha256\", .digest_size = 32 }"), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write(".{ .name = \"sha256\", .digest_size = 32 }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.withInlineBlock("new", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const name = ");
+            const b = try c.getBuilder();
+            try b.write("const name = ");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emitFmt("; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}", .{label});
+            {
+                const b2 = try c.getBuilder();
+                try b2.writeFmt("; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}", .{label});
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
         }
     }.emit);
 }
 
 fn genOpensslMd5(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"md5\", .digest_size = 16 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"md5\", .digest_size = 16 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha1(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha1\", .digest_size = 20 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha1\", .digest_size = 20 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha224(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha224\", .digest_size = 28 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha224\", .digest_size = 28 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha256(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha256\", .digest_size = 32 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha256\", .digest_size = 32 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha384(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha384\", .digest_size = 48 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha384\", .digest_size = 48 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha512(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha512\", .digest_size = 64 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha512\", .digest_size = 64 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha3_224(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha3_224\", .digest_size = 28 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha3_224\", .digest_size = 28 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha3_256(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha3_256\", .digest_size = 32 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha3_256\", .digest_size = 32 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha3_384(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha3_384\", .digest_size = 48 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha3_384\", .digest_size = 48 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslSha3_512(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"sha3_512\", .digest_size = 64 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"sha3_512\", .digest_size = 64 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslShake128(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"shake_128\", .digest_size = 0 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"shake_128\", .digest_size = 0 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genOpensslShake256(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .name = \"shake_256\", .digest_size = 0 }"), builder_mod.EmitConfig.forExpression());
+    try b.write(".{ .name = \"shake_256\", .digest_size = 0 }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genPbkdf2Hmac(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]u8{} ** 32"), builder_mod.EmitConfig.forExpression());
+    try b.write("&[_]u8{} ** 32");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genScrypt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]u8{} ** 64"), builder_mod.EmitConfig.forExpression());
+    try b.write("&[_]u8{} ** 64");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genHmacDigest(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]u8{} ** 32"), builder_mod.EmitConfig.forExpression());
+    try b.write("&[_]u8{} ** 32");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 fn genCompareDigest(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len >= 2) {
-        try self.emit("std.mem.eql(u8, ");
+        {
+            const b = try self.getBuilder();
+            try b.write("std.mem.eql(u8, ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        {
+            const b = try self.getBuilder();
+            try b.write(", ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[1]);
-        try self.emit(")");
+        {
+            const b = try self.getBuilder();
+            try b.write(")");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
     } else {
-        try b.emitValue(builder_mod.ZigValue.boolean(false), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write("false");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 
 fn genOpensslMdMethNames(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{ \"md5\", \"sha1\", \"sha224\", \"sha256\", \"sha384\", \"sha512\", \"sha3_224\", \"sha3_256\", \"sha3_384\", \"sha3_512\", \"shake_128\", \"shake_256\", \"blake2b\", \"blake2s\" }"), builder_mod.EmitConfig.forExpression());
+    try b.write("&[_][]const u8{ \"md5\", \"sha1\", \"sha224\", \"sha256\", \"sha384\", \"sha512\", \"sha3_224\", \"sha3_256\", \"sha3_384\", \"sha3_512\", \"shake_128\", \"shake_256\", \"blake2b\", \"blake2s\" }");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }

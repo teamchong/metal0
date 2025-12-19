@@ -17,16 +17,37 @@ fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
         try self.withInlineBlock("hash_new", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("var _h = try hashlib.new(");
+                const b = try c.getBuilder();
+                try b.write("var _h = try hashlib.new(");
+                const output1 = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
-                try c.emit("); _h.update(");
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.write("); _h.update(");
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
                 try c.genExpr(a[1]);
-                try c.emitFmt("); break :{s} _h", .{label});
+                {
+                    const b3 = try c.getBuilder();
+                    try b3.writeFmt("); break :{s} _h", .{label});
+                    const output3 = b3.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output3);
+                }
             }
         }.emit);
     } else {
-        try self.emit("try hashlib.new(");
+        const b = try self.getBuilder();
+        try b.write("try hashlib.new(");
+        const output1 = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
-        try self.emit(")");
+        {
+            const b2 = try self.getBuilder();
+            try b2.write(")");
+            const output2 = b2.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output2);
+        }
     }
 }

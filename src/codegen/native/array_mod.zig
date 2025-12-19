@@ -27,107 +27,110 @@ fn getZigType(typecode: u8) []const u8 {
 /// Generate array struct definition for a specific typecode
 fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     const zig_type = getZigType(typecode);
+    const b = try self.getBuilder();
 
-    try self.emit("struct { typecode: u8 = '");
-    try self.emit(&[_]u8{typecode});
-    try self.emit("', items: std.ArrayListUnmanaged(");
-    try self.emit(zig_type);
-    try self.emit(") = .{}, ");
+    try b.write("struct { typecode: u8 = '");
+    try b.write(&[_]u8{typecode});
+    try b.write("', items: std.ArrayListUnmanaged(");
+    try b.write(zig_type);
+    try b.write(") = .{}, ");
 
     // append method - accepts optional allocator for compatibility with list.append dispatch
-    try self.emit("pub fn append(__self: *@This(), _: std.mem.Allocator, x: ");
-    try self.emit(zig_type);
-    try self.emit(") !void { try __self.items.append(__global_allocator, x); } ");
+    try b.write("pub fn append(__self: *@This(), _: std.mem.Allocator, x: ");
+    try b.write(zig_type);
+    try b.write(") !void { try __self.items.append(__global_allocator, x); } ");
 
     // extend method
-    try self.emit("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch @panic(\"array extend OOM\"); } ");
+    try b.write("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch @panic(\"array extend OOM\"); } ");
 
     // insert method
-    try self.emit("pub fn insert(__self: *@This(), i: usize, x: ");
-    try self.emit(zig_type);
-    try self.emit(") void { __self.items.insert(__global_allocator, i, x) catch @panic(\"array insert OOM\"); } ");
+    try b.write("pub fn insert(__self: *@This(), i: usize, x: ");
+    try b.write(zig_type);
+    try b.write(") void { __self.items.insert(__global_allocator, i, x) catch @panic(\"array insert OOM\"); } ");
 
     // remove method
-    try self.emit("pub fn remove(__self: *@This(), x: ");
-    try self.emit(zig_type);
-    try self.emit(") void { for (__self.items.items, 0..) |v, i| { if (v == x) { _ = __self.items.orderedRemove(i); return; } } } ");
+    try b.write("pub fn remove(__self: *@This(), x: ");
+    try b.write(zig_type);
+    try b.write(") void { for (__self.items.items, 0..) |v, i| { if (v == x) { _ = __self.items.orderedRemove(i); return; } } } ");
 
     // pop method
-    try self.emit("pub fn pop(__self: *@This()) ");
-    try self.emit(zig_type);
-    try self.emit(" { return __self.items.pop(); } ");
+    try b.write("pub fn pop(__self: *@This()) ");
+    try b.write(zig_type);
+    try b.write(" { return __self.items.pop(); } ");
 
     // index method
-    try self.emit("pub fn index(__self: *@This(), x: ");
-    try self.emit(zig_type);
-    try self.emit(") ?usize { for (__self.items.items, 0..) |v, i| { if (v == x) return i; } return null; } ");
+    try b.write("pub fn index(__self: *@This(), x: ");
+    try b.write(zig_type);
+    try b.write(") ?usize { for (__self.items.items, 0..) |v, i| { if (v == x) return i; } return null; } ");
 
     // count method
-    try self.emit("pub fn count(__self: *@This(), x: ");
-    try self.emit(zig_type);
-    try self.emit(") usize { var c: usize = 0; for (__self.items.items) |v| { if (v == x) c += 1; } return c; } ");
+    try b.write("pub fn count(__self: *@This(), x: ");
+    try b.write(zig_type);
+    try b.write(") usize { var c: usize = 0; for (__self.items.items) |v| { if (v == x) c += 1; } return c; } ");
 
     // reverse method
-    try self.emit("pub fn reverse(__self: *@This()) void { std.mem.reverse(");
-    try self.emit(zig_type);
-    try self.emit(", __self.items.items); } ");
+    try b.write("pub fn reverse(__self: *@This()) void { std.mem.reverse(");
+    try b.write(zig_type);
+    try b.write(", __self.items.items); } ");
 
     // tobytes method
-    try self.emit("pub fn tobytes(__self: *@This()) []const u8 { return std.mem.sliceAsBytes(__self.items.items); } ");
+    try b.write("pub fn tobytes(__self: *@This()) []const u8 { return std.mem.sliceAsBytes(__self.items.items); } ");
 
     // tolist method
-    try self.emit("pub fn tolist(__self: *@This()) []");
-    try self.emit(zig_type);
-    try self.emit(" { return __self.items.items; } ");
+    try b.write("pub fn tolist(__self: *@This()) []");
+    try b.write(zig_type);
+    try b.write(" { return __self.items.items; } ");
 
     // frombytes method - critical for 'B' arrays
-    try self.emit("pub fn frombytes(__self: *@This(), s: []const u8) void { ");
+    try b.write("pub fn frombytes(__self: *@This(), s: []const u8) void { ");
     if (typecode == 'B' or typecode == 'b') {
         // For byte arrays, copy directly (use __byte to avoid shadowing outer 'b' param)
-        try self.emit("for (s) |__byte| __self.items.append(__global_allocator, ");
+        try b.write("for (s) |__byte| __self.items.append(__global_allocator, ");
         if (typecode == 'b') {
-            try self.emit("@as(i8, @bitCast(__byte))");
+            try b.write("@as(i8, @bitCast(__byte))");
         } else {
-            try self.emit("__byte");
+            try b.write("__byte");
         }
-        try self.emit(") catch @panic(\"array frombytes OOM\"); } ");
+        try b.write(") catch @panic(\"array frombytes OOM\"); } ");
     } else {
         // For other types, reinterpret bytes
-        try self.emit("const typed_slice = std.mem.bytesAsSlice(");
-        try self.emit(zig_type);
-        try self.emit(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch @panic(\"array frombytes OOM\"); } ");
+        try b.write("const typed_slice = std.mem.bytesAsSlice(");
+        try b.write(zig_type);
+        try b.write(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch @panic(\"array frombytes OOM\"); } ");
     }
 
     // fromlist method
-    try self.emit("pub fn fromlist(__self: *@This(), list: []");
-    try self.emit(zig_type);
-    try self.emit(") void { for (list) |x| __self.append(__global_allocator, x) catch @panic(\"array fromlist OOM\"); } ");
+    try b.write("pub fn fromlist(__self: *@This(), list: []");
+    try b.write(zig_type);
+    try b.write(") void { for (list) |x| __self.append(__global_allocator, x) catch @panic(\"array fromlist OOM\"); } ");
 
     // buffer_info method
-    try self.emit("pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } ");
+    try b.write("pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } ");
 
     // byteswap method
-    try self.emit("pub fn byteswap(__self: *@This()) void { _ = __self; } ");
+    try b.write("pub fn byteswap(__self: *@This()) void { _ = __self; } ");
 
     // __len__ method
-    try self.emit("pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } ");
+    try b.write("pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } ");
 
     // __getitem__ method
-    try self.emit("pub fn __getitem__(__self: *@This(), i: usize) ");
-    try self.emit(zig_type);
-    try self.emit(" { return __self.items.items[i]; } ");
+    try b.write("pub fn __getitem__(__self: *@This(), i: usize) ");
+    try b.write(zig_type);
+    try b.write(" { return __self.items.items[i]; } ");
 
     // __setitem__ method
-    try self.emit("pub fn __setitem__(__self: *@This(), i: usize, v: ");
-    try self.emit(zig_type);
-    try self.emit(") void { __self.items.items[i] = v; } ");
+    try b.write("pub fn __setitem__(__self: *@This(), i: usize, v: ");
+    try b.write(zig_type);
+    try b.write(") void { __self.items.items[i] = v; } ");
 
     // itemsize method
-    try self.emit("pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(");
-    try self.emit(zig_type);
-    try self.emit("); } ");
+    try b.write("pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(");
+    try b.write(zig_type);
+    try b.write("); } ");
 
-    try self.emit("}{}");
+    try b.write("}{}");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// Extract typecode from first argument if it's a string constant
@@ -152,22 +155,52 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 
             // Discard arguments (still need to evaluate them for side effects)
             if (a.len > 0) {
-                try c.emit("runtime.discard(");
+                {
+                    const b = try c.getBuilder();
+                    try b.write("runtime.discard(");
+                    const output1 = b.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output1);
+                }
                 try c.genExpr(a[0]);
-                try c.emit(")");
+                {
+                    const b = try c.getBuilder();
+                    try b.write(")");
+                    const output2 = b.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
                 if (a.len > 1) {
-                    try c.emit("; ");
-                    // For initializers, populate the array from the bytes
-                    try c.emit("var __arr_init = ");
+                    {
+                        const b = try c.getBuilder();
+                        try b.write("; ");
+                        // For initializers, populate the array from the bytes
+                        try b.write("var __arr_init = ");
+                        const output3 = b.getBodyAndClear();
+                        try c.output.appendSlice(c.allocator, output3);
+                    }
                     try genArrayStructDef(c, tc);
-                    try c.emit("; __arr_init.frombytes(");
+                    {
+                        const b = try c.getBuilder();
+                        try b.write("; __arr_init.frombytes(");
+                        const output4 = b.getBodyAndClear();
+                        try c.output.appendSlice(c.allocator, output4);
+                    }
                     try c.genExpr(a[1]);
-                    try c.emitFmt("); break :{s} __arr_init", .{label});
+                    {
+                        const b = try c.getBuilder();
+                        try b.writeFmt("); break :{s} __arr_init", .{label});
+                        const output5 = b.getBodyAndClear();
+                        try c.output.appendSlice(c.allocator, output5);
+                    }
                     return;
                 }
             }
 
-            try c.emitFmt("break :{s} ", .{label});
+            {
+                const b = try c.getBuilder();
+                try b.writeFmt("break :{s} ", .{label});
+                const output = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output);
+            }
             try genArrayStructDef(c, tc);
         }
     }.emit);

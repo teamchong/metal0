@@ -1,4 +1,5 @@
 /// Class method generation (init, regular methods, inherited methods)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
@@ -19,6 +20,15 @@ const usage_analysis = @import("usage_analysis.zig");
 const function_gen = @import("function_gen.zig");
 const param_analyzer = @import("../../param_analyzer.zig");
 const local_class_hoisting = @import("local_class_hoisting.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 // Re-export from local_class_hoisting for backward compatibility
 pub const hoistAllLocalClassesFromMethods = local_class_hoisting.hoistAllLocalClassesFromMethods;
@@ -182,18 +192,18 @@ fn extractNewCallExpr(node: *ast.Node) ?ast.Node {
 fn emitComptimeTypeGuard(self: *NativeCodegen, checks: []const function_gen.TypeCheckInfo) CodegenError!void {
     if (checks.len == 0) return;
     try self.emitIndent();
-    try self.emit("if (comptime ");
+    try emitConst(self,"if (comptime ");
     for (checks, 0..) |check, i| {
-        if (i > 0) try self.emit(" and ");
-        try self.emit("runtime.istype(@TypeOf(");
+        if (i > 0) try emitConst(self," and ");
+        try emitConst(self,"runtime.istype(@TypeOf(");
         // Use renamed param if available (handles shadowing)
         const param_name = self.var_renames.get(check.param_name) orelse check.param_name;
-        try self.emit(param_name);
-        try self.emit("), \"");
-        try self.emit(check.check_type);
-        try self.emit("\")");
+        try emitConst(self,param_name);
+        try emitConst(self,"), \"");
+        try emitConst(self,check.check_type);
+        try emitConst(self,"\")");
     }
-    try self.emit(") {\n");
+    try emitConst(self,") {\n");
     self.indent();
 }
 
@@ -201,7 +211,7 @@ fn emitComptimeTypeGuard(self: *NativeCodegen, checks: []const function_gen.Type
 fn emitCapturedVarParams(self: *NativeCodegen, class_name: []const u8, captured_vars: ?[][]const u8) CodegenError!void {
     const vars = captured_vars orelse return;
     for (vars) |var_name| {
-        try self.emit(", ");
+        try emitConst(self,", ");
         var type_buf = std.ArrayList(u8){};
         defer type_buf.deinit(self.allocator);
         const var_type: ?native_types.NativeType = self.type_inferrer.getScopedVar(var_name) orelse
@@ -273,16 +283,16 @@ fn wouldShadowMethodInClass(param_name: []const u8, class_body: []const ast.Node
 pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
-    try self.emit("// Dynamic attributes dictionary\n");
+    try emitConst(self,"// Dynamic attributes dictionary\n");
     try self.emitIndent();
-    try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    try emitConst(self,"__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
     // Check if class is nested (defined inside a function/method)
     // Nested classes need heap allocation for Python reference semantics
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
-    try self.emit("\n");
+    try emitConst(self,"\n");
     try self.emitIndent();
 
     if (is_nested) {
@@ -293,7 +303,7 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
-        try self.emit("__ptr.* = @This(){\n");
+        try emitConst(self,"__ptr.* = @This(){\n");
         self.indent();
 
         // Initialize __dict__ for dynamic attributes
@@ -302,9 +312,9 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
         try self.emitIndent();
-        try self.emit("return __ptr;\n");
+        try emitConst(self,"return __ptr;\n");
     } else {
         // Top-level classes: value semantics (existing behavior)
         // Return error union for consistency with nested classes and Python __init__ semantics
@@ -312,7 +322,7 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
         self.indent();
 
         try self.emitIndent();
-        try self.emit("return @This(){\n");
+        try emitConst(self,"return @This(){\n");
         self.indent();
 
         // Initialize __dict__ for dynamic attributes
@@ -321,12 +331,12 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Default init returns !@This(), track for `try` in instantiation calls
     try self.error_init_classes.put(class_name, {});
@@ -336,15 +346,15 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
 pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []const u8, builtin_base: ?BuiltinBaseInfo, complex_parent: ?generators.ComplexParentInfo, captured_vars: ?[][]const u8) CodegenError!void {
     // Default __dict__ field for dynamic attributes
     try self.emitIndent();
-    try self.emit("// Dynamic attributes dictionary\n");
+    try emitConst(self,"// Dynamic attributes dictionary\n");
     try self.emitIndent();
-    try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    try emitConst(self,"__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
-    try self.emit("\n");
+    try emitConst(self,"\n");
     try self.emitIndent();
 
     // Generate function signature with builtin base args if present
@@ -354,7 +364,7 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
     // Add builtin base constructor args
     if (builtin_base) |base_info| {
         for (base_info.init_args) |arg| {
-            try self.emit(", ");
+            try emitConst(self,", ");
             try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, arg.zig_type });
         }
     }
@@ -362,16 +372,16 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
     // Add complex parent constructor args
     if (complex_parent) |parent_info| {
         for (parent_info.init_args) |arg| {
-            try self.emit(", ");
+            try emitConst(self,", ");
             try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, arg.zig_type });
         }
     }
 
     if (is_nested) {
-        try self.emit(") !*@This() {\n");
+        try emitConst(self,") !*@This() {\n");
     } else {
         // Return error union for consistency with nested classes and Python __init__ semantics
-        try self.emit(") !@This() {\n");
+        try emitConst(self,") !@This() {\n");
     }
     self.indent();
 
@@ -380,10 +390,10 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
-        try self.emit("__ptr.* = @This(){\n");
+        try emitConst(self,"__ptr.* = @This(){\n");
     } else {
         try self.emitIndent();
-        try self.emit("return @This(){\n");
+        try emitConst(self,"return @This(){\n");
     }
     self.indent();
 
@@ -405,21 +415,21 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
     if (complex_parent) |parent_info| {
         for (parent_info.field_init) |fi| {
             try self.emitIndent();
-            try self.emit(".");
-            try self.emit(fi.field_name);
-            try self.emit(" = ");
+            try emitConst(self,".");
+            try emitConst(self,fi.field_name);
+            try emitConst(self," = ");
             // Replace {alloc} with allocator name in init_code
             var i: usize = 0;
             while (i < fi.init_code.len) {
                 if (i + 7 <= fi.init_code.len and std.mem.eql(u8, fi.init_code[i .. i + 7], "{alloc}")) {
-                    try self.emit(alloc_name);
+                    try emitConst(self,alloc_name);
                     i += 7;
                 } else {
                     try self.output.append(self.allocator, fi.init_code[i]);
                     i += 1;
                 }
             }
-            try self.emit(",\n");
+            try emitConst(self,",\n");
         }
     }
 
@@ -429,16 +439,16 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     if (is_nested) {
         try self.emitIndent();
-        try self.emit("return __ptr;\n");
+        try emitConst(self,"return __ptr;\n");
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Default init returns !@This(), track for `try` in instantiation calls
     try self.error_init_classes.put(class_name, {});
@@ -454,7 +464,7 @@ pub fn genInitMethod(
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = if (is_nested) "__alloc" else "allocator";
 
-    try self.emit("\n");
+    try emitConst(self,"\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
 
@@ -476,7 +486,7 @@ pub fn genInitMethod(
     for (init_def.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
 
-        try self.emit(", ");
+        try emitConst(self,", ");
 
         // Check if parameter name shadows a class method or class-level attribute
         // e.g., `def real(self)` method or `num = property(...)` class attr conflicts with param of same name
@@ -500,28 +510,28 @@ pub fn genInitMethod(
         const is_used = param_analyzer.isNameUsedInInitBody(init_def.body, arg.name);
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
-            try self.emit("_: ");
+            try emitConst(self,"_: ");
         } else if (shadows_class_member or shadows_module_level or shadows_local_assign) {
             // Rename parameter to avoid shadowing using NameGen
             const renamed = try self.name_gen.param(arg.name);
-            try self.emit(renamed);
-            try self.emit(": ");
+            try emitConst(self,renamed);
+            try emitConst(self,": ");
             // Track for var_renames setup later (store both original and renamed)
             // If param is reassigned in body, we'll create a mutable copy instead
             // of putting in var_renames. This allows: var d = __m2_p_d; d = {};
             try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.emit(": ");
+            try emitConst(self,": ");
         }
 
         // Type annotation: prefer type hints, fallback to inference
         if (arg.type_annotation) |_| {
-            try self.emit(signature.pythonTypeToZig(arg.type_annotation));
+            try emitConst(self,signature.pythonTypeToZig(arg.type_annotation));
         } else {
             const param_type = try class_fields.inferParamType(self, class_name, init_def, arg.name);
             defer self.allocator.free(param_type);
-            try self.emit(param_type);
+            try emitConst(self,param_type);
 
             // Track anytype params for comptime type guard detection
             if (std.mem.eql(u8, param_type, "anytype")) {
@@ -540,10 +550,10 @@ pub fn genInitMethod(
     }
 
     if (is_nested) {
-        try self.emit(") !*@This() {\n");
+        try emitConst(self,") !*@This() {\n");
     } else {
         // Always return error union for consistency with Python __init__ semantics
-        try self.emit(") !@This() {\n");
+        try emitConst(self,") !@This() {\n");
     }
     self.indent();
 
@@ -569,13 +579,13 @@ pub fn genInitMethod(
     for (renamed_params.items) |entry| {
         if (entry.needs_mutable_copy) {
             try self.emitIndent();
-            try self.emit("var ");
+            try emitConst(self,"var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
-            try self.emit(": @TypeOf(");
-            try self.emit(entry.renamed);
-            try self.emit(") = ");
-            try self.emit(entry.renamed);
-            try self.emit(";\n");
+            try emitConst(self,": @TypeOf(");
+            try emitConst(self,entry.renamed);
+            try emitConst(self,") = ");
+            try emitConst(self,entry.renamed);
+            try emitConst(self,";\n");
             // Mark as declared so assignment code doesn't try to redeclare
             try self.declareVar(entry.original);
         }
@@ -646,17 +656,17 @@ pub fn genInitMethod(
         if (has_type_checks) {
             self.dedent();
             try self.emitIndent();
-            try self.emit("} else {\n");
+            try emitConst(self,"} else {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("return error.TypeError;\n");
+            try emitConst(self,"return error.TypeError;\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
         return;
     }
 
@@ -666,10 +676,10 @@ pub fn genInitMethod(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
-        try self.emit("__ptr.* = @This(){\n");
+        try emitConst(self,"__ptr.* = @This(){\n");
     } else {
         try self.emitIndent();
-        try self.emit("return @This(){\n");
+        try emitConst(self,"return @This(){\n");
     }
     self.indent();
 
@@ -693,17 +703,17 @@ pub fn genInitMethod(
                         try deferred_assigns.append(self.allocator, stmt);
                         // Initialize with undefined for now - will be set after struct init
                         try self.emitIndent();
-                        try self.emit(".");
+                        try emitConst(self,".");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
-                        try self.emit(" = undefined,\n");
+                        try emitConst(self," = undefined,\n");
                         continue;
                     }
 
                     try self.emitIndent();
                     // Escape field name if it's a Zig keyword (e.g., "test")
-                    try self.emit(".");
+                    try emitConst(self,".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
-                    try self.emit(" = ");
+                    try emitConst(self," = ");
                     // Check if value is an anytype param - wrap with runtime.PyValue.from()
                     // BUT only if the field type is unknown (runtime.PyValue), not a primitive
                     const is_anytype_param = if (assign.value.* == .name)
@@ -759,13 +769,13 @@ pub fn genInitMethod(
                         string_traits.isString(field_type);
 
                     if (is_anytype_param and !is_primitive_field) {
-                        try self.emit("runtime.PyValue.from(");
+                        try emitConst(self,"runtime.PyValue.from(");
                         try self.genExpr(assign.value.*);
-                        try self.emit(")");
+                        try emitConst(self,")");
                     } else {
                         try self.genExpr(assign.value.*);
                     }
-                    try self.emit(",\n");
+                    try emitConst(self,",\n");
                 }
             }
         }
@@ -777,7 +787,7 @@ pub fn genInitMethod(
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     // Emit deferred field assignments (fields that reference self.attr)
     // For nested classes, use __ptr; for top-level, we're inside return so this shouldn't happen
@@ -788,38 +798,38 @@ pub fn genInitMethod(
             const field_name = attr.attr;
 
             try self.emitIndent();
-            try self.emit("__ptr.");
+            try emitConst(self,"__ptr.");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
-            try self.emit(" = ");
+            try emitConst(self," = ");
             // Temporarily add var_rename for self -> __ptr for this expression
             try self.var_renames.put("self", "__ptr");
             try self.genExpr(assign.value.*);
             _ = self.var_renames.swapRemove("self");
-            try self.emit(";\n");
+            try emitConst(self,";\n");
         }
     }
 
     if (is_nested) {
         try self.emitIndent();
-        try self.emit("return __ptr;\n");
+        try emitConst(self,"return __ptr;\n");
     }
 
     // Close comptime type guard if we opened one
     if (has_type_checks) {
         self.dedent();
         try self.emitIndent();
-        try self.emit("} else {\n");
+        try emitConst(self,"} else {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return error.TypeError;\n");
+        try emitConst(self,"return error.TypeError;\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 }
 
 /// Generate init() method from __init__ with builtin/complex parent type support
@@ -850,7 +860,7 @@ pub fn genInitMethodWithBuiltinBase(
         renamed_params.deinit(self.allocator);
     }
 
-    try self.emit("\n");
+    try emitConst(self,"\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
     try emitCapturedVarParams(self, class_name, captured_vars);
@@ -867,7 +877,7 @@ pub fn genInitMethodWithBuiltinBase(
         // Use the builtin's constructor args
         if (builtin_base) |base_info| {
             for (base_info.init_args) |arg| {
-                try self.emit(", ");
+                try emitConst(self,", ");
                 try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, arg.zig_type });
             }
         }
@@ -877,7 +887,7 @@ pub fn genInitMethodWithBuiltinBase(
         for (init.args) |arg| {
             if (std.mem.eql(u8, arg.name, "self")) continue;
 
-            try self.emit(", ");
+            try emitConst(self,", ");
 
             // Check if parameter is used in init body (excluding parent __init__ calls)
             // Parent calls are skipped in codegen, so params only used there are unused
@@ -886,7 +896,7 @@ pub fn genInitMethodWithBuiltinBase(
             const is_used = is_base_value_param or param_analyzer.isNameUsedInInitBody(init.body, arg.name);
             if (!is_used) {
                 // Zig requires unused params to be named just "_", not "_name"
-                try self.emit("_: ");
+                try emitConst(self,"_: ");
             } else {
                 // Check if param would shadow a method in the class
                 const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
@@ -906,25 +916,25 @@ pub fn genInitMethodWithBuiltinBase(
                         try self.var_renames.put(arg.name, renamed);
                     }
                     try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
-                    try self.emit(renamed);
+                    try emitConst(self,renamed);
                 } else {
                     // Use writeLocalVarName for consistency - handles keywords and method shadows
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
                 }
-                try self.emit(": ");
+                try emitConst(self,": ");
             }
             is_first_param = false;
 
             // Type annotation: prefer type hints, fallback to inference
             if (arg.type_annotation) |_| {
-                try self.emit(signature.pythonTypeToZig(arg.type_annotation));
+                try emitConst(self,signature.pythonTypeToZig(arg.type_annotation));
             } else if (is_base_value_param and builtin_base != null) {
                 // For builtin subclass, first param type matches the builtin type
-                try self.emit(builtin_base.?.zig_type);
+                try emitConst(self,builtin_base.?.zig_type);
             } else {
                 const param_type = try class_fields.inferParamType(self, class_name, init, arg.name);
                 defer self.allocator.free(param_type);
-                try self.emit(param_type);
+                try emitConst(self,param_type);
 
                 // Track anytype params for comptime type guard detection
                 if (std.mem.eql(u8, param_type, "anytype")) {
@@ -952,9 +962,9 @@ pub fn genInitMethodWithBuiltinBase(
     // Use @This() or !@This() for self-referential return type
     // Always use error union for consistency with Python __init__ semantics
     if (is_nested) {
-        try self.emit(") !*@This() {\n");
+        try emitConst(self,") !*@This() {\n");
     } else {
-        try self.emit(") !@This() {\n");
+        try emitConst(self,") !@This() {\n");
     }
     self.indent();
 
@@ -992,13 +1002,13 @@ pub fn genInitMethodWithBuiltinBase(
     for (renamed_params.items) |entry| {
         if (entry.needs_mutable_copy) {
             try self.emitIndent();
-            try self.emit("var ");
+            try emitConst(self,"var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
-            try self.emit(": @TypeOf(");
-            try self.emit(entry.renamed);
-            try self.emit(") = ");
-            try self.emit(entry.renamed);
-            try self.emit(";\n");
+            try emitConst(self,": @TypeOf(");
+            try emitConst(self,entry.renamed);
+            try emitConst(self,") = ");
+            try emitConst(self,entry.renamed);
+            try emitConst(self,";\n");
             // Mark as declared so assignment code doesn't try to redeclare
             try self.declareVar(entry.original);
         }
@@ -1064,7 +1074,7 @@ pub fn genInitMethodWithBuiltinBase(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
-        try self.emit("__ptr.* = @This(){\n");
+        try emitConst(self,"__ptr.* = @This(){\n");
         self.indent();
         // Initialize captured variable pointers
         if (captured_vars) |vars| {
@@ -1074,14 +1084,14 @@ pub fn genInitMethodWithBuiltinBase(
             }
         }
         try self.emitIndent();
-        try self.emit(".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(");
-        try self.emit(alloc_name);
-        try self.emit("),\n");
+        try emitConst(self,".__dict__ = hashmap_helper.StringHashMap(runtime.PyValue).init(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,"),\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
         try self.emitIndent();
-        try self.emit("const __self = __ptr;\n");
+        try emitConst(self,"const __self = __ptr;\n");
     }
 
     // First pass: generate non-field assignments (local variables, control flow, etc.)
@@ -1116,17 +1126,17 @@ pub fn genInitMethodWithBuiltinBase(
         if (has_type_checks) {
             self.dedent();
             try self.emitIndent();
-            try self.emit("} else {\n");
+            try emitConst(self,"} else {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("return error.TypeError;\n");
+            try emitConst(self,"return error.TypeError;\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
         return;
     }
 
@@ -1137,7 +1147,7 @@ pub fn genInitMethodWithBuiltinBase(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
-        try self.emit("__ptr.* = @This(){\n");
+        try emitConst(self,"__ptr.* = @This(){\n");
         self.indent();
         // Initialize captured variable pointers first
         if (captured_vars) |vars| {
@@ -1148,7 +1158,7 @@ pub fn genInitMethodWithBuiltinBase(
         }
     } else if (!is_nested) {
         try self.emitIndent();
-        try self.emit("return @This(){\n");
+        try emitConst(self,"return @This(){\n");
         self.indent();
         // Initialize captured variable pointers first
         if (captured_vars) |vars| {
@@ -1163,24 +1173,24 @@ pub fn genInitMethodWithBuiltinBase(
     if (needs_early_ptr) {
         // Just return the already-initialized __ptr
         try self.emitIndent();
-        try self.emit("return __ptr;\n");
+        try emitConst(self,"return __ptr;\n");
 
         // Close comptime type guard if we opened one
         if (has_type_checks) {
             self.dedent();
             try self.emitIndent();
-            try self.emit("} else {\n");
+            try emitConst(self,"} else {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("return error.TypeError;\n");
+            try emitConst(self,"return error.TypeError;\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
         return;
     }
 
@@ -1197,13 +1207,13 @@ pub fn genInitMethodWithBuiltinBase(
                 if (std.mem.eql(u8, arg.name, "self")) continue;
                 // Use the escaped parameter name (handles Zig keywords)
                 // Check if param was renamed (e.g., d -> __m2_p_d to avoid shadowing)
-                try self.emit(".__base_value__ = ");
+                try emitConst(self,".__base_value__ = ");
                 if (self.var_renames.get(arg.name)) |renamed| {
-                    try self.emit(renamed);
+                    try emitConst(self,renamed);
                 } else {
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
                 }
-                try self.emit(",\n");
+                try emitConst(self,",\n");
                 break;
             }
         } else {
@@ -1255,13 +1265,13 @@ pub fn genInitMethodWithBuiltinBase(
                     const needs_deferral = exprReferencesSelfAttr(assign.value.*);
 
                     try self.emitIndent();
-                    try self.emit(".");
+                    try emitConst(self,".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
-                    try self.emit(" = ");
+                    try emitConst(self," = ");
 
                     if (needs_deferral) {
                         // Initialize with undefined, will assign after struct is created
-                        try self.emit("undefined");
+                        try emitConst(self,"undefined");
                         // Check if value is an anytype param
                         const is_anytype_param = if (assign.value.* == .name)
                             self.anytype_params.contains(assign.value.name.id)
@@ -1288,14 +1298,14 @@ pub fn genInitMethodWithBuiltinBase(
                             string_traits.isString(field_type);
 
                         if (is_anytype_param and !is_primitive_field) {
-                            try self.emit("runtime.PyValue.from(");
+                            try emitConst(self,"runtime.PyValue.from(");
                             try self.genExpr(assign.value.*);
-                            try self.emit(")");
+                            try emitConst(self,")");
                         } else {
                             try self.genExpr(assign.value.*);
                         }
                     }
-                    try self.emit(",\n");
+                    try emitConst(self,",\n");
                 }
             }
         }
@@ -1307,7 +1317,7 @@ pub fn genInitMethodWithBuiltinBase(
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     // Handle deferred field assignments (fields that reference self.attr)
     // These must be assigned after the struct is created
@@ -1335,17 +1345,17 @@ pub fn genInitMethodWithBuiltinBase(
 
             for (deferred_fields.items) |field| {
                 try self.emitIndent();
-                try self.emit("__ptr.");
+                try emitConst(self,"__ptr.");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field.name);
-                try self.emit(" = ");
+                try emitConst(self," = ");
                 if (field.is_anytype) {
-                    try self.emit("runtime.PyValue.from(");
+                    try emitConst(self,"runtime.PyValue.from(");
                     try self.genExpr(field.value.*);
-                    try self.emit(")");
+                    try emitConst(self,")");
                 } else {
                     try self.genExpr(field.value.*);
                 }
-                try self.emit(";\n");
+                try emitConst(self,";\n");
             }
 
             // Restore state
@@ -1359,25 +1369,25 @@ pub fn genInitMethodWithBuiltinBase(
 
     if (is_nested) {
         try self.emitIndent();
-        try self.emit("return __ptr;\n");
+        try emitConst(self,"return __ptr;\n");
     }
 
     // Close comptime type guard if we opened one
     if (has_type_checks) {
         self.dedent();
         try self.emitIndent();
-        try self.emit("} else {\n");
+        try emitConst(self,"} else {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return error.TypeError;\n");
+        try emitConst(self,"return error.TypeError;\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 }
 
 /// Generate init() method from __new__ when no __init__ exists
@@ -1410,7 +1420,7 @@ pub fn genInitMethodFromNew(
         renamed_params.deinit(self.allocator);
     }
 
-    try self.emit("\n");
+    try emitConst(self,"\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
     try emitCapturedVarParams(self, class_name, captured_vars);
@@ -1423,7 +1433,7 @@ pub fn genInitMethodFromNew(
         // Skip 'cls' or 'self' (first param of __new__ represents the class, not an instance value)
         if (std.mem.eql(u8, arg.name, "cls") or std.mem.eql(u8, arg.name, "self")) continue;
 
-        try self.emit(", ");
+        try emitConst(self,", ");
 
         // For builtin subclass, the first non-cls parameter is the base value
         const is_base_value_param = is_first_non_cls and builtin_base != null;
@@ -1432,7 +1442,7 @@ pub fn genInitMethodFromNew(
         const is_used = is_base_value_param or param_analyzer.isNameUsedInNewForInit(new_method.body, arg.name);
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
-            try self.emit("_: ");
+            try emitConst(self,"_: ");
         } else {
             // Check if param would shadow a method in the class
             const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
@@ -1454,25 +1464,25 @@ pub fn genInitMethodFromNew(
                     try self.var_renames.put(arg.name, renamed);
                 }
                 try renamed_params.append(self.allocator, .{ .original = arg.name, .renamed = renamed, .needs_mutable_copy = shadows_local_assign });
-                try self.emit(renamed);
+                try emitConst(self,renamed);
             } else {
                 // Use writeLocalVarName for consistency - handles keywords and method shadows
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
             }
-            try self.emit(": ");
+            try emitConst(self,": ");
         }
         is_first_non_cls = false;
 
         // Type annotation: prefer type hints, fallback to inference
         if (arg.type_annotation) |_| {
-            try self.emit(signature.pythonTypeToZig(arg.type_annotation));
+            try emitConst(self,signature.pythonTypeToZig(arg.type_annotation));
         } else if (is_base_value_param and builtin_base != null) {
             // For builtin subclass, first param type matches the builtin type
-            try self.emit(builtin_base.?.zig_type);
+            try emitConst(self,builtin_base.?.zig_type);
         } else {
             const param_type = try class_fields.inferParamType(self, class_name, new_method, arg.name);
             defer self.allocator.free(param_type);
-            try self.emit(param_type);
+            try emitConst(self,param_type);
         }
     }
 
@@ -1487,10 +1497,10 @@ pub fn genInitMethodFromNew(
     }
 
     if (is_nested) {
-        try self.emit(") !*@This() {\n");
+        try emitConst(self,") !*@This() {\n");
     } else {
         // Always return error union for consistency with Python __init__ semantics
-        try self.emit(") !@This() {\n");
+        try emitConst(self,") !@This() {\n");
     }
     self.indent();
 
@@ -1511,13 +1521,13 @@ pub fn genInitMethodFromNew(
     for (renamed_params.items) |entry| {
         if (entry.needs_mutable_copy) {
             try self.emitIndent();
-            try self.emit("var ");
+            try emitConst(self,"var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
-            try self.emit(": @TypeOf(");
-            try self.emit(entry.renamed);
-            try self.emit(") = ");
-            try self.emit(entry.renamed);
-            try self.emit(";\n");
+            try emitConst(self,": @TypeOf(");
+            try emitConst(self,entry.renamed);
+            try emitConst(self,") = ");
+            try emitConst(self,entry.renamed);
+            try emitConst(self,";\n");
             // Mark as declared so assignment code doesn't try to redeclare
             try self.declareVar(entry.original);
         }
@@ -1542,9 +1552,9 @@ pub fn genInitMethodFromNew(
                 break :blk arg.name;
             };
             try self.emitIndent();
-            try self.emit("_ = &");
+            try emitConst(self,"_ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), param_name);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
         }
     }
 
@@ -1623,7 +1633,7 @@ pub fn genInitMethodFromNew(
     if (self.control_flow_terminated) {
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
         return;
     }
 
@@ -1633,10 +1643,10 @@ pub fn genInitMethodFromNew(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
-        try self.emit("__ptr.* = @This(){\n");
+        try emitConst(self,"__ptr.* = @This(){\n");
     } else {
         try self.emitIndent();
-        try self.emit("return @This(){\n");
+        try emitConst(self,"return @This(){\n");
     }
     self.indent();
 
@@ -1653,7 +1663,7 @@ pub fn genInitMethodFromNew(
     // we extract the transformation expression instead of using the raw parameter.
     if (builtin_base) |base_info| {
         try self.emitIndent();
-        try self.emit(".__base_value__ = ");
+        try emitConst(self,".__base_value__ = ");
         // Extract transformation expr from float.__new__(cls, expr) or super().__new__(cls, expr)
         if (extractBuiltinNewExpr(new_method)) |expr| {
             try self.genExpr(expr);
@@ -1669,11 +1679,11 @@ pub fn genInitMethodFromNew(
             // If no parameters besides cls, use the default value
             if (!found_param and base_info.init_args.len > 0) {
                 if (base_info.init_args[0].default) |default_val| {
-                    try self.emit(default_val);
+                    try emitConst(self,default_val);
                 }
             }
         }
-        try self.emit(",\n");
+        try emitConst(self,",\n");
     }
 
     // Initialize complex parent fields
@@ -1712,9 +1722,9 @@ pub fn genInitMethodFromNew(
                     const field_name = attr.attr;
 
                     try self.emitIndent();
-                    try self.emit(".");
+                    try emitConst(self,".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
-                    try self.emit(" = ");
+                    try emitConst(self," = ");
                     // Check if value is an anytype param - wrap with runtime.PyValue.from()
                     // BUT only if the field type is unknown (runtime.PyValue), not a primitive
                     const is_anytype_param = if (assign.value.* == .name)
@@ -1730,13 +1740,13 @@ pub fn genInitMethodFromNew(
                         string_traits.isString(field_type);
 
                     if (is_anytype_param and !is_primitive_field) {
-                        try self.emit("runtime.PyValue.from(");
+                        try emitConst(self,"runtime.PyValue.from(");
                         try self.genExpr(assign.value.*);
-                        try self.emit(")");
+                        try emitConst(self,")");
                     } else {
                         try self.genExpr(assign.value.*);
                     }
-                    try self.emit(",\n");
+                    try emitConst(self,",\n");
                 }
             }
         }
@@ -1748,16 +1758,16 @@ pub fn genInitMethodFromNew(
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     if (is_nested) {
         try self.emitIndent();
-        try self.emit("return __ptr;\n");
+        try emitConst(self,"return __ptr;\n");
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 }
 
 /// Generate regular class methods (non-__init__)
@@ -1974,9 +1984,9 @@ pub fn genPolymorphicReturnHelpers(
         if (!hasPolymorphicReturnPatternForClass(method, class.name)) continue;
 
         // Generate the PolymorphicReturn__ helper function
-        try self.emit("\n");
+        try emitConst(self,"\n");
         try self.emitIndent();
-        try self.emit("// Comptime return type for polymorphic method\n");
+        try emitConst(self,"// Comptime return type for polymorphic method\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("fn PolymorphicReturn__{s}(comptime T: type) type {{\n", .{method.name});
         self.indent();
@@ -1984,23 +1994,23 @@ pub fn genPolymorphicReturnHelpers(
         // Generate comptime type dispatch
         // All branches return error union for consistency (self.__float__() can fail)
         try self.emitIndent();
-        try self.emit("if (comptime @typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {\n");
+        try emitConst(self,"if (comptime @typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return anyerror!f64;\n");
+        try emitConst(self,"return anyerror!f64;\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("} else {\n");
+        try emitConst(self,"} else {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return anyerror!@This();\n");
+        try emitConst(self,"return anyerror!@This();\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 }
 

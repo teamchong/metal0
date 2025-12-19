@@ -1,9 +1,26 @@
 /// Built-in function dispatchers (len, str, int, float, etc.)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expr_emitter = @import("../expr_emitter.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 const builtins = @import("../builtins.zig");
 const builtins_mod = @import("../builtins_mod.zig");
@@ -216,12 +233,12 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     // __import__() needs special inline codegen
     if (std.mem.eql(u8, func_name, "__import__")) {
         if (call.args.len == 0) {
-            try self.emit("@compileError(\"__import__() requires module name argument\")");
+            try emitConst(self,"@compileError(\"__import__() requires module name argument\")");
             return true;
         }
-        try self.emit("try runtime.dynamic_import(__global_allocator, ");
+        try emitConst(self,"try runtime.dynamic_import(__global_allocator, ");
         try self.genExpr(call.args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
         return true;
     }
 
@@ -261,7 +278,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         // If only base without x or positional arg → TypeError
         if (has_base and combined_args.items.len == 1 and call.args.len == 0 and !has_x_kwarg) {
             // int(base=N) without value → runtime TypeError
-            try self.emit("runtime.builtins.intWithBaseOnly()");
+            try emitConst(self,"runtime.builtins.intWithBaseOnly()");
             return true;
         }
 
@@ -326,17 +343,17 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         // Most builtins (bool, float, str, len, etc.) don't accept keyword args
         if (call.keyword_args.len > 0 and !accepts_kwargs.has(func_name)) {
             // Generate a block expression that prints error and returns error union
-            try self.emit("(blk_kwarg_err: {\n");
+            try emitConst(self,"(blk_kwarg_err: {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
-            try self.emit(func_name);
-            try self.emit("() takes no keyword arguments\", @src().line);\n");
+            try emitConst(self,"runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+            try emitConst(self,func_name);
+            try emitConst(self,"() takes no keyword arguments\", @src().line);\n");
             try self.emitIndent();
-            try self.emit("break :blk_kwarg_err error.TypeError;\n");
+            try emitConst(self,"break :blk_kwarg_err error.TypeError;\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("})");
+            try emitConst(self,"})");
             return true;
         }
 
@@ -429,34 +446,34 @@ fn genDictFromKwargs(self: *NativeCodegen, kwargs: []const ast.Node.KeywordArg) 
     var em = self.exprEmitter();
     const id = em.reserveLabelId();
 
-    try self.emitFmt("dict_{d}: {{\n", .{id});
+    try emitFmtConst(self, "dict_{d}: {{\n", .{id});
     self.indent();
 
     // Create the dict with string values on stack - will be copied on break
     try self.emitIndent();
-    try self.emit("var _map = hashmap_helper.StringHashMap([]const u8).init(__global_allocator);\n");
+    try emitConst(self,"var _map = hashmap_helper.StringHashMap([]const u8).init(__global_allocator);\n");
 
     // Insert each keyword argument
     for (kwargs) |kwarg| {
         try self.emitIndent();
-        try self.emitFmt("_map.put(\"{s}\", ", .{kwarg.name});
+        try emitFmtConst(self, "_map.put(\"{s}\", ", .{kwarg.name});
         try self.genExpr(kwarg.value);
-        try self.emit(") catch unreachable;\n");
+        try emitConst(self,") catch unreachable;\n");
     }
 
     // Return the map value - gets copied to the assignment target
     try self.emitIndent();
-    try self.emitFmt("break :dict_{d} _map;\n", .{id});
+    try emitFmtConst(self, "break :dict_{d} _map;\n", .{id});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}");
+    try emitConst(self,"}");
 }
 
 /// Generate sorted(iterable, key=None, reverse=False)
 /// Supports the reverse keyword argument for descending sort
 fn genSortedWithKwargs(self: *NativeCodegen, args: []ast.Node, kwargs: []const ast.Node.KeywordArg) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("return error.TypeError");
+        try emitConst(self,"return error.TypeError");
         return;
     }
 
@@ -472,12 +489,12 @@ fn genSortedWithKwargs(self: *NativeCodegen, args: []ast.Node, kwargs: []const a
     const alloc_name = "__global_allocator";
     const sorted_id = self.nextNameId();
 
-    try self.emitFmt("__m{d}_sorted: {{\n", .{sorted_id});
+    try emitFmtConst(self, "__m{d}_sorted: {{\n", .{sorted_id});
 
     // Generate the iterable expression
-    try self.emitFmt("const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
+    try emitFmtConst(self, "const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
     try self.genExpr(args[0]);
-    try self.emit(");\n");
+    try emitConst(self,");\n");
 
     // Determine sort order - check if reverse is a constant true/false or a variable
     if (reverse_arg) |rev| {
@@ -485,25 +502,25 @@ fn genSortedWithKwargs(self: *NativeCodegen, args: []ast.Node, kwargs: []const a
         if (rev == .constant and rev.constant.value == .bool) {
             if (rev.constant.value.bool) {
                 // reverse=True -> descending
-                try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.desc(i64));\n");
+                try emitConst(self,"std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.desc(i64));\n");
             } else {
                 // reverse=False -> ascending
-                try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
+                try emitConst(self,"std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
             }
         } else {
             // reverse is a variable - need runtime check
-            try self.emit("if (");
+            try emitConst(self,"if (");
             try self.genExpr(rev);
-            try self.emit(") {\n");
-            try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.desc(i64));\n");
-            try self.emit("} else {\n");
-            try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
-            try self.emit("}\n");
+            try emitConst(self,") {\n");
+            try emitConst(self,"std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.desc(i64));\n");
+            try emitConst(self,"} else {\n");
+            try emitConst(self,"std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
+            try emitConst(self,"}\n");
         }
     } else {
         // No reverse arg -> default to ascending
-        try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
+        try emitConst(self,"std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
     }
 
-    try self.emitFmt("break :__m{d}_sorted __sorted_copy;\n}}", .{sorted_id});
+    try emitFmtConst(self, "break :__m{d}_sorted __sorted_copy;\n}}", .{sorted_id});
 }

@@ -1,4 +1,5 @@
 /// Function and class definition code generation
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const hashmap_helper = @import("utils.hashmap_helper");
@@ -14,6 +15,15 @@ const test_skip = @import("generators/test_skip.zig");
 const shared = @import("../../shared_maps.zig");
 const PyBuiltinTypes = shared.PythonBuiltinTypes;
 const PythonBuiltinNames = shared.PythonBuiltinNames;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 // Re-exports
 pub const analyzeModuleLevelMutations = body.analyzeModuleLevelMutations;
@@ -243,20 +253,20 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Otherwise, emit a stub struct that errors when used
                 if (self.inside_nested_function or self.current_function_name != null) {
                     try self.emitIndent();
-                    try self.emit("return error.TypeError; // type '");
-                    try self.emit(base);
-                    try self.emit("' is not an acceptable base type\n");
+                    try emitConst(self,"return error.TypeError; // type '");
+                    try emitConst(self,base);
+                    try emitConst(self,"' is not an acceptable base type\n");
                     // Mark control flow as terminated so subsequent code isn't generated
                     self.control_flow_terminated = true;
                 } else {
                     // Emit a stub struct that raises compile error when init() is called
                     // This is valid at any level (module, class body, etc.)
                     try self.emitIndent();
-                    try self.emit("const ");
-                    try self.emit(class.name);
-                    try self.emit(" = struct { pub fn init(_: std.mem.Allocator) @This() { @compileError(\"Cannot subclass '");
-                    try self.emit(base);
-                    try self.emit("' - metaclasses are not supported\"); } };\n");
+                    try emitConst(self,"const ");
+                    try emitConst(self,class.name);
+                    try emitConst(self," = struct { pub fn init(_: std.mem.Allocator) @This() { @compileError(\"Cannot subclass '");
+                    try emitConst(self,base);
+                    try emitConst(self,"' - metaclasses are not supported\"); } };\n");
                 }
                 return;
             }
@@ -877,7 +887,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             mutable_nested.name = mangled_name;
 
             // Generate comment for clarity
-            try self.emit("\n");
+            try emitConst(self,"\n");
             try self.emitIndent();
             try self.output.writer(self.allocator).print("// Nested class: {s}.{s} (hoisted to file level as {s})\n", .{ class.name, nested_class.name, mangled_name });
 
@@ -897,7 +907,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     // Add Python class introspection attributes
     try self.emitIndent();
-    try self.emit("// Python class metadata\n");
+    try emitConst(self,"// Python class metadata\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
     try self.emitIndent();
@@ -925,24 +935,24 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         else
             raw;
         // Write escaped docstring
-        try self.emit("pub const __doc__: ?[]const u8 = \"");
+        try emitConst(self,"pub const __doc__: ?[]const u8 = \"");
         for (doc) |c| {
             switch (c) {
-                '"' => try self.emit("\\\""),
-                '\\' => try self.emit("\\\\"),
-                '\n' => try self.emit("\\n"),
-                '\r' => try self.emit("\\r"),
-                '\t' => try self.emit("\\t"),
+                '"' => try emitConst(self,"\\\""),
+                '\\' => try emitConst(self,"\\\\"),
+                '\n' => try emitConst(self,"\\n"),
+                '\r' => try emitConst(self,"\\r"),
+                '\t' => try emitConst(self,"\\t"),
                 else => try self.output.append(self.allocator, c),
             }
         }
-        try self.emit("\";\n");
+        try emitConst(self,"\";\n");
     } else {
-        try self.emit("pub const __doc__: ?[]const u8 = null;\n");
+        try emitConst(self,"pub const __doc__: ?[]const u8 = null;\n");
     }
     // __module__ is the module where the class is defined (global __name__)
     // We use @This().__name__ to avoid ambiguity with global __name__
-    try self.emit("\n");
+    try emitConst(self,"\n");
 
     // Set current class name and body early so init() and all methods use @This() for self-references
     // Save previous values for nested class support
@@ -990,15 +1000,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         capture_name = lambda.body.name.id;
                     }
 
-                    try self.emit("\n");
+                    try emitConst(self,"\n");
                     try self.emitIndent();
-                    try self.emit("// Closure types for class-level lambda comprehension\n");
+                    try emitConst(self,"// Closure types for class-level lambda comprehension\n");
 
                     // Generate: const __ClassCaptureType_N = struct { <capture_name>: i64 };
                     try self.emitIndent();
                     try self.output.writer(self.allocator).print("const __ClassCaptureType_{d} = struct {{ ", .{idx});
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
-                    try self.emit(": i64 };\n");
+                    try emitConst(self,": i64 };\n");
 
                     // Generate: const __ClassClosureImpl_N = struct { fn call(__cap: __ClassCaptureType_N) i64 { ... } };
                     // Need to generate the actual lambda body, replacing capture var with __cap.<capture_name>
@@ -1020,7 +1030,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                     // Generate the lambda body
                     try self.genExpr(lambda.body.*);
-                    try self.emit("; } };\n");
+                    try emitConst(self,"; } };\n");
 
                     // Clean up var_renames
                     _ = self.var_renames.swapRemove(capture_name);
@@ -1039,7 +1049,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
         try self.emitIndent();
-        try self.emit("// Captured outer scope variables (pointers)\n");
+        try emitConst(self,"// Captured outer scope variables (pointers)\n");
         for (vars) |var_name| {
             try self.emitIndent();
             // Look up the actual type of the captured variable from type inferrer
@@ -1094,13 +1104,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             const ptr_type: []const u8 = if (is_mutated) "*" else "*const";
             try self.output.writer(self.allocator).print("__captured_{s}: {s} {s},\n", .{ var_name, ptr_type, zig_type });
         }
-        try self.emit("\n");
+        try emitConst(self,"\n");
     }
 
     // For builtin base classes, add the base value field first
     if (builtin_base) |base_info| {
         try self.emitIndent();
-        try self.emit("// Base value inherited from builtin type\n");
+        try emitConst(self,"// Base value inherited from builtin type\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("__base_value__: {s},\n", .{base_info.zig_type});
     }
@@ -1108,7 +1118,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // For complex parent types (like array.array), add parent fields
     if (complex_parent) |parent_info| {
         try self.emitIndent();
-        try self.emit("// Fields inherited from parent type\n");
+        try emitConst(self,"// Fields inherited from parent type\n");
         for (parent_info.fields) |field| {
             try self.emitIndent();
             try self.output.writer(self.allocator).print("{s}: {s} = {s},\n", .{ field.name, field.zig_type, field.default });
@@ -1225,29 +1235,29 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Check if it's __bool__ = None or __len__ = None
                 if (assign.value.* == .constant and assign.value.constant.value == .none) {
                     if (std.mem.eql(u8, attr_name, "__bool__")) {
-                        try self.emit("\n");
+                        try emitConst(self,"\n");
                         try self.emitIndent();
-                        try self.emit("// __bool__ = None - method is blocked\n");
+                        try emitConst(self,"// __bool__ = None - method is blocked\n");
                         try self.emitIndent();
-                        try self.emit("pub fn __bool__(_: *const @This()) runtime.PythonError!bool {\n");
+                        try emitConst(self,"pub fn __bool__(_: *const @This()) runtime.PythonError!bool {\n");
                         self.indent();
                         try self.emitIndent();
-                        try self.emit("return runtime.PythonError.TypeError;\n");
+                        try emitConst(self,"return runtime.PythonError.TypeError;\n");
                         self.dedent();
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     } else if (std.mem.eql(u8, attr_name, "__len__")) {
-                        try self.emit("\n");
+                        try emitConst(self,"\n");
                         try self.emitIndent();
-                        try self.emit("// __len__ = None - method is blocked\n");
+                        try emitConst(self,"// __len__ = None - method is blocked\n");
                         try self.emitIndent();
-                        try self.emit("pub fn __len__(_: *const @This()) runtime.PythonError!i64 {\n");
+                        try emitConst(self,"pub fn __len__(_: *const @This()) runtime.PythonError!i64 {\n");
                         self.indent();
                         try self.emitIndent();
-                        try self.emit("return runtime.PythonError.TypeError;\n");
+                        try emitConst(self,"return runtime.PythonError.TypeError;\n");
                         self.dedent();
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     }
                 }
             }
@@ -1276,16 +1286,16 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     }
                     if (is_method) {
                         // Generate an alias method that delegates to the target
-                        try self.emit("\n");
+                        try emitConst(self,"\n");
                         try self.emitIndent();
                         try self.output.writer(self.allocator).print("// {s} = {s} (method alias)\n", .{ alias_name, target_method });
                         try self.emitIndent();
                         // Escape both alias and target if they're Zig keywords (e.g., union, error)
-                        try self.emit("pub const ");
+                        try emitConst(self,"pub const ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
-                        try self.emit(" = ");
+                        try emitConst(self," = ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), target_method);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
                     }
                 }
             }
@@ -1303,74 +1313,74 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (assign.value.* == .name) {
                     const type_name = assign.value.name.id;
                     if (PyBuiltinTypes.has(type_name)) {
-                        try self.emit("\n");
+                        try emitConst(self,"\n");
                         try self.emitIndent();
-                        try self.emit("// Class-level type attribute\n");
+                        try emitConst(self,"// Class-level type attribute\n");
                         try self.emitIndent();
                         // For int type, support optional base parameter: int(value, base=None)
                         if (std.mem.eql(u8, type_name, "int")) {
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                            try self.emit("(value: anytype, base: ?i64) i64 {\n");
+                            try emitConst(self,"(value: anytype, base: ?i64) i64 {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("if (base) |b| {\n");
+                            try emitConst(self,"if (base) |b| {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("// Parse string with specified base\n");
+                            try emitConst(self,"// Parse string with specified base\n");
                             try self.emitIndent();
-                            try self.emit("const str = runtime.pyStrFromAny(value);\n");
+                            try emitConst(self,"const str = runtime.pyStrFromAny(value);\n");
                             try self.emitIndent();
-                            try self.emit("return std.fmt.parseInt(i64, str, @intCast(b)) catch 0;\n");
+                            try emitConst(self,"return std.fmt.parseInt(i64, str, @intCast(b)) catch 0;\n");
                             self.dedent();
                             try self.emitIndent();
-                            try self.emit("}\n");
+                            try emitConst(self,"}\n");
                             try self.emitIndent();
-                            try self.emit("return runtime.pyIntFromAny(value);\n");
+                            try emitConst(self,"return runtime.pyIntFromAny(value);\n");
                         } else if (std.mem.eql(u8, type_name, "tuple") or std.mem.eql(u8, type_name, "list")) {
                             // tuple/list: return the input as-is (already a slice/tuple)
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                            try self.emit("(value: anytype) @TypeOf(value) {\n");
+                            try emitConst(self,"(value: anytype) @TypeOf(value) {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("return value;\n");
+                            try emitConst(self,"return value;\n");
                         } else if (std.mem.eql(u8, type_name, "str")) {
                             // str: convert to string
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                            try self.emit("(value: anytype) []const u8 {\n");
+                            try emitConst(self,"(value: anytype) []const u8 {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("return runtime.pyStrFromAny(value);\n");
+                            try emitConst(self,"return runtime.pyStrFromAny(value);\n");
                         } else if (std.mem.eql(u8, type_name, "float")) {
                             // float: convert to f64
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                            try self.emit("(value: anytype) f64 {\n");
+                            try emitConst(self,"(value: anytype) f64 {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("return runtime.pyFloatFromAny(value);\n");
+                            try emitConst(self,"return runtime.pyFloatFromAny(value);\n");
                         } else if (std.mem.eql(u8, type_name, "bool")) {
                             // bool: convert to bool
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                            try self.emit("(value: anytype) bool {\n");
+                            try emitConst(self,"(value: anytype) bool {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("return runtime.pyTruthy(value);\n");
+                            try emitConst(self,"return runtime.pyTruthy(value);\n");
                         } else {
                             // Default fallback: convert to i64
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                            try self.emit("(value: anytype) i64 {\n");
+                            try emitConst(self,"(value: anytype) i64 {\n");
                             self.indent();
                             try self.emitIndent();
-                            try self.emit("return runtime.pyIntFromAny(value);\n");
+                            try emitConst(self,"return runtime.pyIntFromAny(value);\n");
                         }
                         self.dedent();
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     }
                 }
             }
@@ -1417,9 +1427,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                     // Generate lazy-computed method with threadlocal caching
                     // This overcomes Zig's limitation where structs can't capture outer scope
-                    try self.emit("\n");
+                    try emitConst(self,"\n");
                     try self.emitIndent();
-                    try self.emit("// Class-level attribute (lazy-computed)\n");
+                    try emitConst(self,"// Class-level attribute (lazy-computed)\n");
 
                     // For closure lists, use the pre-generated struct-level closure type
                     // For other expressions, we need to handle type inference differently
@@ -1431,7 +1441,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                             // Generate: pub fn <attr>(__alloc: std.mem.Allocator) !std.ArrayListUnmanaged(__ClassClosureType_N)
                             try self.emitIndent();
-                            try self.emit("pub fn ");
+                            try emitConst(self,"pub fn ");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
                             try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !std.ArrayListUnmanaged(__ClassClosureType_{d}) {{\n", .{idx});
                             self.indent();
@@ -1469,43 +1479,43 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                                 // Generate loop
                                 try self.emitIndent();
-                                try self.emit("var __loop_var: i64 = 0;\n");
+                                try emitConst(self,"var __loop_var: i64 = 0;\n");
                                 try self.emitIndent();
-                                try self.emit("while (__loop_var < ");
+                                try emitConst(self,"while (__loop_var < ");
                                 // Get upper bound from range(N)
                                 if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
                                     if (std.mem.eql(u8, gen.iter.call.func.name.id, "range")) {
                                         if (gen.iter.call.args.len > 0) {
                                             try self.genExpr(gen.iter.call.args[0]);
                                         } else {
-                                            try self.emit("0");
+                                            try emitConst(self,"0");
                                         }
                                     } else {
-                                        try self.emit("0");
+                                        try emitConst(self,"0");
                                     }
                                 } else {
-                                    try self.emit("0");
+                                    try emitConst(self,"0");
                                 }
-                                try self.emit(") {\n");
+                                try emitConst(self,") {\n");
                                 self.indent();
                                 try self.emitIndent();
-                                try self.emit("defer __loop_var += 1;\n");
+                                try emitConst(self,"defer __loop_var += 1;\n");
                                 try self.emitIndent();
                                 try self.output.writer(self.allocator).print("try __result.append(__alloc, __ClassClosureType_{d}{{ .captures = .{{ .{s} = __loop_var }} }});\n", .{ idx, capture_name });
                                 self.dedent();
                                 try self.emitIndent();
-                                try self.emit("}\n");
+                                try emitConst(self,"}\n");
                             }
 
                             // Cache and return
                             try self.emitIndent();
                             try self.output.writer(self.allocator).print("__{s}_cache = __result;\n", .{attr_name});
                             try self.emitIndent();
-                            try self.emit("return __result;\n");
+                            try emitConst(self,"return __result;\n");
 
                             self.dedent();
                             try self.emitIndent();
-                            try self.emit("}\n");
+                            try emitConst(self,"}\n");
                         }
                     } else {
                         // Non-closure-list complex expressions - use type inference from AST
@@ -1554,14 +1564,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                         // Generate: pub fn <attr>(__alloc: std.mem.Allocator) !<type>
                         try self.emitIndent();
-                        try self.emit("pub fn ");
+                        try emitConst(self,"pub fn ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
                         try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !{s} {{\n", .{zig_type});
                         self.indent();
 
                         // Discard allocator if unused (some lazy attrs don't need allocation)
                         try self.emitIndent();
-                        try self.emit("_ = __alloc;\n");
+                        try emitConst(self,"_ = __alloc;\n");
 
                         // Check cache
                         try self.emitIndent();
@@ -1576,31 +1586,31 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                         // Compute value
                         try self.emitIndent();
-                        try self.emit("const __result = ");
+                        try emitConst(self,"const __result = ");
                         try self.genExpr(value_node.*);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
 
                         // Cache and return
                         try self.emitIndent();
                         try self.output.writer(self.allocator).print("__{s}_cache = __result;\n", .{attr_name});
                         try self.emitIndent();
-                        try self.emit("return __result;\n");
+                        try emitConst(self,"return __result;\n");
 
                         self.dedent();
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     }
                 } else {
                     // Simple constant - emit directly as pub const
-                    try self.emit("\n");
+                    try emitConst(self,"\n");
                     try self.emitIndent();
-                    try self.emit("// Class-level attribute\n");
+                    try emitConst(self,"// Class-level attribute\n");
                     try self.emitIndent();
-                    try self.emit("pub const ");
+                    try emitConst(self,"pub const ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                    try self.emit(" = ");
+                    try emitConst(self," = ");
                     try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                 }
             }
         }
@@ -1621,23 +1631,23 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     // Generate a stub method that raises TypeError
                     // Nested classes use pointer return types
                     const is_nested = self.nested_class_names.contains(class.name);
-                    try self.emit("\n");
+                    try emitConst(self,"\n");
                     try self.emitIndent();
                     if (is_nested) {
-                        try self.emit("pub fn ");
+                        try emitConst(self,"pub fn ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                        try self.emit("(_: *const @This(), _: std.mem.Allocator, _: anytype) !*@This() {\n");
+                        try emitConst(self,"(_: *const @This(), _: std.mem.Allocator, _: anytype) !*@This() {\n");
                     } else {
-                        try self.emit("pub fn ");
+                        try emitConst(self,"pub fn ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                        try self.emit("(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {\n");
+                        try emitConst(self,"(_: *const @This(), _: std.mem.Allocator, _: anytype) !@This() {\n");
                     }
                     self.indent();
                     try self.emitIndent();
-                    try self.emit("return error.TypeError; // 'NoneType' object is not callable\n");
+                    try emitConst(self,"return error.TypeError; // 'NoneType' object is not callable\n");
                     self.dedent();
                     try self.emitIndent();
-                    try self.emit("}\n");
+                    try emitConst(self,"}\n");
                 }
             }
         }
@@ -1654,11 +1664,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // register(cls) is used to register virtual subclasses - we make it a no-op
     if (class.metaclass) |mc| {
         if (std.mem.eql(u8, mc, "ABCMeta")) {
-            try self.emit("\n");
+            try emitConst(self,"\n");
             try self.emitIndent();
-            try self.emit("// ABCMeta.register - register virtual subclass (no-op for AOT)\n");
+            try emitConst(self,"// ABCMeta.register - register virtual subclass (no-op for AOT)\n");
             try self.emitIndent();
-            try self.emit("pub fn register(_: anytype) void {}\n");
+            try emitConst(self,"pub fn register(_: anytype) void {}\n");
         }
     }
 
@@ -1731,7 +1741,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     // For nested classes (inside functions/methods), emit _ = &ClassName; immediately
     // to suppress "unused local constant" errors. We use & (address-of) to avoid
@@ -1822,24 +1832,24 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
 
         // Add Python class metadata
         try self.emitIndent();
-        try self.emit("// Python class metadata\n");
+        try emitConst(self,"// Python class metadata\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
         try self.emitIndent();
-        try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
+        try emitConst(self,"pub const __doc__: ?[]const u8 = null;\n\n");
 
         try self.emitIndent();
-        try self.emit("pub fn init() !@This() {\n");
+        try emitConst(self,"pub fn init() !@This() {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return @This(){};\n");
+        try emitConst(self,"return @This(){};\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
         return;
     }
 
@@ -1849,14 +1859,14 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
 
     // Generate comptime type params
     for (class.type_params, 0..) |tp, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self,", ");
         try self.output.writer(self.allocator).print("comptime {s}: type", .{tp});
     }
-    try self.emit(") type {\n");
+    try emitConst(self,") type {\n");
     self.indent();
 
     try self.emitIndent();
-    try self.emit("return struct {\n");
+    try emitConst(self,"return struct {\n");
     self.indent();
 
     // Set current class name and body for method generation
@@ -1869,11 +1879,11 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
 
     // Add Python class introspection attributes
     try self.emitIndent();
-    try self.emit("// Python class metadata\n");
+    try emitConst(self,"// Python class metadata\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
     try self.emitIndent();
-    try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
+    try emitConst(self,"pub const __doc__: ?[]const u8 = null;\n\n");
 
     // Find __init__ method for field extraction
     var init_method: ?ast.Node.FunctionDef = null;
@@ -1895,13 +1905,13 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     } else {
         // Default init method - returns error union for consistency
         try self.emitIndent();
-        try self.emit("pub fn init() !@This() {\n");
+        try emitConst(self,"pub fn init() !@This() {\n");
         self.indent();
         try self.emitIndent();
-        try self.emit("return @This(){};\n");
+        try emitConst(self,"return @This(){};\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 
     // Generate regular methods (non-__init__)
@@ -1909,18 +1919,18 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
         if (stmt == .function_def) {
             const method = stmt.function_def;
             if (std.mem.eql(u8, method.name, "__init__")) continue;
-            try self.emit("\n");
+            try emitConst(self,"\n");
             try genGenericMethod(self, method, class.type_params);
         }
     }
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 }
 
 /// Generate fields for generic class
@@ -1961,13 +1971,13 @@ fn genGenericClassFields(self: *NativeCodegen, init: ast.Node.FunctionDef, type_
 /// Generate init method for generic class
 fn genGenericInitMethod(self: *NativeCodegen, init: ast.Node.FunctionDef, type_params: [][]const u8) CodegenError!void {
     try self.emitIndent();
-    try self.emit("pub fn init(");
+    try emitConst(self,"pub fn init(");
 
     // Generate parameters
     var first = true;
     for (init.args) |arg| {
         if (std.mem.eql(u8, arg.name, "self")) continue;
-        if (!first) try self.emit(", ");
+        if (!first) try emitConst(self,", ");
         first = false;
 
         // Get parameter type
@@ -1984,11 +1994,11 @@ fn genGenericInitMethod(self: *NativeCodegen, init: ast.Node.FunctionDef, type_p
         try self.output.writer(self.allocator).print("{s}: {s}", .{ arg.name, param_type });
     }
 
-    try self.emit(") !@This() {\n");
+    try emitConst(self,") !@This() {\n");
     self.indent();
 
     try self.emitIndent();
-    try self.emit("return @This(){\n");
+    try emitConst(self,"return @This(){\n");
     self.indent();
 
     // Generate field initializations
@@ -2001,7 +2011,7 @@ fn genGenericInitMethod(self: *NativeCodegen, init: ast.Node.FunctionDef, type_p
                     try self.emitIndent();
                     try self.output.writer(self.allocator).print(".{s} = ", .{attr.attr});
                     try self.genExpr(assign.value.*);
-                    try self.emit(",\n");
+                    try emitConst(self,",\n");
                 }
             }
         }
@@ -2009,11 +2019,11 @@ fn genGenericInitMethod(self: *NativeCodegen, init: ast.Node.FunctionDef, type_p
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self,"};\n");
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 }
 
 /// Generate a method for generic class
@@ -2024,9 +2034,9 @@ fn genGenericMethod(self: *NativeCodegen, method: ast.Node.FunctionDef, type_par
     defer self.inside_method_with_self = prev_inside_method;
 
     try self.emitIndent();
-    try self.emit("pub fn ");
+    try emitConst(self,"pub fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
-    try self.emit("(");
+    try emitConst(self,"(");
 
     // Check if self is used in method body
     var has_self_param = false;
@@ -2044,15 +2054,15 @@ fn genGenericMethod(self: *NativeCodegen, method: ast.Node.FunctionDef, type_par
     // Generate parameters
     var first = true;
     for (method.args) |arg| {
-        if (!first) try self.emit(", ");
+        if (!first) try emitConst(self,", ");
         first = false;
 
         if (std.mem.eql(u8, arg.name, "self")) {
             // Use _ prefix if self is not used
             if (self_is_used) {
-                try self.emit("self: *const @This()");
+                try emitConst(self,"self: *const @This()");
             } else {
-                try self.emit("_: *const @This()");
+                try emitConst(self,"_: *const @This()");
             }
         } else {
             var param_type: []const u8 = "i64";
@@ -2068,7 +2078,7 @@ fn genGenericMethod(self: *NativeCodegen, method: ast.Node.FunctionDef, type_par
             try self.output.writer(self.allocator).print(": {s}", .{param_type});
         }
     }
-    try self.emit(") ");
+    try emitConst(self,") ");
 
     // Return type
     var return_type: []const u8 = "void";
@@ -2107,7 +2117,7 @@ fn genGenericMethod(self: *NativeCodegen, method: ast.Node.FunctionDef, type_par
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 }
 
 /// Check if self is actually used in method body

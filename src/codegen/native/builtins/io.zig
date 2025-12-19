@@ -3,6 +3,7 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+const builder_mod = @import("codegen.builder");
 
 /// Check if an expression is uncertain (needs PyValue operations)
 /// Two-Flow: routes uncertain values to PyValue extraction
@@ -26,7 +27,10 @@ fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (isExprUncertain(self, expr)) {
         try self.genExpr(expr);
-        try self.emit(".asString()");
+        const b = try self.getBuilder();
+        try b.write(".asString()");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     } else {
         try self.genExpr(expr);
     }
@@ -38,7 +42,10 @@ fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_open: {{ @panic(\"open() requires at least 1 argument\"); }})", .{id});
+        const b = try self.getBuilder();
+        try b.writeFmt("(__m{d}_open: {{ @panic(\"open() requires at least 1 argument\"); }})", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
 
@@ -61,35 +68,52 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate Zig code for file opening
     // Use a wrapper struct that provides Python-like file API
     const id = self.nextNameId();
-    try self.emitFmt("__m{d}_open: {{\n", .{id});
-    try self.emitIndent();
-    try self.emit("    const __filename = ");
+    {
+        const b = try self.getBuilder();
+        try b.writeFmt("__m{d}_open: {{\n", .{id});
+        try b.write("    const __filename = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     // Two-Flow: Extract string from PyValue if filename is uncertain
     try emitStringExpr(self, filename);
-    try self.emit(";\n");
-    try self.emitIndent();
+    {
+        const b = try self.getBuilder();
+        try b.write(";\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // Determine if read or write mode
     const is_write = std.mem.indexOf(u8, mode_str, "w") != null or
         std.mem.indexOf(u8, mode_str, "a") != null;
 
-    if (is_write) {
-        try self.emit("    const __file = try std.fs.cwd().createFile(__filename, .{});\n");
-    } else {
-        try self.emit("    const __file = try std.fs.cwd().openFile(__filename, .{});\n");
+    {
+        const b = try self.getBuilder();
+        if (is_write) {
+            try b.write("    const __file = try std.fs.cwd().createFile(__filename, .{});\n");
+        } else {
+            try b.write("    const __file = try std.fs.cwd().openFile(__filename, .{});\n");
+        }
+        try b.writeFmt("    break :__m{d}_open try runtime.PyFile.create(__global_allocator, __file, ", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-
-    try self.emitIndent();
-    try self.emitFmt("    break :__m{d}_open try runtime.PyFile.create(__global_allocator, __file, ", .{id});
     if (mode) |m| {
         // Two-Flow: Extract string from PyValue if mode is uncertain
         try emitStringExpr(self, m);
     } else {
-        try self.emit("\"r\"");
+        const b = try self.getBuilder();
+        try b.write("\"r\"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(");\n");
-    try self.emitIndent();
-    try self.emit("}");
+    {
+        const b = try self.getBuilder();
+        try b.write(");\n}");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 /// Generate code for input([prompt]) - read line from stdin
@@ -97,23 +121,42 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
         const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_input: {{ @panic(\"input() takes at most 1 argument\"); }})", .{id});
+        const b = try self.getBuilder();
+        try b.writeFmt("(__m{d}_input: {{ @panic(\"input() takes at most 1 argument\"); }})", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
-    try self.emit("runtime.builtins.input(__global_allocator, ");
+    {
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.input(__global_allocator, ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     if (args.len == 1) {
         // Two-Flow: Extract string from PyValue if prompt is uncertain
         try emitStringExpr(self, args[0]);
     } else {
-        try self.emit("\"\"");
+        const b = try self.getBuilder();
+        try b.write("\"\"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(")");
+    {
+        const b = try self.getBuilder();
+        try b.write(")");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 /// Generate code for breakpoint() - drop into debugger
 pub fn genBreakpoint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.builtins.breakpoint()");
+    const b = try self.getBuilder();
+    try b.write("runtime.builtins.breakpoint()");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// Generate code for print(*args, sep=" ", end="\\n", file=sys.stdout, flush=False)
@@ -141,46 +184,100 @@ pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args
 
     // If no keyword args, use simple print for efficiency
     if (sep_expr == null and end_expr == null and file_expr == null) {
-        try self.emit("runtime.builtins.print(__global_allocator, &.{");
+        {
+            const b = try self.getBuilder();
+            try b.write("runtime.builtins.print(__global_allocator, &.{");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         for (args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) {
+                const b = try self.getBuilder();
+                try b.write(", ");
+                const output = b.getBodyAndClear();
+                try self.output.appendSlice(self.allocator, output);
+            }
             try self.genExpr(arg);
         }
-        try self.emit("})");
+        {
+            const b = try self.getBuilder();
+            try b.write("})");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         return;
     }
 
     // Use printWithOptions for keyword args
-    try self.emit("runtime.builtins.printWithOptions(__global_allocator, &.{");
+    {
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.printWithOptions(__global_allocator, &.{");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     for (args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) {
+            const b = try self.getBuilder();
+            try b.write(", ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(arg);
     }
-    try self.emit("}, ");
+    {
+        const b = try self.getBuilder();
+        try b.write("}, ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // sep argument
     if (sep_expr) |sep| {
         try self.genExpr(sep);
     } else {
-        try self.emit("\" \"");
+        const b = try self.getBuilder();
+        try b.write("\" \"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(", ");
+    {
+        const b = try self.getBuilder();
+        try b.write(", ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // end argument
     if (end_expr) |end| {
         try self.genExpr(end);
     } else {
-        try self.emit("\"\\n\"");
+        const b = try self.getBuilder();
+        try b.write("\"\\n\"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(", ");
+    {
+        const b = try self.getBuilder();
+        try b.write(", ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // file argument (null for stdout)
     if (file_expr) |file| {
         try self.genExpr(file);
     } else {
-        try self.emit("null");
+        const b = try self.getBuilder();
+        try b.write("null");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(")");
+    {
+        const b = try self.getBuilder();
+        try b.write(")");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 /// Generate code for aiter(async_iterable) - async iterator
@@ -188,7 +285,10 @@ pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args
 pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_aiter: {{ @panic(\"aiter() takes exactly one argument\"); }})", .{id});
+        const b = try self.getBuilder();
+        try b.writeFmt("(__m{d}_aiter: {{ @panic(\"aiter() takes exactly one argument\"); }})", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     // For now, just return the object (which should have __aiter__)
@@ -200,12 +300,20 @@ pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_anext: {{ @panic(\"anext() missing required argument\"); }})", .{id});
+        const b = try self.getBuilder();
+        try b.writeFmt("(__m{d}_anext: {{ @panic(\"anext() missing required argument\"); }})", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     // For now, call __anext__ on the object
     try self.genExpr(args[0]);
-    try self.emit(".__anext__()");
+    {
+        const b = try self.getBuilder();
+        try b.write(".__anext__()");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 // ============================================================================
@@ -218,7 +326,10 @@ pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_staticmethod: {{ @panic(\"staticmethod requires an argument\"); }})", .{id});
+        const b = try self.getBuilder();
+        try b.writeFmt("(__m{d}_staticmethod: {{ @panic(\"staticmethod requires an argument\"); }})", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.genExpr(args[0]);
@@ -229,7 +340,10 @@ pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 pub fn genClassmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_classmethod: {{ @panic(\"classmethod requires an argument\"); }})", .{id});
+        const b = try self.getBuilder();
+        try b.writeFmt("(__m{d}_classmethod: {{ @panic(\"classmethod requires an argument\"); }})", .{id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.genExpr(args[0]);
@@ -238,25 +352,54 @@ pub fn genClassmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 /// property(fget=None, fset=None, fdel=None, doc=None) - create property descriptor
 /// In AOT, creates a property struct with getter/setter/deleter
 pub fn genProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit(".{ .fget = ");
+    {
+        const b = try self.getBuilder();
+        try b.write(".{ .fget = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("null");
+        const b = try self.getBuilder();
+        try b.write("null");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(", .fset = ");
+    {
+        const b = try self.getBuilder();
+        try b.write(", .fset = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     if (args.len > 1) {
         try self.genExpr(args[1]);
     } else {
-        try self.emit("null");
+        const b = try self.getBuilder();
+        try b.write("null");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(", .fdel = ");
+    {
+        const b = try self.getBuilder();
+        try b.write(", .fdel = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     if (args.len > 2) {
         try self.genExpr(args[2]);
     } else {
-        try self.emit("null");
+        const b = try self.getBuilder();
+        try b.write("null");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(" }");
+    {
+        const b = try self.getBuilder();
+        try b.write(" }");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 // ============================================================================
@@ -266,17 +409,33 @@ pub fn genProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// help([object]) - display help (no-op in compiled code)
 pub fn genHelp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("{}"); // void
+    const b = try self.getBuilder();
+    try b.write("{}"); // void
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// exit([code]) - exit the interpreter
 pub fn genExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("std.process.exit(@intCast(");
+        {
+            const b = try self.getBuilder();
+            try b.write("std.process.exit(@intCast(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit("))");
+        {
+            const b = try self.getBuilder();
+            try b.write("))");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
     } else {
-        try self.emit("std.process.exit(0)");
+        const b = try self.getBuilder();
+        try b.write("std.process.exit(0)");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 
@@ -288,17 +447,26 @@ pub fn genQuit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// license() - display license (no-op in compiled code)
 pub fn genLicense(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("{}"); // void
+    const b = try self.getBuilder();
+    try b.write("{}"); // void
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// credits() - display credits (no-op in compiled code)
 pub fn genCredits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("{}"); // void
+    const b = try self.getBuilder();
+    try b.write("{}"); // void
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// copyright() - display copyright (no-op in compiled code)
 pub fn genCopyright(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("{}"); // void
+    const b = try self.getBuilder();
+    try b.write("{}"); // void
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }

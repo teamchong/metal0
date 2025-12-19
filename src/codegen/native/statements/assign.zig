@@ -1,4 +1,5 @@
 /// Assignment and expression statement code generation
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -13,6 +14,23 @@ const zig_keywords = @import("utils.zig_keywords");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 
 // Re-export submodules
 pub const genAugAssign = @import("assign/aug_assign.zig").genAugAssign;
@@ -156,13 +174,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
     // T = TypeVar('T') should be a no-op at runtime
     if (isTypingNoOp(assign.value.*)) {
         try self.emitIndent();
-        try self.emit("// type hint: ");
+        try emitConst(self,"// type hint: ");
         for (assign.targets) |target| {
             if (target == .name) {
-                try self.emit(target.name.id);
+                try emitConst(self,target.name.id);
             }
         }
-        try self.emit("\n");
+        try emitConst(self,"\n");
         return;
     }
 
@@ -280,7 +298,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
                 // ctypes function assignment is a no-op - emit comment and return
                 try self.emitIndent();
-                try self.emit("// ctypes function reference tracked at compile time\n");
+                try emitConst(self,"// ctypes function reference tracked at compile time\n");
                 return;
             }
         }
@@ -323,11 +341,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             // Generate: const __chained_tmp_N = value_expr;
             try self.emitIndent();
-            try self.emit("const ");
-            try self.emit(tmp_name);
-            try self.emit(" = ");
+            try emitConst(self,"const ");
+            try emitConst(self,tmp_name);
+            try emitConst(self," = ");
             try self.genExpr(assign.value.*);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
 
             // Now assign to each target (in reverse order for Python semantics)
             // Python evaluates right-to-left: ka, va = ta = x means ta = x, then ka, va = ta
@@ -342,21 +360,21 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const is_discard = std.mem.eql(u8, var_name, "_");
                     if (is_discard) {
                         try self.emitIndent();
-                        try self.emit("_ = ");
-                        try self.emit(tmp_name);
-                        try self.emit(";\n");
+                        try emitConst(self,"_ = ");
+                        try emitConst(self,tmp_name);
+                        try emitConst(self,";\n");
                     } else {
                         const is_first_assignment = !self.isDeclared(var_name);
 
                         try self.emitIndent();
                         if (is_first_assignment) {
-                            try self.emit("const ");
+                            try emitConst(self,"const ");
                             try self.declareVar(var_name);
                         }
                         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                        try self.emit(" = ");
-                        try self.emit(tmp_name);
-                        try self.emit(";\n");
+                        try emitConst(self," = ");
+                        try emitConst(self,tmp_name);
+                        try emitConst(self,";\n");
                     }
                 } else if (target == .tuple) {
                     // Unpack tuple elements
@@ -378,7 +396,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                             try self.emitIndent();
                             if (is_first_assignment) {
-                                try self.emit("const ");
+                                try emitConst(self,"const ");
                                 try self.declareVar(var_name);
                             }
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
@@ -409,7 +427,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                             try self.emitIndent();
                             if (is_first_assignment) {
-                                try self.emit("const ");
+                                try emitConst(self,"const ");
                                 try self.declareVar(var_name);
                             }
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
@@ -440,11 +458,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (self.module_level_funcs.contains(rhs_name)) {
                     // RHS is a function - emit comment and skip
                     try self.emitIndent();
-                    try self.emit("// function alias: ");
-                    try self.emit(var_name);
-                    try self.emit(" = ");
-                    try self.emit(rhs_name);
-                    try self.emit(" (skipped - functions are compile-time constants)\n");
+                    try emitConst(self,"// function alias: ");
+                    try emitConst(self,var_name);
+                    try emitConst(self," = ");
+                    try emitConst(self,rhs_name);
+                    try emitConst(self," (skipped - functions are compile-time constants)\n");
                     continue;
                 }
             }
@@ -458,11 +476,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     continue;
                 }
                 try self.emitIndent();
-                try self.emit("const ");
+                try emitConst(self,"const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                try self.emit(" = ");
+                try emitConst(self," = ");
                 try self.genExpr(assign.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 try self.declareVar(var_name);
                 continue;
             }
@@ -537,9 +555,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Emit as explicit discard to avoid "unused variable" error
             if (assign.value.* == .ellipsis_literal) {
                 try self.emitIndent();
-                try self.emit("_ = ");
+                try emitConst(self,"_ = ");
                 try self.genExpr(assign.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 return;
             }
 
@@ -603,21 +621,21 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.emitIndent();
                         if (!is_declared) {
                             // csv iterators/writers are mutated internally, need 'var'
-                            try self.emit("var ");
+                            try emitConst(self,"var ");
                         }
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                        try self.emit(" = ");
+                        try emitConst(self," = ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
                         if (!is_declared) {
                             try self.declareVar(var_name);
                             // Mark as csv iterator for proper for-loop handling
                             try self.csv_iterators.put(try self.arena.allocator().dupe(u8, var_name), {});
                             // Add suppression for "never mutated" warning (csv types use var for internal state)
                             try self.emitIndent();
-                            try self.emit("_ = &");
+                            try emitConst(self,"_ = &");
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                            try self.emit(";\n");
+                            try emitConst(self,";\n");
                         }
                         return;
                     }
@@ -651,12 +669,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             if (needs_declaration) {
                                 // Use 'var' for global callables (can be reassigned)
                                 // Use 'const' for local callables
-                                try self.emit(if (is_global) "var " else "const ");
+                                try emitConst(self,if (is_global) "var " else "const ");
                             }
                             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                            try self.emit(" = ");
+                            try emitConst(self," = ");
                             try self.genExpr(assign.value.*);
-                            try self.emit(";\n");
+                            try emitConst(self,";\n");
                             if (needs_declaration) {
                                 try self.declareVar(var_name);
                             }
@@ -752,13 +770,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Skip assignment to module-level constants
                     // Emit comment and discard the value to suppress warnings
                     try self.emitIndent();
-                    try self.emit("// Assignment to module-level constant '");
-                    try self.emit(var_name);
-                    try self.emit("' skipped (const cannot be reassigned)\n");
+                    try emitConst(self,"// Assignment to module-level constant '");
+                    try emitConst(self,var_name);
+                    try emitConst(self,"' skipped (const cannot be reassigned)\n");
                     try self.emitIndent();
-                    try self.emit("_ = ");
+                    try emitConst(self,"_ = ");
                     try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                     continue;
                 }
             }
@@ -797,9 +815,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Use &var to avoid "pointless discard of local constant" error
                     if (self.isEvalStringVar(original_var_name)) {
                         try self.emitIndent();
-                        try self.emit("_ = &");
-                        try self.emit(var_name);
-                        try self.emit(";\n");
+                        try emitConst(self,"_ = &");
+                        try emitConst(self,var_name);
+                        try emitConst(self,";\n");
                     }
 
                     // Track first assignments for potential discard emission
@@ -844,13 +862,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (type_traits.isUnknown(value_type) or value_type == .pyvalue) {
                     // PyObject/PyValue: capture in block and decref immediately
                     // { const __unused = expr; runtime.decref(__unused, __global_allocator); }
-                    try self.emit("{ const __unused = ");
+                    try emitConst(self,"{ const __unused = ");
                     try self.genExpr(assign.value.*);
-                    try self.emit("; runtime.decref(__unused, __global_allocator); }\n");
+                    try emitConst(self,"; runtime.decref(__unused, __global_allocator); }\n");
                 } else {
-                    try self.emit("_ = ");
+                    try emitConst(self,"_ = ");
                     try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                 }
                 // Don't declare - variable doesn't exist, but continue to next target
                 continue;
@@ -878,11 +896,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                         // Generate const pointer assignment: const y = &x
                         // Always use const - if y is reassigned to different type, we shadow it
-                        try self.emit("const ");
+                        try emitConst(self,"const ");
                         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                        try self.emit(" = &");
+                        try emitConst(self," = &");
                         try self.genExpr(assign.value.*);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
 
                         // Mark as declared
                         try self.declareVarWithType(var_name, value_type);
@@ -914,11 +932,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             // So R(...) knows to use .init() without allocator
                             try self.type_alias_vars.put(var_name, {});
                             // Emit: const R = type (let Zig infer, no PyValue wrapping)
-                            try self.emit("const ");
+                            try emitConst(self,"const ");
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                            try self.emit(" = ");
+                            try emitConst(self," = ");
                             try self.genExpr(assign.value.*);
-                            try self.emit(";\n");
+                            try emitConst(self,";\n");
                             try self.declareVarWithType(var_name, value_type);
                             try triggerDeferredClosureInstantiations(self, var_name);
                             return;
@@ -1044,11 +1062,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                             // Don't emit _ = y - original alias is const and likely already used
                             // Just declare the new shadow alias
-                            try self.emit("const ");
-                            try self.emit(unique_name);
-                            try self.emit(" = &");
+                            try emitConst(self,"const ");
+                            try emitConst(self,unique_name);
+                            try emitConst(self," = &");
                             try self.genExpr(assign.value.*);
-                            try self.emit(";\n");
+                            try emitConst(self,";\n");
 
                             // Update alias tracking and renames
                             const unique_name_copy = try self.arena.allocator().dupe(u8, unique_name);
@@ -1076,9 +1094,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // ONLY emit discard if variable actually exists (not just forward-declared/hoisted)
                     const current_name = self.var_renames.get(var_name) orelse var_name;
                     if (self.isDeclared(current_name)) {
-                        try self.emit("_ = &");
+                        try emitConst(self,"_ = &");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), current_name);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
                         try self.emitIndent();
                     }
 
@@ -1088,9 +1106,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Check if the shadow variable will be aug_assigned (e.g., x += 1)
                     // Only aug_assign needs var, regular multi-assignment doesn't (uses shadowing)
                     const shadow_is_mutable = self.isVarAugAssigned(var_name);
-                    try self.emit(if (shadow_is_mutable) "var " else "const ");
-                    try self.emit(unique_name);
-                    try self.emit(" = ");
+                    try emitConst(self,if (shadow_is_mutable) "var " else "const ");
+                    try emitConst(self,unique_name);
+                    try emitConst(self," = ");
 
                     // DEFER rename registration until AFTER RHS is generated!
                     // This prevents self-referential issues like: object = Class(object)
@@ -1118,9 +1136,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                             // Generate pointer reassignment: y = &x
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                            try self.emit(" = &");
+                            try emitConst(self," = &");
                             try self.genExpr(assign.value.*);
-                            try self.emit(";\n");
+                            try emitConst(self,";\n");
                             return;
                         }
                     }
@@ -1142,9 +1160,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
                                     // Skip this assignment - it would change the type
                                     try self.emitIndent();
-                                    try self.emit("_ = ");
+                                    try emitConst(self,"_ = ");
                                     try self.genExpr(assign.value.*);
-                                    try self.emit("; // Type-changing assignment skipped\n");
+                                    try emitConst(self,"; // Type-changing assignment skipped\n");
                                     return;
                                 }
                             }
@@ -1153,7 +1171,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                     // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
-                    try self.emit(" = ");
+                    try emitConst(self," = ");
                     // No type annotation on reassignment
                 }
             }
@@ -1167,7 +1185,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try valueGen.genStringConcat(self, assign, var_name, is_first_assignment);
                     // Close PyValue wrapper if it was opened (string concat doesn't need it)
                     if (is_first_assignment and wrapper_opened) {
-                        try self.emit(")");
+                        try emitConst(self,")");
                     }
                     return;
                 }
@@ -1192,7 +1210,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 );
                 // Close PyValue wrapper if it was opened (ArrayList init doesn't need it)
                 if (is_first_assignment and wrapper_opened) {
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                 }
                 return;
             }
@@ -1218,7 +1236,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (produces_bigint) {
                     // Expression already produces BigInt (e.g., bigint ops: bitOr, bitAnd, 2**100, etc.)
                     try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                     try valueGen.trackVariableMetadata(
                         self,
                         var_name,
@@ -1241,29 +1259,29 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             const arg_type = try self.inferExprScoped(int_call.args[0]);
                             if (type_traits.isFloating(arg_type)) {
                                 // int(float) -> use BigInt.fromFloat
-                                try self.emit("(runtime.BigInt.fromFloat(__global_allocator, ");
+                                try emitConst(self,"(runtime.BigInt.fromFloat(__global_allocator, ");
                                 try self.genExpr(int_call.args[0]);
-                                try self.emit(") catch unreachable)");
+                                try emitConst(self,") catch unreachable)");
                             } else {
                                 // int(string) or int(string, base) -> use parseIntToBigInt
-                                try self.emit("(try runtime.parseIntToBigInt(__global_allocator, ");
+                                try emitConst(self,"(try runtime.parseIntToBigInt(__global_allocator, ");
                                 try self.genExpr(int_call.args[0]);
-                                try self.emit(", ");
+                                try emitConst(self,", ");
                                 if (int_call.args.len >= 2) {
-                                    try self.emit("@intCast(");
+                                    try emitConst(self,"@intCast(");
                                     try self.genExpr(int_call.args[1]);
-                                    try self.emit(")");
+                                    try emitConst(self,")");
                                 } else {
-                                    try self.emit("10");
+                                    try emitConst(self,"10");
                                 }
-                                try self.emit("))");
+                                try emitConst(self,"))");
                             }
 
                             // Close PyValue wrapper if it was opened
                             if (is_first_assignment and wrapper_opened) {
-                                try self.emit(")");
+                                try emitConst(self,")");
                             }
-                            try self.emit(";\n");
+                            try emitConst(self,";\n");
 
                             // Track variable metadata
                             try valueGen.trackVariableMetadata(
@@ -1288,23 +1306,23 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         // Already a bigint literal - genExpr will produce BigInt directly
                         try self.genExpr(assign.value.*);
                     } else if (assign.value.* == .constant) {
-                        try self.emit("(runtime.BigInt.fromInt(__global_allocator, ");
+                        try emitConst(self,"(runtime.BigInt.fromInt(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(") catch unreachable)");
+                        try emitConst(self,") catch unreachable)");
                     } else if (isBigIntExpression(self, assign.value.*)) {
                         // Expression already produces BigInt (e.g., 2**100, bigint ops)
                         try self.genExpr(assign.value.*);
                     } else {
-                        try self.emit("(runtime.BigInt.fromInt128(__global_allocator, ");
+                        try emitConst(self,"(runtime.BigInt.fromInt128(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(") catch unreachable)");
+                        try emitConst(self,") catch unreachable)");
                     }
 
                     // Close PyValue wrapper if it was opened
                     if (is_first_assignment and wrapper_opened) {
-                        try self.emit(")");
+                        try emitConst(self,")");
                     }
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
 
                     // Track variable metadata
                     try valueGen.trackVariableMetadata(
@@ -1326,33 +1344,33 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_async_call) {
                 // Auto-await: wrap async call with scheduler init + wait + result extraction
                 const label = try self.emitInlineBlockStart("async");
-                try self.emit("\n");
+                try emitConst(self,"\n");
                 try self.emitIndent();
                 // Initialize scheduler if needed (first async call)
-                try self.emit("    if (!runtime.scheduler_initialized) {\n");
+                try emitConst(self,"    if (!runtime.scheduler_initialized) {\n");
                 try self.emitIndent();
-                try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+                try emitConst(self,"        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
                 try self.emitIndent();
-                try self.emit("        runtime.scheduler = runtime.Scheduler.init(__global_allocator, __num_threads) catch unreachable;\n");
+                try emitConst(self,"        runtime.scheduler = runtime.Scheduler.init(__global_allocator, __num_threads) catch unreachable;\n");
                 try self.emitIndent();
-                try self.emit("        runtime.scheduler.?.start() catch unreachable;\n");
+                try emitConst(self,"        runtime.scheduler.?.start() catch unreachable;\n");
                 try self.emitIndent();
-                try self.emit("        runtime.scheduler_initialized = true;\n");
+                try emitConst(self,"        runtime.scheduler_initialized = true;\n");
                 try self.emitIndent();
-                try self.emit("    }\n");
+                try emitConst(self,"    }\n");
                 try self.emitIndent();
-                try self.emit("    const __thread = ");
+                try emitConst(self,"    const __thread = ");
                 try self.genExpr(assign.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 try self.emitIndent();
-                try self.emit("    runtime.scheduler.?.wait(__thread);\n");
+                try emitConst(self,"    runtime.scheduler.?.wait(__thread);\n");
                 try self.emitIndent();
-                try self.emit("    const __result = __thread.result orelse unreachable;\n");
+                try emitConst(self,"    const __result = __thread.result orelse unreachable;\n");
                 try self.emitIndent();
-                try self.emitFmt("    break :{s} @as(*i64, @ptrCast(@alignCast(__result))).*;\n", .{label});
+                try emitFmtConst(self, "    break :{s} @as(*i64, @ptrCast(@alignCast(__result))).*;\n", .{label});
                 try self.emitIndent();
                 try self.emitInlineBlockEnd();
-                try self.emit(");\n");
+                try emitConst(self,");\n");
             } else {
                 // TWO-FLOW TYPE SYSTEM: Emit value normally
                 // genExpr() for calls already handles 'try' when needed (see calls.zig:1523)
@@ -1362,7 +1380,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Use wrapper_opened flag from emitVarDeclaration which already handles
                 // all the conditions (unknown type, uncertain var, and expr_produces_pyvalue check)
                 if (is_first_assignment and wrapper_opened) {
-                    try self.emit(")");
+                    try emitConst(self,")");
                     // Update var_types to mark this variable as PyValue so that subsequent
                     // uses in binop detect it via isOperandUncertain and use PyValue methods
                     try self.type_inferrer.var_types.put(var_name, .pyvalue);
@@ -1370,7 +1388,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // This is critical for aug_assign detection inside functions where scope is set
                     try self.type_inferrer.putScopedVar(var_name, .pyvalue);
                 }
-                try self.emit(";\n");
+                try emitConst(self,";\n");
             }
 
             // Apply pending shadow rename AFTER RHS generation
@@ -1398,9 +1416,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_iterator and is_first_assignment) {
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
-                try self.emit("_ = &");
+                try emitConst(self,"_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
             }
 
             // For deques, add pointer discard to suppress "never mutated" warnings
@@ -1408,9 +1426,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_deque and is_first_assignment) {
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
-                try self.emit("_ = &");
+                try emitConst(self,"_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
             }
 
             // For variables declared with `var` (because isVarMutated returned true),
@@ -1421,9 +1439,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (is_mutated) {
                     const actual_name = self.var_renames.get(var_name) orelse var_name;
                     try self.emitIndent();
-                    try self.emit("_ = &");
+                    try emitConst(self,"_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                 }
             }
 
@@ -1482,7 +1500,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Python: f.__code__ = f.__code__.replace(co_linetable=...)
             if (std.mem.eql(u8, attr.attr, "__code__")) {
                 try self.emitIndent();
-                try self.emit("// __code__ assignment is a no-op in compiled code\n");
+                try emitConst(self,"// __code__ assignment is a no-op in compiled code\n");
                 return;
             }
 
@@ -1512,7 +1530,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         }
                         // argtypes assignment is a no-op in generated code (tracked at compile time)
                         try self.emitIndent();
-                        try self.emit("// ctypes argtypes tracked at compile time\n");
+                        try emitConst(self,"// ctypes argtypes tracked at compile time\n");
                         return;
                     } else if (std.mem.eql(u8, attr.attr, "restype")) {
                         // Parse restype: ctypes.c_int, ctypes.c_size_t, etc.
@@ -1532,7 +1550,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.ctypes_functions.put(var_name, new_info);
                         // restype assignment is a no-op in generated code
                         try self.emitIndent();
-                        try self.emit("// ctypes restype tracked at compile time\n");
+                        try emitConst(self,"// ctypes restype tracked at compile time\n");
                         return;
                     }
                 }
@@ -1546,7 +1564,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 if (inner_attr.value.* == .name) {
                     // Could be array.array.foo or similar - emit noop
                     try self.emitIndent();
-                    try self.emit("// TypeError: cannot set attribute on immutable type\n");
+                    try emitConst(self,"// TypeError: cannot set attribute on immutable type\n");
                     return;
                 }
             }
@@ -1558,21 +1576,21 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Generate: { var __tmp_N = B.init(...); __tmp_N.x = value; }
                 const tmp_name = try b.freshTemp();
                 try self.emitIndent();
-                try self.emit("{\n");
+                try emitConst(self,"{\n");
                 self.indent_level += 1;
                 try self.emitIndent();
-                try self.emitFmt("var {s} = ", .{tmp_name});
+                try emitFmtConst(self, "var {s} = ", .{tmp_name});
                 try self.genExpr(attr.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 try self.emitIndent();
-                try self.emitFmt("{s}.", .{tmp_name});
+                try emitFmtConst(self, "{s}.", .{tmp_name});
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-                try self.emit(" = ");
+                try emitConst(self," = ");
                 try self.genExpr(assign.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 self.indent_level -= 1;
                 try self.emitIndent();
-                try self.emit("}\n");
+                try emitConst(self,"}\n");
                 return;
             }
 
@@ -1584,18 +1602,18 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Check for sys.stdout/stderr/argv assignment - these need special handling
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "sys")) {
                 if (std.mem.eql(u8, attr.attr, "stdout") or std.mem.eql(u8, attr.attr, "stderr")) {
-                    try self.emit("runtime.discard(");
+                    try emitConst(self,"runtime.discard(");
                     try self.genExpr(assign.value.*);
-                    try self.emit("); // sys.");
-                    try self.emit(attr.attr);
-                    try self.emit(" assignment is a no-op in metal0\n");
+                    try emitConst(self,"); // sys.");
+                    try emitConst(self,attr.attr);
+                    try emitConst(self," assignment is a no-op in metal0\n");
                     return;
                 }
                 // sys.argv assignment: store in mutable global __sys_argv
                 if (std.mem.eql(u8, attr.attr, "argv")) {
-                    try self.emit("__sys_argv = ");
+                    try emitConst(self,"__sys_argv = ");
                     try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                     return;
                 }
             }
@@ -1606,25 +1624,25 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Use @constCast since the object may be declared as const (HashMap stores data via pointers,
                 // so @constCast works correctly - the internal data is heap-allocated)
                 if (self.inside_defer) {
-                    try self.emit("@constCast(&");
+                    try emitConst(self,"@constCast(&");
                     try self.genExpr(attr.value.*);
-                    try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
+                    try emitFmtConst(self, ".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
                     try self.genExpr(assign.value.*);
-                    try self.emit(")) catch {}");
+                    try emitConst(self,")) catch {}");
                 } else {
-                    try self.emit("try @constCast(&");
+                    try emitConst(self,"try @constCast(&");
                     try self.genExpr(attr.value.*);
-                    try self.emitFmt(".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
+                    try emitFmtConst(self, ".__dict__).put(\"{s}\", runtime.PyValue.from(", .{attr.attr});
                     try self.genExpr(assign.value.*);
-                    try self.emit("))");
+                    try emitConst(self,"))");
                 }
             } else {
                 // Known attribute: direct assignment
                 try self.genExpr(target);
-                try self.emit(" = ");
+                try emitConst(self," = ");
                 try self.genExpr(assign.value.*);
             }
-            try self.emit(";\n");
+            try emitConst(self,";\n");
         } else if (target == .subscript) {
             // Handle subscript assignment: self.routes[path] = handler, dict[key] = value
             const subscript = target.subscript;
@@ -1646,23 +1664,23 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const dict_value_type = container_type.dict.value.*;
                     const needs_pyvalue_wrap = dict_value_type == .pyvalue;
 
-                    try self.emit("try ");
+                    try emitConst(self,"try ");
                     if (is_nested) {
                         try self.genSubscriptLHS(subscript.value.subscript);
                     } else {
                         try self.genExpr(subscript.value.*);
                     }
-                    try self.emit(".put(");
+                    try emitConst(self,".put(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                     if (needs_pyvalue_wrap) {
-                        try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try emitConst(self,"try runtime.PyValue.fromAlloc(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(")");
+                        try emitConst(self,")");
                     } else {
                         try self.genExpr(assign.value.*);
                     }
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                 } else if (container_traits.isList(container_type) or (subscript.value.* == .name and self.isArrayListVar(subscript.value.name.id))) {
                     // List assignment: list.items[idx] = value
                     // Also handles ArrayList variables which may have .array type from inference
@@ -1692,12 +1710,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         try self.output.writer(self.allocator).print(".items.len - {d}] = ", .{neg_val});
                     } else {
                         // For non-negative or runtime index: cast to usize
-                        try self.emit(".items[@intCast(");
+                        try emitConst(self,".items[@intCast(");
                         try self.genExpr(subscript.slice.index.*);
-                        try self.emit(")] = ");
+                        try emitConst(self,")] = ");
                     }
                     try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                 } else if (container_type == .pyvalue) {
                     // PyValue dict assignment: pyval.pyDictPut(allocator, key, value)
                     // PyValue can contain a dict (wrapped as ptr to StringHashMap)
@@ -1705,22 +1723,22 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                         // String key (or PyValue containing string, or unknown) - treat as dict assignment
                         // For PyValue/unknown key, we need to unwrap it to string with .asString()
-                        try self.emit("try ");
+                        try emitConst(self,"try ");
                         if (is_nested) {
                             try self.genSubscriptLHS(subscript.value.subscript);
                         } else {
                             try self.genExpr(subscript.value.*);
                         }
-                        try self.emit(".pyDictPut(__global_allocator, ");
+                        try emitConst(self,".pyDictPut(__global_allocator, ");
                         if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                             try self.genExpr(subscript.slice.index.*);
-                            try self.emit(".asString()");
+                            try emitConst(self,".asString()");
                         } else {
                             try self.genExpr(subscript.slice.index.*);
                         }
-                        try self.emit(", try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try emitConst(self,", try runtime.PyValue.fromAlloc(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit("));\n");
+                        try emitConst(self,"));\n");
                     } else {
                         // Int key - treat as list/tuple access (use pyAt for now, but assignment needs different approach)
                         // For now, fall through to generic handling
@@ -1729,11 +1747,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         } else {
                             try self.genExpr(subscript.value.*);
                         }
-                        try self.emit("[@as(usize, @intCast(");
+                        try emitConst(self,"[@as(usize, @intCast(");
                         try self.genExpr(subscript.slice.index.*);
-                        try self.emit("))] = ");
+                        try emitConst(self,"))] = ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
                     }
                 } else {
                     // Generic array/slice assignment: arr[idx] = value
@@ -1747,69 +1765,69 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         // Unknown container with string/pyvalue key - likely dict access
                         // Use runtime type check
                         _ = try self.emitInlineBlockStart("dict");
-                        try self.emit("\n");
+                        try emitConst(self,"\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("const __cont = ");
+                        try emitConst(self,"const __cont = ");
                         if (is_nested) {
                             try self.genSubscriptLHS(subscript.value.subscript);
                         } else {
                             try self.genExpr(subscript.value.*);
                         }
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
                         // For PyValue keys, extract the string
                         if (index_type == .pyvalue) {
                             try self.emitIndent();
-                            try self.emit("const __key = ");
+                            try emitConst(self,"const __key = ");
                             try self.genExpr(subscript.slice.index.*);
-                            try self.emit(".asString();\n");
+                            try emitConst(self,".asString();\n");
                         }
                         try self.emitIndent();
-                        try self.emit("if (@TypeOf(__cont) == runtime.PyValue) {\n");
+                        try emitConst(self,"if (@TypeOf(__cont) == runtime.PyValue) {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("try __cont.pyDictPut(__global_allocator, ");
+                        try emitConst(self,"try __cont.pyDictPut(__global_allocator, ");
                         if (index_type == .pyvalue) {
-                            try self.emit("__key");
+                            try emitConst(self,"__key");
                         } else {
                             try self.genExpr(subscript.slice.index.*);
                         }
-                        try self.emit(", try runtime.PyValue.fromAlloc(__global_allocator, ");
+                        try emitConst(self,", try runtime.PyValue.fromAlloc(__global_allocator, ");
                         try self.genExpr(assign.value.*);
-                        try self.emit("));\n");
+                        try emitConst(self,"));\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("} else {\n");
+                        try emitConst(self,"} else {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
                         // ArrayHashMap.put() doesn't take allocator
-                        try self.emit("try __cont.put(");
+                        try emitConst(self,"try __cont.put(");
                         if (index_type == .pyvalue) {
-                            try self.emit("__key");
+                            try emitConst(self,"__key");
                         } else {
                             try self.genExpr(subscript.slice.index.*);
                         }
-                        try self.emit(", ");
+                        try emitConst(self,", ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(");\n");
+                        try emitConst(self,");\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emitInlineBlockEnd();
-                        try self.emit("\n");
+                        try emitConst(self,"\n");
                     } else {
                         if (is_nested) {
                             try self.genSubscriptLHS(subscript.value.subscript);
                         } else {
                             try self.genExpr(subscript.value.*);
                         }
-                        try self.emit("[@as(usize, @intCast(");
+                        try emitConst(self,"[@as(usize, @intCast(");
                         try self.genExpr(subscript.slice.index.*);
-                        try self.emit("))] = ");
+                        try emitConst(self,"))] = ");
                         try self.genExpr(assign.value.*);
-                        try self.emit(";\n");
+                        try emitConst(self,";\n");
                     }
                 }
             } else if (subscript.slice == .slice) {
@@ -1820,80 +1838,80 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const is_full_slice = slice.lower == null and slice.upper == null;
 
                 try self.emitIndent();
-                try self.emit("{\n");
+                try emitConst(self,"{\n");
                 self.indent_level += 1;
 
                 // Get container reference
                 try self.emitIndent();
-                try self.emit("const __slice_target = &");
+                try emitConst(self,"const __slice_target = &");
                 try self.genExpr(subscript.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
 
                 // Get source data
                 try self.emitIndent();
-                try self.emit("const __slice_src = ");
+                try emitConst(self,"const __slice_src = ");
                 try self.genExpr(assign.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
 
                 if (container_traits.isList(container_type)) {
                     if (is_full_slice) {
                         // a[:] = data - replace entire list
                         try self.emitIndent();
-                        try self.emit("__slice_target.clearRetainingCapacity();\n");
+                        try emitConst(self,"__slice_target.clearRetainingCapacity();\n");
                         try self.emitIndent();
-                        try self.emit("for (__slice_src.items) |__item| {\n");
+                        try emitConst(self,"for (__slice_src.items) |__item| {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("__slice_target.append(__global_allocator, __item) catch unreachable;\n");
+                        try emitConst(self,"__slice_target.append(__global_allocator, __item) catch unreachable;\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     } else {
                         // a[start:end] = data - replace slice with new data
                         // Calculate start and end indices
                         try self.emitIndent();
                         if (slice.lower) |lower| {
-                            try self.emit("const __slice_start: usize = @intCast(");
+                            try emitConst(self,"const __slice_start: usize = @intCast(");
                             try self.genExpr(lower.*);
-                            try self.emit(");\n");
+                            try emitConst(self,");\n");
                         } else {
-                            try self.emit("const __slice_start: usize = 0;\n");
+                            try emitConst(self,"const __slice_start: usize = 0;\n");
                         }
 
                         try self.emitIndent();
                         if (slice.upper) |upper| {
-                            try self.emit("const __slice_end: usize = @intCast(");
+                            try emitConst(self,"const __slice_end: usize = @intCast(");
                             try self.genExpr(upper.*);
-                            try self.emit(");\n");
+                            try emitConst(self,");\n");
                         } else {
-                            try self.emit("const __slice_end: usize = __slice_target.items.len;\n");
+                            try emitConst(self,"const __slice_end: usize = __slice_target.items.len;\n");
                         }
 
                         // Remove elements in [start, end) range
                         try self.emitIndent();
-                        try self.emit("var __i: usize = __slice_start;\n");
+                        try emitConst(self,"var __i: usize = __slice_start;\n");
                         try self.emitIndent();
-                        try self.emit("while (__i < __slice_end) : (__i += 1) {\n");
+                        try emitConst(self,"while (__i < __slice_end) : (__i += 1) {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("_ = __slice_target.orderedRemove(__slice_start);\n");
+                        try emitConst(self,"_ = __slice_target.orderedRemove(__slice_start);\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
 
                         // Insert new elements at start position
                         try self.emitIndent();
-                        try self.emit("var __j: usize = 0;\n");
+                        try emitConst(self,"var __j: usize = 0;\n");
                         try self.emitIndent();
-                        try self.emit("for (__slice_src.items) |__item| {\n");
+                        try emitConst(self,"for (__slice_src.items) |__item| {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("__slice_target.insert(__global_allocator, __slice_start + __j, __item) catch unreachable;\n");
+                        try emitConst(self,"__slice_target.insert(__global_allocator, __slice_start + __j, __item) catch unreachable;\n");
                         try self.emitIndent();
-                        try self.emit("__j += 1;\n");
+                        try emitConst(self,"__j += 1;\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     }
                 } else {
                     // Fixed array/slice/ArrayList: copy items
@@ -1902,73 +1920,73 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         // Replace elements at indices start, start+step, start+2*step, ...
                         try self.emitIndent();
                         if (slice.lower) |lower| {
-                            try self.emit("var __idx: usize = @intCast(");
+                            try emitConst(self,"var __idx: usize = @intCast(");
                             try self.genExpr(lower.*);
-                            try self.emit(");\n");
+                            try emitConst(self,");\n");
                         } else {
-                            try self.emit("var __idx: usize = 0;\n");
+                            try emitConst(self,"var __idx: usize = 0;\n");
                         }
 
                         try self.emitIndent();
-                        try self.emit("const __step: usize = @intCast(");
+                        try emitConst(self,"const __step: usize = @intCast(");
                         try self.genExpr(slice.step.?.*);
-                        try self.emit(");\n");
+                        try emitConst(self,");\n");
 
                         try self.emitIndent();
                         // Use container_dispatch helpers - avoids inline @hasField monomorphization
-                        try self.emit("const __target_len = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
+                        try emitConst(self,"const __target_len = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
                         try self.emitIndent();
-                        try self.emit("const __src_data = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
+                        try emitConst(self,"const __src_data = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
                         try self.emitIndent();
-                        try self.emit("var __src_idx: usize = 0;\n");
+                        try emitConst(self,"var __src_idx: usize = 0;\n");
                         try self.emitIndent();
-                        try self.emit("while (__idx < __target_len and __src_idx < __src_data.len) {\n");
+                        try emitConst(self,"while (__idx < __target_len and __src_idx < __src_data.len) {\n");
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("runtime.container_dispatch.setPtrAt(@TypeOf(__slice_target), @TypeOf(__src_data[0]), __slice_target, __idx, __src_data[__src_idx]);\n");
+                        try emitConst(self,"runtime.container_dispatch.setPtrAt(@TypeOf(__slice_target), @TypeOf(__src_data[0]), __slice_target, __idx, __src_data[__src_idx]);\n");
                         try self.emitIndent();
-                        try self.emit("__idx += __step;\n");
+                        try emitConst(self,"__idx += __step;\n");
                         try self.emitIndent();
-                        try self.emit("__src_idx += 1;\n");
+                        try emitConst(self,"__src_idx += 1;\n");
                         self.indent_level -= 1;
                         try self.emitIndent();
-                        try self.emit("}\n");
+                        try emitConst(self,"}\n");
                     } else {
                         // Contiguous slice assignment
                         try self.emitIndent();
                         if (slice.lower) |lower| {
-                            try self.emit("const __slice_start: usize = @intCast(");
+                            try emitConst(self,"const __slice_start: usize = @intCast(");
                             try self.genExpr(lower.*);
-                            try self.emit(");\n");
+                            try emitConst(self,");\n");
                         } else {
-                            try self.emit("const __slice_start: usize = 0;\n");
+                            try emitConst(self,"const __slice_start: usize = 0;\n");
                         }
 
                         try self.emitIndent();
                         if (slice.upper) |upper| {
-                            try self.emit("const __slice_end: usize = @intCast(");
+                            try emitConst(self,"const __slice_end: usize = @intCast(");
                             try self.genExpr(upper.*);
-                            try self.emit(");\n");
+                            try emitConst(self,");\n");
                         } else {
                             // Use container_dispatch helper - avoids inline @hasField monomorphization
-                            try self.emit("const __slice_end: usize = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
+                            try emitConst(self,"const __slice_end: usize = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
                         }
 
                         try self.emitIndent();
                         // Use container_dispatch helpers - avoids inline @hasField monomorphization
-                        try self.emit("const __copy_len = @min(__slice_end - __slice_start, runtime.container_dispatch.getLen(@TypeOf(__slice_src), __slice_src));\n");
+                        try emitConst(self,"const __copy_len = @min(__slice_end - __slice_start, runtime.container_dispatch.getLen(@TypeOf(__slice_src), __slice_src));\n");
                         try self.emitIndent();
-                        try self.emit("const __target_slice = runtime.container_dispatch.getMutSlice(@TypeOf(__slice_target.*), __slice_target);\n");
+                        try emitConst(self,"const __target_slice = runtime.container_dispatch.getMutSlice(@TypeOf(__slice_target.*), __slice_target);\n");
                         try self.emitIndent();
-                        try self.emit("const __src_slice = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
+                        try emitConst(self,"const __src_slice = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
                         try self.emitIndent();
-                        try self.emit("@memcpy(__target_slice[__slice_start..][0..__copy_len], __src_slice[0..__copy_len]);\n");
+                        try emitConst(self,"@memcpy(__target_slice[__slice_start..][0..__copy_len], __src_slice[0..__copy_len]);\n");
                     }
                 }
 
                 self.indent_level -= 1;
                 try self.emitIndent();
-                try self.emit("}\n");
+                try emitConst(self,"}\n");
             }
         }
     }

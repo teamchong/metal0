@@ -1,4 +1,5 @@
 /// Type checking and introspection builtins: type(), isinstance(), callable(), issubclass(), id(), delattr()
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -9,6 +10,22 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 /// Generate code for type(obj) or type(name, bases, dict)
 /// For 1 arg: Returns compile-time type name as string
 /// For 3 args: Dynamically creates a class (uses runtime.DynamicClass)
@@ -18,19 +35,19 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Uses runtime dispatch to avoid comptime explosion (O(n²) compilation)
         // This handles PyPowResult (returns "float" or "complex" based on variant)
         // and other special types that need runtime type name resolution
-        try self.emit("runtime.pyTypeName(");
+        try emitConst(self,"runtime.pyTypeName(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     } else if (args.len == 3) {
         // 3-argument form: type(name, bases, dict) - dynamic class creation
         // Generate: runtime.dynamicType(name, bases, dict)
-        try self.emit("(try runtime.dynamicType(__global_allocator, ");
+        try emitConst(self,"(try runtime.dynamicType(__global_allocator, ");
         try self.genExpr(args[0]); // name
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[1]); // bases tuple
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[2]); // dict
-        try self.emit("))");
+        try emitConst(self,"))");
     }
     // 0 args or other counts - return nothing (error case in Python too)
 }
@@ -41,7 +58,7 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// For anytype parameters, generates runtime type check
 pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("true");
+        try emitConst(self,"true");
         return;
     }
 
@@ -61,21 +78,21 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (std.mem.eql(u8, tname, "bool")) {
             if (is_unknown_type) {
                 // Runtime check: @TypeOf(x) == bool
-                try self.emit("(@TypeOf(");
+                try emitConst(self,"(@TypeOf(");
                 try self.genExpr(args[0]);
-                try self.emit(") == bool)");
+                try emitConst(self,") == bool)");
                 return;
             }
             // isinstance(x, bool) - only true for actual bools
             // In Python: isinstance(True, bool) = True, isinstance(1, bool) = False
             // Reference argument to avoid unused parameter warning
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ _ = @TypeOf(", .{id});
             try self.genExpr(args[0]);
             if (type_traits.isBoolean(obj_type)) {
-                try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk true; }}", .{id});
             } else {
-                try self.emitFmt("); break :__m{d}_blk false; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk false; }}", .{id});
             }
             return;
         } else if (std.mem.eql(u8, tname, "int")) {
@@ -83,62 +100,62 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // isinstance(x, int) checks if @TypeOf(x) is an integer type or bool
             // Use @typeInfo for comprehensive int checking (handles i64, comptime_int, etc.)
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ const T = @TypeOf(", .{id});
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk @typeInfo(T) == .int or @typeInfo(T) == .comptime_int or T == bool; }}", .{id});
+            try emitFmtConst(self, "); break :__m{d}_blk @typeInfo(T) == .int or @typeInfo(T) == .comptime_int or T == bool; }}", .{id});
             return;
         } else if (std.mem.eql(u8, tname, "float")) {
             if (is_unknown_type) {
-                try self.emit("(@TypeOf(");
+                try emitConst(self,"(@TypeOf(");
                 try self.genExpr(args[0]);
-                try self.emit(") == f64)");
+                try emitConst(self,") == f64)");
                 return;
             }
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ _ = @TypeOf(", .{id});
             try self.genExpr(args[0]);
             if (type_traits.isFloating(obj_type)) {
-                try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk true; }}", .{id});
             } else {
-                try self.emitFmt("); break :__m{d}_blk false; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk false; }}", .{id});
             }
             return;
         } else if (std.mem.eql(u8, tname, "str")) {
             if (is_unknown_type) {
-                try self.emit("(@TypeOf(");
+                try emitConst(self,"(@TypeOf(");
                 try self.genExpr(args[0]);
-                try self.emit(") == []const u8)");
+                try emitConst(self,") == []const u8)");
                 return;
             }
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ _ = @TypeOf(", .{id});
             try self.genExpr(args[0]);
             if (string_traits.isString(obj_type)) {
-                try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk true; }}", .{id});
             } else {
-                try self.emitFmt("); break :__m{d}_blk false; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk false; }}", .{id});
             }
             return;
         } else if (std.mem.eql(u8, tname, "list")) {
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ _ = @TypeOf(", .{id});
             try self.genExpr(args[0]);
             // Note: Use switch instead of container_traits since we need exact .list match
             if (container_traits.isList(obj_type)) {
-                try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk true; }}", .{id});
             } else {
-                try self.emitFmt("); break :__m{d}_blk false; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk false; }}", .{id});
             }
             return;
         } else if (std.mem.eql(u8, tname, "dict")) {
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ _ = @TypeOf(", .{id});
             try self.genExpr(args[0]);
             // Note: Use switch instead of container_traits since we need exact .dict match
             if (container_traits.isDict(obj_type)) {
-                try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk true; }}", .{id});
             } else {
-                try self.emitFmt("); break :__m{d}_blk false; }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk false; }}", .{id});
             }
             return;
         }
@@ -150,15 +167,15 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // User-defined class - check if @TypeOf(x) == ClassName
             // For anytype params or unknown types, this is a comptime check
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ const T = @TypeOf(", .{id});
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk T == ", .{id});
-            try self.emit(tname);
-            try self.emit(" or T == *");
-            try self.emit(tname);
-            try self.emit(" or T == *const ");
-            try self.emit(tname);
-            try self.emit("; }");
+            try emitFmtConst(self, "); break :__m{d}_blk T == ", .{id});
+            try emitConst(self,tname);
+            try emitConst(self," or T == *");
+            try emitConst(self,tname);
+            try emitConst(self," or T == *const ");
+            try emitConst(self,tname);
+            try emitConst(self,"; }");
             return;
         }
 
@@ -169,9 +186,9 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (self.current_class_name) |class_name| {
             if (std.mem.eql(u8, tname, class_name)) {
                 const id = self.nextNameId();
-                try self.emitFmt("__m{d}_blk: {{ const __obj_type = @TypeOf(", .{id});
+                try emitFmtConst(self, "__m{d}_blk: {{ const __obj_type = @TypeOf(", .{id});
                 try self.genExpr(args[0]);
-                try self.emitFmt("); break :__m{d}_blk __obj_type == @This() or __obj_type == *@This() or __obj_type == *const @This(); }}", .{id});
+                try emitFmtConst(self, "); break :__m{d}_blk __obj_type == @This() or __obj_type == *@This() or __obj_type == *const @This(); }}", .{id});
                 return;
             }
         }
@@ -183,32 +200,32 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // that aren't known builtins or classes
         if (tname.len <= 4 and !PythonBuiltinTypes.has(tname)) {
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ const __obj_type = @TypeOf(", .{id});
+            try emitFmtConst(self, "__m{d}_blk: {{ const __obj_type = @TypeOf(", .{id});
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk __obj_type == ", .{id});
-            try self.emit(tname);
+            try emitFmtConst(self, "); break :__m{d}_blk __obj_type == ", .{id});
+            try emitConst(self,tname);
             // Also check for pointer variants
-            try self.emit(" or __obj_type == *");
-            try self.emit(tname);
-            try self.emit(" or __obj_type == *const ");
-            try self.emit(tname);
-            try self.emit("; }");
+            try emitConst(self," or __obj_type == *");
+            try emitConst(self,tname);
+            try emitConst(self," or __obj_type == *const ");
+            try emitConst(self,tname);
+            try emitConst(self,"; }");
             return;
         }
     }
 
     // Default: reference argument and return true for compile-time compatibility
     const id = self.nextNameId();
-    try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+    try emitFmtConst(self, "__m{d}_blk: {{ _ = @TypeOf(", .{id});
     try self.genExpr(args[0]);
-    try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
+    try emitFmtConst(self, "); break :__m{d}_blk true; }}", .{id});
 }
 
 /// Generate code for callable(obj)
 /// Returns True if obj appears to be callable
 pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("false");
+        try emitConst(self,"false");
         return;
     }
 
@@ -219,15 +236,15 @@ pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: Check for uncertain types first
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Runtime check - use @typeInfo for uncertain types
-        try self.emit("runtime.isCallable(");
+        try emitConst(self,"runtime.isCallable(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
     switch (arg_type) {
         .function, .callable => {
-            try self.emit("true");
+            try emitConst(self,"true");
         },
         else => {
             // Check if it's a name referring to a callable
@@ -236,32 +253,32 @@ pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
                 // Check if it's a class (has __call__)
                 if (self.classHasMethod(name, "__call__")) {
-                    try self.emit("true");
+                    try emitConst(self,"true");
                     return;
                 }
 
                 // Check if it's a module-level function
                 if (self.module_level_funcs.contains(name)) {
-                    try self.emit("true");
+                    try emitConst(self,"true");
                     return;
                 }
 
                 // Check if it's a known builtin function
                 const builtins = @import("../../dispatch/builtins.zig");
                 if (builtins.BuiltinMap.get(name) != null) {
-                    try self.emit("true");
+                    try emitConst(self,"true");
                     return;
                 }
 
                 // Check if it's a class name (classes are callable as constructors)
                 if (self.class_registry.classes.contains(name)) {
-                    try self.emit("true");
+                    try emitConst(self,"true");
                     return;
                 }
             }
 
             // Most types are not callable
-            try self.emit("false");
+            try emitConst(self,"false");
         },
     }
 }
@@ -283,7 +300,7 @@ fn collectUnionTypes(node: ast.Node, out: *std.ArrayList(ast.Node), allocator: s
 /// Returns True if cls is a subclass of classinfo
 pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("false");
+        try emitConst(self,"false");
         return;
     }
 
@@ -297,11 +314,11 @@ pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         // Built-in type hierarchy
         if (std.mem.eql(u8, cls_name, "bool") and std.mem.eql(u8, base_name, "int")) {
-            try self.emit("true");
+            try emitConst(self,"true");
             return;
         }
         if (std.mem.eql(u8, cls_name, base_name)) {
-            try self.emit("true");
+            try emitConst(self,"true");
             return;
         }
     }
@@ -315,37 +332,37 @@ pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         defer union_types.deinit(self.allocator);
         collectUnionTypes(args[1], &union_types, self.allocator) catch {
             // Fallback to direct generation if collection fails
-            try self.emit("runtime.isSubclass(");
+            try emitConst(self,"runtime.isSubclass(");
             try self.genExpr(args[0]);
-            try self.emit(", .{})");
+            try emitConst(self,", .{})");
             return;
         };
 
         // Generate: runtime.isSubclassMulti(cls, .{type1, type2, ...})
-        try self.emit("runtime.isSubclassMulti(");
+        try emitConst(self,"runtime.isSubclassMulti(");
         try self.genExpr(args[0]);
-        try self.emit(", .{");
+        try emitConst(self,", .{");
         for (union_types.items, 0..) |type_node, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self,", ");
             try self.genExpr(type_node);
         }
-        try self.emit("})");
+        try emitConst(self,"})");
         return;
     }
 
     // Runtime check
-    try self.emit("runtime.isSubclass(");
+    try emitConst(self,"runtime.isSubclass(");
     try self.genExpr(args[0]);
-    try self.emit(", ");
+    try emitConst(self,", ");
     try self.genExpr(args[1]);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate code for id(obj)
 /// Returns the "identity" of an object (memory address as integer)
 pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@as(i64, 0)");
+        try emitConst(self,"@as(i64, 0)");
         return;
     }
 
@@ -353,23 +370,23 @@ pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // For PyValue/uncertain types, use runtime id function
-        try self.emit("runtime.builtins.id(");
+        try emitConst(self,"runtime.builtins.id(");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
     // Return the pointer address as an integer
-    try self.emit("@as(i64, @intCast(@intFromPtr(&(");
+    try emitConst(self,"@as(i64, @intCast(@intFromPtr(&(");
     try self.genExpr(args[0]);
-    try self.emit("))))");
+    try emitConst(self,"))))");
 }
 
 /// Generate code for delattr(obj, name)
 /// Deletes an attribute from an object
 pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("{}");
+        try emitConst(self,"{}");
         return;
     }
 
@@ -377,11 +394,11 @@ pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const obj_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(obj_type) or obj_type == .pyvalue) {
         // For PyValue/uncertain types, use runtime delattr
-        try self.emit("runtime.builtins.delattr(");
+        try emitConst(self,"runtime.builtins.delattr(");
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
@@ -389,9 +406,9 @@ pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Need @constCast because object may be captured as const in assertRaises context
     // Need to handle str subclasses - extract __base_value__ if present
     const id = self.nextNameId();
-    try self.emitFmt("__m{d}_blk: {{ const __da_key = ", .{id});
+    try emitFmtConst(self, "__m{d}_blk: {{ const __da_key = ", .{id});
     try self.genExpr(args[1]);
-    try self.emit("; const __da_key_str = if (@hasField(@TypeOf(__da_key), \"__base_value__\")) __da_key.__base_value__ else __da_key; _ = @constCast(&");
+    try emitConst(self,"; const __da_key_str = if (@hasField(@TypeOf(__da_key), \"__base_value__\")) __da_key.__base_value__ else __da_key; _ = @constCast(&");
     try self.genExpr(args[0]);
-    try self.emitFmt(".__dict__).swapRemove(__da_key_str); break :__m{d}_blk {{}}; }}", .{id});
+    try emitFmtConst(self, ".__dict__).swapRemove(__da_key_str); break :__m{d}_blk {{}}; }}", .{id});
 }

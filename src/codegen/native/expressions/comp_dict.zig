@@ -7,6 +7,18 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
@@ -56,7 +68,7 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
     };
 
     // Generate: (dict_N: { ... })
-    try self.emit(try std.fmt.allocPrint(self.allocator, "(dict_{d}: {{\n", .{label_id}));
+    try emitConst(self, try std.fmt.allocPrint(self.allocator, "(dict_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Generate HashMap with properly inferred key/value types
@@ -84,37 +96,37 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
 
     // Generate: try __dict_result.put(<key>, <value>);
     try self.emitIndent();
-    try self.emit("try __dict_result.put(");
+    try emitConst(self, "try __dict_result.put(");
     try genExpr(self, dictcomp.key.*);
-    try self.emit(", ");
+    try emitConst(self, ", ");
     if (self.target_dict_value_type != null) {
-        try self.emit("try runtime.toPyValue(__global_allocator, ");
+        try emitConst(self, "try runtime.toPyValue(__global_allocator, ");
         try genExpr(self, dictcomp.value.*);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
         try genExpr(self, dictcomp.value.*);
     }
-    try self.emit(");\n");
+    try emitConst(self, ");\n");
 
     // Close all if conditions and for loops
     for (dictcomp.generators) |gen| {
         for (gen.ifs) |_| {
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self, "}\n");
         }
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self, "}\n");
     }
 
     // Generate: break :dict_N __dict_result;
     try self.emitIndent();
-    try self.emit(try std.fmt.allocPrint(self.allocator, "break :dict_{d} __dict_result;\n", .{label_id}));
+    try emitConst(self, try std.fmt.allocPrint(self.allocator, "break :dict_{d} __dict_result;\n", .{label_id}));
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self, "})");
 
     // Restore original types for loop variables
     for (saved_types[0..saved_count]) |saved| {
@@ -240,9 +252,9 @@ fn genDictCompGenerator(
     // Generate if conditions for this generator
     for (gen.ifs) |if_cond| {
         try self.emitIndent();
-        try self.emit("if (");
+        try emitConst(self, "if (");
         try comp_conditions.genComprehensionConditionNoSubs(self, if_cond);
-        try self.emit(") {\n");
+        try emitConst(self, ") {\n");
         self.indent();
     }
 }
@@ -346,7 +358,7 @@ fn genDictCompRangeLoop(
     } else {
         try self.output.writer(self.allocator).print("var {s}: i64 = @intCast(", .{mangled_name});
         try genExpr(self, args[0]);
-        try self.emit(");\n");
+        try emitConst(self, ");\n");
     }
 
     // Generate stop variable if needed
@@ -358,7 +370,7 @@ fn genDictCompRangeLoop(
         } else {
             try genExpr(self, args[1]);
         }
-        try self.emit(");\n");
+        try emitConst(self, ");\n");
     }
 
     // Generate while loop
@@ -377,7 +389,7 @@ fn genDictCompRangeLoop(
     } else {
         try self.output.writer(self.allocator).print("defer {s} += @intCast(", .{mangled_name});
         try genExpr(self, args[2]);
-        try self.emit(");\n");
+        try emitConst(self, ");\n");
     }
 }
 
@@ -413,11 +425,11 @@ fn genDictCompIterLoop(
     if (is_direct_iterable) {
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
-        try self.emit(";\n");
+        try emitConst(self, ";\n");
     } else {
         try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
-        try self.emit(";\n");
+        try emitConst(self, ";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __list_{d}_{d}.items;\n", .{ label_id, gen_idx, label_id, gen_idx });
     }
@@ -435,7 +447,7 @@ fn genDictCompIterLoop(
         try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
         const unique_id = self.nextLabelId();
         const maybe_mangled = try comp_conditions.emitForLoopTarget(self, gen.target.*, unique_id);
-        try self.emit("| {\n");
+        try emitConst(self, "| {\n");
         self.indent();
 
         if (maybe_mangled) |mangled_name| {

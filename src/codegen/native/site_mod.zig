@@ -20,17 +20,21 @@ const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
 fn genGetuserbase(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    // Use self.emit (not builder) to write to correct output buffer
     const label = try self.emitInlineBlockStart("gub");
-    try self.emit("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
-    try self.emitFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local\", .{{home}}) catch \"\"; ", .{label});
+    const b = try self.getBuilder();
+    try b.write("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
+    try b.writeFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local\", .{{home}}) catch \"\"; ", .{label});
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
     try self.emitInlineBlockEnd();
 }
 
 fn genGetusersitepackages(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    // Use self.emit (not builder) to write to correct output buffer
     const label = try self.emitInlineBlockStart("gusp");
-    try self.emit("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
-    try self.emitFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local/lib/python3/site-packages\", .{{home}}) catch \"\"; ", .{label});
+    const b = try self.getBuilder();
+    try b.write("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
+    try b.writeFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local/lib/python3/site-packages\", .{{home}}) catch \"\"; ", .{label});
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
     try self.emitInlineBlockEnd();
 }

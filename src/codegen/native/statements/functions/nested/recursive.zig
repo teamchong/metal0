@@ -30,7 +30,7 @@ pub fn genRecursiveClosure(
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.writeFmt("const {s} = struct {{\n", .{func.name});
-    const output1 = b.getBody();
+    const output1 = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output1);
     self.indent();
 

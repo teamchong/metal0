@@ -36,24 +36,44 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genDecimal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
+        const b = try self.getBuilder();
         try b.emitValue(builder_mod.ZigValue.raw("runtime.Decimal{ .value = 0 }"), builder_mod.EmitConfig.forExpression());
         return;
     }
-    try self.emit("runtime.Decimal{ .value = ");
+    const b = try self.getBuilder();
+    try b.write("runtime.Decimal{ .value = ");
+    const output1 = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output1);
     if (args[0] == .constant and args[0].constant.value == .string) {
-        try self.emit("std.fmt.parseFloat(f64, ");
+        const b2 = try self.getBuilder();
+        try b2.write("std.fmt.parseFloat(f64, ");
+        const out2 = b2.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, out2);
         try self.genExpr(args[0]);
-        try self.emit(") catch 0");
+        const b3 = try self.getBuilder();
+        try b3.write(") catch 0");
+        const out3 = b3.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, out3);
     } else if (args[0] == .constant) {
-        try self.emit("@as(f64, @floatFromInt(");
+        const b2 = try self.getBuilder();
+        try b2.write("@as(f64, @floatFromInt(");
+        const out2 = b2.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, out2);
         try self.genExpr(args[0]);
-        try self.emit("))");
+        const b3 = try self.getBuilder();
+        try b3.write("))");
+        const out3 = b3.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, out3);
     } else {
         try self.genExpr(args[0]);
     }
-    try self.emit(" }");
+    {
+        const b4 = try self.getBuilder();
+        try b4.write(" }");
+        const output2 = b4.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output2);
+    }
 }
 
 fn genSetcontext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {

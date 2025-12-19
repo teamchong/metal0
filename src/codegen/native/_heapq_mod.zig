@@ -5,6 +5,26 @@ const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "heappush", genHeappush },
     .{ "heappop", genHeappop },
@@ -20,11 +40,11 @@ fn genHeappush(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 2) {
         try self.withInlineBlock("hpush", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v0 = ");
+                try emitConst(c, "const __v0 = ");
                 try c.genExpr(a[0]);
-                try c.emit("; const __v1 = ");
+                try emitConst(c, "; const __v1 = ");
                 try c.genExpr(a[1]);
-                try c.emitFmt("; __v0.append(__global_allocator, __v1) catch unreachable; break :{s}; ", .{label});
+                try emitFmtConst(c, "; __v0.append(__global_allocator, __v1) catch unreachable; break :{s}; ", .{label});
             }
         }.emit);
     } else {
@@ -37,9 +57,9 @@ fn genHeappop(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("hpop", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; if (__v.items.len > 0) {{ const _item = __v.items[0]; __v.items[0] = __v.items[__v.items.len - 1]; __v.items.len -= 1; break :{s} _item; }} break :{s} null; ", .{ label, label });
+                try emitFmtConst(c, "; if (__v.items.len > 0) {{ const _item = __v.items[0]; __v.items[0] = __v.items[__v.items.len - 1]; __v.items.len -= 1; break :{s} _item; }} break :{s} null; ", .{ label, label });
             }
         }.emit);
     } else {
@@ -57,11 +77,11 @@ fn genHeapreplace(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void 
     if (args.len >= 2) {
         try self.withInlineBlock("hrep", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v0 = ");
+                try emitConst(c, "const __v0 = ");
                 try c.genExpr(a[0]);
-                try c.emit("; const __v1 = ");
+                try emitConst(c, "; const __v1 = ");
                 try c.genExpr(a[1]);
-                try c.emitFmt("; const _old = __v0.items[0]; __v0.items[0] = __v1; break :{s} _old; ", .{label});
+                try emitFmtConst(c, "; const _old = __v0.items[0]; __v0.items[0] = __v1; break :{s} _old; ", .{label});
             }
         }.emit);
     } else {
@@ -74,11 +94,11 @@ fn genHeappushpop(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void 
     if (args.len >= 2) {
         try self.withInlineBlock("hpp", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v0 = ");
+                try emitConst(c, "const __v0 = ");
                 try c.genExpr(a[0]);
-                try c.emit("; const __v1 = ");
+                try emitConst(c, "; const __v1 = ");
                 try c.genExpr(a[1]);
-                try c.emitFmt("; if (__v1.items.len > 0 and __v1.items[0] < __v0) {{ const _old = __v1.items[0]; __v1.items[0] = __v0; break :{s} _old; }} break :{s} __v0; ", .{ label, label });
+                try emitFmtConst(c, "; if (__v1.items.len > 0 and __v1.items[0] < __v0) {{ const _old = __v1.items[0]; __v1.items[0] = __v0; break :{s} _old; }} break :{s} __v0; ", .{ label, label });
             }
         }.emit);
     } else {
@@ -91,11 +111,11 @@ fn genNlargest(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 2) {
         try self.withInlineBlock("nlrg", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v0 = ");
+                try emitConst(c, "const __v0 = ");
                 try c.genExpr(a[0]);
-                try c.emit("; const __v1 = ");
+                try emitConst(c, "; const __v1 = ");
                 try c.genExpr(a[1]);
-                try c.emitFmt("; const _n = @as(usize, @intCast(__v0)); var _result: std.ArrayList(@TypeOf(__v1[0])) = .{{}}; for (__v1[0..@min(_n, __v1.len)]) |_item| {{ _result.append(__global_allocator, _item) catch unreachable; }} break :{s} _result.items; ", .{label});
+                try emitFmtConst(c, "; const _n = @as(usize, @intCast(__v0)); var _result: std.ArrayList(@TypeOf(__v1[0])) = .{{}}; for (__v1[0..@min(_n, __v1.len)]) |_item| {{ _result.append(__global_allocator, _item) catch unreachable; }} break :{s} _result.items; ", .{label});
             }
         }.emit);
     } else {
@@ -108,11 +128,11 @@ fn genNsmallest(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 2) {
         try self.withInlineBlock("nsm", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v0 = ");
+                try emitConst(c, "const __v0 = ");
                 try c.genExpr(a[0]);
-                try c.emit("; const __v1 = ");
+                try emitConst(c, "; const __v1 = ");
                 try c.genExpr(a[1]);
-                try c.emitFmt("; const _n = @as(usize, @intCast(__v0)); var _result: std.ArrayList(@TypeOf(__v1[0])) = .{{}}; for (__v1[0..@min(_n, __v1.len)]) |_item| {{ _result.append(__global_allocator, _item) catch unreachable; }} break :{s} _result.items; ", .{label});
+                try emitFmtConst(c, "; const _n = @as(usize, @intCast(__v0)); var _result: std.ArrayList(@TypeOf(__v1[0])) = .{{}}; for (__v1[0..@min(_n, __v1.len)]) |_item| {{ _result.append(__global_allocator, _item) catch unreachable; }} break :{s} _result.items; ", .{label});
             }
         }.emit);
     } else {

@@ -1,9 +1,18 @@
 /// DateTime module codegen - datetime.datetime, datetime.date, datetime.time, datetime.timedelta
 /// Supports constructors, now(), today(), strftime, and method calls
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
@@ -63,56 +72,66 @@ pub const MethodFuncs = std.StaticStringMap(MethodHandler).initComptime(.{
 /// Returns current datetime as Datetime struct
 pub fn genDatetimeNow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args; // datetime.now() takes no arguments
-    try self.emit("runtime.datetime.Datetime.now()");
+    try emitConst(self, "runtime.datetime.Datetime.now()");
 }
 
 /// Generate code for datetime.date.today()
 /// Returns current date as Date struct
 pub fn genDateToday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args; // date.today() takes no arguments
-    try self.emit("runtime.datetime.Date.today()");
+    try emitConst(self, "runtime.datetime.Date.today()");
 }
 
 /// Generate code for datetime.timedelta(days=N)
 /// Returns Timedelta struct
 pub fn genTimedelta(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("runtime.datetime.Timedelta{ .days = 0, .seconds = 0, .microseconds = 0 }");
+        try emitConst(self, "runtime.datetime.Timedelta{ .days = 0, .seconds = 0, .microseconds = 0 }");
         return;
     }
     // Simple case: timedelta(days)
-    try self.emit("runtime.datetime.Timedelta.fromDays(");
+    try emitConst(self, "runtime.datetime.Timedelta.fromDays(");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitConst(self, ")");
 }
 
 /// dt.weekday() - return day of week (0=Monday, 6=Sunday)
 pub fn genWeekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("@as(i64, 0)"); return; }
+    if (args.len < 1) { try emitConst(self, "@as(i64, 0)"); return; }
     try self.withInlineBlock("wd", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("_ = ");
+            try emitConst(c, "_ = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; break :{s} @as(i64, 0); ", .{label});
+            {
+                const b = try c.getBuilder();
+                try b.writeFmt("; break :{s} @as(i64, 0); ", .{label});
+                const output = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output);
+            }
         }
     }.emit);
 }
 
 /// dt.isoweekday() - return ISO day of week (1=Monday, 7=Sunday)
 pub fn genIsoweekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("@as(i64, 1)"); return; }
+    if (args.len < 1) { try emitConst(self, "@as(i64, 1)"); return; }
     try self.withInlineBlock("iwd", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("_ = ");
+            try emitConst(c, "_ = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; break :{s} @as(i64, 1); ", .{label});
+            {
+                const b = try c.getBuilder();
+                try b.writeFmt("; break :{s} @as(i64, 1); ", .{label});
+                const output = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output);
+            }
         }
     }.emit);
 }
 
 /// dt.replace(...) - return copy with replaced fields
 pub fn genReplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit(".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }"); return; }
+    if (args.len < 1) { try emitConst(self, ".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }"); return; }
     try self.genExpr(args[0]);
 }
 
@@ -123,52 +142,52 @@ pub fn genReplace(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate datetime.datetime(year, month, day, hour=0, minute=0, second=0, microsecond=0)
 pub fn genDatetimeConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) {
-        try self.emit("runtime.datetime.Datetime{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
+        try emitConst(self, "runtime.datetime.Datetime{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
         return;
     }
-    try self.emit("runtime.datetime.Datetime{ .year = @intCast(");
+    try emitConst(self, "runtime.datetime.Datetime{ .year = @intCast(");
     try self.genExpr(args[0]);
-    try self.emit("), .month = @intCast(");
+    try emitConst(self, "), .month = @intCast(");
     try self.genExpr(args[1]);
-    try self.emit("), .day = @intCast(");
+    try emitConst(self, "), .day = @intCast(");
     try self.genExpr(args[2]);
-    try self.emit("), .hour = ");
-    if (args.len > 3) { try self.emit("@intCast("); try self.genExpr(args[3]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(", .minute = ");
-    if (args.len > 4) { try self.emit("@intCast("); try self.genExpr(args[4]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(", .second = ");
-    if (args.len > 5) { try self.emit("@intCast("); try self.genExpr(args[5]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(", .microsecond = ");
-    if (args.len > 6) { try self.emit("@intCast("); try self.genExpr(args[6]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(" }");
+    try emitConst(self, "), .hour = ");
+    if (args.len > 3) { try emitConst(self, "@intCast("); try self.genExpr(args[3]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, ", .minute = ");
+    if (args.len > 4) { try emitConst(self, "@intCast("); try self.genExpr(args[4]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, ", .second = ");
+    if (args.len > 5) { try emitConst(self, "@intCast("); try self.genExpr(args[5]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, ", .microsecond = ");
+    if (args.len > 6) { try emitConst(self, "@intCast("); try self.genExpr(args[6]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, " }");
 }
 
 /// Generate datetime.date(year, month, day)
 pub fn genDateConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) {
-        try self.emit("runtime.datetime.Date{ .year = 1970, .month = 1, .day = 1 }");
+        try emitConst(self, "runtime.datetime.Date{ .year = 1970, .month = 1, .day = 1 }");
         return;
     }
-    try self.emit("runtime.datetime.Date{ .year = @intCast(");
+    try emitConst(self, "runtime.datetime.Date{ .year = @intCast(");
     try self.genExpr(args[0]);
-    try self.emit("), .month = @intCast(");
+    try emitConst(self, "), .month = @intCast(");
     try self.genExpr(args[1]);
-    try self.emit("), .day = @intCast(");
+    try emitConst(self, "), .day = @intCast(");
     try self.genExpr(args[2]);
-    try self.emit(") }");
+    try emitConst(self, ") }");
 }
 
 /// Generate datetime.time(hour=0, minute=0, second=0, microsecond=0)
 pub fn genTimeConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.datetime.Time{ .hour = ");
-    if (args.len > 0) { try self.emit("@intCast("); try self.genExpr(args[0]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(", .minute = ");
-    if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(", .second = ");
-    if (args.len > 2) { try self.emit("@intCast("); try self.genExpr(args[2]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(", .microsecond = ");
-    if (args.len > 3) { try self.emit("@intCast("); try self.genExpr(args[3]); try self.emit(")"); } else try self.emit("0");
-    try self.emit(" }");
+    try emitConst(self, "runtime.datetime.Time{ .hour = ");
+    if (args.len > 0) { try emitConst(self, "@intCast("); try self.genExpr(args[0]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, ", .minute = ");
+    if (args.len > 1) { try emitConst(self, "@intCast("); try self.genExpr(args[1]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, ", .second = ");
+    if (args.len > 2) { try emitConst(self, "@intCast("); try self.genExpr(args[2]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, ", .microsecond = ");
+    if (args.len > 3) { try emitConst(self, "@intCast("); try self.genExpr(args[3]); try emitConst(self, ")"); } else try emitConst(self, "0");
+    try emitConst(self, " }");
 }
 
 // =============================================================================
@@ -178,49 +197,49 @@ pub fn genTimeConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 /// datetime.datetime.utcnow()
 pub fn genDatetimeUtcnow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.datetime.Datetime.fromTimestamp(std.time.timestamp())");
+    try emitConst(self, "runtime.datetime.Datetime.fromTimestamp(std.time.timestamp())");
 }
 
 /// datetime.datetime.today() - same as now()
 pub fn genDatetimeToday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.datetime.Datetime.now()");
+    try emitConst(self, "runtime.datetime.Datetime.now()");
 }
 
 /// datetime.datetime.fromtimestamp(ts)
 pub fn genDatetimeFromTimestamp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Datetime.fromTimestamp(0)"); return; }
-    try self.emit("runtime.datetime.Datetime.fromTimestamp(@intCast(");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Datetime.fromTimestamp(0)"); return; }
+    try emitConst(self, "runtime.datetime.Datetime.fromTimestamp(@intCast(");
     try self.genExpr(args[0]);
-    try self.emit("))");
+    try emitConst(self, "))");
 }
 
 /// datetime.datetime.fromisoformat(string)
 pub fn genDatetimeFromIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Datetime.now()"); return; }
-    try self.emit("runtime.datetime.Datetime.parseIsoformat(");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Datetime.now()"); return; }
+    try emitConst(self, "runtime.datetime.Datetime.parseIsoformat(");
     try self.genExpr(args[0]);
-    try self.emit(") catch runtime.datetime.Datetime.now()");
+    try emitConst(self, ") catch runtime.datetime.Datetime.now()");
 }
 
 /// datetime.datetime.combine(date, time)
 pub fn genDatetimeCombine(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("runtime.datetime.Datetime.now()"); return; }
-    try self.emit("runtime.datetime.Datetime{ .year = ");
+    if (args.len < 2) { try emitConst(self, "runtime.datetime.Datetime.now()"); return; }
+    try emitConst(self, "runtime.datetime.Datetime{ .year = ");
     try self.genExpr(args[0]);
-    try self.emit(".year, .month = ");
+    try emitConst(self, ".year, .month = ");
     try self.genExpr(args[0]);
-    try self.emit(".month, .day = ");
+    try emitConst(self, ".month, .day = ");
     try self.genExpr(args[0]);
-    try self.emit(".day, .hour = ");
+    try emitConst(self, ".day, .hour = ");
     try self.genExpr(args[1]);
-    try self.emit(".hour, .minute = ");
+    try emitConst(self, ".hour, .minute = ");
     try self.genExpr(args[1]);
-    try self.emit(".minute, .second = ");
+    try emitConst(self, ".minute, .second = ");
     try self.genExpr(args[1]);
-    try self.emit(".second, .microsecond = ");
+    try emitConst(self, ".second, .microsecond = ");
     try self.genExpr(args[1]);
-    try self.emit(".microsecond }");
+    try emitConst(self, ".microsecond }");
 }
 
 // =============================================================================
@@ -229,30 +248,35 @@ pub fn genDatetimeCombine(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 
 /// datetime.date.fromtimestamp(ts)
 pub fn genDateFromTimestamp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Date.today()"); return; }
     try self.withInlineBlock("dt", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _dt = runtime.datetime.Datetime.fromTimestamp(@intCast(");
+            try emitConst(c, "const _dt = runtime.datetime.Datetime.fromTimestamp(@intCast(");
             try c.genExpr(a[0]);
-            try c.emitFmt(")); break :{s} runtime.datetime.Date{{ .year = _dt.year, .month = _dt.month, .day = _dt.day }}; ", .{label});
+            {
+                const b = try c.getBuilder();
+                try b.writeFmt(")); break :{s} runtime.datetime.Date{{ .year = _dt.year, .month = _dt.month, .day = _dt.day }}; ", .{label});
+                const output = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output);
+            }
         }
     }.emit);
 }
 
 /// datetime.date.fromisoformat(string)
 pub fn genDateFromIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
-    try self.emit("runtime.datetime.Date.parseIsoformat(");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Date.today()"); return; }
+    try emitConst(self, "runtime.datetime.Date.parseIsoformat(");
     try self.genExpr(args[0]);
-    try self.emit(") catch runtime.datetime.Date.today()");
+    try emitConst(self, ") catch runtime.datetime.Date.today()");
 }
 
 /// datetime.date.fromordinal(ordinal)
 pub fn genDateFromOrdinal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
-    try self.emit("runtime.datetime.Date.fromOrdinal(@intCast(");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Date.today()"); return; }
+    try emitConst(self, "runtime.datetime.Date.fromOrdinal(@intCast(");
     try self.genExpr(args[0]);
-    try self.emit("))");
+    try emitConst(self, "))");
 }
 
 // =============================================================================
@@ -261,10 +285,10 @@ pub fn genDateFromOrdinal(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 
 /// datetime.time.fromisoformat(string)
 pub fn genTimeFromIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Time{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }"); return; }
-    try self.emit("runtime.datetime.Time.parseIsoformat(");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Time{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }"); return; }
+    try emitConst(self, "runtime.datetime.Time.parseIsoformat(");
     try self.genExpr(args[0]);
-    try self.emit(") catch runtime.datetime.Time{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
+    try emitConst(self, ") catch runtime.datetime.Time{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
 }
 
 // =============================================================================
@@ -273,86 +297,86 @@ pub fn genTimeFromIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError
 
 /// dt.strftime(format)
 pub fn genStrftime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("\"\""); return; }
-    try self.emit("try runtime.datetime.strftime(__global_allocator, ");
+    if (args.len < 2) { try emitConst(self, "\"\""); return; }
+    try emitConst(self, "try runtime.datetime.strftime(__global_allocator, ");
     try self.genExpr(args[0]); // datetime object
-    try self.emit(", ");
+    try emitConst(self, ", ");
     try self.genExpr(args[1]); // format string
-    try self.emit(")");
+    try emitConst(self, ")");
 }
 
 /// dt.isoformat(sep='T')
 pub fn genIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("\"1970-01-01T00:00:00\""); return; }
-    try self.emit("try ");
+    if (args.len < 1) { try emitConst(self, "\"1970-01-01T00:00:00\""); return; }
+    try emitConst(self, "try ");
     try self.genExpr(args[0]);
-    try self.emit(".toIsoformat(__global_allocator)");
+    try emitConst(self, ".toIsoformat(__global_allocator)");
 }
 
 /// dt.date() - extract date from datetime
 pub fn genExtractDate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
-    try self.emit("runtime.datetime.Date{ .year = ");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Date.today()"); return; }
+    try emitConst(self, "runtime.datetime.Date{ .year = ");
     try self.genExpr(args[0]);
-    try self.emit(".year, .month = ");
+    try emitConst(self, ".year, .month = ");
     try self.genExpr(args[0]);
-    try self.emit(".month, .day = ");
+    try emitConst(self, ".month, .day = ");
     try self.genExpr(args[0]);
-    try self.emit(".day }");
+    try emitConst(self, ".day }");
 }
 
 /// dt.time() - extract time from datetime
 pub fn genExtractTime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("runtime.datetime.Time{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }"); return; }
-    try self.emit("runtime.datetime.Time{ .hour = ");
+    if (args.len < 1) { try emitConst(self, "runtime.datetime.Time{ .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }"); return; }
+    try emitConst(self, "runtime.datetime.Time{ .hour = ");
     try self.genExpr(args[0]);
-    try self.emit(".hour, .minute = ");
+    try emitConst(self, ".hour, .minute = ");
     try self.genExpr(args[0]);
-    try self.emit(".minute, .second = ");
+    try emitConst(self, ".minute, .second = ");
     try self.genExpr(args[0]);
-    try self.emit(".second, .microsecond = ");
+    try emitConst(self, ".second, .microsecond = ");
     try self.genExpr(args[0]);
-    try self.emit(".microsecond }");
+    try emitConst(self, ".microsecond }");
 }
 
 /// dt.timestamp() - convert to Unix timestamp
 pub fn genTimestamp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("@as(f64, 0)"); return; }
+    if (args.len < 1) { try emitConst(self, "@as(f64, 0)"); return; }
     try self.genExpr(args[0]);
-    try self.emit(".toTimestamp()");
+    try emitConst(self, ".toTimestamp()");
 }
 
 /// dt.timetuple() - return time.struct_time
 pub fn genTimetuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit(".{ .@\"0\" = 1970, .@\"1\" = 1, .@\"2\" = 1, .@\"3\" = 0, .@\"4\" = 0, .@\"5\" = 0, .@\"6\" = 0, .@\"7\" = 1, .@\"8\" = -1 }"); return; }
-    try self.emit(".{ .@\"0\" = @as(i64, ");
+    if (args.len < 1) { try emitConst(self, ".{ .@\"0\" = 1970, .@\"1\" = 1, .@\"2\" = 1, .@\"3\" = 0, .@\"4\" = 0, .@\"5\" = 0, .@\"6\" = 0, .@\"7\" = 1, .@\"8\" = -1 }"); return; }
+    try emitConst(self, ".{ .@\"0\" = @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(".year), .@\"1\" = @as(i64, ");
+    try emitConst(self, ".year), .@\"1\" = @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(".month), .@\"2\" = @as(i64, ");
+    try emitConst(self, ".month), .@\"2\" = @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(".day), .@\"3\" = @as(i64, ");
+    try emitConst(self, ".day), .@\"3\" = @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(".hour), .@\"4\" = @as(i64, ");
+    try emitConst(self, ".hour), .@\"4\" = @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(".minute), .@\"5\" = @as(i64, ");
+    try emitConst(self, ".minute), .@\"5\" = @as(i64, ");
     try self.genExpr(args[0]);
-    try self.emit(".second), .@\"6\" = 0, .@\"7\" = 1, .@\"8\" = -1 }");
+    try emitConst(self, ".second), .@\"6\" = 0, .@\"7\" = 1, .@\"8\" = -1 }");
 }
 
 /// dt.toordinal() - return proleptic Gregorian ordinal
 pub fn genToordinal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("@as(i64, 1)"); return; }
+    if (args.len < 1) { try emitConst(self, "@as(i64, 1)"); return; }
     try self.genExpr(args[0]);
-    try self.emit(".toOrdinal()");
+    try emitConst(self, ".toOrdinal()");
 }
 
 /// dt.ctime() - return string like "Sun Jun  9 01:21:11 1993"
 pub fn genCtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("\"Thu Jan  1 00:00:00 1970\""); return; }
-    try self.emit("try ");
+    if (args.len < 1) { try emitConst(self, "\"Thu Jan  1 00:00:00 1970\""); return; }
+    try emitConst(self, "try ");
     try self.genExpr(args[0]);
-    try self.emit(".toCtime(__global_allocator)");
+    try emitConst(self, ".toCtime(__global_allocator)");
 }
 
 // =============================================================================
@@ -362,100 +386,100 @@ pub fn genCtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// dt.strftime(format) - method handler
 fn genMethodStrftime(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    if (args.len < 1) { try self.emit("\"\""); return; }
-    try self.emit("try runtime.datetime.strftime(__global_allocator, ");
+    if (args.len < 1) { try emitConst(self, "\"\""); return; }
+    try emitConst(self, "try runtime.datetime.strftime(__global_allocator, ");
     try self.genExpr(obj);
-    try self.emit(", ");
+    try emitConst(self, ", ");
     try self.genExpr(args[0]); // format string
-    try self.emit(")");
+    try emitConst(self, ")");
 }
 
 /// dt.isoformat() - method handler
 fn genMethodIsoformat(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("try ");
+    try emitConst(self, "try ");
     try self.genExpr(obj);
-    try self.emit(".toIsoformat(__global_allocator)");
+    try emitConst(self, ".toIsoformat(__global_allocator)");
 }
 
 /// dt.date() - method handler
 fn genMethodDate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.datetime.Date{ .year = ");
+    try emitConst(self, "runtime.datetime.Date{ .year = ");
     try self.genExpr(obj);
-    try self.emit(".year, .month = ");
+    try emitConst(self, ".year, .month = ");
     try self.genExpr(obj);
-    try self.emit(".month, .day = ");
+    try emitConst(self, ".month, .day = ");
     try self.genExpr(obj);
-    try self.emit(".day }");
+    try emitConst(self, ".day }");
 }
 
 /// dt.time() - method handler
 fn genMethodTime(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.datetime.Time{ .hour = ");
+    try emitConst(self, "runtime.datetime.Time{ .hour = ");
     try self.genExpr(obj);
-    try self.emit(".hour, .minute = ");
+    try emitConst(self, ".hour, .minute = ");
     try self.genExpr(obj);
-    try self.emit(".minute, .second = ");
+    try emitConst(self, ".minute, .second = ");
     try self.genExpr(obj);
-    try self.emit(".second, .microsecond = ");
+    try emitConst(self, ".second, .microsecond = ");
     try self.genExpr(obj);
-    try self.emit(".microsecond }");
+    try emitConst(self, ".microsecond }");
 }
 
 /// dt.weekday() - method handler
 fn genMethodWeekday(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.genExpr(obj);
-    try self.emit(".weekday()");
+    try emitConst(self, ".weekday()");
 }
 
 /// dt.isoweekday() - method handler
 fn genMethodIsoweekday(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.genExpr(obj);
-    try self.emit(".weekday() + 1");
+    try emitConst(self, ".weekday() + 1");
 }
 
 /// dt.toordinal() - method handler
 fn genMethodToordinal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.genExpr(obj);
-    try self.emit(".toOrdinal()");
+    try emitConst(self, ".toOrdinal()");
 }
 
 /// dt.timestamp() - method handler
 fn genMethodTimestamp(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.genExpr(obj);
-    try self.emit(".toTimestamp()");
+    try emitConst(self, ".toTimestamp()");
 }
 
 /// dt.timetuple() - method handler
 fn genMethodTimetuple(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit(".{ .@\"0\" = @as(i64, ");
+    try emitConst(self, ".{ .@\"0\" = @as(i64, ");
     try self.genExpr(obj);
-    try self.emit(".year), .@\"1\" = @as(i64, ");
+    try emitConst(self, ".year), .@\"1\" = @as(i64, ");
     try self.genExpr(obj);
-    try self.emit(".month), .@\"2\" = @as(i64, ");
+    try emitConst(self, ".month), .@\"2\" = @as(i64, ");
     try self.genExpr(obj);
-    try self.emit(".day), .@\"3\" = @as(i64, ");
+    try emitConst(self, ".day), .@\"3\" = @as(i64, ");
     try self.genExpr(obj);
-    try self.emit(".hour), .@\"4\" = @as(i64, ");
+    try emitConst(self, ".hour), .@\"4\" = @as(i64, ");
     try self.genExpr(obj);
-    try self.emit(".minute), .@\"5\" = @as(i64, ");
+    try emitConst(self, ".minute), .@\"5\" = @as(i64, ");
     try self.genExpr(obj);
-    try self.emit(".second), .@\"6\" = 0, .@\"7\" = 1, .@\"8\" = -1 }");
+    try emitConst(self, ".second), .@\"6\" = 0, .@\"7\" = 1, .@\"8\" = -1 }");
 }
 
 /// dt.ctime() - method handler
 fn genMethodCtime(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("try ");
+    try emitConst(self, "try ");
     try self.genExpr(obj);
-    try self.emit(".toCtime(__global_allocator)");
+    try emitConst(self, ".toCtime(__global_allocator)");
 }
 
 /// dt.replace() - method handler
@@ -469,5 +493,5 @@ fn genMethodReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 fn genMethodTotalSeconds(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.genExpr(obj);
-    try self.emit(".totalSeconds()");
+    try emitConst(self, ".totalSeconds()");
 }

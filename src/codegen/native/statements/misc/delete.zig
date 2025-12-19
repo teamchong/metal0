@@ -136,6 +136,6 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
         }
     }
 
-    const output = b.getBody();
+    const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }

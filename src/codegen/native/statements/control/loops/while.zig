@@ -65,6 +65,6 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     }
 
     // Final flush
-    const output = b.getBody();
+    const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }

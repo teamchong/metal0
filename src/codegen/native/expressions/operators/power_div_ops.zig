@@ -19,6 +19,48 @@ const collection_ops = @import("collection_ops.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// Arithmetic helper functions - auto-closing patterns
+// ============================================
+
+/// Emit expression with bool-to-i64 coercion if needed: @as(i64, @intFromBool(expr))
+fn emitExprBoolCoerced(self: *NativeCodegen, expr: ast.Node, is_bool: bool) CodegenError!void {
+    if (is_bool) {
+        try emitConst(self, "@as(i64, @intFromBool(");
+        try genExpr(self, expr);
+        try emitConst(self, "))");
+    } else {
+        try genExpr(self, expr);
+    }
+}
+
+/// Emit two-argument function call: func(expr1, expr2)
+fn emitBinaryCall(self: *NativeCodegen, func: []const u8, left: ast.Node, right: ast.Node) CodegenError!void {
+    try emitConst(self, func);
+    try emitConst(self, "(");
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
 /// Generate power operation
 pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     const left_is_bool = type_traits.isBoolean(left_type);
@@ -28,66 +70,27 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     if (binop.right.* == .constant and binop.right.constant.value == .int) {
         const exp = binop.right.constant.value.int;
         if (exp >= 20) {
-            const alloc_name = "__global_allocator";
-            try self.emit("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
-            if (left_is_bool) {
-                try self.emit("@as(i64, @intFromBool(");
-                try genExpr(self, binop.left.*);
-                try self.emit("))");
-            } else {
-                try genExpr(self, binop.left.*);
-            }
-            try self.emit("), @as(u32, @intCast(");
-            if (right_is_bool) {
-                try self.emit("@as(i64, @intFromBool(");
-                try genExpr(self, binop.right.*);
-                try self.emit("))");
-            } else {
-                try genExpr(self, binop.right.*);
-            }
-            try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit(")");
+            try emitConst(self, "runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
+            try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+            try emitConst(self, "), @as(u32, @intCast(");
+            try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+            try emitConst(self, ")), __global_allocator)");
             return;
         }
         // Small constant positive exponent - use i64
-        try self.emit("std.math.pow(i64, ");
-        if (left_is_bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.left.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.left.*);
-        }
-        try self.emit(", ");
-        if (right_is_bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.right.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.right.*);
-        }
-        try self.emit(")");
+        try emitConst(self, "std.math.pow(i64, ");
+        try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+        try emitConst(self, ", ");
+        try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+        try emitConst(self, ")");
         return;
     }
     // Runtime exponent - use f64 for safety
-    try self.emit("std.math.pow(f64, @as(f64, @floatFromInt(");
-    if (left_is_bool) {
-        try self.emit("@as(i64, @intFromBool(");
-        try genExpr(self, binop.left.*);
-        try self.emit("))");
-    } else {
-        try genExpr(self, binop.left.*);
-    }
-    try self.emit(")), @as(f64, @floatFromInt(");
-    if (right_is_bool) {
-        try self.emit("@as(i64, @intFromBool(");
-        try genExpr(self, binop.right.*);
-        try self.emit("))");
-    } else {
-        try genExpr(self, binop.right.*);
-    }
-    try self.emit(")))");
+    try emitConst(self, "std.math.pow(f64, @as(f64, @floatFromInt(");
+    try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+    try emitConst(self, ")), @as(f64, @floatFromInt(");
+    try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+    try emitConst(self, ")))");
 }
 
 /// Generate division operation
@@ -95,9 +98,9 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     // Check if this is Path / string (path join)
     if (left_type == .path) {
         try genExpr(self, binop.left.*);
-        try self.emit(".join(");
+        try emitConst(self, ".join(");
         try genExpr(self, binop.right.*);
-        try self.emit(")");
+        try emitConst(self, ")");
         return;
     }
 
@@ -106,64 +109,40 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 
     // At module level or inside defer, we can't use 'try'
     if (self.indent_level == 0 or self.inside_defer) {
-        try self.emit("(@as(f64, @floatFromInt(");
-        if (left_is_bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.left.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.left.*);
-        }
-        try self.emit(")) / @as(f64, @floatFromInt(");
-        if (right_is_bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.right.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.right.*);
-        }
-        try self.emit(")))");
+        try emitConst(self, "(@as(f64, @floatFromInt(");
+        try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+        try emitConst(self, ")) / @as(f64, @floatFromInt(");
+        try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+        try emitConst(self, ")))");
     } else {
-        try self.emit("try runtime.divideFloat(");
-        if (left_is_bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.left.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.left.*);
-        }
-        try self.emit(", ");
-        if (right_is_bool) {
-            try self.emit("@as(i64, @intFromBool(");
-            try genExpr(self, binop.right.*);
-            try self.emit("))");
-        } else {
-            try genExpr(self, binop.right.*);
-        }
-        try self.emit(")");
+        try emitConst(self, "try runtime.divideFloat(");
+        try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+        try emitConst(self, ", ");
+        try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+        try emitConst(self, ")");
     }
 }
 
 /// Generate matrix multiplication operation
 pub fn genMatMulOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     if (type_traits.isClassInstance(left_type) or type_traits.isUnknown(left_type)) {
-        try self.emit("try ");
+        try emitConst(self, "try ");
         try genExpr(self, binop.left.*);
-        try self.emit(".__matmul__(__global_allocator, ");
+        try emitConst(self, ".__matmul__(__global_allocator, ");
         try genExpr(self, binop.right.*);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else if (type_traits.isClassInstance(right_type) or type_traits.isUnknown(right_type)) {
-        try self.emit("try ");
+        try emitConst(self, "try ");
         try genExpr(self, binop.right.*);
-        try self.emit(".__rmatmul__(__global_allocator, ");
+        try emitConst(self, ".__rmatmul__(__global_allocator, ");
         try genExpr(self, binop.left.*);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("try ");
+        try emitConst(self, "try ");
         try genExpr(self, binop.left.*);
-        try self.emit(".__matmul__(__global_allocator, ");
+        try emitConst(self, ".__matmul__(__global_allocator, ");
         try genExpr(self, binop.right.*);
-        try self.emit(")");
+        try emitConst(self, ")");
     }
 }
 
@@ -172,37 +151,23 @@ pub fn genFloorDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nat
     const semantics = operator_traits.getFloorDivSemantics(left_type, right_type);
     switch (semantics) {
         .runtime_dispatch => {
-            try self.emit("runtime.pyFloorDiv(__global_allocator, ");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
+            try emitBinaryCall(self, "runtime.pyFloorDiv(__global_allocator, ", binop.left.*, binop.right.*);
         },
         .python_floored => {
-            try self.emit("@floor(");
+            try emitConst(self, "@floor(");
             try genExpr(self, binop.left.*);
-            try self.emit(" / ");
+            try emitConst(self, " / ");
             try genExpr(self, binop.right.*);
-            try self.emit(")");
+            try emitConst(self, ")");
         },
         .zig_native => {
-            try self.emit("@divFloor(");
-            if (type_traits.isBoolean(left_type)) {
-                try self.emit("@as(i64, @intFromBool(");
-                try genExpr(self, binop.left.*);
-                try self.emit("))");
-            } else {
-                try genExpr(self, binop.left.*);
-            }
-            try self.emit(", ");
-            if (type_traits.isBoolean(right_type)) {
-                try self.emit("@as(i64, @intFromBool(");
-                try genExpr(self, binop.right.*);
-                try self.emit("))");
-            } else {
-                try genExpr(self, binop.right.*);
-            }
-            try self.emit(")");
+            const left_is_bool = type_traits.isBoolean(left_type);
+            const right_is_bool = type_traits.isBoolean(right_type);
+            try emitConst(self, "@divFloor(");
+            try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+            try emitConst(self, ", ");
+            try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+            try emitConst(self, ")");
         },
     }
 }
@@ -217,37 +182,19 @@ pub fn genModOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     const semantics = operator_traits.getModuloSemantics(left_type, right_type);
     switch (semantics) {
         .runtime_dispatch => {
-            try self.emit("runtime.pyMod(__global_allocator, ");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
+            try emitBinaryCall(self, "runtime.pyMod(__global_allocator, ", binop.left.*, binop.right.*);
         },
         .python_floored => {
-            try self.emit("runtime.pyFloatMod(");
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
+            try emitBinaryCall(self, "runtime.pyFloatMod(", binop.left.*, binop.right.*);
         },
         .zig_native => {
-            try self.emit("@mod(");
-            if (type_traits.isBoolean(left_type)) {
-                try self.emit("@as(i64, @intFromBool(");
-                try genExpr(self, binop.left.*);
-                try self.emit("))");
-            } else {
-                try genExpr(self, binop.left.*);
-            }
-            try self.emit(", ");
-            if (type_traits.isBoolean(right_type)) {
-                try self.emit("@as(i64, @intFromBool(");
-                try genExpr(self, binop.right.*);
-                try self.emit("))");
-            } else {
-                try genExpr(self, binop.right.*);
-            }
-            try self.emit(")");
+            const left_is_bool = type_traits.isBoolean(left_type);
+            const right_is_bool = type_traits.isBoolean(right_type);
+            try emitConst(self, "@mod(");
+            try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+            try emitConst(self, ", ");
+            try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+            try emitConst(self, ")");
         },
     }
 }
@@ -260,59 +207,59 @@ pub fn genLargeShiftOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
-    try self.emit("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
+    try emitConst(self, "runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
     try self.emitZigValue(left_operand);
-    try self.emit("), @as(u32, @intCast(");
+    try emitConst(self, "), @as(u32, @intCast(");
     try self.emitZigValue(right_operand);
-    try self.emit(")), ");
-    try self.emit(alloc_name);
-    try self.emit(")");
+    try emitConst(self, ")), ");
+    try emitConst(self, alloc_name);
+    try emitConst(self, ")");
 }
 
 /// Generate dict merge operation (Python 3.9+)
 pub fn genDictMerge(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("(dmerge_{d}: {{\n", .{label_id});
+    try emitFmtConst(self, "(dmerge_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __merged = @TypeOf(");
+    try emitConst(self, "var __merged = @TypeOf(");
     try collection_ops.genExprWrapped(self, binop.left.*);
-    try self.emit("){};\n");
+    try emitConst(self, "){};\n");
 
     try self.emitIndent();
-    try self.emit("var __left_iter = ");
+    try emitConst(self, "var __left_iter = ");
     try collection_ops.genExprWrapped(self, binop.left.*);
-    try self.emit(".iterator();\n");
+    try emitConst(self, ".iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__left_iter.next()) |entry| {\n");
+    try emitConst(self, "while (__left_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try emitConst(self, "try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     try self.emitIndent();
-    try self.emit("var __right_iter = ");
+    try emitConst(self, "var __right_iter = ");
     try collection_ops.genExprWrapped(self, binop.right.*);
-    try self.emit(".iterator();\n");
+    try emitConst(self, ".iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__right_iter.next()) |entry| {\n");
+    try emitConst(self, "while (__right_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try emitConst(self, "try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :dmerge_{d} __merged;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self, "})");
 }
 
 /// Generate simple binary operations (+, -, *, &, |, ^, <<, >>)
@@ -328,7 +275,7 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     if (left_is_bool and right_is_bool and
         (binop.op == .BitAnd or binop.op == .BitOr or binop.op == .BitXor))
     {
-        try self.emit("(");
+        try emitConst(self, "(");
         try collection_ops.genExprWrapped(self, binop.left.*);
         const op_str = switch (binop.op) {
             .BitAnd => " and ",
@@ -336,9 +283,9 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
             .BitXor => " != ",
             else => unreachable,
         };
-        try self.emit(op_str);
+        try emitConst(self, op_str);
         try collection_ops.genExprWrapped(self, binop.right.*);
-        try self.emit(")");
+        try emitConst(self, ")");
         return;
     }
 
@@ -350,46 +297,46 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     const left_is_unknown = (left_type == .unknown);
     const right_is_unknown = (right_type == .unknown);
     if (binop.op == .Mult and ((left_is_int and right_is_float) or (left_is_float and right_is_int))) {
-        try self.emit("(");
+        try emitConst(self, "(");
         if (left_is_int) {
-            try self.emit("@as(f64, @floatFromInt(");
+            try emitConst(self, "@as(f64, @floatFromInt(");
             try collection_ops.genExprWrapped(self, binop.left.*);
-            try self.emit("))");
+            try emitConst(self, "))");
         } else {
             try collection_ops.genExprWrapped(self, binop.left.*);
         }
-        try self.emit(" * ");
+        try emitConst(self, " * ");
         if (right_is_int) {
-            try self.emit("@as(f64, @floatFromInt(");
+            try emitConst(self, "@as(f64, @floatFromInt(");
             try collection_ops.genExprWrapped(self, binop.right.*);
-            try self.emit("))");
+            try emitConst(self, "))");
         } else {
             try collection_ops.genExprWrapped(self, binop.right.*);
         }
-        try self.emit(")");
+        try emitConst(self, ")");
         return;
     }
     // Handle unknown type * float
     if (binop.op == .Mult and ((left_is_unknown and right_is_float) or (left_is_float and right_is_unknown))) {
-        try self.emit("(runtime.toFloat(");
+        try emitConst(self, "(runtime.toFloat(");
         try collection_ops.genExprWrapped(self, binop.left.*);
-        try self.emit(") * runtime.toFloat(");
+        try emitConst(self, ") * runtime.toFloat(");
         try collection_ops.genExprWrapped(self, binop.right.*);
-        try self.emit("))");
+        try emitConst(self, "))");
         return;
     }
 
-    try self.emit("(");
+    try emitConst(self, "(");
 
     // Cast left operand if needed
     if (left_is_bool) {
-        try self.emit("@as(i64, @intFromBool(");
+        try emitConst(self, "@as(i64, @intFromBool(");
     } else if (left_is_usize and needs_cast) {
-        try self.emit("@as(i64, @intCast(");
+        try emitConst(self, "@as(i64, @intCast(");
     }
     try collection_ops.genExprWrapped(self, binop.left.*);
     if (left_is_bool or (left_is_usize and needs_cast)) {
-        try self.emit("))");
+        try emitConst(self, "))");
     }
 
     const op_str = switch (binop.op) {
@@ -403,25 +350,25 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
         .RShift => " >> ",
         else => unreachable,
     };
-    try self.emit(op_str);
+    try emitConst(self, op_str);
 
     // For shift operations, the RHS must be u6 for i64
     const is_shift_op = binop.op == .LShift or binop.op == .RShift;
     if (is_shift_op) {
-        try self.emit("@as(u6, @intCast(@mod(");
+        try emitConst(self, "@as(u6, @intCast(@mod(");
         try collection_ops.genExprWrapped(self, binop.right.*);
-        try self.emit(", 64)))");
+        try emitConst(self, ", 64)))");
     } else if (right_is_bool) {
-        try self.emit("@as(i64, @intFromBool(");
+        try emitConst(self, "@as(i64, @intFromBool(");
         try collection_ops.genExprWrapped(self, binop.right.*);
-        try self.emit("))");
+        try emitConst(self, "))");
     } else if (right_is_usize and needs_cast) {
-        try self.emit("@as(i64, @intCast(");
+        try emitConst(self, "@as(i64, @intCast(");
         try collection_ops.genExprWrapped(self, binop.right.*);
-        try self.emit("))");
+        try emitConst(self, "))");
     } else {
         try collection_ops.genExprWrapped(self, binop.right.*);
     }
 
-    try self.emit(")");
+    try emitConst(self, ")");
 }

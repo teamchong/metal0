@@ -1,4 +1,5 @@
 /// Collection conversion builtins: list(), tuple(), dict(), set(), frozenset()
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -9,6 +10,22 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 const expr_emitter = @import("../../expr_emitter.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 /// Get the appropriate NativeList append method for a given type
 /// This avoids anytype monomorphization by using typed append methods
@@ -30,7 +47,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // list() with no args returns empty NativeList
     if (args.len == 0) {
-        try self.emit("runtime.NativeList.init()");
+        try emitConst(self,"runtime.NativeList.init()");
         return;
     }
 
@@ -51,23 +68,23 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args[0] == .tuple) {
         const tup = args[0].tuple;
         if (tup.elts.len == 0) {
-            try self.emit("runtime.NativeList.init()");
+            try emitConst(self,"runtime.NativeList.init()");
             return;
         }
         var em = self.exprEmitter();
         const list_label = em.reserveLabelId();
-        try self.emitFmt("list_tup_blk_{d}: {{\n", .{list_label});
-        try self.emit("var _list = runtime.NativeList.init();\n");
+        try emitFmtConst(self, "list_tup_blk_{d}: {{\n", .{list_label});
+        try emitConst(self,"var _list = runtime.NativeList.init();\n");
         for (tup.elts) |elt| {
             // Infer element type to choose typed append method
             const elt_type = self.type_inferrer.inferExpr(elt) catch .unknown;
             const append_method = getAppendMethodForType(elt_type);
-            try self.emitFmt("try _list.{s}({s}, ", .{ append_method, alloc_name });
+            try emitFmtConst(self, "try _list.{s}({s}, ", .{ append_method, alloc_name });
             try self.genExpr(elt);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         }
-        try self.emitFmt("break :list_tup_blk_{d} _list;\n", .{list_label});
-        try self.emit("}");
+        try emitFmtConst(self, "break :list_tup_blk_{d} _list;\n", .{list_label});
+        try emitConst(self,"}");
         return;
     }
 
@@ -79,56 +96,56 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const range_args = args[0].call.args;
             var em_range = self.exprEmitter();
             const list_label = em_range.reserveLabelId();
-            try self.emitFmt("list_range_blk_{d}: {{\n", .{list_label});
+            try emitFmtConst(self, "list_range_blk_{d}: {{\n", .{list_label});
             // Use ArrayListUnmanaged(i64) directly - matches print and other list operations
-            try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
+            try emitConst(self,"var _list = std.ArrayListUnmanaged(i64){};\n");
 
             if (range_args.len == 1) {
                 // range(stop) -> for (0..stop)
-                try self.emit("const _stop: i64 = @intCast(");
+                try emitConst(self,"const _stop: i64 = @intCast(");
                 try self.genExpr(range_args[0]);
-                try self.emit(");\n");
-                try self.emit("var _i: i64 = 0;\n");
-                try self.emit("while (_i < _stop) : (_i += 1) {\n");
-                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
-                try self.emit("}\n");
+                try emitConst(self,");\n");
+                try emitConst(self,"var _i: i64 = 0;\n");
+                try emitConst(self,"while (_i < _stop) : (_i += 1) {\n");
+                try emitFmtConst(self, "try _list.append({s}, _i);\n", .{alloc_name});
+                try emitConst(self,"}\n");
             } else if (range_args.len == 2) {
                 // range(start, stop) -> for (start..stop)
-                try self.emit("const _start: i64 = @intCast(");
+                try emitConst(self,"const _start: i64 = @intCast(");
                 try self.genExpr(range_args[0]);
-                try self.emit(");\n");
-                try self.emit("const _stop: i64 = @intCast(");
+                try emitConst(self,");\n");
+                try emitConst(self,"const _stop: i64 = @intCast(");
                 try self.genExpr(range_args[1]);
-                try self.emit(");\n");
-                try self.emit("var _i: i64 = _start;\n");
-                try self.emit("while (_i < _stop) : (_i += 1) {\n");
-                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
-                try self.emit("}\n");
+                try emitConst(self,");\n");
+                try emitConst(self,"var _i: i64 = _start;\n");
+                try emitConst(self,"while (_i < _stop) : (_i += 1) {\n");
+                try emitFmtConst(self, "try _list.append({s}, _i);\n", .{alloc_name});
+                try emitConst(self,"}\n");
             } else if (range_args.len >= 3) {
                 // range(start, stop, step)
-                try self.emit("const _start: i64 = @intCast(");
+                try emitConst(self,"const _start: i64 = @intCast(");
                 try self.genExpr(range_args[0]);
-                try self.emit(");\n");
-                try self.emit("const _stop: i64 = @intCast(");
+                try emitConst(self,");\n");
+                try emitConst(self,"const _stop: i64 = @intCast(");
                 try self.genExpr(range_args[1]);
-                try self.emit(");\n");
-                try self.emit("const _step: i64 = @intCast(");
+                try emitConst(self,");\n");
+                try emitConst(self,"const _step: i64 = @intCast(");
                 try self.genExpr(range_args[2]);
-                try self.emit(");\n");
-                try self.emit("var _i: i64 = _start;\n");
-                try self.emit("if (_step > 0) {\n");
-                try self.emit("while (_i < _stop) : (_i += _step) {\n");
-                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
-                try self.emit("}\n");
-                try self.emit("} else if (_step < 0) {\n");
-                try self.emit("while (_i > _stop) : (_i += _step) {\n");
-                try self.emitFmt("try _list.append({s}, _i);\n", .{alloc_name});
-                try self.emit("}\n");
-                try self.emit("}\n");
+                try emitConst(self,");\n");
+                try emitConst(self,"var _i: i64 = _start;\n");
+                try emitConst(self,"if (_step > 0) {\n");
+                try emitConst(self,"while (_i < _stop) : (_i += _step) {\n");
+                try emitFmtConst(self, "try _list.append({s}, _i);\n", .{alloc_name});
+                try emitConst(self,"}\n");
+                try emitConst(self,"} else if (_step < 0) {\n");
+                try emitConst(self,"while (_i > _stop) : (_i += _step) {\n");
+                try emitFmtConst(self, "try _list.append({s}, _i);\n", .{alloc_name});
+                try emitConst(self,"}\n");
+                try emitConst(self,"}\n");
             }
 
-            try self.emitFmt("break :list_range_blk_{d} _list;\n", .{list_label});
-            try self.emit("}");
+            try emitFmtConst(self, "break :list_range_blk_{d} _list;\n", .{list_label});
+            try emitConst(self,"}");
             return;
         }
     }
@@ -153,14 +170,14 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args[0] == .constant and args[0].constant.value == .string) {
         const str = args[0].constant.value.string;
         if (str.len == 0) {
-            try self.emit("runtime.NativeList.init()");
+            try emitConst(self,"runtime.NativeList.init()");
             return;
         }
         // Generate inline NativeList initialization with string characters
         var em_str = self.exprEmitter();
         const list_str_label = em_str.reserveLabelId();
-        try self.emitFmt("list_str_blk_{d}: {{\n", .{list_str_label});
-        try self.emit("var _list = runtime.NativeList.init();\n");
+        try emitFmtConst(self, "list_str_blk_{d}: {{\n", .{list_str_label});
+        try emitConst(self,"var _list = runtime.NativeList.init();\n");
         // Iterate through UTF-8 characters
         var i: usize = 0;
         while (i < str.len) {
@@ -170,27 +187,27 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const end = @min(i + char_len, str.len);
             // Escape special characters
             const char = str[i..end];
-            try self.emitFmt("try _list.appendString({s}, ", .{alloc_name});
+            try emitFmtConst(self, "try _list.appendString({s}, ", .{alloc_name});
             if (char.len == 1 and (char[0] == '"' or char[0] == '\\')) {
-                try self.emit("\"\\");
-                try self.emit(char);
-                try self.emit("\"");
+                try emitConst(self,"\"\\");
+                try emitConst(self,char);
+                try emitConst(self,"\"");
             } else if (char.len == 1 and char[0] == '\n') {
-                try self.emit("\"\\n\"");
+                try emitConst(self,"\"\\n\"");
             } else if (char.len == 1 and char[0] == '\r') {
-                try self.emit("\"\\r\"");
+                try emitConst(self,"\"\\r\"");
             } else if (char.len == 1 and char[0] == '\t') {
-                try self.emit("\"\\t\"");
+                try emitConst(self,"\"\\t\"");
             } else {
-                try self.emit("\"");
-                try self.emit(char);
-                try self.emit("\"");
+                try emitConst(self,"\"");
+                try emitConst(self,char);
+                try emitConst(self,"\"");
             }
-            try self.emit(");\n");
+            try emitConst(self,");\n");
             i = end;
         }
-        try self.emitFmt("break :list_str_blk_{d} _list;\n", .{list_str_label});
-        try self.emit("}");
+        try emitFmtConst(self, "break :list_str_blk_{d} _list;\n", .{list_str_label});
+        try emitConst(self,"}");
         return;
     }
 
@@ -201,9 +218,9 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // TWO-FLOW: Handle uncertain types (PyValue) via runtime conversion
     if (arg_type == .pyvalue) {
-        try self.emitFmt("runtime.listFromAny({s}, ", .{alloc_name});
+        try emitFmtConst(self, "runtime.listFromAny({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
@@ -219,9 +236,9 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Fast path: string type - use runtime.listFromString
     if (string_traits.isString(arg_type)) {
-        try self.emitFmt("runtime.listFromString({s}, ", .{alloc_name});
+        try emitFmtConst(self, "runtime.listFromString({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
@@ -229,22 +246,22 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (container_traits.isDict(arg_type) or is_dict_attr) {
         var em_dict = self.exprEmitter();
         const list_label = em_dict.reserveLabelId();
-        try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
+        try emitFmtConst(self, "list_blk_{d}: {{\n", .{list_label});
         if (is_dict_attr) {
-            try self.emit("const _dict = @constCast(&");
+            try emitConst(self,"const _dict = @constCast(&");
             try self.genExpr(args[0]);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         } else {
-            try self.emit("const _dict = ");
+            try emitConst(self,"const _dict = ");
             try self.genExpr(args[0]);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
         }
-        try self.emit("var _list = runtime.NativeList.init();\n");
-        try self.emit("for (_dict.keys()) |_key| {\n");
-        try self.emitFmt("try _list.appendString({s}, _key);\n", .{alloc_name});
-        try self.emit("}\n");
-        try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
-        try self.emit("}");
+        try emitConst(self,"var _list = runtime.NativeList.init();\n");
+        try emitConst(self,"for (_dict.keys()) |_key| {\n");
+        try emitFmtConst(self, "try _list.appendString({s}, _key);\n", .{alloc_name});
+        try emitConst(self,"}\n");
+        try emitFmtConst(self, "break :list_blk_{d} _list;\n", .{list_label});
+        try emitConst(self,"}");
         return;
     }
 
@@ -253,26 +270,26 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (elem_type != .unknown) {
         var em_elem = self.exprEmitter();
         const list_label = em_elem.reserveLabelId();
-        try self.emitFmt("list_blk_{d}: {{\n", .{list_label});
-        try self.emit("const _iterable = ");
+        try emitFmtConst(self, "list_blk_{d}: {{\n", .{list_label});
+        try emitConst(self,"const _iterable = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         // Use typed append method based on element type (avoids anytype monomorphization)
         const append_method = getAppendMethodForType(elem_type);
-        try self.emit("var _list = runtime.NativeList.init();\n");
-        try self.emit("for (_iterable) |_item| {\n");
-        try self.emitFmt("try _list.{s}({s}, _item);\n", .{ append_method, alloc_name });
-        try self.emit("}\n");
-        try self.emitFmt("break :list_blk_{d} _list;\n", .{list_label});
-        try self.emit("}");
+        try emitConst(self,"var _list = runtime.NativeList.init();\n");
+        try emitConst(self,"for (_iterable) |_item| {\n");
+        try emitFmtConst(self, "try _list.{s}({s}, _item);\n", .{ append_method, alloc_name });
+        try emitConst(self,"}\n");
+        try emitFmtConst(self, "break :list_blk_{d} _list;\n", .{list_label});
+        try emitConst(self,"}");
         return;
     }
 
     // Fallback: generic runtime conversion (compact version)
     // Only generate the full type-checking code when we truly can't infer the type
-    try self.emitFmt("runtime.listFromAny({s}, ", .{alloc_name});
+    try emitFmtConst(self, "runtime.listFromAny({s}, ", .{alloc_name});
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate code for tuple(iterable)
@@ -281,7 +298,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // tuple() with no args returns empty tuple
     if (args.len == 0) {
-        try self.emit(".{}");
+        try emitConst(self,".{}");
         return;
     }
 
@@ -294,16 +311,16 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args[0] == .list) {
         const list = args[0].list;
         if (list.elts.len == 0) {
-            try self.emit(".{}");
+            try emitConst(self,".{}");
             return;
         }
         // Generate tuple literal from list elements
-        try self.emit(".{ ");
+        try emitConst(self,".{ ");
         for (list.elts, 0..) |elt, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self,", ");
             try self.genExpr(elt);
         }
-        try self.emit(" }");
+        try emitConst(self," }");
         return;
     }
 
@@ -311,15 +328,15 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args[0] == .tuple) {
         const tup = args[0].tuple;
         if (tup.elts.len == 0) {
-            try self.emit(".{}");
+            try emitConst(self,".{}");
             return;
         }
-        try self.emit(".{ ");
+        try emitConst(self,".{ ");
         for (tup.elts, 0..) |elt, i| {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self,", ");
             try self.genExpr(elt);
         }
-        try self.emit(" }");
+        try emitConst(self," }");
         return;
     }
 
@@ -328,13 +345,13 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args[0] == .constant and args[0].constant.value == .string) {
         const str = args[0].constant.value.string;
         if (str.len == 0) {
-            try self.emit(".{}");
+            try emitConst(self,".{}");
             return;
         }
-        try self.emit(".{ ");
+        try emitConst(self,".{ ");
         var i: usize = 0;
         while (i < str.len) {
-            if (i > 0) try self.emit(", ");
+            if (i > 0) try emitConst(self,", ");
             // Get UTF-8 character length
             const byte = str[i];
             const char_len: usize = if (byte < 0x80) 1 else if (byte < 0xE0) 2 else if (byte < 0xF0) 3 else 4;
@@ -342,23 +359,23 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Escape special characters
             const char = str[i..end];
             if (char.len == 1 and (char[0] == '"' or char[0] == '\\')) {
-                try self.emit("\"\\");
-                try self.emit(char);
-                try self.emit("\"");
+                try emitConst(self,"\"\\");
+                try emitConst(self,char);
+                try emitConst(self,"\"");
             } else if (char.len == 1 and char[0] == '\n') {
-                try self.emit("\"\\n\"");
+                try emitConst(self,"\"\\n\"");
             } else if (char.len == 1 and char[0] == '\r') {
-                try self.emit("\"\\r\"");
+                try emitConst(self,"\"\\r\"");
             } else if (char.len == 1 and char[0] == '\t') {
-                try self.emit("\"\\t\"");
+                try emitConst(self,"\"\\t\"");
             } else {
-                try self.emit("\"");
-                try self.emit(char);
-                try self.emit("\"");
+                try emitConst(self,"\"");
+                try emitConst(self,char);
+                try emitConst(self,"\"");
             }
             i = end;
         }
-        try self.emit(" }");
+        try emitConst(self," }");
         return;
     }
 
@@ -379,21 +396,21 @@ pub fn genTuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // For StringIterator and similar, we iterate until next() returns null
         try self.output.writer(self.allocator).print("tup_{d}: {{\n", .{label});
         try self.emitIndent();
-        try self.emit("    // Exhaust iterator by consuming all elements\n");
+        try emitConst(self,"    // Exhaust iterator by consuming all elements\n");
         try self.emitIndent();
-        try self.emit("    while (");
+        try emitConst(self,"    while (");
         try self.genExpr(args[0]);
-        try self.emit(".next()) |_| {}\n");
+        try emitConst(self,".next()) |_| {}\n");
         try self.emitIndent();
-        try self.emit("    // Return original data (iterator is now exhausted)\n");
+        try emitConst(self,"    // Return original data (iterator is now exhausted)\n");
         try self.emitIndent();
-        try self.emit("    break :tup_");
+        try emitConst(self,"    break :tup_");
         try self.output.writer(self.allocator).print("{d}", .{label});
-        try self.emit(" ");
+        try emitConst(self," ");
         try self.genExpr(args[0]);
-        try self.emit(".data;\n");
+        try emitConst(self,".data;\n");
         try self.emitIndent();
-        try self.emit("}");
+        try emitConst(self,"}");
         return;
     }
 
@@ -408,17 +425,17 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // dict() with no args returns empty dict
     // Default to i64 value type since it's common (keys are strings)
     if (args.len == 0) {
-        try self.emit("hashmap_helper.StringHashMap(i64){}");
+        try emitConst(self,"hashmap_helper.StringHashMap(i64){}");
         return;
     }
 
     // dict() takes 0 or 1 argument - generate runtime TypeError for invalid counts
     if (args.len > 1) {
-        try self.emit("(blk_dict_err: {\n");
-        try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"dict expected at most 1 argument, got ");
-        try self.emitFmt("{d}\", @src().line);\n", .{args.len});
-        try self.emit("break :blk_dict_err error.TypeError;\n");
-        try self.emit("})");
+        try emitConst(self,"(blk_dict_err: {\n");
+        try emitConst(self,"runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"dict expected at most 1 argument, got ");
+        try emitFmtConst(self, "{d}\", @src().line);\n", .{args.len});
+        try emitConst(self,"break :blk_dict_err error.TypeError;\n");
+        try emitConst(self,"})");
         return;
     }
 
@@ -453,7 +470,7 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // set() with no args returns empty set
     // Default to i64 key type since it's the most common case
     if (args.len == 0) {
-        try self.emitFmt("std.AutoHashMap(i64, void).init({s})", .{alloc_name});
+        try emitFmtConst(self, "std.AutoHashMap(i64, void).init({s})", .{alloc_name});
         return;
     }
 
@@ -486,13 +503,13 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Generate set from FeatureMacros.keys()
         var em_feat = self.exprEmitter();
         const set_label_1 = em_feat.reserveLabelId();
-        try self.emitFmt("set_blk_{d}: {{\n", .{set_label_1});
-        try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
-        try self.emit("for (runtime.FeatureMacros.keys()) |_item| {\n");
-        try self.emit("try _set.put(_item, {});\n");
-        try self.emit("}\n");
-        try self.emitFmt("break :set_blk_{d} _set;\n", .{set_label_1});
-        try self.emit("}");
+        try emitFmtConst(self, "set_blk_{d}: {{\n", .{set_label_1});
+        try emitFmtConst(self, "var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
+        try emitConst(self,"for (runtime.FeatureMacros.keys()) |_item| {\n");
+        try emitConst(self,"try _set.put(_item, {});\n");
+        try emitConst(self,"}\n");
+        try emitFmtConst(self, "break :set_blk_{d} _set;\n", .{set_label_1});
+        try emitConst(self,"}");
         return;
     }
 
@@ -505,16 +522,16 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         var em_pyval = self.exprEmitter();
         const set_label = em_pyval.reserveLabelId();
         // PyValue.list is *ArrayListUnmanaged(PyValue) - iterate items and build set
-        try self.emitFmt("set_pyval_{d}: {{\n", .{set_label});
-        try self.emit("const __pyval_iter = ");
+        try emitFmtConst(self, "set_pyval_{d}: {{\n", .{set_label});
+        try emitConst(self,"const __pyval_iter = ");
         try self.genExpr(args[0]);
-        try self.emit(".list.items;\n"); // Extract items slice from PyValue.list pointer
-        try self.emitFmt("var _set = std.AutoHashMap(runtime.PyValue, void).init({s});\n", .{alloc_name});
-        try self.emit("for (__pyval_iter) |_item| {\n");
-        try self.emit("try _set.put(_item, {});\n");
-        try self.emit("}\n");
-        try self.emitFmt("break :set_pyval_{d} _set;\n", .{set_label});
-        try self.emit("}");
+        try emitConst(self,".list.items;\n"); // Extract items slice from PyValue.list pointer
+        try emitFmtConst(self, "var _set = std.AutoHashMap(runtime.PyValue, void).init({s});\n", .{alloc_name});
+        try emitConst(self,"for (__pyval_iter) |_item| {\n");
+        try emitConst(self,"try _set.put(_item, {});\n");
+        try emitConst(self,"}\n");
+        try emitFmtConst(self, "break :set_pyval_{d} _set;\n", .{set_label});
+        try emitConst(self,"}");
         return;
     }
 
@@ -554,45 +571,45 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     var em_set = self.exprEmitter();
     const set_label_2 = em_set.reserveLabelId();
-    try self.emitFmt("set_blk_{d}: {{\n", .{set_label_2});
+    try emitFmtConst(self, "set_blk_{d}: {{\n", .{set_label_2});
 
     if (needs_temp) {
         // Store block expression in temp variable first
-        try self.emit("const __iterable = ");
+        try emitConst(self,"const __iterable = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         if (is_string_set) {
-            try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
+            try emitFmtConst(self, "var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
         } else {
-            try self.emitFmt("var _set = std.AutoHashMap(@TypeOf(__iterable[0]), void).init({s});\n", .{alloc_name});
+            try emitFmtConst(self, "var _set = std.AutoHashMap(@TypeOf(__iterable[0]), void).init({s});\n", .{alloc_name});
         }
         // Use inline for with tuples to avoid comptime index errors
         if (is_tuple_literal) {
-            try self.emit("inline for (__iterable) |_item| {\n");
+            try emitConst(self,"inline for (__iterable) |_item| {\n");
         } else {
-            try self.emit("for (__iterable) |_item| {\n");
+            try emitConst(self,"for (__iterable) |_item| {\n");
         }
     } else {
         if (is_string_set) {
-            try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
+            try emitFmtConst(self, "var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
         } else {
-            try self.emit("var _set = std.AutoHashMap(@TypeOf(");
+            try emitConst(self,"var _set = std.AutoHashMap(@TypeOf(");
             try self.genExpr(args[0]);
-            try self.emitFmt("[0]), void).init({s});\n", .{alloc_name});
+            try emitFmtConst(self, "[0]), void).init({s});\n", .{alloc_name});
         }
         // Use inline for with tuples to avoid comptime index errors
         if (is_tuple_literal) {
-            try self.emit("inline for (");
+            try emitConst(self,"inline for (");
         } else {
-            try self.emit("for (");
+            try emitConst(self,"for (");
         }
         try self.genExpr(args[0]);
-        try self.emit(") |_item| {\n");
+        try emitConst(self,") |_item| {\n");
     }
-    try self.emit("try _set.put(_item, {});\n");
-    try self.emit("}\n");
-    try self.emitFmt("break :set_blk_{d} _set;\n", .{set_label_2});
-    try self.emit("}");
+    try emitConst(self,"try _set.put(_item, {});\n");
+    try emitConst(self,"}\n");
+    try emitFmtConst(self, "break :set_blk_{d} _set;\n", .{set_label_2});
+    try emitConst(self,"}");
 }
 
 /// Generate code for frozenset(iterable)

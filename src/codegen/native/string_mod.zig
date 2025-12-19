@@ -16,15 +16,26 @@ const tmpl = "struct { template: []const u8, pub fn substitute(__self: @This(), 
 /// Generate string.capwords(s) - capitalize first letter of each word
 /// Emits: capwords_{id}: { const _s = arg; var _result: std.ArrayList(u8) = .{}; ... break :capwords_{id} _result.items; }
 pub fn genCapwords(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    const b = try self.getBuilder();
     if (args.len == 0) {
-        try self.emit("\"\"");
+        try b.write("\"\"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.withInlineBlock("capwords", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _s = ");
+            const b2 = try c.getBuilder();
+            try b2.write("const _s = ");
+            const output1 = b2.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emitFmt("; var _result: std.ArrayList(u8) = .{{}}; var _cap_next = true; for (_s) |c| {{ if (c == ' ') {{ _result.append(__global_allocator, ' ') catch continue; _cap_next = true; }} else if (_cap_next and c >= 'a' and c <= 'z') {{ _result.append(__global_allocator, c - 32) catch continue; _cap_next = false; }} else {{ _result.append(__global_allocator, c) catch continue; _cap_next = false; }} }} break :{s} _result.items", .{label});
+            {
+                const b3 = try c.getBuilder();
+                try b3.writeFmt("; var _result: std.ArrayList(u8) = .{{}}; var _cap_next = true; for (_s) |ch| {{ if (ch == ' ') {{ _result.append(__global_allocator, ' ') catch continue; _cap_next = true; }} else if (_cap_next and ch >= 'a' and ch <= 'z') {{ _result.append(__global_allocator, ch - 32) catch continue; _cap_next = false; }} else {{ _result.append(__global_allocator, ch) catch continue; _cap_next = false; }} }} break :{s} _result.items", .{label});
+                const output2 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
         }
     }.emit);
 }

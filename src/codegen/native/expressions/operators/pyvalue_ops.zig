@@ -13,6 +13,38 @@ const genExpr = expressions.genExpr;
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// PyValue operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit operand wrapped in runtime.PyValue.from(), with comptime literal casting if needed
+fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "runtime.PyValue.from(");
+    if (isComptimeLiteral(expr)) {
+        // Cast comptime literal to concrete type
+        if (isComptimeFloat(expr)) {
+            try emitConst(self, "@as(f64, ");
+        } else {
+            try emitConst(self, "@as(i64, ");
+        }
+        try self.emitZigValue(operand);
+        try emitConst(self, ")");
+    } else {
+        try self.emitZigValue(operand);
+    }
+    try emitConst(self, ")");
+}
+
 /// PyValue method names for binary operations
 pub const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Add", "add" },
@@ -115,9 +147,9 @@ pub fn isComptimeFloat(expr: ast.Node) bool {
 pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const method_name = PyValueMethods.get(@tagName(binop.op)) orelse {
         // Unsupported operation - fall back to compile error
-        try self.emit("@compileError(\"Unsupported PyValue operation: ");
-        try self.emit(@tagName(binop.op));
-        try self.emit("\")");
+        try emitConst(self, "@compileError(\"Unsupported PyValue operation: ");
+        try emitConst(self, @tagName(binop.op));
+        try emitConst(self, "\")");
         return;
     };
 
@@ -128,40 +160,13 @@ pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // ALWAYS wrap both operands in PyValue.from() for safety
     // This handles mixed type operations like: primitive // PyValue
     // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
-    //
-    // FIX: Comptime literals (like `1` or `3.14`) need explicit type casting before
-    // PyValue.from() because comptime_int and comptime_float can't be wrapped directly.
 
-    // Emit: (runtime.PyValue.from(...))
-    try self.emit("(runtime.PyValue.from(");
-    if (isComptimeLiteral(binop.left.*)) {
-        // Cast comptime literal to concrete type
-        if (isComptimeFloat(binop.left.*)) {
-            try self.emit("@as(f64, ");
-        } else {
-            try self.emit("@as(i64, ");
-        }
-        try self.emitZigValue(left_operand);
-        try self.emit(")");
-    } else {
-        try self.emitZigValue(left_operand);
-    }
-    try self.emit(")).");
-
-    // Emit method call: .method(runtime.PyValue.from(...))
-    try self.emit(method_name);
-    try self.emit("(runtime.PyValue.from(");
-    if (isComptimeLiteral(binop.right.*)) {
-        // Cast comptime literal to concrete type
-        if (isComptimeFloat(binop.right.*)) {
-            try self.emit("@as(f64, ");
-        } else {
-            try self.emit("@as(i64, ");
-        }
-        try self.emitZigValue(right_operand);
-        try self.emit(")");
-    } else {
-        try self.emitZigValue(right_operand);
-    }
-    try self.emit("))");
+    // Emit: (runtime.PyValue.from(...)).method(runtime.PyValue.from(...))
+    try emitConst(self, "(");
+    try emitPyValueFrom(self, binop.left.*, left_operand);
+    try emitConst(self, ").");
+    try emitConst(self, method_name);
+    try emitConst(self, "(");
+    try emitPyValueFrom(self, binop.right.*, right_operand);
+    try emitConst(self, ")");
 }

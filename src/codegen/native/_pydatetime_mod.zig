@@ -5,6 +5,26 @@ const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "date", genDate },
     .{ "time", genTime },
@@ -21,13 +41,13 @@ fn genDate(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("date", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const y = ");
+            try emitConst(c, "const y = ");
             try c.genExpr(a[0]);
-            try c.emit("; const m = ");
+            try emitConst(c, "; const m = ");
             try c.genExpr(a[1]);
-            try c.emit("; const d = ");
+            try emitConst(c, "; const d = ");
             try c.genExpr(a[2]);
-            try c.emitFmt("; break :{s} .{{ .year = y, .month = m, .day = d }}", .{label});
+            try emitFmtConst(c, "; break :{s} .{{ .year = y, .month = m, .day = d }}", .{label});
         }
     }.emit);
 }
@@ -45,13 +65,13 @@ fn genDatetime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("dt", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const y = ");
+            try emitConst(c, "const y = ");
             try c.genExpr(a[0]);
-            try c.emit("; const m = ");
+            try emitConst(c, "; const m = ");
             try c.genExpr(a[1]);
-            try c.emit("; const d = ");
+            try emitConst(c, "; const d = ");
             try c.genExpr(a[2]);
-            try c.emitFmt("; break :{s} .{{ .year = y, .month = m, .day = d, .hour = 0, .minute = 0, .second = 0, .microsecond = 0, .tzinfo = null }}", .{label});
+            try emitFmtConst(c, "; break :{s} .{{ .year = y, .month = m, .day = d, .hour = 0, .minute = 0, .second = 0, .microsecond = 0, .tzinfo = null }}", .{label});
         }
     }.emit);
 }

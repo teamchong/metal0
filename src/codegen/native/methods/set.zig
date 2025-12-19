@@ -1,10 +1,19 @@
 /// Set methods - .add(), .remove(), .discard(), .clear(), .copy(), .update(), etc.
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const expr_emitter = @import("../expr_emitter.zig");
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 /// Check if a set expression is uncertain (needs PyValue operations)
 /// Two-Flow: routes uncertain sets to runtime helpers
@@ -31,9 +40,9 @@ fn isSetUncertain(self: *NativeCodegen, obj: ast.Node) bool {
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     if (producesBlockExpression(obj)) {
-        try self.emit("(");
+        try emitConst(self,"(");
         try self.genExpr(obj);
-        try self.emit(")");
+        try emitConst(self,")");
     } else {
         try self.genExpr(obj);
     }
@@ -49,21 +58,21 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetAddPV(__global_allocator, &");
+        try emitConst(self,"try runtime.pySetAddPV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
+        try emitConst(self,", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self,"))");
         return;
     }
 
     // Generate: try set.put(elem, {})
     // Zig HashMap uses put(key, value) - for sets, value is void ({})
-    try self.emit("try ");
+    try emitConst(self,"try ");
     try emitObjExpr(self, obj);
-    try self.emit(".put(");
+    try emitConst(self,".put(");
     try self.genExpr(args[0]);
-    try self.emit(", {})");
+    try emitConst(self,", {})");
 }
 
 /// Generate code for set.remove(elem)
@@ -76,23 +85,23 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetRemovePV(__global_allocator, &");
+        try emitConst(self,"try runtime.pySetRemovePV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
+        try emitConst(self,", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self,"))");
         return;
     }
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     // runtime.set_ops.SetOps(KeyType).remove(&set, key) handles AutoHashMap vs ArrayHashMap
-    try self.emit("try runtime.set_ops.SetOps(@TypeOf(");
+    try emitConst(self,"try runtime.set_ops.SetOps(@TypeOf(");
     try self.genExpr(args[0]);
-    try self.emit(")).remove(&");
+    try emitConst(self,")).remove(&");
     try emitObjExpr(self, obj);
-    try self.emit(", ");
+    try emitConst(self,", ");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate code for set.discard(elem)
@@ -105,22 +114,22 @@ pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetDiscardPV(__global_allocator, &");
+        try emitConst(self,"runtime.pySetDiscardPV(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
+        try emitConst(self,", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self,"))");
         return;
     }
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
-    try self.emit("runtime.set_ops.SetOps(@TypeOf(");
+    try emitConst(self,"runtime.set_ops.SetOps(@TypeOf(");
     try self.genExpr(args[0]);
-    try self.emit(")).discard(&");
+    try emitConst(self,")).discard(&");
     try emitObjExpr(self, obj);
-    try self.emit(", ");
+    try emitConst(self,", ");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate code for set.clear()
@@ -131,15 +140,15 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetClearPV(&");
+        try emitConst(self,"runtime.pySetClearPV(&");
         try self.genExpr(obj);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
     try emitObjExpr(self, obj);
     // std.AutoHashMap uses clearRetainingCapacity() or clearAndFree()
-    try self.emit(".clearRetainingCapacity()");
+    try emitConst(self,".clearRetainingCapacity()");
 }
 
 /// Generate code for set.pop()
@@ -151,19 +160,19 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetPopPVFunc(__global_allocator, &");
+        try emitConst(self,"try runtime.pySetPopPVFunc(__global_allocator, &");
         try self.genExpr(obj);
-        try self.emit(")");
+        try emitConst(self,")");
         return;
     }
 
     // Use runtime helper to avoid comptime explosion
     // Get key type from set's KV struct
-    try self.emit("try runtime.set_ops.SetOps(std.meta.fieldInfo(@TypeOf(");
+    try emitConst(self,"try runtime.set_ops.SetOps(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").Unmanaged.KV, .key).type).pop(&");
+    try emitConst(self,").Unmanaged.KV, .key).type).pop(&");
     try emitObjExpr(self, obj);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate code for set.copy()
@@ -177,30 +186,30 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __copy = @TypeOf(");
+    try emitConst(self,"var __copy = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").init(__global_allocator);\n");
+    try emitConst(self,").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __iter = ");
+    try emitConst(self,"var __iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__iter.next()) |entry| {\n");
+    try emitConst(self,"while (__iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __copy.put(entry.key_ptr.*, {});\n");
+    try emitConst(self,"try __copy.put(entry.key_ptr.*, {});\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :scopy_{d} __copy;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.update(*others)
@@ -211,7 +220,7 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // No args: no-op, return null
-        try self.emit("null");
+        try emitConst(self,"null");
         return;
     }
 
@@ -226,7 +235,7 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
         try self.genExpr(arg);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("var __other_{d} = __other_set_{d}.iterator();\n", .{ i, i });
 
@@ -234,12 +243,12 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
         self.indent_level += 1;
         try self.emitIndent();
-        try self.emit("try ");
+        try emitConst(self,"try ");
         try emitObjExpr(self, obj);
-        try self.emit(".put(entry.key_ptr.*, {});\n");
+        try emitConst(self,".put(entry.key_ptr.*, {});\n");
         self.indent_level -= 1;
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 
     try self.emitIndent();
@@ -247,7 +256,7 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.union(*others)
@@ -269,30 +278,30 @@ pub fn genUnion(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Create result set and copy self into it
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try emitConst(self,"var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").init(__global_allocator);\n");
+    try emitConst(self,").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __result.put(entry.key_ptr.*, {});\n");
+    try emitConst(self,"try __result.put(entry.key_ptr.*, {});\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Add elements from each arg
     for (args, 0..) |arg, i| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
         try self.genExpr(arg);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("var __other_{d} = __other_set_{d}.iterator();\n", .{ i, i });
 
@@ -300,10 +309,10 @@ pub fn genUnion(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
         self.indent_level += 1;
         try self.emitIndent();
-        try self.emit("try __result.put(entry.key_ptr.*, {});\n");
+        try emitConst(self,"try __result.put(entry.key_ptr.*, {});\n");
         self.indent_level -= 1;
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 
     try self.emitIndent();
@@ -311,7 +320,7 @@ pub fn genUnion(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.intersection(*others)
@@ -333,45 +342,45 @@ pub fn genIntersection(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 
     // Create result set - only add elements from self that exist in all others
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try emitConst(self,"var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").init(__global_allocator);\n");
+    try emitConst(self,").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
 
     // Check if element exists in all other sets
     try self.emitIndent();
-    try self.emit("var __in_all = true;\n");
+    try emitConst(self,"var __in_all = true;\n");
 
     for (args, 0..) |arg, i| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
         try self.genExpr(arg);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("if (!__other_set_{d}.contains(entry.key_ptr.*)) __in_all = false;\n", .{i});
     }
 
     try self.emitIndent();
-    try self.emit("if (__in_all) try __result.put(entry.key_ptr.*, {});\n");
+    try emitConst(self,"if (__in_all) try __result.put(entry.key_ptr.*, {});\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sinter_{d} __result;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.difference(*others)
@@ -393,45 +402,45 @@ pub fn genDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 
     // Create result set - only add elements from self that don't exist in any other
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try emitConst(self,"var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").init(__global_allocator);\n");
+    try emitConst(self,").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
 
     // Check if element exists in any other set
     try self.emitIndent();
-    try self.emit("var __in_any = false;\n");
+    try emitConst(self,"var __in_any = false;\n");
 
     for (args, 0..) |arg, i| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
         try self.genExpr(arg);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("if (__other_set_{d}.contains(entry.key_ptr.*)) __in_any = true;\n", .{i});
     }
 
     try self.emitIndent();
-    try self.emit("if (!__in_any) try __result.put(entry.key_ptr.*, {});\n");
+    try emitConst(self,"if (!__in_any) try __result.put(entry.key_ptr.*, {});\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sdiff_{d} __result;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.symmetric_difference(other)
@@ -439,7 +448,7 @@ pub fn genDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 /// Requires exactly one argument
 pub fn genSymmetricDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"symmetric_difference requires exactly one argument\")");
+        try emitConst(self,"@compileError(\"symmetric_difference requires exactly one argument\")");
         return;
     }
 
@@ -451,56 +460,56 @@ pub fn genSymmetricDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.N
 
     // Create result set
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try emitConst(self,"var __result = @TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").init(__global_allocator);\n");
+    try emitConst(self,").init(__global_allocator);\n");
 
     // Store other set in a variable first
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try emitConst(self,"const __other_set = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     // Add elements from self that are NOT in other
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!__other_set.contains(entry.key_ptr.*)) try __result.put(entry.key_ptr.*, {});\n");
+    try emitConst(self,"if (!__other_set.contains(entry.key_ptr.*)) try __result.put(entry.key_ptr.*, {});\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Add elements from other that are NOT in self
     try self.emitIndent();
-    try self.emit("var __other_iter = __other_set.iterator();\n");
+    try emitConst(self,"var __other_iter = __other_set.iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__other_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__other_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!");
+    try emitConst(self,"if (!");
     try emitObjExpr(self, obj);
-    try self.emit(".contains(entry.key_ptr.*)) try __result.put(entry.key_ptr.*, {});\n");
+    try emitConst(self,".contains(entry.key_ptr.*)) try __result.put(entry.key_ptr.*, {});\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :ssymdiff_{d} __result;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.issubset(other)
 pub fn genIssubset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"issubset requires exactly one argument\")");
+        try emitConst(self,"@compileError(\"issubset requires exactly one argument\")");
         return;
     }
 
@@ -511,39 +520,39 @@ pub fn genIssubset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __is_subset = true;\n");
+    try emitConst(self,"var __is_subset = true;\n");
 
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try emitConst(self,"const __other_set = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!__other_set.contains(entry.key_ptr.*)) { __is_subset = false; break; }\n");
+    try emitConst(self,"if (!__other_set.contains(entry.key_ptr.*)) { __is_subset = false; break; }\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sissubset_{d} __is_subset;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.issuperset(other)
 pub fn genIssuperset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"issuperset requires exactly one argument\")");
+        try emitConst(self,"@compileError(\"issuperset requires exactly one argument\")");
         return;
     }
 
@@ -554,38 +563,38 @@ pub fn genIssuperset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __is_superset = true;\n");
+    try emitConst(self,"var __is_superset = true;\n");
 
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try emitConst(self,"const __other_set = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
     try self.emitIndent();
-    try self.emit("var __other_iter = __other_set.iterator();\n");
+    try emitConst(self,"var __other_iter = __other_set.iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__other_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__other_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!");
+    try emitConst(self,"if (!");
     try emitObjExpr(self, obj);
-    try self.emit(".contains(entry.key_ptr.*)) { __is_superset = false; break; }\n");
+    try emitConst(self,".contains(entry.key_ptr.*)) { __is_superset = false; break; }\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sissuperset_{d} __is_superset;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.isdisjoint(other)
 pub fn genIsdisjoint(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"isdisjoint requires exactly one argument\")");
+        try emitConst(self,"@compileError(\"isdisjoint requires exactly one argument\")");
         return;
     }
 
@@ -596,33 +605,33 @@ pub fn genIsdisjoint(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __is_disjoint = true;\n");
+    try emitConst(self,"var __is_disjoint = true;\n");
 
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try emitConst(self,"const __other_set = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (__other_set.contains(entry.key_ptr.*)) { __is_disjoint = false; break; }\n");
+    try emitConst(self,"if (__other_set.contains(entry.key_ptr.*)) { __is_disjoint = false; break; }\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sisdisjoint_{d} __is_disjoint;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.intersection_update(*others)
@@ -630,7 +639,7 @@ pub fn genIsdisjoint(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 /// Returns None in Python
 pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("null");
+        try emitConst(self,"null");
         return;
     }
 
@@ -643,50 +652,50 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
     // Collect keys to remove (can't modify while iterating)
     // Use std.meta.fieldInfo to get key type from KV struct (works with const)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
+    try emitConst(self,"var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").Unmanaged.KV, .key).type){};\n");
+    try emitConst(self,").Unmanaged.KV, .key).type){};\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __in_all = true;\n");
+    try emitConst(self,"var __in_all = true;\n");
 
     for (args, 0..) |arg, i| {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
         try self.genExpr(arg);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("if (!__other_set_{d}.contains(entry.key_ptr.*)) __in_all = false;\n", .{i});
     }
 
     try self.emitIndent();
-    try self.emit("if (!__in_all) try __to_remove.append(__global_allocator, entry.key_ptr.*);\n");
+    try emitConst(self,"if (!__in_all) try __to_remove.append(__global_allocator, entry.key_ptr.*);\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Remove collected keys - use runtime helper to avoid comptime explosion
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
+    try emitConst(self,"for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
     try emitObjExpr(self, obj);
-    try self.emit(", key); }\n");
+    try emitConst(self,", key); }\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :sinterupd_{d} null;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.difference_update(*others)
@@ -694,7 +703,7 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
 /// Returns None in Python
 pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("null");
+        try emitConst(self,"null");
         return;
     }
 
@@ -709,7 +718,7 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
         try self.genExpr(arg);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("var __other_{d} = __other_set_{d}.iterator();\n", .{ i, i });
 
@@ -718,12 +727,12 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         self.indent_level += 1;
         try self.emitIndent();
         // Use runtime helper to avoid comptime explosion
-        try self.emit("runtime.set_ops.SetOps(@TypeOf(entry.key_ptr.*)).discard(&");
+        try emitConst(self,"runtime.set_ops.SetOps(@TypeOf(entry.key_ptr.*)).discard(&");
         try emitObjExpr(self, obj);
-        try self.emit(", entry.key_ptr.*);\n");
+        try emitConst(self,", entry.key_ptr.*);\n");
         self.indent_level -= 1;
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
     }
 
     try self.emitIndent();
@@ -731,7 +740,7 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }
 
 /// Generate code for set.symmetric_difference_update(other)
@@ -739,7 +748,7 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
 /// Returns None in Python
 pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try self.emit("@compileError(\"symmetric_difference_update requires exactly one argument\")");
+        try emitConst(self,"@compileError(\"symmetric_difference_update requires exactly one argument\")");
         return;
     }
 
@@ -751,67 +760,67 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
 
     // Store other set first
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try emitConst(self,"const __other_set = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     // Collect keys to remove (in both sets)
     // Use std.meta.fieldInfo to get key type from KV struct (works with const)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
+    try emitConst(self,"var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").Unmanaged.KV, .key).type){};\n");
+    try emitConst(self,").Unmanaged.KV, .key).type){};\n");
 
     try self.emitIndent();
-    try self.emit("var __to_add = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
+    try emitConst(self,"var __to_add = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
     try emitObjExpr(self, obj);
-    try self.emit(").Unmanaged.KV, .key).type){};\n");
+    try emitConst(self,").Unmanaged.KV, .key).type){};\n");
 
     // Find elements in self that are in other (to remove)
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try emitConst(self,"var __self_iter = ");
     try emitObjExpr(self, obj);
-    try self.emit(".iterator();\n");
+    try emitConst(self,".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__self_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (__other_set.contains(entry.key_ptr.*)) try __to_remove.append(__global_allocator, entry.key_ptr.*);\n");
+    try emitConst(self,"if (__other_set.contains(entry.key_ptr.*)) try __to_remove.append(__global_allocator, entry.key_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Find elements in other that are not in self (to add)
     try self.emitIndent();
-    try self.emit("var __other_iter = __other_set.iterator();\n");
+    try emitConst(self,"var __other_iter = __other_set.iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__other_iter.next()) |entry| {\n");
+    try emitConst(self,"while (__other_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!");
+    try emitConst(self,"if (!");
     try emitObjExpr(self, obj);
-    try self.emit(".contains(entry.key_ptr.*)) try __to_add.append(__global_allocator, entry.key_ptr.*);\n");
+    try emitConst(self,".contains(entry.key_ptr.*)) try __to_add.append(__global_allocator, entry.key_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // Apply changes - use runtime helper to avoid comptime explosion
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
+    try emitConst(self,"for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
     try emitObjExpr(self, obj);
-    try self.emit(", key); }\n");
+    try emitConst(self,", key); }\n");
 
     try self.emitIndent();
-    try self.emit("for (__to_add.items) |key| { try ");
+    try emitConst(self,"for (__to_add.items) |key| { try ");
     try emitObjExpr(self, obj);
-    try self.emit(".put(key, {}); }\n");
+    try emitConst(self,".put(key, {}); }\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :ssymdiffupd_{d} null;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try emitConst(self,"})");
 }

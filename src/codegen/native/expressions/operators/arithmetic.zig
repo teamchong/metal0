@@ -24,6 +24,54 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// Arithmetic operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit dunder method call: try left.method(__global_allocator, right)
+fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, right: ast.Node) CodegenError!void {
+    try emitConst(self, "try ");
+    try genExpr(self, left);
+    try emitConst(self, ".");
+    try emitConst(self, method);
+    try emitConst(self, "(__global_allocator, ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+/// Emit runtime.addNum or runtime.subtractNum(left, right)
+fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: ast.Node) CodegenError!void {
+    if (is_add) {
+        try emitConst(self, "runtime.addNum(");
+    } else {
+        try emitConst(self, "runtime.subtractNum(");
+    }
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
+}
+
+
+
+
 // Import specialized modules
 const bigint_ops = @import("bigint_ops.zig");
 const unified_int_ops = @import("unified_int_ops.zig");
@@ -126,13 +174,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // If left operand is a known class instance (not anytype), call dunder method on left
     if (type_traits.isClassInstance(bigint_left_type) and !left_is_anytype) {
         if (BinaryDunders.get(@tagName(binop.op))) |dunder_method| {
-            try self.emit("try ");
-            try genExpr(self, binop.left.*);
-            try self.emit(".");
-            try self.emit(dunder_method);
-            try self.emit("(__global_allocator, ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
+            try emitDunderCall(self, binop.left.*, dunder_method, binop.right.*);
             return;
         }
     }
@@ -142,11 +184,11 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         if (ReverseDunders.get(@tagName(binop.op))) |rdunder_method| {
             var em = self.exprEmitter();
             const radd_label = em.reserveLabelId();
-            try self.emitFmt("(radd_blk_{d}: {{ const _rhs = ", .{radd_label});
+            try emitFmtConst(self, "(radd_blk_{d}: {{ const _rhs = ", .{radd_label});
             try genExpr(self, binop.right.*);
             try self.output.writer(self.allocator).print("; if (runtime.container_dispatch.hasPtrChildDecl(@TypeOf(_rhs), \"{s}\")) {{ break :radd_blk_{d} try _rhs.{s}(__global_allocator, ", .{ rdunder_method, radd_label, rdunder_method });
             try genExpr(self, binop.left.*);
-            try self.emitFmt("); }} else {{ return error.TypeError; }} }})", .{});
+            try emitFmtConst(self, "); }} else {{ return error.TypeError; }} }})", .{});
             return;
         }
     }
@@ -178,15 +220,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
             (left_is_unknown and right_is_float);
 
         if (needs_runtime_helper) {
-            if (binop.op == .Add) {
-                try self.emit("runtime.addNum(");
-            } else {
-                try self.emit("runtime.subtractNum(");
-            }
-            try genExpr(self, binop.left.*);
-            try self.emit(", ");
-            try genExpr(self, binop.right.*);
-            try self.emit(")");
+            try emitRuntimeNumOp(self, binop.op == .Add, binop.left.*, binop.right.*);
             return;
         }
     }

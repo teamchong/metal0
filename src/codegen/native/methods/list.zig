@@ -1,4 +1,5 @@
 /// List methods - .append(), .pop(), .extend(), .remove(), etc.
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
@@ -6,12 +7,28 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     if (producesBlockExpression(obj)) {
-        try self.emit("(");
+        try emitConst(self,"(");
         try self.genExpr(obj);
-        try self.emit(")");
+        try emitConst(self,")");
     } else {
         try self.genExpr(obj);
     }
@@ -66,17 +83,17 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
         // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
-            try self.emit("runtime.pyListAppendPV(__global_allocator, &");
+            try emitConst(self,"runtime.pyListAppendPV(__global_allocator, &");
             try emitObjExpr(self, obj);
-            try self.emit(", runtime.PyValue.from(");
+            try emitConst(self,", runtime.PyValue.from(");
             try self.genExpr(args[0]);
-            try self.emit(")) catch unreachable");
+            try emitConst(self,")) catch unreachable");
         } else {
-            try self.emit("try runtime.pyListAppendPV(__global_allocator, &");
+            try emitConst(self,"try runtime.pyListAppendPV(__global_allocator, &");
             try emitObjExpr(self, obj);
-            try self.emit(", runtime.PyValue.from(");
+            try emitConst(self,", runtime.PyValue.from(");
             try self.genExpr(args[0]);
-            try self.emit("))");
+            try emitConst(self,"))");
         }
         return;
     }
@@ -115,100 +132,100 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         // Use temp variable pattern for list literals
         // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
-            try self.emit("{ var __list_temp = ");
+            try emitConst(self,"{ var __list_temp = ");
             try self.genExpr(obj);
-            try self.emit("; __list_temp.append(__global_allocator, ");
+            try emitConst(self,"; __list_temp.append(__global_allocator, ");
 
             if (elem_is_pyvalue) {
-                try self.emit("runtime.PyValue.fromAlloc(__global_allocator, ");
+                try emitConst(self,"runtime.PyValue.fromAlloc(__global_allocator, ");
                 try self.genExpr(args[0]);
-                try self.emit(") catch unreachable");
+                try emitConst(self,") catch unreachable");
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                try emitConst(self,"const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try emitFmtConst(self, "; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
 
-            try self.emit(") catch unreachable; }");
+            try emitConst(self,") catch unreachable; }");
         } else {
-            try self.emit("{ var __list_temp = ");
+            try emitConst(self,"{ var __list_temp = ");
             try self.genExpr(obj);
-            try self.emit("; try __list_temp.append(__global_allocator, ");
+            try emitConst(self,"; try __list_temp.append(__global_allocator, ");
 
             if (elem_is_pyvalue) {
-                try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                try emitConst(self,"try runtime.PyValue.fromAlloc(__global_allocator, ");
                 try self.genExpr(args[0]);
-                try self.emit(")");
+                try emitConst(self,")");
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                try emitConst(self,"const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try emitFmtConst(self, "; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
 
-            try self.emit("); }");
+            try emitConst(self,"); }");
         }
     } else {
         // Existing code for variables/attributes/subscripts
         // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
             try emitObjExpr(self, obj);
-            try self.emit(".append(__global_allocator, ");
+            try emitConst(self,".append(__global_allocator, ");
 
             if (elem_is_pyvalue) {
-                try self.emit("runtime.PyValue.fromAlloc(__global_allocator, ");
+                try emitConst(self,"runtime.PyValue.fromAlloc(__global_allocator, ");
                 try self.genExpr(args[0]);
-                try self.emit(") catch unreachable");
+                try emitConst(self,") catch unreachable");
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                try emitConst(self,"const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try emitFmtConst(self, "; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
 
-            try self.emit(") catch unreachable");
+            try emitConst(self,") catch unreachable");
         } else {
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try emitObjExpr(self, obj);
-            try self.emit(".append(__global_allocator, ");
+            try emitConst(self,".append(__global_allocator, ");
 
             if (elem_is_pyvalue) {
-                try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+                try emitConst(self,"try runtime.PyValue.fromAlloc(__global_allocator, ");
                 try self.genExpr(args[0]);
-                try self.emit(")");
+                try emitConst(self,")");
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                try emitConst(self,"const __callable_temp = ");
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try emitFmtConst(self, "; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
             }
 
-            try self.emit(")");
+            try emitConst(self,")");
         }
     }
 }
@@ -220,13 +237,13 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     if (args.len > 0) {
         // Generate: list.orderedRemove(@intCast(index))
         try self.genExpr(obj);
-        try self.emit(".orderedRemove(@intCast(");
+        try emitConst(self,".orderedRemove(@intCast(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self,"))");
     } else {
         // Generate: list.pop().? to unwrap the optional
         try self.genExpr(obj);
-        try self.emit(".pop().?");
+        try emitConst(self,".pop().?");
     }
 }
 
@@ -240,11 +257,11 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if list is uncertain
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
-        try self.emit("try runtime.pyListExtendPV(__global_allocator, &");
+        try emitConst(self,"try runtime.pyListExtendPV(__global_allocator, &");
         try emitObjExpr(self, obj);
-        try self.emit(", runtime.PyValue.from(");
+        try emitConst(self,", runtime.PyValue.from(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self,"))");
         return;
     }
 
@@ -256,34 +273,34 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Check if argument is a list literal - use & slice syntax
     if (arg == .list) {
         if (obj_needs_temp) {
-            try self.emit("{ var __list_temp = ");
+            try emitConst(self,"{ var __list_temp = ");
             try self.genExpr(obj);
-            try self.emit("; try __list_temp.appendSlice(__global_allocator, &");
+            try emitConst(self,"; try __list_temp.appendSlice(__global_allocator, &");
             try self.genExpr(arg);
-            try self.emit("); }");
+            try emitConst(self,"); }");
         } else {
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try emitObjExpr(self, obj);
-            try self.emit(".appendSlice(__global_allocator, &");
+            try emitConst(self,".appendSlice(__global_allocator, &");
             try self.genExpr(arg);
-            try self.emit(")");
+            try emitConst(self,")");
         }
     } else if (producesBlockExpression(arg)) {
         // Block expression (list comprehension, call, etc.) - need temp for arg
         if (obj_needs_temp) {
             // Both obj and arg need temp variables
-            try self.emit("{ var __list_temp = ");
+            try emitConst(self,"{ var __list_temp = ");
             try self.genExpr(obj);
-            try self.emit("; const __arg_temp = ");
+            try emitConst(self,"; const __arg_temp = ");
             try self.genExpr(arg);
-            try self.emit("; try __list_temp.appendSlice(__global_allocator, __arg_temp.items); }");
+            try emitConst(self,"; try __list_temp.appendSlice(__global_allocator, __arg_temp.items); }");
         } else {
             // Only arg needs temp (existing code)
-            try self.emit("{ const __list_temp = ");
+            try emitConst(self,"{ const __list_temp = ");
             try self.genExpr(arg);
-            try self.emit("; try ");
+            try emitConst(self,"; try ");
             try emitObjExpr(self, obj);
-            try self.emit(".appendSlice(__global_allocator, __list_temp.items); }");
+            try emitConst(self,".appendSlice(__global_allocator, __list_temp.items); }");
         }
     } else {
         // Check if argument might have __iter__ instead of .items
@@ -314,32 +331,32 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             if (obj_needs_temp) {
                 // List literal with custom iterable: [].extend(BadLen())
                 // Create a temp list variable first, then extend it
-                try self.emit("{ var __list_temp = ");
+                try emitConst(self,"{ var __list_temp = ");
                 try self.genExpr(obj);
-                try self.emit("; try runtime.listExtendIterable(__global_allocator, &__list_temp, ");
+                try emitConst(self,"; try runtime.listExtendIterable(__global_allocator, &__list_temp, ");
                 try self.genExpr(arg);
-                try self.emit("); }");
+                try emitConst(self,"); }");
             } else {
-                try self.emit("try runtime.listExtendIterable(__global_allocator, &");
+                try emitConst(self,"try runtime.listExtendIterable(__global_allocator, &");
                 try emitObjExpr(self, obj);
-                try self.emit(", ");
+                try emitConst(self,", ");
                 try self.genExpr(arg);
-                try self.emit(")");
+                try emitConst(self,")");
             }
         } else {
             // Assume ArrayList variable - use .items
             if (obj_needs_temp) {
-                try self.emit("{ var __list_temp = ");
+                try emitConst(self,"{ var __list_temp = ");
                 try self.genExpr(obj);
-                try self.emit("; try __list_temp.appendSlice(__global_allocator, ");
+                try emitConst(self,"; try __list_temp.appendSlice(__global_allocator, ");
                 try self.genExpr(arg);
-                try self.emit(".items); }");
+                try emitConst(self,".items); }");
             } else {
-                try self.emit("try ");
+                try emitConst(self,"try ");
                 try emitObjExpr(self, obj);
-                try self.emit(".appendSlice(__global_allocator, ");
+                try emitConst(self,".appendSlice(__global_allocator, ");
                 try self.genExpr(arg);
-                try self.emit(".items)");
+                try emitConst(self,".items)");
             }
         }
     }
@@ -355,35 +372,35 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if list is uncertain
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
-        try self.emit("try runtime.pyListInsertPV(__global_allocator, &");
+        try emitConst(self,"try runtime.pyListInsertPV(__global_allocator, &");
         try emitObjExpr(self, obj);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[0]);
-        try self.emit(", runtime.PyValue.from(");
+        try emitConst(self,", runtime.PyValue.from(");
         try self.genExpr(args[1]);
-        try self.emit("))");
+        try emitConst(self,"))");
         return;
     }
 
     // Check if obj needs temp variable (list literal, comprehension, etc.)
     if (needsTempVariable(obj)) {
-        try self.emit("{ var __list_temp = ");
+        try emitConst(self,"{ var __list_temp = ");
         try self.genExpr(obj);
-        try self.emit("; try __list_temp.insert(__global_allocator, @intCast(");
+        try emitConst(self,"; try __list_temp.insert(__global_allocator, @intCast(");
         try self.genExpr(args[0]);
-        try self.emit("), ");
+        try emitConst(self,"), ");
         try self.genExpr(args[1]);
-        try self.emit("); }");
+        try emitConst(self,"); }");
     } else {
         // Generate: try list.insert(__global_allocator, @intCast(index), item)
         // Need @intCast because index may be i64 from floor division, but insert needs usize
-        try self.emit("try ");
+        try emitConst(self,"try ");
         try emitObjExpr(self, obj);
-        try self.emit(".insert(__global_allocator, @intCast(");
+        try emitConst(self,".insert(__global_allocator, @intCast(");
         try self.genExpr(args[0]);
-        try self.emit("), ");
+        try emitConst(self,"), ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try emitConst(self,")");
     }
 }
 
@@ -394,13 +411,13 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: { const idx = std.mem.indexOfScalar(T, list.items, item).?; _ = list.orderedRemove(idx); }
-    try self.emit("{ const __idx = std.mem.indexOfScalar(i64, ");
+    try emitConst(self,"{ const __idx = std.mem.indexOfScalar(i64, ");
     try self.genExpr(obj);
-    try self.emit(".items, ");
+    try emitConst(self,".items, ");
     try self.genExpr(args[0]);
-    try self.emit(").?; _ = ");
+    try emitConst(self,").?; _ = ");
     try self.genExpr(obj);
-    try self.emit(".orderedRemove(__idx); }");
+    try emitConst(self,".orderedRemove(__idx); }");
 }
 
 /// Generate code for list.reverse()
@@ -418,14 +435,14 @@ pub fn genReverse(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
     if (needs_temp) {
         // Generate: { var __list_temp = expr; std.mem.reverse(i64, __list_temp.items); }
-        try self.emit("{ var __list_temp = ");
+        try emitConst(self,"{ var __list_temp = ");
         try self.genExpr(obj);
-        try self.emit("; std.mem.reverse(i64, __list_temp.items); }");
+        try emitConst(self,"; std.mem.reverse(i64, __list_temp.items); }");
     } else {
         // Generate: std.mem.reverse(T, list.items)
-        try self.emit("std.mem.reverse(i64, ");
+        try emitConst(self,"std.mem.reverse(i64, ");
         try self.genExpr(obj);
-        try self.emit(".items)");
+        try emitConst(self,".items)");
     }
 }
 
@@ -444,14 +461,14 @@ pub fn genSort(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
     if (needs_temp) {
         // Generate: { var __list_temp = expr; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }
-        try self.emit("{ var __list_temp = ");
+        try emitConst(self,"{ var __list_temp = ");
         try self.genExpr(obj);
-        try self.emit("; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }");
+        try emitConst(self,"; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }");
     } else {
         // Generate: std.mem.sort(i64, list.items, {}, comptime std.sort.asc(i64))
-        try self.emit("std.mem.sort(i64, ");
+        try emitConst(self,"std.mem.sort(i64, ");
         try self.genExpr(obj);
-        try self.emit(".items, {}, comptime std.sort.asc(i64))");
+        try emitConst(self,".items, {}, comptime std.sort.asc(i64))");
     }
 }
 
@@ -462,13 +479,13 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Handle list literals and temporary expressions that need temp variable
     if (needsTempVariable(obj)) {
-        try self.emit("{ var __list_temp = ");
+        try emitConst(self,"{ var __list_temp = ");
         try self.genExpr(obj);
-        try self.emit("; __list_temp.clearRetainingCapacity(); }");
+        try emitConst(self,"; __list_temp.clearRetainingCapacity(); }");
     } else {
         // Generate: list.clearRetainingCapacity()
         try emitObjExpr(self, obj);
-        try self.emit(".clearRetainingCapacity()");
+        try emitConst(self,".clearRetainingCapacity()");
     }
 }
 
@@ -488,27 +505,27 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         // (they use the allocator stored internally)
         if (needsTempVariable(obj)) {
             const label = try self.emitInlineBlockStart("copy");
-            try self.emit("const __list_temp = ");
+            try emitConst(self,"const __list_temp = ");
             try self.genExpr(obj);
-            try self.emitFmt("; break :{s} try __list_temp.clone(); ", .{label});
+            try emitFmtConst(self, "; break :{s} try __list_temp.clone(); ", .{label});
             try self.emitInlineBlockEnd();
         } else {
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try emitObjExpr(self, obj);
-            try self.emit(".clone()");
+            try emitConst(self,".clone()");
         }
     } else {
         // ArrayList.clone() requires allocator argument
         if (needsTempVariable(obj)) {
             const label = try self.emitInlineBlockStart("copy");
-            try self.emit("const __list_temp = ");
+            try emitConst(self,"const __list_temp = ");
             try self.genExpr(obj);
-            try self.emitFmt("; break :{s} try __list_temp.clone(__global_allocator); ", .{label});
+            try emitFmtConst(self, "; break :{s} try __list_temp.clone(__global_allocator); ", .{label});
             try self.emitInlineBlockEnd();
         } else {
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try emitObjExpr(self, obj);
-            try self.emit(".clone(__global_allocator)");
+            try emitConst(self,".clone(__global_allocator)");
         }
     }
 }
@@ -528,13 +545,13 @@ pub fn genIndex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Generate: @as(i64, @intCast(std.mem.indexOfScalar(T, list.items, item).?))
     // The .? asserts item exists (crashes if not found, like Python)
-    try self.emit("@as(i64, @intCast(std.mem.indexOfScalar(");
-    try self.emit(elem_type);
-    try self.emit(", ");
+    try emitConst(self,"@as(i64, @intCast(std.mem.indexOfScalar(");
+    try emitConst(self,elem_type);
+    try emitConst(self,", ");
     try self.genExpr(obj);
-    try self.emit(".items, ");
+    try emitConst(self,".items, ");
     try self.genExpr(args[0]);
-    try self.emit(").?))");
+    try emitConst(self,").?))");
 }
 
 /// Generate code for list.count(item)
@@ -553,13 +570,13 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Generate: @as(i64, @intCast(runtime.pyCount(T, (list).items, item)))
     // Uses runtime.pyCount which handles NaN identity for floats
     // Parentheses around list are needed for list literal blocks
-    try self.emit("@as(i64, @intCast(runtime.pyCount(");
-    try self.emit(elem_type);
-    try self.emit(", (");
+    try emitConst(self,"@as(i64, @intCast(runtime.pyCount(");
+    try emitConst(self,elem_type);
+    try emitConst(self,", (");
     try self.genExpr(obj);
-    try self.emit(").items, ");
+    try emitConst(self,").items, ");
     try self.genExpr(args[0]);
-    try self.emit(")))");
+    try emitConst(self,")))");
 }
 
 /// Generate code for deque.appendleft(item)
@@ -569,11 +586,11 @@ pub fn genAppendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: try deque.insert(__global_allocator, 0, item)
-    try self.emit("try ");
+    try emitConst(self,"try ");
     try emitObjExpr(self, obj);
-    try self.emit(".insert(__global_allocator, 0, ");
+    try emitConst(self,".insert(__global_allocator, 0, ");
     try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate code for deque.popleft()
@@ -583,7 +600,7 @@ pub fn genPopleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 
     // Generate: deque.orderedRemove(0)
     try self.genExpr(obj);
-    try self.emit(".orderedRemove(0)");
+    try emitConst(self,".orderedRemove(0)");
 }
 
 /// Generate code for deque.extendleft(iterable)
@@ -597,18 +614,18 @@ pub fn genExtendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     // Check if argument is a list literal - use & slice syntax
     if (arg == .list) {
         // Array literals: iterate directly with &
-        try self.emit("{ for (&");
+        try emitConst(self,"{ for (&");
         try self.genExpr(arg);
-        try self.emit(") |__ext_item| { try ");
+        try emitConst(self,") |__ext_item| { try ");
         try self.genExpr(obj);
-        try self.emit(".insert(__global_allocator, 0, __ext_item); } }");
+        try emitConst(self,".insert(__global_allocator, 0, __ext_item); } }");
     } else {
         // ArrayList variable: use .items
-        try self.emit("{ const __ext_temp = ");
+        try emitConst(self,"{ const __ext_temp = ");
         try self.genExpr(arg);
-        try self.emit(".items; for (__ext_temp) |__ext_item| { try ");
+        try emitConst(self,".items; for (__ext_temp) |__ext_item| { try ");
         try self.genExpr(obj);
-        try self.emit(".insert(__global_allocator, 0, __ext_item); } }");
+        try emitConst(self,".insert(__global_allocator, 0, __ext_item); } }");
     }
 }
 
@@ -617,17 +634,17 @@ pub fn genExtendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 pub fn genRotate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // Generate: std.mem.rotate(T, deque.items, n)
     // Note: std.mem.rotate rotates left, so we need to negate for Python's right rotation
-    try self.emit("std.mem.rotate(@TypeOf(");
+    try emitConst(self,"std.mem.rotate(@TypeOf(");
     try self.genExpr(obj);
-    try self.emit(".items[0]), ");
+    try emitConst(self,".items[0]), ");
     try self.genExpr(obj);
-    try self.emit(".items, @as(usize, @intCast(");
+    try emitConst(self,".items, @as(usize, @intCast(");
     try self.genExpr(obj);
-    try self.emit(".items.len)) -% @as(usize, @intCast(");
+    try emitConst(self,".items.len)) -% @as(usize, @intCast(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("1");
+        try emitConst(self,"1");
     }
-    try self.emit(")))");
+    try emitConst(self,")))");
 }

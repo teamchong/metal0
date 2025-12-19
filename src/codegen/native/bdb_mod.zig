@@ -5,6 +5,26 @@ const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Bdb", genBdb },
     .{ "Breakpoint", genBreakpoint },
@@ -57,11 +77,11 @@ fn genBreakpoint(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 2) {
         try self.withInlineBlock("bp", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v0 = ");
+                try emitConst(c, "const __v0 = ");
                 try c.genExpr(a[0]);
-                try c.emit("; const __v1 = ");
+                try emitConst(c, "; const __v1 = ");
                 try c.genExpr(a[1]);
-                try c.emitFmt("; break :{s} .{{ .file = __v0, .line = __v1, .temporary = false, .cond = null, .funcname = null, .enabled = true, .ignore = 0, .hits = 0 }}", .{label});
+                try emitFmtConst(c, "; break :{s} .{{ .file = __v0, .line = __v1, .temporary = false, .cond = null, .funcname = null, .enabled = true, .ignore = 0, .hits = 0 }}", .{label});
             }
         }.emit);
     } else {

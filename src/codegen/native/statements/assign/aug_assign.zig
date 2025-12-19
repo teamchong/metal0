@@ -1,4 +1,5 @@
 /// Augmented assignment code generation (+=, -=, *=, /=, etc.)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -12,6 +13,22 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const operator_traits = @import("../../../../analysis/traits/operator_traits.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 /// Simple binary operator strings (with spaces for assignment context)
 const SimpleOpStrings = std.StaticStringMap([]const u8).initComptime(.{
@@ -76,58 +93,58 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
                 if (is_static) {
                     // Static field: direct field access assignment
-                    try self.emit(self_name);
-                    try self.emit(".");
-                    try self.emit(attr.attr);
-                    try self.emit(" = ");
-                    try self.emit(self_name);
-                    try self.emit(".");
-                    try self.emit(attr.attr);
+                    try emitConst(self,self_name);
+                    try emitConst(self,".");
+                    try emitConst(self,attr.attr);
+                    try emitConst(self," = ");
+                    try emitConst(self,self_name);
+                    try emitConst(self,".");
+                    try emitConst(self,attr.attr);
                     // Handle Pow (**=) specially - needs std.math.pow
                     if (aug.op == .Pow) {
-                        try self.emit(" = std.math.pow(@TypeOf(");
-                        try self.emit(self_name);
-                        try self.emit(".");
-                        try self.emit(attr.attr);
-                        try self.emit("), ");
-                        try self.emit(self_name);
-                        try self.emit(".");
-                        try self.emit(attr.attr);
-                        try self.emit(", ");
+                        try emitConst(self," = std.math.pow(@TypeOf(");
+                        try emitConst(self,self_name);
+                        try emitConst(self,".");
+                        try emitConst(self,attr.attr);
+                        try emitConst(self,"), ");
+                        try emitConst(self,self_name);
+                        try emitConst(self,".");
+                        try emitConst(self,attr.attr);
+                        try emitConst(self,", ");
                         try self.genExpr(aug.value.*);
-                        try self.emit(");\n");
+                        try emitConst(self,");\n");
                         return;
                     }
                     // Handle MatMul (@=) specially - needs __imatmul__ method
                     if (aug.op == .MatMul) {
-                        try self.emit(" = try ");
-                        try self.emit(self_name);
-                        try self.emit(".");
-                        try self.emit(attr.attr);
-                        try self.emit(".__imatmul__(__global_allocator, ");
+                        try emitConst(self," = try ");
+                        try emitConst(self,self_name);
+                        try emitConst(self,".");
+                        try emitConst(self,attr.attr);
+                        try emitConst(self,".__imatmul__(__global_allocator, ");
                         try self.genExpr(aug.value.*);
-                        try self.emit(");\n");
+                        try emitConst(self,");\n");
                         return;
                     }
-                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
+                    try emitConst(self,SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                     try self.genExpr(aug.value.*);
-                    try self.emit(";\n");
+                    try emitConst(self,";\n");
                     return;
                 } else {
                     // Dynamic attribute aug assign: put the new value
                     // Note: Pow and MatMul not supported for dynamic dict attributes
                     if (aug.op == .Pow or aug.op == .MatMul) {
-                        try self.emit("@compileError(\"**= and @= not supported for dynamic attributes\");\n");
+                        try emitConst(self,"@compileError(\"**= and @= not supported for dynamic attributes\");\n");
                         return;
                     }
-                    try self.emit("try ");
-                    try self.emit(self_name);
+                    try emitConst(self,"try ");
+                    try emitConst(self,self_name);
                     try self.output.writer(self.allocator).print(".__dict__.put(\"{s}\", .{{ .int = ", .{attr.attr});
-                    try self.emit(self_name);
+                    try emitConst(self,self_name);
                     try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.int", .{attr.attr});
-                    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
+                    try emitConst(self,SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                     try self.genExpr(aug.value.*);
-                    try self.emit(" });\n");
+                    try emitConst(self," });\n");
                     return;
                 }
             }
@@ -141,12 +158,12 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         const slice = subscript.slice.slice;
 
         // Generate a block for the slice aug assign operation
-        try self.emit("{\n");
+        try emitConst(self,"{\n");
         self.indent();
 
         // Get slice bounds - handle ArrayList aliases (need to dereference)
         try self.emitIndent();
-        try self.emit("const __list = ");
+        try emitConst(self,"const __list = ");
         if (subscript.value.* == .name) {
             const var_name = subscript.value.name.id;
             if (self.isArrayListAlias(var_name)) {
@@ -154,121 +171,121 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 try self.genExpr(subscript.value.*);
             } else {
                 // Regular ArrayList, take address
-                try self.emit("&");
+                try emitConst(self,"&");
                 try self.genExpr(subscript.value.*);
             }
         } else {
-            try self.emit("&");
+            try emitConst(self,"&");
             try self.genExpr(subscript.value.*);
         }
-        try self.emit(";\n");
+        try emitConst(self,";\n");
 
         // Calculate start index
         try self.emitIndent();
         if (slice.lower) |lower| {
-            try self.emit("const __start: usize = @intCast(");
+            try emitConst(self,"const __start: usize = @intCast(");
             try self.genExpr(lower.*);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         } else {
-            try self.emit("const __start: usize = 0;\n");
+            try emitConst(self,"const __start: usize = 0;\n");
         }
 
         // Calculate end index
         try self.emitIndent();
         if (slice.upper) |upper| {
-            try self.emit("const __end: usize = @intCast(");
+            try emitConst(self,"const __end: usize = @intCast(");
             try self.genExpr(upper.*);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         } else {
-            try self.emit("const __end: usize = __list.items.len;\n");
+            try emitConst(self,"const __end: usize = __list.items.len;\n");
         }
 
         // Extract the slice to operate on
         try self.emitIndent();
-        try self.emit("const __slice = __list.items[__start..__end];\n");
+        try emitConst(self,"const __slice = __list.items[__start..__end];\n");
 
         // Generate the operation based on operator
         if (aug.op == .Mult) {
             // x[start:end] *= n - repeat the slice n times
             try self.emitIndent();
-            try self.emit("const __repeat_count: usize = @intCast(");
+            try emitConst(self,"const __repeat_count: usize = @intCast(");
             try self.genExpr(aug.value.*);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
 
             // Create new slice content (repeated)
             try self.emitIndent();
-            try self.emit("var __new_items = std.ArrayListUnmanaged(@TypeOf(__list.items[0])){};\n");
+            try emitConst(self,"var __new_items = std.ArrayListUnmanaged(@TypeOf(__list.items[0])){};\n");
             try self.emitIndent();
-            try self.emit("for (0..__repeat_count) |_| {\n");
+            try emitConst(self,"for (0..__repeat_count) |_| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("for (__slice) |item| {\n");
+            try emitConst(self,"for (__slice) |item| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try __new_items.append(__global_allocator, item);\n");
+            try emitConst(self,"try __new_items.append(__global_allocator, item);\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
 
             // Replace the slice in the original list
             try self.emitIndent();
-            try self.emit("try __list.replaceRange(__global_allocator, __start, __end - __start, __new_items.items);\n");
+            try emitConst(self,"try __list.replaceRange(__global_allocator, __start, __end - __start, __new_items.items);\n");
 
             // Cleanup
             try self.emitIndent();
-            try self.emit("__new_items.deinit(__global_allocator);\n");
+            try emitConst(self,"__new_items.deinit(__global_allocator);\n");
         } else if (aug.op == .Add) {
             // x[start:end] += [items] - extend the slice with items
             try self.emitIndent();
-            try self.emit("var __new_items = std.ArrayListUnmanaged(@TypeOf(__list.items[0])){};\n");
+            try emitConst(self,"var __new_items = std.ArrayListUnmanaged(@TypeOf(__list.items[0])){};\n");
 
             // First add original slice items
             try self.emitIndent();
-            try self.emit("for (__slice) |item| {\n");
+            try emitConst(self,"for (__slice) |item| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try __new_items.append(__global_allocator, item);\n");
+            try emitConst(self,"try __new_items.append(__global_allocator, item);\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
 
             // Then add the extension items
             try self.emitIndent();
-            try self.emit("const __extend_items = ");
+            try emitConst(self,"const __extend_items = ");
             try self.genExpr(aug.value.*);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
             try self.emitIndent();
-            try self.emit("for (__extend_items) |item| {\n");
+            try emitConst(self,"for (__extend_items) |item| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try __new_items.append(__global_allocator, item);\n");
+            try emitConst(self,"try __new_items.append(__global_allocator, item);\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
 
             // Replace the slice in the original list
             try self.emitIndent();
-            try self.emit("try __list.replaceRange(__global_allocator, __start, __end - __start, __new_items.items);\n");
+            try emitConst(self,"try __list.replaceRange(__global_allocator, __start, __end - __start, __new_items.items);\n");
 
             // Cleanup
             try self.emitIndent();
-            try self.emit("__new_items.deinit(__global_allocator);\n");
+            try emitConst(self,"__new_items.deinit(__global_allocator);\n");
         } else {
             // Other operators (Sub, Div, etc.) are not valid for slice assignment in Python
             // Python raises TypeError: 'NoneType' object cannot be interpreted as an integer
             // We generate a compile error to catch this at compile time
             try self.emitIndent();
-            try self.emit("@compileError(\"Unsupported operator for slice augmented assignment - only *= and += are valid\");\n");
+            try emitConst(self,"@compileError(\"Unsupported operator for slice augmented assignment - only *= and += are valid\");\n");
             try self.emitIndent();
-            try self.emit("_ = __slice;\n");
+            try emitConst(self,"_ = __slice;\n");
         }
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
         return;
     }
 
@@ -294,158 +311,158 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 // Special cases that need function calls
                 if (aug.op == .Pow) {
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = std.math.pow(i64, ");
+                    try emitConst(self,"))] = std.math.pow(i64, ");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))], ");
+                    try emitConst(self,"))], ");
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
                 if (aug.op == .FloorDiv) {
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = @divFloor(");
+                    try emitConst(self,"))] = @divFloor(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))], ");
+                    try emitConst(self,"))], ");
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
                 if (aug.op == .Div) {
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = @divTrunc(");
+                    try emitConst(self,"))] = @divTrunc(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))], ");
+                    try emitConst(self,"))], ");
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
                 if (aug.op == .Mod) {
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))] = @mod(");
+                    try emitConst(self,"))] = @mod(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))], ");
+                    try emitConst(self,"))], ");
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
 
                 try self.genExpr(subscript.value.*);
-                try self.emit(".items[@as(usize, @intCast(");
+                try emitConst(self,".items[@as(usize, @intCast(");
                 try self.genExpr(subscript.slice.index.*);
-                try self.emit("))] = ");
+                try emitConst(self,"))] = ");
                 // Handle Pow (**=) specially - needs std.math.pow
                 if (aug.op == .Pow) {
-                    try self.emit("std.math.pow(@TypeOf(");
+                    try emitConst(self,"std.math.pow(@TypeOf(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))]), ");
+                    try emitConst(self,"))]), ");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))], ");
+                    try emitConst(self,"))], ");
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
                 // Handle MatMul (@=) specially - needs __imatmul__ method
                 if (aug.op == .MatMul) {
-                    try self.emit("try ");
+                    try emitConst(self,"try ");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".items[@as(usize, @intCast(");
+                    try emitConst(self,".items[@as(usize, @intCast(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit("))].__imatmul__(__global_allocator, ");
+                    try emitConst(self,"))].__imatmul__(__global_allocator, ");
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
                 try self.genExpr(subscript.value.*);
-                try self.emit(".items[@as(usize, @intCast(");
+                try emitConst(self,".items[@as(usize, @intCast(");
                 try self.genExpr(subscript.slice.index.*);
-                try self.emit("))]");
-                try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
+                try emitConst(self,"))]");
+                try emitConst(self,SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
                 try self.genExpr(aug.value.*);
-                try self.emit(";\n");
+                try emitConst(self,";\n");
                 return;
             }
 
             if (container_traits.isDict(base_type) or is_tracked_dict) {
                 // Dict subscript aug assign: x[key] += value
                 // Generates: try base.put(key, (base.get(key).? OP value));
-                try self.emit("try ");
+                try emitConst(self,"try ");
                 try self.genExpr(subscript.value.*);
-                try self.emit(".put(");
+                try emitConst(self,".put(");
                 try self.genExpr(subscript.slice.index.*);
-                try self.emit(", ");
+                try emitConst(self,", ");
 
                 // Special cases for operators that need function calls
                 if (aug.op == .FloorDiv) {
-                    try self.emit("@divFloor(");
+                    try emitConst(self,"@divFloor(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".get(");
+                    try emitConst(self,".get(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit(").?, ");
+                    try emitConst(self,").?, ");
                     try self.genExpr(aug.value.*);
-                    try self.emit("));\n");
+                    try emitConst(self,"));\n");
                     return;
                 }
                 if (aug.op == .Pow) {
-                    try self.emit("std.math.pow(i64, ");
+                    try emitConst(self,"std.math.pow(i64, ");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".get(");
+                    try emitConst(self,".get(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit(").?, ");
+                    try emitConst(self,").?, ");
                     try self.genExpr(aug.value.*);
-                    try self.emit("));\n");
+                    try emitConst(self,"));\n");
                     return;
                 }
                 if (aug.op == .Mod) {
-                    try self.emit("@mod(");
+                    try emitConst(self,"@mod(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".get(");
+                    try emitConst(self,".get(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit(").?, ");
+                    try emitConst(self,").?, ");
                     try self.genExpr(aug.value.*);
-                    try self.emit("));\n");
+                    try emitConst(self,"));\n");
                     return;
                 }
                 if (aug.op == .Div) {
-                    try self.emit("@divTrunc(");
+                    try emitConst(self,"@divTrunc(");
                     try self.genExpr(subscript.value.*);
-                    try self.emit(".get(");
+                    try emitConst(self,".get(");
                     try self.genExpr(subscript.slice.index.*);
-                    try self.emit(").?, ");
+                    try emitConst(self,").?, ");
                     try self.genExpr(aug.value.*);
-                    try self.emit("));\n");
+                    try emitConst(self,"));\n");
                     return;
                 }
 
                 // Generate the value expression with operation
-                try self.emit("(");
+                try emitConst(self,"(");
                 try self.genExpr(subscript.value.*);
-                try self.emit(".get(");
+                try emitConst(self,".get(");
                 try self.genExpr(subscript.slice.index.*);
-                try self.emit(").?) ");
-                try self.emit(CompactOpStrings.get(@tagName(aug.op)) orelse "?");
-                try self.emit(" ");
+                try emitConst(self,").?) ");
+                try emitConst(self,CompactOpStrings.get(@tagName(aug.op)) orelse "?");
+                try emitConst(self," ");
                 try self.genExpr(aug.value.*);
-                try self.emit(");\n");
+                try emitConst(self,");\n");
                 return;
             }
         }
@@ -466,21 +483,21 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
                 // Generate: const __x_shadow_N = runtime.tupleConcat(original_x, (new_elements));
                 try self.emitIndent();
-                try self.emit("const ");
-                try self.emit(shadow_name);
-                try self.emit(" = runtime.tupleConcat(");
+                try emitConst(self,"const ");
+                try emitConst(self,shadow_name);
+                try emitConst(self," = runtime.tupleConcat(");
                 // Use current (potentially renamed) variable
                 const current_name = self.var_renames.get(var_name) orelse var_name;
-                try self.emit(current_name);
-                try self.emit(", ");
+                try emitConst(self,current_name);
+                try emitConst(self,", ");
                 try self.genExpr(aug.value.*);
-                try self.emit(");\n");
+                try emitConst(self,");\n");
 
                 // Suppress unused warning if variable isn't used again
                 try self.emitIndent();
-                try self.emit("_ = &");
-                try self.emit(shadow_name);
-                try self.emit(";\n");
+                try emitConst(self,"_ = &");
+                try emitConst(self,shadow_name);
+                try emitConst(self,";\n");
 
                 // Update var_renames so future uses of 'x' use the shadow variable
                 try self.var_renames.put(var_name, shadow_name);
@@ -503,30 +520,30 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 if (aug.value.* == .constant and aug.value.constant.value == .int) {
                     const n = aug.value.constant.value.int;
                     try self.emitIndent();
-                    try self.emit("const ");
-                    try self.emit(shadow_name);
+                    try emitConst(self,"const ");
+                    try emitConst(self,shadow_name);
                     try self.output.writer(self.allocator).print(" = runtime.tupleMultiply({d}, ", .{n});
                     const current_name = self.var_renames.get(var_name) orelse var_name;
-                    try self.emit(current_name);
-                    try self.emit(");\n");
+                    try emitConst(self,current_name);
+                    try emitConst(self,");\n");
                 } else {
                     // Runtime n - use tupleRepeat (returns slice)
                     try self.emitIndent();
-                    try self.emit("const ");
-                    try self.emit(shadow_name);
-                    try self.emit(" = runtime.tupleRepeat(__global_allocator, ");
+                    try emitConst(self,"const ");
+                    try emitConst(self,shadow_name);
+                    try emitConst(self," = runtime.tupleRepeat(__global_allocator, ");
                     const current_name = self.var_renames.get(var_name) orelse var_name;
-                    try self.emit(current_name);
-                    try self.emit(", @as(usize, @intCast(");
+                    try emitConst(self,current_name);
+                    try emitConst(self,", @as(usize, @intCast(");
                     try self.genExpr(aug.value.*);
-                    try self.emit(")));\n");
+                    try emitConst(self,")));\n");
                 }
 
                 // Suppress unused warning if variable isn't used again
                 try self.emitIndent();
-                try self.emit("_ = &");
-                try self.emit(shadow_name);
-                try self.emit(";\n");
+                try emitConst(self,"_ = &");
+                try emitConst(self,shadow_name);
+                try emitConst(self,";\n");
 
                 // Update var_renames for future uses
                 try self.var_renames.put(var_name, shadow_name);
@@ -547,19 +564,19 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
         if (is_arraylist) {
             // ArrayList: extend in place via appendSlice
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try self.genExpr(aug.target.*);
-            try self.emit(".appendSlice(__global_allocator, &");
+            try emitConst(self,".appendSlice(__global_allocator, &");
             try self.genExpr(aug.value.*);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         } else {
             // Static array: use comptime concat
             try self.genExpr(aug.target.*);
-            try self.emit(" = runtime.concat(");
+            try emitConst(self," = runtime.concat(");
             try self.genExpr(aug.target.*);
-            try self.emit(", ");
+            try emitConst(self,", ");
             try self.genExpr(aug.value.*);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         }
         return;
     }
@@ -580,31 +597,31 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
             if (is_arraylist) {
             // ArrayList: repeat in place by copying original items n-1 more times
-            try self.emit("{\n");
+            try emitConst(self,"{\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("const __orig_len = ");
+            try emitConst(self,"const __orig_len = ");
             try self.genExpr(aug.target.*);
-            try self.emit(".items.len;\n");
+            try emitConst(self,".items.len;\n");
             try self.emitIndent();
-            try self.emit("var __i: usize = 1;\n");
+            try emitConst(self,"var __i: usize = 1;\n");
             try self.emitIndent();
-            try self.emit("while (__i < @as(usize, @intCast(");
+            try emitConst(self,"while (__i < @as(usize, @intCast(");
             try self.genExpr(aug.value.*);
-            try self.emit("))) : (__i += 1) {\n");
+            try emitConst(self,"))) : (__i += 1) {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try self.genExpr(aug.target.*);
-            try self.emit(".appendSlice(__global_allocator, ");
+            try emitConst(self,".appendSlice(__global_allocator, ");
             try self.genExpr(aug.target.*);
-            try self.emit(".items[0..__orig_len]);\n");
+            try emitConst(self,".items[0..__orig_len]);\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             return;
             }
         }
@@ -633,40 +650,40 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     // In assertRaises context, catch errors instead of propagating
                     if (self.in_assert_raises_context) {
                         // Generate: _ = (if (@hasDecl(...)) x.__iadd__(...) else x.__add__(...)) catch null;
-                        try self.emit("_ = (if (@hasDecl(@TypeOf(");
+                        try emitConst(self,"_ = (if (@hasDecl(@TypeOf(");
                         try self.genExpr(aug.target.*);
-                        try self.emitFmt(".*), \"{s}\")) ", .{iadd_method.?});
+                        try emitFmtConst(self, ".*), \"{s}\")) ", .{iadd_method.?});
                         try self.genExpr(aug.target.*);
-                        try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                        try emitFmtConst(self, ".{s}(__global_allocator, ", .{iadd_method.?});
                         try self.genExpr(aug.value.*);
-                        try self.emit(") else ");
+                        try emitConst(self,") else ");
                         try self.genExpr(aug.target.*);
-                        try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                        try emitFmtConst(self, ".{s}(__global_allocator, ", .{add_method.?});
                         try self.genExpr(aug.value.*);
-                        try self.emit(")) catch null;\n");
+                        try emitConst(self,")) catch null;\n");
                     } else {
                         // Generate: x = if (@hasDecl(@TypeOf(x.*), "__iadd__")) try x.__iadd__(allocator, val) else try x.__add__(allocator, val);
                         // Note: x is a pointer (*ClassName) for heap-allocated nested classes, so use x.* to get struct type
                         try self.genExpr(aug.target.*);
-                        try self.emit(" = if (@hasDecl(@TypeOf(");
+                        try emitConst(self," = if (@hasDecl(@TypeOf(");
                         try self.genExpr(aug.target.*);
-                        try self.emitFmt(".*), \"{s}\")) try ", .{iadd_method.?});
+                        try emitFmtConst(self, ".*), \"{s}\")) try ", .{iadd_method.?});
                         try self.genExpr(aug.target.*);
-                        try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                        try emitFmtConst(self, ".{s}(__global_allocator, ", .{iadd_method.?});
                         try self.genExpr(aug.value.*);
-                        try self.emit(") else try ");
+                        try emitConst(self,") else try ");
                         try self.genExpr(aug.target.*);
-                        try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                        try emitFmtConst(self, ".{s}(__global_allocator, ", .{add_method.?});
                         try self.genExpr(aug.value.*);
-                        try self.emit(");\n");
+                        try emitConst(self,");\n");
                     }
                 } else {
                     try self.genExpr(aug.target.*);
-                    try self.emit(" = try ");
+                    try emitConst(self," = try ");
                     try self.genExpr(aug.target.*);
-                    try self.emitFmt(".{s}(__global_allocator, ", .{iadd_method.?});
+                    try emitFmtConst(self, ".{s}(__global_allocator, ", .{iadd_method.?});
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                 }
                 return;
             } else if (add_method != null) {
@@ -677,11 +694,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 if (has_add) {
                     // x += val => x = try x.__add__(allocator, val)
                     try self.genExpr(aug.target.*);
-                    try self.emit(" = try ");
+                    try emitConst(self," = try ");
                     try self.genExpr(aug.target.*);
-                    try self.emitFmt(".{s}(__global_allocator, ", .{add_method.?});
+                    try emitFmtConst(self, ".{s}(__global_allocator, ", .{add_method.?});
                     try self.genExpr(aug.value.*);
-                    try self.emit(");\n");
+                    try emitConst(self,");\n");
                     return;
                 }
             }
@@ -696,52 +713,52 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         // If RHS is a dict, iterate directly over dict entries
         if (container_traits.isDict(value_type)) {
             // Generate: { const __other = dict2; var __iter = __other.iterator(); while (__iter.next()) |e| try dict1.put(e.key_ptr.*, e.value_ptr.*); }
-            try self.emit("{\n");
+            try emitConst(self,"{\n");
             self.indent();
             // Store dict in temp var to avoid block expression issues
             try self.emitIndent();
-            try self.emit("const __other_dict = ");
+            try emitConst(self,"const __other_dict = ");
             try self.genExpr(aug.value.*);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
             try self.emitIndent();
-            try self.emit("var __merge_iter = __other_dict.iterator();\n");
+            try emitConst(self,"var __merge_iter = __other_dict.iterator();\n");
             try self.emitIndent();
-            try self.emit("while (__merge_iter.next()) |entry| {\n");
+            try emitConst(self,"while (__merge_iter.next()) |entry| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try self.genExpr(aug.target.*);
             // ArrayHashMap.put() doesn't take allocator
-            try self.emit(".put(entry.key_ptr.*, entry.value_ptr.*);\n");
+            try emitConst(self,".put(entry.key_ptr.*, entry.value_ptr.*);\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         } else {
             // RHS is a list/iterable of tuples - iterate and unpack pairs
             // Generate: { const __pairs = list; for (__pairs.items) |pair| try dict1.put(pair[0], pair[1]); }
-            try self.emit("{\n");
+            try emitConst(self,"{\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("const __pairs = ");
+            try emitConst(self,"const __pairs = ");
             try self.genExpr(aug.value.*);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
             try self.emitIndent();
-            try self.emit("for (__pairs.items) |__pair| {\n");
+            try emitConst(self,"for (__pairs.items) |__pair| {\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("try ");
+            try emitConst(self,"try ");
             try self.genExpr(aug.target.*);
             // ArrayHashMap.put() doesn't take allocator
-            try self.emit(".put(__pair[0], __pair[1]);\n");
+            try emitConst(self,".put(__pair[0], __pair[1]);\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
         return;
     }
@@ -757,47 +774,47 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             // For list aliases (pointers to ArrayLists), we need to iterate and append
             // to the underlying list. Use runtime.iterSlice for universal iteration.
             // Use comptime type check to handle heterogeneous appends via PyValue
-            try self.emit("{\n");
+            try emitConst(self,"{\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("const __ext_src = ");
+            try emitConst(self,"const __ext_src = ");
             try self.genExpr(aug.value.*);
-            try self.emit(";\n");
+            try emitConst(self,";\n");
             try self.emitIndent();
             // Use iterSlice to handle ArrayList, slice, array, etc.
-            try self.emit("for (runtime.iterSlice(__ext_src)) |__ext_item| {\n");
+            try emitConst(self,"for (runtime.iterSlice(__ext_src)) |__ext_item| {\n");
             self.indent();
             try self.emitIndent();
             // Comptime check: if types match, append directly; otherwise skip
             // (Proper heterogeneous list support requires ArrayList(PyValue))
-            try self.emit("const __ListElemType = @typeInfo(@TypeOf(");
+            try emitConst(self,"const __ListElemType = @typeInfo(@TypeOf(");
             try self.genExpr(aug.target.*);
-            try self.emit(".items)).pointer.child;\n");
+            try emitConst(self,".items)).pointer.child;\n");
             try self.emitIndent();
-            try self.emit("const __ItemType = @TypeOf(__ext_item);\n");
+            try emitConst(self,"const __ItemType = @TypeOf(__ext_item);\n");
             try self.emitIndent();
-            try self.emit("if (__ListElemType == __ItemType) {\n");
+            try emitConst(self,"if (__ListElemType == __ItemType) {\n");
             self.indent();
             try self.emitIndent();
             try self.genExpr(aug.target.*);
-            try self.emit(".append(__global_allocator, __ext_item) catch unreachable;\n");
+            try emitConst(self,".append(__global_allocator, __ext_item) catch unreachable;\n");
             self.dedent();
             try self.emitIndent();
             // Fallback: if types don't match, try PyValue conversion for heterogeneous lists
-            try self.emit("} else if (__ListElemType == runtime.PyValue) {\n");
+            try emitConst(self,"} else if (__ListElemType == runtime.PyValue) {\n");
             self.indent();
             try self.emitIndent();
             try self.genExpr(aug.target.*);
-            try self.emit(".append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, __ext_item)) catch unreachable;\n");
+            try emitConst(self,".append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, __ext_item)) catch unreachable;\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
             return;
         }
     }
@@ -817,21 +834,21 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             // Generate: const __x_div_N = blk: { _ = &x; break :blk @as(f64, @floatFromInt(x)) / ...; };
             // The block with discard of `&x` (pointer) suppresses "var never mutated" warning
             // while using x by value computes the result
-            try self.emit("const ");
-            try self.emit(shadow_name);
-            try self.emit(": f64 = blk: { _ = &");
-            try self.emit(current_name);
-            try self.emit("; break :blk @as(f64, @floatFromInt(");
-            try self.emit(current_name);
-            try self.emit(")) / @as(f64, @floatFromInt(");
+            try emitConst(self,"const ");
+            try emitConst(self,shadow_name);
+            try emitConst(self,": f64 = blk: { _ = &");
+            try emitConst(self,current_name);
+            try emitConst(self,"; break :blk @as(f64, @floatFromInt(");
+            try emitConst(self,current_name);
+            try emitConst(self,")) / @as(f64, @floatFromInt(");
             try self.genExpr(aug.value.*);
-            try self.emit(")); };\n");
+            try emitConst(self,")); };\n");
 
             // Suppress unused warning if shadow variable isn't used again
             try self.emitIndent();
-            try self.emit("_ = &");
-            try self.emit(shadow_name);
-            try self.emit(";\n");
+            try emitConst(self,"_ = &");
+            try emitConst(self,shadow_name);
+            try emitConst(self,";\n");
 
             // Update var_renames so future uses of 'x' use the shadow variable
             try self.var_renames.put(var_name, shadow_name);
@@ -840,11 +857,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
         // For already-float targets, just do float division in place
         try self.genExpr(aug.target.*);
-        try self.emit(" = ");
+        try emitConst(self," = ");
         try self.genExpr(aug.target.*);
-        try self.emit(" / ");
+        try emitConst(self," / ");
         try self.genExpr(aug.value.*);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
         return;
     }
 
@@ -902,13 +919,13 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             if (PyValueAugMethods.get(@tagName(aug.op))) |method_name| {
                 // Generate: target = (runtime.PyValue.from(target)).method(runtime.PyValue.from(value))
                 try self.genExpr(aug.target.*);
-                try self.emit(" = (runtime.PyValue.from(");
+                try emitConst(self," = (runtime.PyValue.from(");
                 try self.genExpr(aug.target.*);
-                try self.emit(")).");
-                try self.emit(method_name);
-                try self.emit("(runtime.PyValue.from(");
+                try emitConst(self,")).");
+                try emitConst(self,method_name);
+                try emitConst(self,"(runtime.PyValue.from(");
                 try self.genExpr(aug.value.*);
-                try self.emit("));\n");
+                try emitConst(self,"));\n");
                 return;
             }
         }
@@ -916,7 +933,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
 
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
-    try self.emit(" = ");
+    try emitConst(self," = ");
 
     // Special handling for floor division and power
     if (aug.op == .FloorDiv) {
@@ -924,29 +941,29 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         const right_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
         const semantics = operator_traits.getFloorDivSemantics(left_type, right_type);
         switch (semantics) {
-            .zig_native => try self.emit("@divFloor("),
-            .python_floored => try self.emit("@floor(@as(f64, "),
-            .runtime_dispatch => try self.emit("runtime.floorDivRuntime("),
+            .zig_native => try emitConst(self,"@divFloor("),
+            .python_floored => try emitConst(self,"@floor(@as(f64, "),
+            .runtime_dispatch => try emitConst(self,"runtime.floorDivRuntime("),
         }
         try self.genExpr(aug.target.*);
         if (semantics == .python_floored) {
-            try self.emit(") / @as(f64, ");
+            try emitConst(self,") / @as(f64, ");
             try self.genExpr(aug.value.*);
-            try self.emit("));\n");
+            try emitConst(self,"));\n");
         } else {
-            try self.emit(", ");
+            try emitConst(self,", ");
             try self.genExpr(aug.value.*);
-            try self.emit(");\n");
+            try emitConst(self,");\n");
         }
         return;
     }
 
     if (aug.op == .Pow) {
-        try self.emit("std.math.pow(i64, ");
+        try emitConst(self,"std.math.pow(i64, ");
         try self.genExpr(aug.target.*);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        try emitConst(self,");\n");
         return;
     }
 
@@ -955,25 +972,25 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         const right_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
         const semantics = operator_traits.getModuloSemantics(left_type, right_type);
         switch (semantics) {
-            .zig_native => try self.emit("@mod("),
-            .python_floored => try self.emit("runtime.pyFloatMod("),
-            .runtime_dispatch => try self.emit("runtime.moduloRuntime("),
+            .zig_native => try emitConst(self,"@mod("),
+            .python_floored => try emitConst(self,"runtime.pyFloatMod("),
+            .runtime_dispatch => try emitConst(self,"runtime.moduloRuntime("),
         }
         try self.genExpr(aug.target.*);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        try emitConst(self,");\n");
         return;
     }
 
     // Handle bitwise shift operators separately due to RHS type casting
     if (aug.op == .LShift or aug.op == .RShift) {
         const shift_fn = if (aug.op == .LShift) "std.math.shl" else "std.math.shr";
-        try self.emitFmt("{s}(i64, ", .{shift_fn});
+        try emitFmtConst(self, "{s}(i64, ", .{shift_fn});
         try self.genExpr(aug.target.*);
-        try self.emit(", @as(u6, @intCast(");
+        try emitConst(self,", @as(u6, @intCast(");
         try self.genExpr(aug.value.*);
-        try self.emit(")));\n");
+        try emitConst(self,")));\n");
         return;
     }
 
@@ -986,11 +1003,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     const is_string_concat = string_traits.isString(target_type) or string_traits.isString(value_type) or is_fstring or
         ((type_traits.isUnknown(target_type) or target_type == .pyvalue) and (string_traits.isString(value_type) or is_fstring));
     if (aug.op == .Add and is_string_concat) {
-        try self.emit("try std.mem.concat(__global_allocator, u8, &.{");
+        try emitConst(self,"try std.mem.concat(__global_allocator, u8, &.{");
         try self.genExpr(aug.target.*);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(aug.value.*);
-        try self.emit("});\n");
+        try emitConst(self,"});\n");
         return;
     }
 
@@ -998,29 +1015,29 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     // Handle matrix multiplication separately
     if (aug.op == .MatMul) {
         // MatMul: target @= value => call __imatmul__ method
-        try self.emit("try ");
+        try emitConst(self,"try ");
         try self.genExpr(aug.target.*);
-        try self.emit(".__imatmul__(__global_allocator, ");
+        try emitConst(self,".__imatmul__(__global_allocator, ");
         try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        try emitConst(self,");\n");
         return;
     }
 
     // Handle Pow (**=) specially - needs std.math.pow
     if (aug.op == .Pow) {
         try self.genExpr(aug.target.*);
-        try self.emit(" = std.math.pow(@TypeOf(");
+        try emitConst(self," = std.math.pow(@TypeOf(");
         try self.genExpr(aug.target.*);
-        try self.emit("), ");
+        try emitConst(self,"), ");
         try self.genExpr(aug.target.*);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        try emitConst(self,");\n");
         return;
     }
 
     try self.genExpr(aug.target.*);
-    try self.emit(SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
+    try emitConst(self,SimpleOpStrings.get(@tagName(aug.op)) orelse unreachable);
     try self.genExpr(aug.value.*);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 }

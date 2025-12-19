@@ -1,9 +1,18 @@
 /// Comptime stdlib bridge - generates handlers from specs
+/// MIGRATED TO ZIGBUILDER
 /// Reduces boilerplate: 215 hand-written handlers → ~50 lines of specs
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 /// Spec for a simple runtime call (Pattern 1: direct passthrough)
 pub const SimpleCallSpec = struct {
@@ -20,25 +29,25 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
         pub fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len != spec.arg_count) {
                 std.debug.print("{s} expects {d} args, got {d}\n", .{ spec.runtime_path, spec.arg_count, args.len });
-                try self.emit("@compileError(\"" ++ spec.runtime_path ++ " called with wrong number of arguments\")");
+                try emitConst(self,"@compileError(\"" ++ spec.runtime_path ++ " called with wrong number of arguments\")");
                 return;
             }
 
-            try self.emit("try " ++ spec.runtime_path ++ "(");
+            try emitConst(self,"try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
                 // Always use __global_allocator since method allocator param may be discarded as "_"
-                try self.emit("__global_allocator");
+                try emitConst(self,"__global_allocator");
                 if (spec.arg_count > 0) {
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                 }
             }
 
             inline for (0..spec.arg_count) |i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self,", ");
                 try self.genExpr(args[i]);
             }
 
-            try self.emit(")");
+            try emitConst(self,")");
         }
     }.handler;
 }
@@ -54,16 +63,16 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
         pub fn handler(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len != 0) {
                 std.debug.print("{s} takes no arguments\n", .{spec.runtime_path});
-                try self.emit("@compileError(\"" ++ spec.runtime_path ++ " takes no arguments\")");
+                try emitConst(self,"@compileError(\"" ++ spec.runtime_path ++ " takes no arguments\")");
                 return;
             }
 
-            try self.emit("try " ++ spec.runtime_path ++ "(");
+            try emitConst(self,"try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
                 // Always use __global_allocator since method allocator param may be discarded as "_"
-                try self.emit("__global_allocator");
+                try emitConst(self,"__global_allocator");
             }
-            try self.emit(")");
+            try emitConst(self,")");
         }
     }.handler;
 }
@@ -82,25 +91,25 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
             if (args.len < spec.min_args or args.len > spec.max_args) {
                 std.debug.print("{s} expects {d}-{d} args, got {d}\n", .{ spec.runtime_path, spec.min_args, spec.max_args, args.len });
                 // Emit error placeholder instead of nothing to avoid syntax errors
-                try self.emit("@compileError(\"" ++ spec.runtime_path ++ " called with wrong number of arguments\")");
+                try emitConst(self,"@compileError(\"" ++ spec.runtime_path ++ " called with wrong number of arguments\")");
                 return;
             }
 
-            try self.emit("try " ++ spec.runtime_path ++ "(");
+            try emitConst(self,"try " ++ spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
                 // Always use __global_allocator since method allocator param may be discarded as "_"
-                try self.emit("__global_allocator");
+                try emitConst(self,"__global_allocator");
                 if (args.len > 0) {
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                 }
             }
 
             for (args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self,", ");
                 try self.genExpr(arg);
             }
 
-            try self.emit(")");
+            try emitConst(self,")");
         }
     }.handler;
 }
@@ -120,21 +129,21 @@ pub fn genNoTryCall(comptime spec: NoTryCallSpec) fn (*NativeCodegen, []ast.Node
                 return;
             }
 
-            try self.emit(spec.runtime_path ++ "(");
+            try emitConst(self,spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                try emitConst(self,alloc_name);
                 if (spec.arg_count > 0) {
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                 }
             }
 
             inline for (0..spec.arg_count) |i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self,", ");
                 try self.genExpr(args[i]);
             }
 
-            try self.emit(")");
+            try emitConst(self,")");
         }
     }.handler;
 }
@@ -158,26 +167,26 @@ pub fn genFieldAccessCall(comptime spec: FieldAccessCallSpec) fn (*NativeCodegen
 
             // For field access on error union: (try fn()).field
             if (spec.needs_try) {
-                try self.emit("(try ");
+                try emitConst(self,"(try ");
             }
-            try self.emit(spec.runtime_path ++ "(");
+            try emitConst(self,spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try self.emit(alloc_name);
+                try emitConst(self,alloc_name);
                 if (spec.arg_count > 0) {
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                 }
             }
 
             inline for (0..spec.arg_count) |i| {
-                if (i > 0) try self.emit(", ");
+                if (i > 0) try emitConst(self,", ");
                 try self.genExpr(args[i]);
             }
 
             if (spec.needs_try) {
-                try self.emit("))." ++ spec.field);
+                try emitConst(self,"))." ++ spec.field);
             } else {
-                try self.emit(")." ++ spec.field);
+                try emitConst(self,")." ++ spec.field);
             }
         }
     }.handler;

@@ -14,6 +14,72 @@ const NativeType = @import("../../../../analysis/native_types/core.zig").NativeT
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// UnifiedInt/Complex operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit UnifiedInt binary op: runtime.unified_int_ops.func(left, right, allocator)
+fn emitUnifiedIntBinaryOp(
+    self: *NativeCodegen,
+    func: []const u8,
+    left_operand: ZigValue,
+    left_type: NativeType,
+    right_operand: ZigValue,
+    right_type: NativeType,
+) CodegenError!void {
+    try emitConst(self, "runtime.unified_int_ops.");
+    try emitConst(self, func);
+    try emitConst(self, "(");
+    try emitAsUnifiedInt(self, left_operand, left_type);
+    try emitConst(self, ", ");
+    try emitAsUnifiedInt(self, right_operand, right_type);
+    try emitConst(self, ", __global_allocator)");
+}
+
+/// Emit UnifiedInt shift/pow op: runtime.unified_int_ops.func(left, @as(u32, right), allocator)
+fn emitUnifiedIntShiftOp(
+    self: *NativeCodegen,
+    func: []const u8,
+    left_operand: ZigValue,
+    left_type: NativeType,
+    right_operand: ZigValue,
+) CodegenError!void {
+    try emitConst(self, "runtime.unified_int_ops.");
+    try emitConst(self, func);
+    try emitConst(self, "(");
+    try emitAsUnifiedInt(self, left_operand, left_type);
+    try emitConst(self, ", @as(u32, @intCast(");
+    try self.emitZigValue(right_operand);
+    try emitConst(self, ")), __global_allocator)");
+}
+
+/// Emit complex binary op: left.method(right)
+fn emitComplexBinaryOp(
+    self: *NativeCodegen,
+    method: []const u8,
+    left_operand: ZigValue,
+    left_type: NativeType,
+    right_operand: ZigValue,
+    right_type: NativeType,
+) CodegenError!void {
+    try emitAsComplex(self, left_operand, left_type);
+    try emitConst(self, ".");
+    try emitConst(self, method);
+    try emitConst(self, "(");
+    try emitAsComplex(self, right_operand, right_type);
+    try emitConst(self, ")");
+}
+
 /// Check if a type is UnifiedInt (handles both small i64 and large BigInt)
 pub fn isUnifiedInt(t: NativeType) bool {
     return t == .unified_int;
@@ -42,19 +108,19 @@ fn emitAsUnifiedInt(self: *NativeCodegen, operand: ZigValue, t: NativeType) Code
         try self.emitZigValue(operand);
     } else if (t == .bigint) {
         // BigInt -> UnifiedInt.fromBigInt (no allocation needed)
-        try self.emit("runtime.UnifiedInt.fromBigInt(");
+        try emitConst(self, "runtime.UnifiedInt.fromBigInt(");
         try self.emitZigValue(operand);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else if (t == .int or t == .usize) {
         // i64/usize -> UnifiedInt.fromI64 (no allocation needed)
-        try self.emit("runtime.unified_int_ops.fromI64(@as(i64, ");
+        try emitConst(self, "runtime.unified_int_ops.fromI64(@as(i64, ");
         try self.emitZigValue(operand);
-        try self.emit("))");
+        try emitConst(self, "))");
     } else {
         // Unknown - try to convert as i64
-        try self.emit("runtime.unified_int_ops.fromI64(@as(i64, ");
+        try emitConst(self, "runtime.unified_int_ops.fromI64(@as(i64, ");
         try self.emitZigValue(operand);
-        try self.emit("))");
+        try emitConst(self, "))");
     }
 }
 
@@ -62,8 +128,6 @@ fn emitAsUnifiedInt(self: *NativeCodegen, operand: ZigValue, t: NativeType) Code
 /// Pattern: runtime.unified_int_ops.add(left, right, allocator)
 /// No 'try' needed - runtime helpers panic on OOM internally
 pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
-    const alloc_name = "__global_allocator";
-
     // Capture operands as ZigValues
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
@@ -74,37 +138,11 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
     // Standard binary operations: runtime.unified_int_ops.xxx(left, right, allocator)
     if (UnifiedIntRuntimeOps.get(op_name)) |runtime_fn| {
         // For shift/pow operations, right operand is a primitive (u32)
-        if (binop.op == .LShift or binop.op == .RShift) {
-            try self.emit("runtime.unified_int_ops.");
-            try self.emit(runtime_fn);
-            try self.emit("(");
-            try emitAsUnifiedInt(self, left_operand, left_type);
-            try self.emit(", @as(u32, @intCast(");
-            try self.emitZigValue(right_operand);
-            try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit(")");
-        } else if (binop.op == .Pow) {
-            try self.emit("runtime.unified_int_ops.");
-            try self.emit(runtime_fn);
-            try self.emit("(");
-            try emitAsUnifiedInt(self, left_operand, left_type);
-            try self.emit(", @as(u32, @intCast(");
-            try self.emitZigValue(right_operand);
-            try self.emit(")), ");
-            try self.emit(alloc_name);
-            try self.emit(")");
+        if (binop.op == .LShift or binop.op == .RShift or binop.op == .Pow) {
+            try emitUnifiedIntShiftOp(self, runtime_fn, left_operand, left_type, right_operand);
         } else {
             // Standard binary ops: both operands are UnifiedInt
-            try self.emit("runtime.unified_int_ops.");
-            try self.emit(runtime_fn);
-            try self.emit("(");
-            try emitAsUnifiedInt(self, left_operand, left_type);
-            try self.emit(", ");
-            try emitAsUnifiedInt(self, right_operand, right_type);
-            try self.emit(", ");
-            try self.emit(alloc_name);
-            try self.emit(")");
+            try emitUnifiedIntBinaryOp(self, runtime_fn, left_operand, left_type, right_operand, right_type);
         }
         return;
     }
@@ -113,17 +151,17 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         .Div => {
             // Python division always returns float
             // Convert UnifiedInt to f64 via toF64()
-            try self.emit("(runtime.unified_int_ops.toF64(");
+            try emitConst(self, "(runtime.unified_int_ops.toF64(");
             try emitAsUnifiedInt(self, left_operand, left_type);
-            try self.emit(") / runtime.unified_int_ops.toF64(");
+            try emitConst(self, ") / runtime.unified_int_ops.toF64(");
             try emitAsUnifiedInt(self, right_operand, right_type);
-            try self.emit("))");
+            try emitConst(self, "))");
         },
         else => {
             // Unsupported UnifiedInt op - fall back to error
-            try self.emit("@compileError(\"Unsupported UnifiedInt operation: ");
-            try self.emit(op_name);
-            try self.emit("\")");
+            try emitConst(self, "@compileError(\"Unsupported UnifiedInt operation: ");
+            try emitConst(self, op_name);
+            try emitConst(self, "\")");
         },
     }
 }
@@ -136,14 +174,14 @@ fn emitAsComplex(self: *NativeCodegen, operand: ZigValue, t: NativeType) Codegen
         try self.emitZigValue(operand);
     } else if (t == .float) {
         // float -> complex with real part
-        try self.emit("runtime.PyComplex.create(");
+        try emitConst(self, "runtime.PyComplex.create(");
         try self.emitZigValue(operand);
-        try self.emit(", 0.0)");
+        try emitConst(self, ", 0.0)");
     } else {
         // int/bool -> complex with real part
-        try self.emit("runtime.PyComplex.create(@as(f64, @floatFromInt(");
+        try emitConst(self, "runtime.PyComplex.create(@as(f64, @floatFromInt(");
         try self.emitZigValue(operand);
-        try self.emit(")), 0.0)");
+        try emitConst(self, ")), 0.0)");
     }
 }
 
@@ -154,38 +192,17 @@ pub fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: N
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
-    switch (binop.op) {
-        .Add => {
-            // complex.add(other)
-            try emitAsComplex(self, left_operand, left_type);
-            try self.emit(".add(");
-            try emitAsComplex(self, right_operand, right_type);
-            try self.emit(")");
-        },
-        .Sub => {
-            // complex.sub(other)
-            try emitAsComplex(self, left_operand, left_type);
-            try self.emit(".sub(");
-            try emitAsComplex(self, right_operand, right_type);
-            try self.emit(")");
-        },
-        .Mult => {
-            // complex.mul(other)
-            try emitAsComplex(self, left_operand, left_type);
-            try self.emit(".mul(");
-            try emitAsComplex(self, right_operand, right_type);
-            try self.emit(")");
-        },
-        .Div => {
-            // complex.div(other)
-            try emitAsComplex(self, left_operand, left_type);
-            try self.emit(".div(");
-            try emitAsComplex(self, right_operand, right_type);
-            try self.emit(")");
-        },
+    const method = switch (binop.op) {
+        .Add => "add",
+        .Sub => "sub",
+        .Mult => "mul",
+        .Div => "div",
         else => {
             // Unsupported complex operation - fall back to error
-            try self.emit("@compileError(\"Unsupported complex operation\")");
+            try emitConst(self, "@compileError(\"Unsupported complex operation\")");
+            return;
         },
-    }
+    };
+
+    try emitComplexBinaryOp(self, method, left_operand, left_type, right_operand, right_type);
 }

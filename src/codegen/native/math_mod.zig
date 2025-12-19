@@ -6,14 +6,40 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-fn genRounding(comptime b: []const u8) h.H {
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+fn genRounding(comptime blt: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
             const t = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-            if (t == .float) { try self.emit("@as(i64, @intFromFloat(" ++ b ++ "("); try self.genExpr(args[0]); try self.emit(")))"); }
-            else if (t == .int) try self.genExpr(args[0])
-            else { try self.emit("@as(i64, @intFromFloat(" ++ b ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))))"); }
-        } else try self.emit("@as(i64, 0)");
+            if (t == .float) {
+                {
+                    const b = try self.getBuilder();
+                    try b.write("@as(i64, @intFromFloat(" ++ blt ++ "(");
+                    const output = b.getBodyAndClear();
+                    try self.output.appendSlice(self.allocator, output);
+                }
+                try self.genExpr(args[0]);
+                try emitConst(self, ")))");
+            } else if (t == .int) {
+                try self.genExpr(args[0]);
+            } else {
+                {
+                    const b = try self.getBuilder();
+                    try b.write("@as(i64, @intFromFloat(" ++ blt ++ "(@as(f64, ");
+                    const output = b.getBodyAndClear();
+                    try self.output.appendSlice(self.allocator, output);
+                }
+                try self.genExpr(args[0]);
+                try emitConst(self, "))))");
+            }
+        } else try emitConst(self, "@as(i64, 0)");
     } }.f;
 }
 
@@ -72,21 +98,31 @@ fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) {
         try self.withInlineBlock("perm", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const n = @as(u64, @intCast(");
-                try c.genExpr(a[0]);
-                try c.emit(")); const k = ");
-                if (a.len >= 2) {
-                    try c.emit("@as(u64, @intCast(");
-                    try c.genExpr(a[1]);
-                    try c.emit("))");
-                } else {
-                    try c.emit("n");
+                {
+                    const b = try c.getBuilder();
+                    try b.write("const n = @as(u64, @intCast(");
+                    const output = b.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output);
                 }
-                try c.emitFmt("; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result))", .{ label, label });
+                try c.genExpr(a[0]);
+                try emitConst(c, ")); const k = ");
+                if (a.len >= 2) {
+                    try emitConst(c, "@as(u64, @intCast(");
+                    try c.genExpr(a[1]);
+                    try emitConst(c, "))");
+                } else {
+                    try emitConst(c, "n");
+                }
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.writeFmt("; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result))", .{ label, label });
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
             }
         }.emit);
     } else {
-        try self.emit("@as(i64, 0)");
+        try emitConst(self, "@as(i64, 0)");
     }
 }
 const genFrexp = h.wrapBlk("frexp", "const _val = @as(f64, __v); const _res = std.math.frexp(_val);", ".{ _res.significand, _res.exponent }", ".{ @as(f64, 0.0), @as(i32, 0) }");
@@ -104,42 +140,62 @@ const genUlp = h.wrapBlk("ulp", "const _x = @abs(@as(f64, __v)); const _exp = @a
 // Note: std.math uses camelCase (isNan, isInf, isFinite)
 fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isNan(");
+        {
+            const b = try self.getBuilder();
+            try b.write("runtime.math.isNan(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("false");
+        try emitConst(self, "false");
     }
 }
 
 fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isInf(");
+        {
+            const b = try self.getBuilder();
+            try b.write("runtime.math.isInf(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("false");
+        try emitConst(self, "false");
     }
 }
 
 fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isFinite(");
+        {
+            const b = try self.getBuilder();
+            try b.write("runtime.math.isFinite(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("true");
+        try emitConst(self, "true");
     }
 }
 
 fn genCopysign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        try self.emit("runtime.math.copysign(");
+        {
+            const b = try self.getBuilder();
+            try b.write("runtime.math.copysign(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("@as(f64, 0.0)");
+        try emitConst(self, "@as(f64, 0.0)");
     }
 }

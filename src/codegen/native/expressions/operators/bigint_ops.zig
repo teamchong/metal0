@@ -15,6 +15,55 @@ const expr_emitter = @import("../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// BigInt operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit runtime.bigint_ops.fromInt(allocator, value)
+fn emitBigIntFromInt(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "runtime.bigint_ops.fromInt(__global_allocator, ");
+    try self.emitZigValue(operand);
+    try emitConst(self, ")");
+}
+
+/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value)))
+fn emitBigIntFromIntCast(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
+    try self.emitZigValue(operand);
+    try emitConst(self, ")))");
+}
+
+/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value))
+fn emitBigIntFromI64Cast(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
+    try self.emitZigValue(operand);
+    try emitConst(self, "))");
+}
+
+/// Emit shift operand: @as(usize, @intCast(value))
+fn emitShiftOperand(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "@as(usize, @intCast(");
+    try self.emitZigValue(operand);
+    try emitConst(self, "))");
+}
+
+/// Emit pow exponent: @as(u32, @intCast(value))
+fn emitPowExponent(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
+    try emitConst(self, "@as(u32, @intCast(");
+    try self.emitZigValue(operand);
+    try emitConst(self, "))");
+}
+
 /// BigInt method names for standard binary operations (left.method(&right, allocator))
 pub const BigIntStdMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Add", "add" }, .{ "Sub", "sub" }, .{ "Mult", "mul" },
@@ -264,8 +313,6 @@ pub const LargeExpPowCtx = struct {
 /// Pattern: runtime.bigint_ops.add(left, right, allocator)
 /// No complex parenthesization needed - runtime handles OOM internally
 pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
-    const alloc_name = "__global_allocator";
-
     // Capture operands as ZigValues
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
@@ -273,36 +320,30 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     // Get the runtime helper function name
     const op_name = @tagName(binop.op);
     const runtime_fn = BigIntRuntimeOps.get(op_name) orelse {
-        try self.emit("@compileError(\"Unsupported BigInt operation\")");
+        try emitConst(self, "@compileError(\"Unsupported BigInt operation\")");
         return;
     };
 
     // Emit: runtime.bigint_ops.xxx(left, right, allocator)
-    try self.emit("runtime.bigint_ops.");
-    try self.emit(runtime_fn);
-    try self.emit("(");
+    try emitConst(self, "runtime.bigint_ops.");
+    try emitConst(self, runtime_fn);
+    try emitConst(self, "(");
 
     // Emit left operand (convert to BigInt if needed)
-    try emitBigIntOperandValue(self, left_type, left_operand, alloc_name);
-    try self.emit(", ");
+    try emitBigIntOperandValue(self, left_type, left_operand);
+    try emitConst(self, ", ");
 
     // For shift/pow operations, right operand is a primitive (usize/u32)
     if (binop.op == .LShift or binop.op == .RShift) {
-        try self.emit("@as(usize, @intCast(");
-        try self.emitZigValue(right_operand);
-        try self.emit("))");
+        try emitShiftOperand(self, right_operand);
     } else if (binop.op == .Pow) {
-        try self.emit("@as(u32, @intCast(");
-        try self.emitZigValue(right_operand);
-        try self.emit("))");
+        try emitPowExponent(self, right_operand);
     } else {
         // Standard binary ops: right operand is also BigInt
-        try emitBigIntOperandValue(self, right_type, right_operand, alloc_name);
+        try emitBigIntOperandValue(self, right_type, right_operand);
     }
 
-    try self.emit(", ");
-    try self.emit(alloc_name);
-    try self.emit(")");
+    try emitConst(self, ", __global_allocator)");
 }
 
 /// Emit an operand as a BigInt value (AST node version)
@@ -314,58 +355,46 @@ pub fn emitBigIntOperand(self: *NativeCodegen, op_type: NativeType, node: *const
     } else if (op_type == .int) {
         if (op_type.int.needsBigInt()) {
             // Large int (i128) - use fromInt128
-            try self.emit("runtime.bigint_ops.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", @as(i64, @intCast(");
+            try emitConst(self, "runtime.bigint_ops.fromInt(");
+            try emitConst(self, alloc_name);
+            try emitConst(self, ", @as(i64, @intCast(");
             try genExpr(self, node.*);
-            try self.emit(")))");
+            try emitConst(self, ")))");
         } else {
             // Normal i64
-            try self.emit("runtime.bigint_ops.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", ");
+            try emitConst(self, "runtime.bigint_ops.fromInt(");
+            try emitConst(self, alloc_name);
+            try emitConst(self, ", ");
             try genExpr(self, node.*);
-            try self.emit(")");
+            try emitConst(self, ")");
         }
     } else {
         // Unknown type - try to convert as i64
-        try self.emit("runtime.bigint_ops.fromInt(");
-        try self.emit(alloc_name);
-        try self.emit(", @as(i64, ");
+        try emitConst(self, "runtime.bigint_ops.fromInt(");
+        try emitConst(self, alloc_name);
+        try emitConst(self, ", @as(i64, ");
         try genExpr(self, node.*);
-        try self.emit("))");
+        try emitConst(self, "))");
     }
 }
 
 /// Emit an operand as a BigInt value (ZigValue version)
 /// Handles conversion from i64, i128, or existing BigInt
-fn emitBigIntOperandValue(self: *NativeCodegen, op_type: NativeType, operand: ZigValue, alloc_name: []const u8) CodegenError!void {
+fn emitBigIntOperandValue(self: *NativeCodegen, op_type: NativeType, operand: ZigValue) CodegenError!void {
     if (op_type == .bigint) {
         // Already BigInt - emit directly
         try self.emitZigValue(operand);
     } else if (op_type == .int) {
         if (op_type.int.needsBigInt()) {
-            // Large int (i128) - use fromInt128
-            try self.emit("runtime.bigint_ops.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", @as(i64, @intCast(");
-            try self.emitZigValue(operand);
-            try self.emit(")))");
+            // Large int (i128) - use fromInt with cast
+            try emitBigIntFromIntCast(self, operand);
         } else {
             // Normal i64
-            try self.emit("runtime.bigint_ops.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", ");
-            try self.emitZigValue(operand);
-            try self.emit(")");
+            try emitBigIntFromInt(self, operand);
         }
     } else {
         // Unknown type - try to convert as i64
-        try self.emit("runtime.bigint_ops.fromInt(");
-        try self.emit(alloc_name);
-        try self.emit(", @as(i64, ");
-        try self.emitZigValue(operand);
-        try self.emit("))");
+        try emitBigIntFromI64Cast(self, operand);
     }
 }
 

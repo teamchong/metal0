@@ -2,7 +2,6 @@
 /// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const h = @import("mod_helper.zig");
-const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -28,126 +27,132 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "expand", genExpand },
 });
 
-fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+// Helper for simple constant output
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
     const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("sre", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                const b = try c.getBuilder();
+                try b.write("const __v = ");
+                const output1 = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
-                try c.emitFmt("; break :{s} .{{ .pattern = __v, .flags = 0, .groups = 0 }}", .{label});
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.writeFmt("; break :{s} .{{ .pattern = __v, .flags = 0, .groups = 0 }}", .{label});
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
             }
         }.emit);
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw(".{ .pattern = \"\", .flags = 0, .groups = 0 }"), builder_mod.EmitConfig.forExpression());
+        try emitConst(self, ".{ .pattern = \"\", .flags = 0, .groups = 0 }");
     }
 }
 
 fn genCodesize(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 4)"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "@as(i32, 4)");
 }
 
 fn genMagic(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 20171005)"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "@as(i32, 20171005)");
 }
 
 fn genGetlower(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
+        try emitConst(self, "@as(i32, 0)");
     }
 }
 
 fn genGetcodesizeFunc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 4)"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "@as(i32, 4)");
 }
 
 fn genMatch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "null");
 }
 
 fn genFullmatch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "null");
 }
 
 fn genSearch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "null");
 }
 
 fn genFindall(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "&[_][]const u8{}");
 }
 
 fn genFinditer(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]@TypeOf(null){}"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "&[_]@TypeOf(null){}");
 }
 
 fn genSub(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len > 1) {
         try self.genExpr(args[1]);
     } else {
-        try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
+        try emitConst(self, "\"\"");
     }
 }
 
 fn genSubn(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len > 1) {
-        try self.emit(".{ ");
+        {
+            const b = try self.getBuilder();
+            try b.write(".{ ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[1]);
-        try self.emit(", @as(i64, 0) }");
+        {
+            const b = try self.getBuilder();
+            try b.write(", @as(i64, 0) }");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
     } else {
-        try b.emitValue(builder_mod.ZigValue.raw(".{ \"\", @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
+        try emitConst(self, ".{ \"\", @as(i64, 0) }");
     }
 }
 
 fn genSplit(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "&[_][]const u8{}");
 }
 
 fn genGroup(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "\"\"");
 }
 
 fn genGroups(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, ".{}");
 }
 
 fn genGroupdict(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, ".{}");
 }
 
 fn genStart(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "@as(i64, 0)");
 }
 
 fn genEnd(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "@as(i64, 0)");
 }
 
 fn genSpan(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ @as(i64, 0), @as(i64, 0) }"), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, ".{ @as(i64, 0), @as(i64, 0) }");
 }
 
 fn genExpand(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string(""), builder_mod.EmitConfig.forExpression());
+    try emitConst(self, "\"\"");
 }

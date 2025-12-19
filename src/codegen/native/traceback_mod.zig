@@ -5,6 +5,26 @@ const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 /// Frame struct type for extract_tb/extract_stack return
 const FrameStruct = "&[_]struct { filename: []const u8, lineno: i64, name: []const u8, line: []const u8 }{}";
 const WalkStruct = "&[_]struct { frame: ?*anyopaque, lineno: i64 }{}";
@@ -36,9 +56,9 @@ fn genPrintTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("ptb", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} {{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} {{{{}}}}; ", .{label});
             }
         }.emit);
     } else {
@@ -51,9 +71,9 @@ fn genPrintException(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
     if (args.len > 0) {
         try self.withInlineBlock("pex", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} {{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} {{{{}}}}; ", .{label});
             }
         }.emit);
     } else {
@@ -81,9 +101,9 @@ fn genClearFrames(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void 
     if (args.len > 0) {
         try self.withInlineBlock("cf", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} {{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} {{{{}}}}; ", .{label});
             }
         }.emit);
     } else {
@@ -96,11 +116,11 @@ fn genExtractTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("etb", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} ", .{label});
-                try c.emit(FrameStruct);
-                try c.emit("; ");
+                try emitFmtConst(c, "; _ = __v; break :{s} ", .{label});
+                try emitConst(c, FrameStruct);
+                try emitConst(c, "; ");
             }
         }.emit);
     } else {
@@ -118,11 +138,11 @@ fn genWalkTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("wtb", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} ", .{label});
-                try c.emit(WalkStruct);
-                try c.emit("; ");
+                try emitFmtConst(c, "; _ = __v; break :{s} ", .{label});
+                try emitConst(c, WalkStruct);
+                try emitConst(c, "; ");
             }
         }.emit);
     } else {
@@ -140,9 +160,9 @@ fn genFormatList(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("fl", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
             }
         }.emit);
     } else {
@@ -155,9 +175,9 @@ fn genFormatExceptionOnly(self: *h.NativeCodegen, args: []ast.Node) h.CodegenErr
     if (args.len > 0) {
         try self.withInlineBlock("feo", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
             }
         }.emit);
     } else {
@@ -170,9 +190,9 @@ fn genFormatException(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!v
     if (args.len > 0) {
         try self.withInlineBlock("fe", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
             }
         }.emit);
     } else {
@@ -185,9 +205,9 @@ fn genFormatTb(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("ftb", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("const __v = ");
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                try c.emitFmt("; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
+                try emitFmtConst(c, "; _ = __v; break :{s} &[_][]const u8{{{{}}}}; ", .{label});
             }
         }.emit);
     } else {

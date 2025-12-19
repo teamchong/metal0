@@ -18,6 +18,26 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
+
 /// Key type inference result
 const KeyTypeResult = enum { int, string, unknown };
 
@@ -122,21 +142,21 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
         if (has_int_keys and has_str_keys) {
             // Mixed key types - use StringHashMap with runtime.PyValue values
             // Convert all keys to strings at runtime
-            try self.emit("hashmap_helper.StringHashMap(runtime.PyValue).init(");
+            try emitConst(self, "hashmap_helper.StringHashMap(runtime.PyValue).init(");
         } else if (has_int_keys) {
             // Use AutoArrayHashMap for int keys (has .keys() and .values() like Python)
             // Also use i64 value type since d[i] = i typically has int value too
-            try self.emit("std.AutoArrayHashMap(i64, i64).init(");
+            try emitConst(self, "std.AutoArrayHashMap(i64, i64).init(");
         } else if (has_str_keys) {
             // String keys with mutations - use i64 value type for common pattern d['key'] = 1
-            try self.emit("hashmap_helper.StringHashMap(i64).init(");
+            try emitConst(self, "hashmap_helper.StringHashMap(i64).init(");
         } else {
             // Default to StringHashMap for unknown empty dicts
             // Use runtime.PyValue for maximum flexibility with heterogeneous values
-            try self.emit("hashmap_helper.StringHashMap(runtime.PyValue).init(");
+            try emitConst(self, "hashmap_helper.StringHashMap(runtime.PyValue).init(");
         }
-        try self.emit(alloc_name);
-        try self.emit(")");
+        try emitConst(self, alloc_name);
+        try emitConst(self, ")");
         return;
     }
 
@@ -218,7 +238,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     const key_classification = type_traits.getDictKeyType(key_type);
 
     const label = try self.emitInlineBlockStart("dict");
-    try self.emit("\n");
+    try emitConst(self, "\n");
     self.indent();
     try self.emitIndent();
 
@@ -228,7 +248,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     self.inside_list_depth += 1;
     defer self.inside_list_depth -= 1;
 
-    try self.emit("const _kvs = .{\n");
+    try emitConst(self, "const _kvs = .{\n");
     self.indent();
     for (dict.keys, dict.values) |key, value| {
         // Capture key and value expressions
@@ -236,15 +256,15 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
         const value_operand = try self.captureExpr(value);
 
         try self.emitIndent();
-        try self.emit(".{ ");
+        try emitConst(self, ".{ ");
         try self.emitZigValue(key_operand);
-        try self.emit(", ");
+        try emitConst(self, ", ");
         try self.emitZigValue(value_operand);
-        try self.emit(" },\n");
+        try emitConst(self, " },\n");
     }
     self.dedent();
     try self.emitIndent();
-    try self.emit("};\n");
+    try emitConst(self, "};\n");
 
     // Infer value type at comptime, or use target type if context is set
     // Context is set when assigning to a variable with a widened dict type (e.g., dict(k, pyvalue))
@@ -254,7 +274,7 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
         try self.output.writer(self.allocator).print("const V = {s};\n", .{target_type});
     } else {
         // Infer from literal values
-        try self.emit("const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
+        try emitConst(self, "const V = comptime runtime.InferDictValueType(@TypeOf(_kvs));\n");
     }
 
     // Use getDictKeyType to select correct HashMap type based on key type
@@ -262,124 +282,124 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
     switch (key_classification) {
         .int => {
             // Integer keys - use AutoArrayHashMap with i64 key type (has .keys() and .values())
-            try self.emit("var _dict = std.AutoArrayHashMap(i64, V).init(");
+            try emitConst(self, "var _dict = std.AutoArrayHashMap(i64, V).init(");
         },
         .string => {
             // String keys - use StringHashMap
-            try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+            try emitConst(self, "var _dict = hashmap_helper.StringHashMap(V).init(");
         },
         .pyvalue => {
             // Unknown/mixed key types - use StringHashMap with PyValue
-            try self.emit("var _dict = hashmap_helper.StringHashMap(runtime.PyValue).init(");
+            try emitConst(self, "var _dict = hashmap_helper.StringHashMap(runtime.PyValue).init(");
         },
     }
-    try self.emit(alloc_name);
-    try self.emit(");\n");
+    try emitConst(self, alloc_name);
+    try emitConst(self, ");\n");
 
     // Inline loop - unrolled at compile time
     try self.emitIndent();
-    try self.emit("inline for (_kvs) |kv| {\n");
+    try emitConst(self, "inline for (_kvs) |kv| {\n");
     self.indent();
     try self.emitIndent();
     // Generate unique label for cast block
     const id = self.nextNameId();
     const cast_label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_cast", .{id});
-    try self.emit("const cast_val = if (@TypeOf(kv[1]) != V) ");
-    try self.emitFmt("({s}: {{\n", .{cast_label});
+    try emitConst(self, "const cast_val = if (@TypeOf(kv[1]) != V) ");
+    try emitFmtConst(self, "({s}: {{\n", .{cast_label});
     self.indent();
 
     // Int to float cast
     try self.emitIndent();
-    try self.emit("if (V == f64 and (@TypeOf(kv[1]) == i64 or @TypeOf(kv[1]) == comptime_int)) {\n");
+    try emitConst(self, "if (V == f64 and (@TypeOf(kv[1]) == i64 or @TypeOf(kv[1]) == comptime_int)) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emitFmt("break :{s} @as(f64, @floatFromInt(kv[1]));\n", .{cast_label});
+    try emitFmtConst(self, "break :{s} @as(f64, @floatFromInt(kv[1]));\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     // Comptime float cast
     try self.emitIndent();
-    try self.emit("if (V == f64 and @TypeOf(kv[1]) == comptime_float) {\n");
+    try emitConst(self, "if (V == f64 and @TypeOf(kv[1]) == comptime_float) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emitFmt("break :{s} @as(f64, kv[1]);\n", .{cast_label});
+    try emitFmtConst(self, "break :{s} @as(f64, kv[1]);\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     // String array to slice cast
     try self.emitIndent();
-    try self.emit("if (V == []const u8) {\n");
+    try emitConst(self, "if (V == []const u8) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const kv_type_info = @typeInfo(@TypeOf(kv[1]));\n");
+    try emitConst(self, "const kv_type_info = @typeInfo(@TypeOf(kv[1]));\n");
     try self.emitIndent();
-    try self.emit("if (kv_type_info == .pointer and kv_type_info.pointer.size == .one) {\n");
+    try emitConst(self, "if (kv_type_info == .pointer and kv_type_info.pointer.size == .one) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emit("const child = @typeInfo(kv_type_info.pointer.child);\n");
+    try emitConst(self, "const child = @typeInfo(kv_type_info.pointer.child);\n");
     try self.emitIndent();
-    try self.emit("if (child == .array and child.array.child == u8) {\n");
+    try emitConst(self, "if (child == .array and child.array.child == u8) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emitFmt("break :{s} @as([]const u8, kv[1]);\n", .{cast_label});
+    try emitFmtConst(self, "break :{s} @as([]const u8, kv[1]);\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     // Null to ?void cast (for dict values that are all None)
     try self.emitIndent();
-    try self.emit("if (V == ?void and @TypeOf(kv[1]) == @TypeOf(null)) {\n");
+    try emitConst(self, "if (V == ?void and @TypeOf(kv[1]) == @TypeOf(null)) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emitFmt("break :{s} null;\n", .{cast_label});
+    try emitFmtConst(self, "break :{s} null;\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     // PyValue conversion (for widened dict types)
     try self.emitIndent();
-    try self.emit("if (V == runtime.PyValue) {\n");
+    try emitConst(self, "if (V == runtime.PyValue) {\n");
     self.indent();
     try self.emitIndent();
-    try self.emitFmt("break :{s} try runtime.toPyValue(__global_allocator, kv[1]);\n", .{cast_label});
+    try emitFmtConst(self, "break :{s} try runtime.toPyValue(__global_allocator, kv[1]);\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     // Default fallback
     try self.emitIndent();
-    try self.emitFmt("break :{s} kv[1];\n", .{cast_label});
+    try emitFmtConst(self, "break :{s} kv[1];\n", .{cast_label});
     self.dedent();
     try self.emitIndent();
-    try self.emit("}) else kv[1];\n");
+    try emitConst(self, "}) else kv[1];\n");
     try self.emitIndent();
     switch (key_classification) {
         .int => {
             // Cast comptime_int key to i64 for AutoHashMap
-            try self.emit("try _dict.put(@as(i64, kv[0]), cast_val);\n");
+            try emitConst(self, "try _dict.put(@as(i64, kv[0]), cast_val);\n");
         },
         .string => {
-            try self.emit("try _dict.put(kv[0], cast_val);\n");
+            try emitConst(self, "try _dict.put(kv[0], cast_val);\n");
         },
         .pyvalue => {
             // Convert key to PyValue for mixed/unknown key types
-            try self.emit("try _dict.put(runtime.toPyValue(kv[0]), runtime.toPyValue(cast_val));\n");
+            try emitConst(self, "try _dict.put(runtime.toPyValue(kv[0]), runtime.toPyValue(cast_val));\n");
         },
     }
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self, "}\n");
 
     try self.emitIndent();
-    try self.emitFmt("break :{s} _dict;\n", .{label});
+    try emitFmtConst(self, "break :{s} _dict;\n", .{label});
     self.dedent();
     try self.emitIndent();
     try self.emitInlineBlockEnd();
@@ -446,21 +466,21 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
 
     // Use unique label to avoid conflicts with nested dict literals
     const label = try self.emitInlineBlockStart("dict");
-    try self.emit("\n");
+    try emitConst(self, "\n");
     self.indent();
     try self.emitIndent();
     if (uses_int_keys) {
-        try self.emit("var map = std.AutoArrayHashMap(i64, ");
+        try emitConst(self, "var map = std.AutoArrayHashMap(i64, ");
     } else if (uses_float_keys) {
         // Floats can't be hashed directly in Zig, use u64 bit representation
-        try self.emit("var map = std.AutoArrayHashMap(u64, ");
+        try emitConst(self, "var map = std.AutoArrayHashMap(u64, ");
     } else {
-        try self.emit("var map = hashmap_helper.StringHashMap(");
+        try emitConst(self, "var map = hashmap_helper.StringHashMap(");
     }
     try val_type.toZigType(self.allocator, &self.output);
-    try self.emit(").init(");
-    try self.emit(alloc_name);
-    try self.emit(");\n");
+    try emitConst(self, ").init(");
+    try emitConst(self, alloc_name);
+    try emitConst(self, ");\n");
 
     // Track if we need to convert values to strings
     const need_str_conversion = string_traits.isString(val_type);
@@ -489,44 +509,44 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         if (key == .constant and key.constant.value == .none) {
             // Dict unpacking: merge entries from another dict
             try self.emitIndent();
-            try self.emit("{\n");
+            try emitConst(self, "{\n");
             self.indent();
             try self.emitIndent();
-            try self.emit("var iter = (");
+            try emitConst(self, "var iter = (");
             try genExpr(self, value);
-            try self.emit(").iterator();\n");
+            try emitConst(self, ").iterator();\n");
             try self.emitIndent();
-            try self.emit("while (iter.next()) |entry| {\n");
+            try emitConst(self, "while (iter.next()) |entry| {\n");
             self.indent();
             try self.emitIndent();
             // If target dict expects PyValue, wrap the source value
             if (val_type == .pyvalue) {
-                try self.emit("try map.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(");
-                try self.emit(alloc_name);
-                try self.emit(", entry.value_ptr.*));\n");
+                try emitConst(self, "try map.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(");
+                try emitConst(self, alloc_name);
+                try emitConst(self, ", entry.value_ptr.*));\n");
             } else {
-                try self.emit("try map.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+                try emitConst(self, "try map.put(entry.key_ptr.*, entry.value_ptr.*);\n");
             }
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self, "}\n");
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self, "}\n");
             continue;
         }
 
         try self.emitIndent();
-        try self.emit("try map.put(");
+        try emitConst(self, "try map.put(");
         if (uses_float_keys) {
             // Convert float key to bits for hashing
-            try self.emit("@bitCast(");
+            try emitConst(self, "@bitCast(");
             try genExpr(self, key);
-            try self.emit(")");
+            try emitConst(self, ")");
         } else {
             try genExpr(self, key);
         }
-        try self.emit(", ");
+        try emitConst(self, ", ");
 
         // If dict values are string type and this value isn't string, convert it
         if (need_str_conversion) {
@@ -535,31 +555,31 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
                 try genValueToString(self, value, value_type, alloc_name);
             } else if (has_mixed_types) {
                 // For mixed-type dicts, duplicate ALL strings so we can free uniformly
-                try self.emit("try ");
-                try self.emit(alloc_name);
-                try self.emit(".dupe(u8, ");
+                try emitConst(self, "try ");
+                try emitConst(self, alloc_name);
+                try emitConst(self, ".dupe(u8, ");
                 try genExpr(self, value);
-                try self.emit(")");
+                try emitConst(self, ")");
             } else {
                 try genExpr(self, value);
             }
         } else if (val_type == .pyvalue) {
             // PyValue: wrap the value with PyValue.fromAlloc()
-            try self.emit("try runtime.PyValue.fromAlloc(");
-            try self.emit(alloc_name);
-            try self.emit(", ");
+            try emitConst(self, "try runtime.PyValue.fromAlloc(");
+            try emitConst(self, alloc_name);
+            try emitConst(self, ", ");
             try genExpr(self, value);
-            try self.emit(")");
+            try emitConst(self, ")");
         } else {
             try genExpr(self, value);
         }
 
-        try self.emit(");\n");
+        try emitConst(self, ");\n");
     }
 
     try self.emitIndent();
     // Break with map value
-    try self.emitFmt("break :{s} map;\n", .{label});
+    try emitFmtConst(self, "break :{s} map;\n", .{label});
     self.dedent();
     try self.emitIndent();
     try self.emitInlineBlockEnd();
@@ -574,29 +594,29 @@ fn genValueToString(
 ) CodegenError!void {
     if (type_traits.isBoolean(value_type)) {
         // Bool: use ternary for Python-style True/False
-        try self.emit("try ");
-        try self.emit(alloc_name);
-        try self.emit(".dupe(u8, if (");
+        try emitConst(self, "try ");
+        try emitConst(self, alloc_name);
+        try emitConst(self, ".dupe(u8, if (");
         try genExpr(self, value);
-        try self.emit(") \"True\" else \"False\")");
+        try emitConst(self, ") \"True\" else \"False\")");
     } else if (type_traits.isNone(value_type)) {
         // None: just use literal "None"
-        try self.emit("try ");
-        try self.emit(alloc_name);
-        try self.emit(".dupe(u8, \"None\")");
+        try emitConst(self, "try ");
+        try emitConst(self, alloc_name);
+        try emitConst(self, ".dupe(u8, \"None\")");
     } else {
-        try self.emit("try std.fmt.allocPrint(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try emitConst(self, "try std.fmt.allocPrint(");
+        try emitConst(self, alloc_name);
+        try emitConst(self, ", ");
         if (type_traits.isIntegral(value_type)) {
-            try self.emit("\"{d}\"");
+            try emitConst(self, "\"{d}\"");
         } else if (type_traits.isFloating(value_type)) {
-            try self.emit("\"{d}\"");
+            try emitConst(self, "\"{d}\"");
         } else {
-            try self.emit("\"{any}\"");
+            try emitConst(self, "\"{any}\"");
         }
-        try self.emit(", .{");
+        try emitConst(self, ", .{");
         try genExpr(self, value);
-        try self.emit("})");
+        try emitConst(self, "})");
     }
 }

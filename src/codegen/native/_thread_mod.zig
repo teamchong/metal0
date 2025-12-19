@@ -5,6 +5,26 @@ const ast = @import("analysis.ast");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "start_new_thread", genStartNewThread },
     .{ "interrupt_main", genInterruptMain },
@@ -27,9 +47,9 @@ fn genStartNewThread(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
     }
     try self.withInlineBlock("thr_snt", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const __func = ");
+            try emitConst(c, "const __func = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; const __thread = std.Thread.spawn(.{{}}, __func, .{{}}) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intFromPtr(__thread))", .{ label, label });
+            try emitFmtConst(c, "; const __thread = std.Thread.spawn(.{{}}, __func, .{{}}) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intFromPtr(__thread))", .{ label, label });
         }
     }.emit);
 }

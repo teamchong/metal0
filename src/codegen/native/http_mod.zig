@@ -31,11 +31,34 @@ pub const HttpCookiesFuncs = std.StaticStringMap(h.H).initComptime(.{
 const conn_fields = ", socket: ?i64 = null";
 const conn_decls = ", pub const HTTPResponse = " ++ http_response_struct ++ "; pub fn request(__self: *@This(), method: []const u8, url: []const u8, body: ?[]const u8, headers: anytype) void { _ = __self; _ = method; _ = url; _ = body; _ = headers; } pub fn getresponse(__self: *@This()) HTTPResponse { _ = __self; return HTTPResponse{}; } pub fn connect(__self: *@This()) void { _ = __self; } pub fn close(__self: *@This()) void { __self.socket = null; }";
 fn genConn(self: *NativeCodegen, args: []ast.Node, comptime default_port: []const u8, comptime extra_fields: []const u8, comptime extra_methods: []const u8) CodegenError!void {
-    try self.emit("struct { host: []const u8 = ");
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"localhost\"");
-    try self.emit(", port: u16 = ");
-    if (args.len > 1) try self.genExpr(args[1]) else try self.emit(default_port);
-    try self.emit(conn_fields ++ extra_fields ++ conn_decls ++ extra_methods ++ " }{}");
+    const b = try self.getBuilder();
+    try b.write("struct { host: []const u8 = ");
+    const output1 = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output1);
+    if (args.len > 0) try self.genExpr(args[0]) else {
+        const b2 = try self.getBuilder();
+        try b2.write("\"localhost\"");
+        const out = b2.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, out);
+    }
+    {
+        const b3 = try self.getBuilder();
+        try b3.write(", port: u16 = ");
+        const output2 = b3.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output2);
+    }
+    if (args.len > 1) try self.genExpr(args[1]) else {
+        const b4 = try self.getBuilder();
+        try b4.write(default_port);
+        const out = b4.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, out);
+    }
+    {
+        const b5 = try self.getBuilder();
+        try b5.write(conn_fields ++ extra_fields ++ conn_decls ++ extra_methods ++ " }{}");
+        const output3 = b5.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output3);
+    }
 }
 fn genHTTPConnection(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try genConn(self, args, "80", ", response_buf: []u8 = &[_]u8{}", " pub fn set_debuglevel(__self: *@This(), level: i64) void { _ = __self; _ = level; } pub fn set_tunnel(__self: *@This(), host: []const u8, port: ?u16, headers: anytype) void { _ = __self; _ = host; _ = port; _ = headers; } pub fn putrequest(__self: *@This(), method: []const u8, url: []const u8) void { _ = __self; _ = method; _ = url; } pub fn putheader(__self: *@This(), header: []const u8, value: []const u8) void { _ = __self; _ = header; _ = value; } pub fn endheaders(__self: *@This(), message_body: ?[]const u8) void { _ = __self; _ = message_body; } pub fn send(__self: *@This(), data: []const u8) void { _ = __self; _ = data; }");

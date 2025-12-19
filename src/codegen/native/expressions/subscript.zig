@@ -20,6 +20,66 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// ============================================
+// Subscript operation helpers - auto-closing patterns
+// ============================================
+
+/// Emit @as(usize, @intCast(expr))
+fn emitAsUsize(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try emitConst(self, "@as(usize, @intCast(");
+    try genExpr(self, expr);
+    try emitConst(self, "))");
+}
+
+/// Emit base.get(key).? for dict access
+fn emitDictGet(self: *NativeCodegen, base: ast.Node, key: ast.Node) CodegenError!void {
+    try genExpr(self, base);
+    try emitConst(self, ".get(");
+    try genExpr(self, key);
+    try emitConst(self, ").?");
+}
+
+/// Emit base.getPtr(key).?.* for mutable dict access
+fn emitDictGetPtr(self: *NativeCodegen, key: ast.Node) CodegenError!void {
+    try emitConst(self, ".getPtr(");
+    try genExpr(self, key);
+    try emitConst(self, ").?.*");
+}
+
+/// Emit .items[@as(usize, @intCast(index))] for ArrayList access
+fn emitArrayListIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
+    try emitConst(self, ".items[@as(usize, @intCast(");
+    try genExpr(self, index);
+    try emitConst(self, "))]");
+}
+
+/// Emit [@as(usize, @intCast(index))] for array access
+fn emitArrayIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
+    try emitConst(self, "[@as(usize, @intCast(");
+    try genExpr(self, index);
+    try emitConst(self, "))]");
+}
+
+
+
+
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {
     if (node == .constant and node.constant.value == .int) {
@@ -61,10 +121,10 @@ pub fn genSliceIndex(self: *NativeCodegen, node: ast.Node, in_slice_context: boo
     if (node == .constant and node.constant.value == .int and node.constant.value.int < 0) {
         // Negative constant: -2 becomes max(0, __s.len - 2) to prevent underflow
         const abs_val = if (node.constant.value.int < 0) -node.constant.value.int else node.constant.value.int;
-        try self.emitFmt("if ({s} >= {d}) {s} - {d} else 0", .{ len_expr, abs_val, len_expr, abs_val });
+        try emitFmtConst(self, "if ({s} >= {d}) {s} - {d} else 0", .{ len_expr, abs_val, len_expr, abs_val });
     } else if (node == .unaryop and node.unaryop.op == .USub) {
         // Unary minus: -x becomes saturating subtraction
-        try self.emitFmt("{s} -| ", .{len_expr});
+        try emitFmtConst(self, "{s} -| ", .{len_expr});
         try genExpr(self, node.unaryop.operand.*);
     } else {
         // Positive index - use as-is
@@ -124,14 +184,14 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         break :blk true;
                     };
                     if (is_valid_ident) {
-                        try self.emit("__base.");
+                        try emitConst(self, "__base.");
                         // Escape field name if it's a Zig keyword (e.g., 'const', 'type', etc.)
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     } else {
                         // Invalid identifier (has spaces, etc.) - use .get() for dict access
-                        try self.emit("__base.get(\"");
-                        try self.emit(field_name);
-                        try self.emit("\").?");
+                        try emitConst(self, "__base.get(\"");
+                        try emitConst(self, field_name);
+                        try emitConst(self, "\").?");
                     }
                 } else {
                     // Check if the base is a tuple type - use .@"N" instead of [N]
@@ -150,34 +210,32 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.output.writer(self.allocator).print("__base.@\"{d}\"", .{index.constant.value.int});
                     } else if (is_bytes and is_int_index) {
                         // Bytes indexing: use .get() method
-                        try self.emit("__base.get(@as(usize, @intCast(");
-                        try genExpr(self, index);
-                        try self.emit(")))");
+                        try emitConst(self, "__base.get(");
+                        try emitAsUsize(self, index);
+                        try emitConst(self, ")");
                     } else if (is_list and is_int_index) {
                         // List (ArrayList) indexing: use .items[idx]
-                        try self.emit("__base.items[@as(usize, @intCast(");
-                        try genExpr(self, index);
-                        try self.emit("))]");
+                        try emitConst(self, "__base");
+                        try emitArrayListIndex(self, index);
                     } else if ((is_unknown or is_pyvalue) and is_int_index) {
                         // Unknown type or PyValue with int index - use PyValue.pyAt() method
                         // This handles PyValue containing tuple/list uniformly
-                        try self.emit("if (@TypeOf(__base) == runtime.PyValue) __base.pyAt(@as(usize, @intCast(");
-                        try genExpr(self, index);
-                        try self.emit("))) else __base[@as(usize, @intCast(");
-                        try genExpr(self, index);
-                        try self.emit("))]");
+                        try emitConst(self, "if (@TypeOf(__base) == runtime.PyValue) __base.pyAt(");
+                        try emitAsUsize(self, index);
+                        try emitConst(self, ") else __base");
+                        try emitArrayIndex(self, index);
                     } else {
                         const needs_cast = type_traits.isIntegral(index_type);
 
-                        try self.emit("__base[");
+                        try emitConst(self, "__base[");
                         if (needs_cast) {
-                            try self.emit("@as(usize, @intCast(");
+                            try emitConst(self, "@as(usize, @intCast(");
                         }
                         try genExpr(self, index);
                         if (needs_cast) {
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
-                        try self.emit("]");
+                        try emitConst(self, "]");
                     }
                 }
             },
@@ -189,49 +247,49 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
                 if (is_bytes) {
                     // Bytes slicing: __base.sliceRange(start, end)
-                    try self.emit("__base.sliceRange(");
+                    try emitConst(self, "__base.sliceRange(");
                     if (slice.lower) |lower| {
-                        try self.emit("@as(usize, @intCast(");
+                        try emitConst(self, "@as(usize, @intCast(");
                         try genExpr(self, lower.*);
-                        try self.emit("))");
+                        try emitConst(self, "))");
                     } else {
-                        try self.emit("0");
+                        try emitConst(self, "0");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
                     if (slice.upper) |upper| {
-                        try self.emit("@as(usize, @intCast(");
+                        try emitConst(self, "@as(usize, @intCast(");
                         try genExpr(self, upper.*);
-                        try self.emit("))");
+                        try emitConst(self, "))");
                     } else {
-                        try self.emit("__base.len()");
+                        try emitConst(self, "__base.len()");
                     }
-                    try self.emit(")");
+                    try emitConst(self, ")");
                 } else {
-                    try self.emit("__base[");
+                    try emitConst(self, "__base[");
                     if (slice.lower) |lower| {
                         const needs_cast = blk: {
                             const lt = self.type_inferrer.inferExpr(lower.*) catch .unknown;
                             break :blk type_traits.isIntegral(lt);
                         };
-                        if (needs_cast) try self.emit("@as(usize, @intCast(");
+                        if (needs_cast) try emitConst(self, "@as(usize, @intCast(");
                         try genExpr(self, lower.*);
-                        if (needs_cast) try self.emit("))");
+                        if (needs_cast) try emitConst(self, "))");
                     } else {
-                        try self.emit("0");
+                        try emitConst(self, "0");
                     }
-                    try self.emit("..");
+                    try emitConst(self, "..");
                     if (slice.upper) |upper| {
                         const needs_cast = blk: {
                             const ut = self.type_inferrer.inferExpr(upper.*) catch .unknown;
                             break :blk type_traits.isIntegral(ut);
                         };
-                        if (needs_cast) try self.emit("@as(usize, @intCast(");
+                        if (needs_cast) try emitConst(self, "@as(usize, @intCast(");
                         try genExpr(self, upper.*);
-                        if (needs_cast) try self.emit("))");
+                        if (needs_cast) try emitConst(self, "))");
                     } else {
-                        try self.emit("__base.len");
+                        try emitConst(self, "__base.len");
                     }
-                    try self.emit("]");
+                    try emitConst(self, "]");
                 }
             },
         }
@@ -249,11 +307,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 std.mem.eql(u8, subscript_value_type.class_instance, "array.array"))
             {
                 try genExpr(self, subscript.value.*);
-                try self.emit(".__getitem__(");
+                try emitConst(self, ".__getitem__(");
                 // Cast index to usize for __getitem__ method
-                try self.emit("@as(usize, @intCast(");
+                try emitConst(self, "@as(usize, @intCast(");
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit(")))");
+                try emitConst(self, ")))");
                 return;
             }
 
@@ -277,9 +335,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             // If we found a __getitem__ method, generate method call instead of direct subscript
             if (has_magic_method and subscript.value.* == .name) {
                 try genExpr(self, subscript.value.*);
-                try self.emit(".__getitem__(");
+                try emitConst(self, ".__getitem__(");
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit(")");
+                try emitConst(self, ")");
                 return;
             }
 
@@ -333,35 +391,35 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 const is_comptime_key = subscript.slice.index.* == .constant;
                 try genExpr(self, subscript.value.*);
                 if (is_comptime_key) {
-                    try self.emit(".index(");
+                    try emitConst(self, ".index(");
                 } else {
-                    try self.emit(".get(");
+                    try emitConst(self, ".get(");
                 }
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit(")");
+                try emitConst(self, ")");
             } else if (is_likely_dict) {
                 // PyObject dict access: runtime.PyDict.get(obj, key).?
-                try self.emit("runtime.PyDict.get(");
+                try emitConst(self, "runtime.PyDict.get(");
                 try genExpr(self, subscript.value.*);
-                try self.emit(", ");
+                try emitConst(self, ", ");
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit(").?");
+                try emitConst(self, ").?");
             } else if (is_unknown_pyobject and type_traits.isIntegral(index_type)) {
                 // Unknown container with integer index - use container_dispatch which handles
                 // both Zig tuples/structs AND ArrayLists at comptime via type inspection
                 // This prevents type errors when anytype params receive tuples vs lists
-                try self.emit("runtime.container_dispatch.getAt(@TypeOf(");
+                try emitConst(self, "runtime.container_dispatch.getAt(@TypeOf(");
                 try genExpr(self, subscript.value.*);
-                try self.emit("), ");
+                try emitConst(self, "), ");
                 try genExpr(self, subscript.value.*);
-                try self.emit(", @as(usize, @intCast(");
+                try emitConst(self, ", @as(usize, @intCast(");
                 try genExpr(self, subscript.slice.index.*);
-                try self.emit(")))");
+                try emitConst(self, ")))");
             } else if (is_dict or is_counter or is_tracked_dict) {
                 // Native dict/Counter access: dict.get(key).? for raw StringHashMap
                 // Counter returns 0 for missing keys in Python
                 try genExpr(self, subscript.value.*);
-                try self.emit(".get(");
+                try emitConst(self, ".get(");
 
                 // Check if index is a PyValue - need to convert to string
                 const key_type = try self.inferExprScoped(subscript.slice.index.*);
@@ -377,7 +435,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 } else if (key_type == .pyvalue) {
                     // PyValue key - convert to string
                     try genExpr(self, subscript.slice.index.*);
-                    try self.emit(".asString()");
+                    try emitConst(self, ".asString()");
                 } else if (key_type == .unknown) {
                     // Unknown type - use runtime dispatch to handle PyValue
                     // Generate: pyval_key_blk: { const __k = key; break :pyval_key_blk if (@TypeOf(__k) == runtime.PyValue) __k.asString() else __k; }
@@ -391,9 +449,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
                 if (is_counter) {
                     // Counter returns 0 for missing keys, not None
-                    try self.emit(") orelse 0");
+                    try emitConst(self, ") orelse 0");
                 } else {
-                    try self.emit(").?");
+                    try emitConst(self, ").?");
                 }
             } else if (is_list) {
                 // Check if this is an array slice variable (not ArrayList)
@@ -418,11 +476,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
                     } else {
                         if (needs_cast) {
-                            try self.emit("@as(usize, @intCast(");
+                            try emitConst(self, "@as(usize, @intCast(");
                         }
                         try genExpr(self, subscript.slice.index.*);
                         if (needs_cast) {
-                            try self.emit("))");
+                            try emitConst(self, "))");
                         }
                     }
                     // Runtime check: if __s has .items field, use it; otherwise direct index
@@ -439,7 +497,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     var blk = try em.labeledBlock("idx", "__s", subscript.value.*);
                     try blk.emit("const __idx = ");
                     if (needs_cast) {
-                        try self.emit("@as(usize, @intCast(");
+                        try emitConst(self, "@as(usize, @intCast(");
                     }
                     if (isNegativeConstant(subscript.slice.index.*)) {
                         // Negative index needs special handling
@@ -448,7 +506,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genExpr(self, subscript.slice.index.*);
                     }
                     if (needs_cast) {
-                        try self.emit("))");
+                        try emitConst(self, "))");
                     }
                     try blk.emit("; if (__idx >= __s.items.len) return error.IndexError; ");
                     try blk.breakWith("__s.items[__idx]");
@@ -458,15 +516,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 // Bytes indexing: PyBytes uses .get() method, returns u8
                 const needs_cast = type_traits.isIntegral(index_type);
                 try genExpr(self, subscript.value.*);
-                try self.emit(".get(");
+                try emitConst(self, ".get(");
                 if (needs_cast) {
-                    try self.emit("@as(usize, @intCast(");
+                    try emitConst(self, "@as(usize, @intCast(");
                 }
                 try genExpr(self, subscript.slice.index.*);
                 if (needs_cast) {
-                    try self.emit("))");
+                    try emitConst(self, "))");
                 }
-                try self.emit(")");
+                try emitConst(self, ")");
             } else {
                 // Array/slice/string indexing: a[b]
                 const is_string = string_traits.isString(value_type);
@@ -495,7 +553,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try blk.emit(")); ");
                         try blk.startBreak();
                         try genExpr(self, subscript.value.*);
-                        try self.emit("[__idx..__idx+1]");
+                        try emitConst(self, "[__idx..__idx+1]");
                         try blk.close();
                     }
                 } else {
@@ -505,9 +563,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         var em = self.exprEmitter();
                         var blk = try em.labeledBlock("arr", "__s", subscript.value.*);
                         try blk.startBreak();
-                        try self.emit("__s[");
+                        try emitConst(self, "__s[");
                         try genSliceIndex(self, subscript.slice.index.*, true, false);
-                        try self.emit("]");
+                        try emitConst(self, "]");
                         try blk.close();
                     } else {
                         // Positive index
@@ -535,11 +593,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             var blk = try em.labeledBlock("arr", "__arr", subscript.value.*);
                             try blk.emit("const __idx = ");
                             if (needs_cast) {
-                                try self.emit("@as(usize, @intCast(");
+                                try emitConst(self, "@as(usize, @intCast(");
                             }
                             try genExpr(self, subscript.slice.index.*);
                             if (needs_cast) {
-                                try self.emit("))");
+                                try emitConst(self, "))");
                             }
                             try blk.emit("; if (__idx >= __arr.items.len) return error.IndexError; ");
                             try blk.breakWith("__arr.items[__idx]");
@@ -550,11 +608,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             var blk = try em.labeledBlock("arr", "__s", subscript.value.*);
                             try blk.emit("const __idx = ");
                             if (needs_cast) {
-                                try self.emit("@as(usize, @intCast(");
+                                try emitConst(self, "@as(usize, @intCast(");
                             }
                             try genExpr(self, subscript.slice.index.*);
                             if (needs_cast) {
-                                try self.emit("))");
+                                try emitConst(self, "))");
                             }
                             try blk.emit("; ");
                             try blk.breakWith("if (@hasField(@TypeOf(__s), \"items\")) __s.items[__idx] else __s[__idx]");
@@ -578,21 +636,21 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try blk.emit("const __start: usize = ");
 
                 if (slice_range.lower) |lower| {
-                    try self.emit("@as(usize, @intCast(");
+                    try emitConst(self, "@as(usize, @intCast(");
                     try genExpr(self, lower.*);
-                    try self.emit("))");
+                    try emitConst(self, "))");
                 } else {
-                    try self.emit("0");
+                    try emitConst(self, "0");
                 }
 
                 try blk.emit("; const __end: usize = ");
 
                 if (slice_range.upper) |upper| {
-                    try self.emit("@as(usize, @intCast(");
+                    try emitConst(self, "@as(usize, @intCast(");
                     try genExpr(self, upper.*);
-                    try self.emit("))");
+                    try emitConst(self, "))");
                 } else {
-                    try self.emit("__s.len()");
+                    try emitConst(self, "__s.len()");
                 }
 
                 try blk.emit("; ");
@@ -606,60 +664,60 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 // Runtime helpers handle: negative indices, step=0 error, bounds clamping
                 if (string_traits.isString(value_type)) {
                     // String slicing with step - use runtime helper
-                    try self.emit("try runtime.slice_ops.stringSliceWithStep(__global_allocator, ");
+                    try emitConst(self, "try runtime.slice_ops.stringSliceWithStep(__global_allocator, ");
                     try genExpr(self, subscript.value.*);
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // Start (null = default based on step direction)
                     if (slice_range.lower) |lower| {
                         try genExpr(self, lower.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // End (null = default based on step direction)
                     if (slice_range.upper) |upper| {
                         try genExpr(self, upper.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // Step
                     try genExpr(self, slice_range.step.?.*);
-                    try self.emit(")");
+                    try emitConst(self, ")");
                 } else if (container_traits.isList(value_type)) {
                     // List slicing with step - use runtime helper
                     // Access .items from SliceResult to get raw slice for comparison compatibility
                     const elem_type = value_type.list.*;
 
-                    try self.emit("(try runtime.slice_ops.sliceWithStep(");
+                    try emitConst(self, "(try runtime.slice_ops.sliceWithStep(");
                     // Element type as comptime parameter
                     try elem_type.toZigType(self.allocator, &self.output);
-                    try self.emit(", __global_allocator, ");
+                    try emitConst(self, ", __global_allocator, ");
                     try genExpr(self, subscript.value.*);
-                    try self.emit(".items, ");
+                    try emitConst(self, ".items, ");
 
                     // Start
                     if (slice_range.lower) |lower| {
                         try genExpr(self, lower.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // End
                     if (slice_range.upper) |upper| {
                         try genExpr(self, upper.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // Step
                     try genExpr(self, slice_range.step.?.*);
-                    try self.emit(")).items");
+                    try emitConst(self, ")).items");
                 } else if (container_traits.isTuple(value_type)) {
                     // Tuple slicing with step - convert tuple to array then use runtime helper
                     // This avoids the exponential comptime from inline for inside loop
@@ -669,27 +727,27 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Convert tuple to array using inline for (done ONCE, not per iteration)
                     try blk.emit("const __arr = comptime blk: { const fields = std.meta.fields(@TypeOf(__t)); var arr: [fields.len]@TypeOf(__t.@\"0\") = undefined; inline for (fields, 0..) |f, i| { arr[i] = @field(__t, f.name); } break :blk arr; }; ");
                     try blk.startBreak();
-                    try self.emit("(try runtime.slice_ops.sliceWithStep(@TypeOf(__arr[0]), __global_allocator, &__arr, ");
+                    try emitConst(self, "(try runtime.slice_ops.sliceWithStep(@TypeOf(__arr[0]), __global_allocator, &__arr, ");
 
                     // Start
                     if (slice_range.lower) |lower| {
                         try genExpr(self, lower.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // End
                     if (slice_range.upper) |upper| {
                         try genExpr(self, upper.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // Step
                     try genExpr(self, slice_range.step.?.*);
-                    try self.emit(")).items");
+                    try emitConst(self, ")).items");
                     try blk.close();
                 } else if (value_type == .pyvalue) {
                     // Two-Flow: PyValue container slicing with step
@@ -699,27 +757,27 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Extract items from PyValue (list or tuple)
                     try blk.emit("const __items = switch (__pv) { .list => |l| l.items, .tuple => |t| t, else => &[_]runtime.PyValue{} }; ");
                     try blk.startBreak();
-                    try self.emit("(try runtime.slice_ops.sliceWithStep(runtime.PyValue, __global_allocator, __items, ");
+                    try emitConst(self, "(try runtime.slice_ops.sliceWithStep(runtime.PyValue, __global_allocator, __items, ");
 
                     // Start
                     if (slice_range.lower) |lower| {
                         try genExpr(self, lower.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // End
                     if (slice_range.upper) |upper| {
                         try genExpr(self, upper.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // Step
                     try genExpr(self, slice_range.step.?.*);
-                    try self.emit(")).items");
+                    try emitConst(self, ")).items");
                     try blk.close();
                 } else {
                     // Unknown type - use runtime helper with generic element type detection
@@ -729,27 +787,27 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // Use container_dispatch helper - avoids inline @hasField monomorphization
                     try blk.emit("const __items = runtime.container_dispatch.getSlice(@TypeOf(__s), __s); ");
                     try blk.startBreak();
-                    try self.emit("(try runtime.slice_ops.sliceWithStep(@TypeOf(__items[0]), __global_allocator, __items, ");
+                    try emitConst(self, "(try runtime.slice_ops.sliceWithStep(@TypeOf(__items[0]), __global_allocator, __items, ");
 
                     // Start
                     if (slice_range.lower) |lower| {
                         try genExpr(self, lower.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // End
                     if (slice_range.upper) |upper| {
                         try genExpr(self, upper.*);
                     } else {
-                        try self.emit("null");
+                        try emitConst(self, "null");
                     }
-                    try self.emit(", ");
+                    try emitConst(self, ", ");
 
                     // Step
                     try genExpr(self, slice_range.step.?.*);
-                    try self.emit(")).items");
+                    try emitConst(self, ")).items");
                     try blk.close();
                 }
             } else if (needs_len) {
@@ -763,17 +821,17 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 if (slice_range.lower) |lower| {
                     try genSliceIndex(self, lower.*, true, is_list);
                 } else {
-                    try self.emit("0");
+                    try emitConst(self, "0");
                 }
 
                 if (is_list) {
                     // Get element type for empty array fallback
                     try blk.emit(", __s.items.len); ");
                     try blk.startBreak();
-                    try self.emit("if (__start <= __s.items.len) __s.items[__start..__s.items.len] else &[_]");
+                    try emitConst(self, "if (__start <= __s.items.len) __s.items[__start..__s.items.len] else &[_]");
                     const elem_type = value_type.list.*;
                     try elem_type.toZigType(self.allocator, &self.output);
-                    try self.emit("{}");
+                    try emitConst(self, "{}");
                     try blk.close();
                 } else {
                     try blk.emit(", __s.len); ");
@@ -804,13 +862,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (slice_range.lower) |lower| {
                             try genSliceIndex(self, lower.*, true, true);
                         } else {
-                            try self.emit("0");
+                            try emitConst(self, "0");
                         }
-                        try self.emit(", __s.items.len); const __end = @min(");
+                        try emitConst(self, ", __s.items.len); const __end = @min(");
                         if (slice_range.upper) |upper| {
                             try genSliceIndex(self, upper.*, true, true);
                         } else {
-                            try self.emit("__s.items.len");
+                            try emitConst(self, "__s.items.len");
                         }
                         try blk.emit(", __s.items.len); ");
                         try blk.breakWith("if (__start < __end) __s.items[__start..__end] else __s.items[0..0]");
@@ -820,13 +878,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (slice_range.lower) |lower| {
                             try genSliceIndex(self, lower.*, true, false);
                         } else {
-                            try self.emit("0");
+                            try emitConst(self, "0");
                         }
-                        try self.emit(", __s.len); const __end = @min(");
+                        try emitConst(self, ", __s.len); const __end = @min(");
                         if (slice_range.upper) |upper| {
                             try genSliceIndex(self, upper.*, true, false);
                         } else {
-                            try self.emit("__s.len");
+                            try emitConst(self, "__s.len");
                         }
                         try blk.emit(", __s.len); ");
                         try blk.breakWith("if (__start < __end) __s[__start..__end] else \"\"");
@@ -843,9 +901,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (slice_range.lower) |lower| {
                             try genExpr(self, lower.*);
                         } else {
-                            try self.emit("0");
+                            try emitConst(self, "0");
                         }
-                        try self.emit(", __s.items.len); const __end = @min(");
+                        try emitConst(self, ", __s.items.len); const __end = @min(");
                         try genExpr(self, slice_range.upper.?.*);
                         try blk.emit(", __s.items.len); ");
                         try blk.breakWith("if (__start < __end) __s.items[__start..__end] else __s.items[0..0]");
@@ -855,9 +913,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (slice_range.lower) |lower| {
                             try genExpr(self, lower.*);
                         } else {
-                            try self.emit("0");
+                            try emitConst(self, "0");
                         }
-                        try self.emit(", __s.len); const __end = @min(");
+                        try emitConst(self, ", __s.len); const __end = @min(");
                         try genExpr(self, slice_range.upper.?.*);
                         try blk.emit(", __s.len); ");
                         try blk.breakWith("if (__start < __end) __s[__start..__end] else \"\"");
@@ -894,28 +952,28 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
         const index_type = self.type_inferrer.inferExpr(index) catch .unknown;
 
         const label = try self.emitInlineBlockStart("sub_lhs");
-        try self.emit("{{ const __base = ");
+        try emitConst(self, "{{ const __base = ");
         // Emit the base expression (could be nested subscript or simple name)
         if (subscript.value.* == .subscript) {
             try genSubscriptLHS(self, subscript.value.subscript);
         } else {
             try genExpr(self, subscript.value.*);
         }
-        try self.emitFmt("; break :{s} if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(", .{label});
+        try emitFmtConst(self, "; break :{s} if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(", .{label});
         if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
             try genExpr(self, index);
-            try self.emit(".asString()");
+            try emitConst(self, ".asString()");
         } else {
             try genExpr(self, index);
         }
-        try self.emit(").?.* else __base.getPtr(");
+        try emitConst(self, ").?.* else __base.getPtr(");
         if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
             try genExpr(self, index);
-            try self.emit(".asString()");
+            try emitConst(self, ".asString()");
         } else {
             try genExpr(self, index);
         }
-        try self.emit(").?.*; }}");
+        try emitConst(self, ").?.*; }}");
         try self.emitInlineBlockEnd();
         return;
     }
@@ -937,35 +995,29 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
             // Dict access with string key - use .getPtr() for mutable access
             if (container_traits.isDict(container_type)) {
                 // Native dict (StringHashMap) - use .getPtr()
-                try self.emit(".getPtr(");
-                try genExpr(self, index.*);
-                try self.emit(").?.*");
+                try emitDictGetPtr(self, index.*);
             } else if (container_type == .pyvalue and (string_traits.isString(index_type) or index_type == .pyvalue or type_traits.isUnknown(index_type))) {
                 // PyValue wrapping a dict (ptr to StringHashMap) - use .pyDictGetPtr()
                 // For PyValue keys, we need to convert to string first
-                try self.emit(".pyDictGetPtr(");
+                try emitConst(self, ".pyDictGetPtr(");
                 if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
                     try genExpr(self, index.*);
-                    try self.emit(".asString()");
+                    try emitConst(self, ".asString()");
                 } else {
                     try genExpr(self, index.*);
                 }
-                try self.emit(").?.*");
+                try emitConst(self, ").?.*");
             } else if (container_traits.isList(container_type)) {
-                try self.emit(".items[@as(usize, @intCast(");
-                try genExpr(self, index.*);
-                try self.emit("))]");
+                try emitArrayListIndex(self, index.*);
             } else {
                 // Default array-style access for other types
-                try self.emit("[@as(usize, @intCast(");
-                try genExpr(self, index.*);
-                try self.emit("))]");
+                try emitArrayIndex(self, index.*);
             }
         },
         .slice => {
             // Slice access as LHS is complex - for now just generate error
             // Slice assignment should be handled separately in assign.zig
-            try self.emit("@compileError(\"Slice LHS not supported in this context\")");
+            try emitConst(self, "@compileError(\"Slice LHS not supported in this context\")");
         },
     }
 }

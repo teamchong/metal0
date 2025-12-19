@@ -6,6 +6,14 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Arithmetic
     .{ "add", h.binop(" + ", "@as(i64, 0)") }, .{ "sub", h.binop(" - ", "@as(i64, 0)") },
@@ -50,9 +58,9 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn divOp(self: *NativeCodegen, args: []ast.Node, comptime builtin: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime mid: []const u8, comptime suf: []const u8) CodegenError!void {
-    if (args.len == 0) { try self.emit(builtin); return; }
-    if (args.len < 2) { try self.emit(default); return; }
-    try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid); try self.genExpr(args[1]); try self.emit(suf);
+    if (args.len == 0) { try emitConst(self, builtin); return; }
+    if (args.len < 2) { try emitConst(self, default); return; }
+    try emitConst(self, pre); try self.genExpr(args[0]); try emitConst(self, mid); try self.genExpr(args[1]); try emitConst(self, suf);
 }
 fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try divOp(self, args, "(runtime.builtins.OperatorTruediv{})", "@as(f64, 0.0)", "(@as(f64, @floatFromInt(", ")) / @as(f64, @floatFromInt(", ")))");
@@ -65,39 +73,39 @@ fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("runtime.builtins.OperatorPow{}");
+        try emitConst(self, "runtime.builtins.OperatorPow{}");
         return;
     }
     if (args.len < 2) {
-        try self.emit("@as(f64, 1.0)");
+        try emitConst(self, "@as(f64, 1.0)");
         return;
     }
     // Always use float pow for consistency with type inference (which returns float)
     // This handles both int and float arguments correctly
     const t1 = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const t2 = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    try self.emit("std.math.pow(f64, ");
+    try emitConst(self, "std.math.pow(f64, ");
     if (t1 == .int) {
-        try self.emit("@as(f64, @floatFromInt(");
+        try emitConst(self, "@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitConst(self, "))");
     } else {
         try self.genExpr(args[0]);
     }
-    try self.emit(", ");
+    try emitConst(self, ", ");
     if (t2 == .int) {
-        try self.emit("@as(f64, @floatFromInt(");
+        try emitConst(self, "@as(f64, @floatFromInt(");
         try self.genExpr(args[1]);
-        try self.emit("))");
+        try emitConst(self, "))");
     } else {
         try self.genExpr(args[1]);
     }
-    try self.emit(")");
+    try emitConst(self, ")");
 }
 fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, comptime default: []const u8) CodegenError!void {
-    if (args.len < 2) { try self.emit(default); return; }
+    if (args.len < 2) { try emitConst(self, default); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
-    try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(op); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
+    try emitConst(self, if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try emitConst(self, op); try emitConst(self, if (both_bool) "" else "&"); try self.genExpr(args[1]); try emitConst(self, ")");
 }
 fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " == ", "false"); }
 fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " != ", "true"); }

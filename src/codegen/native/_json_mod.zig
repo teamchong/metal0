@@ -5,6 +5,26 @@ const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "encode_basestring", genEncodeBasestring },
     .{ "encode_basestring_ascii", genEncodeBasestringAscii },
@@ -21,9 +41,9 @@ fn genEncodeBasestring(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!
     }
     try self.withInlineBlock("eb", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const s = ");
+            try emitConst(c, "const s = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; var result: std.ArrayList(u8) = .{{}}; result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); for (s) |c| {{ switch (c) {{ '\"' => result.appendSlice(__global_allocator, \"\\\\\\\"\") catch @panic(\"json encode OOM\"), '\\\\' => result.appendSlice(__global_allocator, \"\\\\\\\\\") catch @panic(\"json encode OOM\"), '\\n' => result.appendSlice(__global_allocator, \"\\\\n\") catch @panic(\"json encode OOM\"), '\\r' => result.appendSlice(__global_allocator, \"\\\\r\") catch @panic(\"json encode OOM\"), '\\t' => result.appendSlice(__global_allocator, \"\\\\t\") catch @panic(\"json encode OOM\"), else => result.append(__global_allocator, c) catch @panic(\"json encode OOM\"), }} }} result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); break :{s} result.items", .{label});
+            try emitFmtConst(c, "; var result: std.ArrayList(u8) = .{{}}; result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); for (s) |c| {{ switch (c) {{ '\"' => result.appendSlice(__global_allocator, \"\\\\\\\"\") catch @panic(\"json encode OOM\"), '\\\\' => result.appendSlice(__global_allocator, \"\\\\\\\\\") catch @panic(\"json encode OOM\"), '\\n' => result.appendSlice(__global_allocator, \"\\\\n\") catch @panic(\"json encode OOM\"), '\\r' => result.appendSlice(__global_allocator, \"\\\\r\") catch @panic(\"json encode OOM\"), '\\t' => result.appendSlice(__global_allocator, \"\\\\t\") catch @panic(\"json encode OOM\"), else => result.append(__global_allocator, c) catch @panic(\"json encode OOM\"), }} }} result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); break :{s} result.items", .{label});
         }
     }.emit);
 }
@@ -36,10 +56,10 @@ fn genEncodeBasestringAscii(self: *h.NativeCodegen, args: []ast.Node) h.CodegenE
     }
     try self.withInlineBlock("eba", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const s = ");
+            try emitConst(c, "const s = ");
             try c.genExpr(a[0]);
             // Note: The inner format string {x:0>4} must be escaped as {{x:0>4}} in the Zig string literal
-            try c.emitFmt("; var result: std.ArrayList(u8) = .{{}}; result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); for (s) |c| {{ if (c < 0x20 or c > 0x7e) {{ result.appendSlice(__global_allocator, \"\\\\u\") catch @panic(\"json encode OOM\"); var buf: [4]u8 = undefined; _ = std.fmt.bufPrint(&buf, \"{{x:0>4}}\", .{{c}}) catch unreachable; result.appendSlice(__global_allocator, &buf) catch @panic(\"json encode OOM\"); }} else {{ switch (c) {{ '\"' => result.appendSlice(__global_allocator, \"\\\\\\\"\") catch @panic(\"json encode OOM\"), '\\\\' => result.appendSlice(__global_allocator, \"\\\\\\\\\") catch @panic(\"json encode OOM\"), else => result.append(__global_allocator, c) catch @panic(\"json encode OOM\"), }} }} }} result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); break :{s} result.items", .{label});
+            try emitFmtConst(c, "; var result: std.ArrayList(u8) = .{{}}; result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); for (s) |c| {{ if (c < 0x20 or c > 0x7e) {{ result.appendSlice(__global_allocator, \"\\\\u\") catch @panic(\"json encode OOM\"); var buf: [4]u8 = undefined; _ = std.fmt.bufPrint(&buf, \"{{x:0>4}}\", .{{c}}) catch unreachable; result.appendSlice(__global_allocator, &buf) catch @panic(\"json encode OOM\"); }} else {{ switch (c) {{ '\"' => result.appendSlice(__global_allocator, \"\\\\\\\"\") catch @panic(\"json encode OOM\"), '\\\\' => result.appendSlice(__global_allocator, \"\\\\\\\\\") catch @panic(\"json encode OOM\"), else => result.append(__global_allocator, c) catch @panic(\"json encode OOM\"), }} }} }} result.append(__global_allocator, '\"') catch @panic(\"json encode OOM\"); break :{s} result.items", .{label});
         }
     }.emit);
 }
@@ -52,11 +72,11 @@ fn genScanstring(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("ss", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const string = ");
+            try emitConst(c, "const string = ");
             try c.genExpr(a[0]);
-            try c.emit("; const end_idx = ");
+            try emitConst(c, "; const end_idx = ");
             try c.genExpr(a[1]);
-            try c.emitFmt("; _ = string; break :{s} .{{ \"\", end_idx }}", .{label});
+            try emitFmtConst(c, "; _ = string; break :{s} .{{ \"\", end_idx }}", .{label});
         }
     }.emit);
 }

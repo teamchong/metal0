@@ -1,4 +1,5 @@
 /// Conditional statement code generation (if, pass, break, continue)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -7,6 +8,23 @@ const CodeBuilder = @import("../../code_builder.zig").CodeBuilder;
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const bool_conv = @import("../../helpers/bool_conv.zig");
 const zig_keywords = @import("utils.zig_keywords");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 
 /// Information about a variable to be hoisted
 const HoistedVar = struct {
@@ -144,12 +162,12 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                     const is_uncertain = type_traits.isUnknown(value_type) or value_type == .pyvalue;
 
                     try self.emitIndent();
-                    try self.emit("var ");
+                    try emitConst(self,"var ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                    try self.emit(": ");
+                    try emitConst(self,": ");
 
                     if (is_uncertain) {
-                        try self.emit("runtime.PyValue");
+                        try emitConst(self,"runtime.PyValue");
                     } else {
                         // Get the Zig type string
                         var type_buf = std.ArrayList(u8){};
@@ -157,9 +175,9 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                         value_type.toZigType(self.allocator, &type_buf) catch {
                             try type_buf.writer(self.allocator).writeAll("i64");
                         };
-                        try self.emit(type_buf.items);
+                        try emitConst(self,type_buf.items);
                     }
-                    try self.emit(" = undefined;\n");
+                    try emitConst(self," = undefined;\n");
                     try self.declareVar(var_name);
                 }
             }
@@ -321,9 +339,9 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         // to mark any variables it uses as referenced (e.g., isinstance(x, T) uses x)
         // Generate: _ = (condition); before the body
         try self.emitIndent();
-        try self.emit("_ = ");
+        try emitConst(self,"_ = ");
         try self.genExpr(if_stmt.condition.*);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
 
         if (comptime_value) {
             // Condition is comptime True - only emit if body
@@ -437,11 +455,11 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             };
 
             try self.emitIndent();
-            try self.emit("var ");
+            try emitConst(self,"var ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), v.name);
-            try self.emit(": ");
-            try self.emit(type_buf.items);
-            try self.emit(" = undefined;\n");
+            try emitConst(self,": ");
+            try emitConst(self,type_buf.items);
+            try emitConst(self," = undefined;\n");
             try self.declareVar(v.name);
         }
     }
@@ -596,7 +614,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             // elif: emit "} else " then recursively generate the nested if (without indent)
             self.dedent();
             try self.emitIndent();
-            try self.emit("} else ");
+            try emitConst(self,"} else ");
             // Recursively generate the elif chain (skip_indent=true avoids double indentation)
             // hoist_vars=false since top-level if already hoisted all variables
             try genIfImpl(self, if_stmt.else_body[0].if_stmt, true, false);
@@ -655,7 +673,7 @@ pub fn genBreak(self: *NativeCodegen) CodegenError!void {
     if (self.try_break_helper_id != null) {
         // Inside try helper - return error to signal break
         try self.emitIndent();
-        try self.emit("return error.BreakRequested;\n");
+        try emitConst(self,"return error.BreakRequested;\n");
     } else {
         var builder = CodeBuilder.init(self);
         _ = try builder.line("break;");
@@ -775,7 +793,7 @@ fn genPatternCondition(self: *NativeCodegen, pattern: ast.Node.MatchPattern, sub
             // Check length and each element
             _ = try builder.write(subject);
             _ = try builder.write(".len == ");
-            try self.emitFmt("{d}", .{patterns.len});
+            try emitFmtConst(self, "{d}", .{patterns.len});
             for (patterns, 0..) |p, i| {
                 _ = try builder.write(" and ");
                 var idx_buf: [32]u8 = undefined;
@@ -829,7 +847,7 @@ fn genPatternCondition(self: *NativeCodegen, pattern: ast.Node.MatchPattern, sub
                     .literal => |lit| {
                         _ = try builder.write(" and ");
                         _ = try builder.write(subject);
-                        try self.emitFmt(".@\"{d}\" == ", .{i});
+                        try emitFmtConst(self, ".@\"{d}\" == ", .{i});
                         try self.genExpr(lit.*);
                     },
                     else => {},

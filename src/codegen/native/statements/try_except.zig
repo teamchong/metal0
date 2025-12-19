@@ -1,4 +1,5 @@
 /// Try/except/finally statement code generation
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
@@ -12,6 +13,23 @@ const zig_keywords = @import("utils.zig_keywords");
 const signature_utils = @import("functions/generators/signature.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -530,11 +548,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // This allows code like `if X is None:` and `@unittest.skipIf(X is None, ...)`
         // The _ = X; suppresses "unused constant" warning
         try self.emitIndent();
-        try self.emit("const ");
-        try self.emit(unavailable_module);
-        try self.emit(": ?*void = null; _ = ");
-        try self.emit(unavailable_module);
-        try self.emit("; // Optional import: module not available\n");
+        try emitConst(self,"const ");
+        try emitConst(self,unavailable_module);
+        try emitConst(self,": ?*void = null; _ = ");
+        try emitConst(self,unavailable_module);
+        try emitConst(self,"; // Optional import: module not available\n");
         return; // Skip generating the full try/except structure
     }
 
@@ -545,9 +563,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.markSkippedModule(unavailable_module);
         // Generate comment to mark the pattern
         try self.emitIndent();
-        try self.emit("// Optional from-import: module '");
-        try self.emit(unavailable_module);
-        try self.emit("' not available, using fallback definitions\n");
+        try emitConst(self,"// Optional from-import: module '");
+        try emitConst(self,unavailable_module);
+        try emitConst(self,"' not available, using fallback definitions\n");
 
         // Find the ImportError handler and generate its body at module level
         for (try_node.handlers) |handler| {
@@ -760,19 +778,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             actual_var_name;
 
         try self.emitIndent();
-        try self.emit("var ");
+        try emitConst(self,"var ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_var_name);
-        try self.emit(": ");
-        try self.emit(zig_type);
-        try self.emit(" = undefined;\n");
+        try emitConst(self,": ");
+        try emitConst(self,zig_type);
+        try emitConst(self," = undefined;\n");
 
         // Suppress "local variable is never mutated" warning for hoisted vars.
         // The variable may be assigned in a branch that doesn't execute at runtime
         // (e.g., else: hit_else = True when exception IS raised, else never runs).
         try self.emitIndent();
-        try self.emit("_ = &");
+        try emitConst(self,"_ = &");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_var_name);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
 
         // Mark as hoisted so assignment generation skips declaration
         try self.hoisted_vars.put(var_name, {});
@@ -794,7 +812,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     // Wrap in block for scope
     try self.emitIndent();
-    try self.emit("{\n");
+    try emitConst(self,"{\n");
     self.indent();
 
     // If we have a finally block, declare pending exception variable
@@ -977,7 +995,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.output.writer(self.allocator).print("const __TryHelper_{d} = struct {{\n", .{helper_id});
         self.indent();
         try self.emitIndent();
-        try self.emit("fn run(");
+        try emitConst(self,"fn run(");
 
         // Parameters:
         // - read_only_vars: passed by value (anytype)
@@ -986,7 +1004,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         var param_count: usize = 0;
         // Parameters use helper_id suffix to avoid shadowing in nested try blocks
         for (read_only_vars.items) |var_name| {
-            if (param_count > 0) try self.emit(", ");
+            if (param_count > 0) try emitConst(self,", ");
             // For heterogeneous loop variables, use concrete runtime.PyValue type
             // These variables are wrapped in PyValue in for_basic.zig to ensure type consistency
             // across inline for iterations (fixes "anytype can't reconcile multiple types" error)
@@ -998,12 +1016,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
-            if (param_count > 0) try self.emit(", ");
+            if (param_count > 0) try emitConst(self,", ");
             try self.output.writer(self.allocator).print("p_{s}_{d}", .{ var_name, helper_id });
             // Special case: __gen_result is always std.ArrayListUnmanaged(runtime.PyValue)
             // This is a codegen-generated variable, not user-defined, so type inference won't find it
             if (std.mem.eql(u8, var_name, "__gen_result")) {
-                try self.emit(": *std.ArrayListUnmanaged(runtime.PyValue)");
+                try emitConst(self,": *std.ArrayListUnmanaged(runtime.PyValue)");
                 param_count += 1;
                 continue;
             }
@@ -1015,8 +1033,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 if (type_traits.isClassInstance(vt)) {
                     // Use renamed class name if available (e.g., metal0_main.Rat)
                     const class_name = self.var_renames.get(vt.class_instance) orelse vt.class_instance;
-                    try self.emit(": *");
-                    try self.emit(class_name);
+                    try emitConst(self,": *");
+                    try emitConst(self,class_name);
                     param_count += 1;
                     continue;
                 }
@@ -1026,8 +1044,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
             defer if (var_type != null) self.allocator.free(zig_type);
-            try self.emit(": *");
-            try self.emit(zig_type); // Pointer for mutable access
+            try emitConst(self,": *");
+            try emitConst(self,zig_type); // Pointer for mutable access
             param_count += 1;
         }
         for (declared_vars.items) |hoisted| {
@@ -1036,7 +1054,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // The assignment `e = runtime.getExceptionFull()` happens in the catch handler,
             // which requires the pointer parameter to access the outer variable.
             if (hoisted.is_exception_name) {
-                if (param_count > 0) try self.emit(", ");
+                if (param_count > 0) try emitConst(self,", ");
                 try self.output.writer(self.allocator).print("p_{s}_{d}: *runtime.PyException", .{ hoisted.name, helper_id });
                 param_count += 1;
                 continue;
@@ -1044,12 +1062,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Check if this variable is assigned from an exception variable (e.g., exc1 = e)
             // In that case, it should also be typed as PyException
             if (hoisted.value == .name and self.exception_vars.contains(hoisted.value.name.id)) {
-                if (param_count > 0) try self.emit(", ");
+                if (param_count > 0) try emitConst(self,", ");
                 try self.output.writer(self.allocator).print("p_{s}_{d}: *runtime.PyException", .{ hoisted.name, helper_id });
                 param_count += 1;
                 continue;
             }
-            if (param_count > 0) try self.emit(", ");
+            if (param_count > 0) try emitConst(self,", ");
             try self.output.writer(self.allocator).print("p_{s}_{d}", .{ hoisted.name, helper_id });
             const var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
             // For class instances, use the class name directly (not *runtime.PyObject)
@@ -1058,8 +1076,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 if (type_traits.isClassInstance(vt)) {
                     // Use renamed class name if available (e.g., metal0_main.Rat)
                     const class_name = self.var_renames.get(vt.class_instance) orelse vt.class_instance;
-                    try self.emit(": *");
-                    try self.emit(class_name);
+                    try emitConst(self,": *");
+                    try emitConst(self,class_name);
                     param_count += 1;
                     continue;
                 }
@@ -1069,12 +1087,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
             defer if (var_type != null) self.allocator.free(zig_type2);
-            try self.emit(": *");
-            try self.emit(zig_type2); // Pointer for mutable access
+            try emitConst(self,": *");
+            try emitConst(self,zig_type2); // Pointer for mutable access
             param_count += 1;
         }
 
-        try self.emit(") !void {\n");
+        try emitConst(self,") !void {\n");
         self.indent();
 
         // Save any existing renames for read_only_vars before overwriting
@@ -1294,10 +1312,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("}\n");
+        try emitConst(self,"}\n");
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
 
         // If there's an else block, declare a flag to track whether exception was caught
         const has_else_block = try_node.else_body.len > 0;
@@ -1314,7 +1332,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.output.writer(self.allocator).print("__TryHelper_{d}.run(", .{helper_id});
         var call_param_count: usize = 0;
         for (read_only_vars.items) |var_name| {
-            if (call_param_count > 0) try self.emit(", ");
+            if (call_param_count > 0) try emitConst(self,", ");
             // Check if variable has been renamed (e.g., function param x -> __p_x_0)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Check if this is a captured variable in the current nested class
@@ -1328,7 +1346,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             call_param_count += 1;
         }
         for (written_outer_vars.items) |var_name| {
-            if (call_param_count > 0) try self.emit(", ");
+            if (call_param_count > 0) try emitConst(self,", ");
             // Check if variable has been renamed (e.g., function param a -> a__mut)
             const actual_name = self.var_renames.get(var_name) orelse var_name;
             // Check if this is a captured variable in the current nested class
@@ -1337,7 +1355,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
                 try self.output.writer(self.allocator).print("{s}.__captured_{s}", .{ self_name, var_name });
             } else {
-                try self.emit("&");
+                try emitConst(self,"&");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             }
             call_param_count += 1;
@@ -1346,8 +1364,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Exception names are ALWAYS passed as parameter since they're assigned in catch handlers
             // The assignment `e = runtime.getExceptionFull()` needs the pointer to work
             // Don't skip exception names - they need the parameter for the assignment
-            if (call_param_count > 0) try self.emit(", ");
-            try self.emit("&");
+            if (call_param_count > 0) try emitConst(self,", ");
+            try emitConst(self,"&");
             // Use renamed name if variable was renamed to avoid shadowing imports
             const actual_name = self.var_renames.get(hoisted.name) orelse hoisted.name;
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
@@ -1370,7 +1388,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         if (needs_err_capture) {
             try self.output.writer(self.allocator).print(") catch |{s}| {{\n", .{err_var});
         } else {
-            try self.emit(") catch {\n");
+            try emitConst(self,") catch {\n");
         }
         self.indent();
 
@@ -1391,7 +1409,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         for (try_node.handlers, 0..) |handler, i| {
             if (i > 0) {
                 try self.emitIndent();
-                try self.emit("} else ");
+                try emitConst(self,"} else ");
             } else if (handler.type != null) {
                 try self.emitIndent();
             }
@@ -1403,7 +1421,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
                 if (is_catch_all) {
                     // Catch-all: just enter the handler block without checking specific error
-                    try self.emit("{\n");
+                    try emitConst(self,"{\n");
                     // Suppress unused error variable warning (can't use _ for error sets)
                     self.indent();
                     try self.emitIndent();
@@ -1412,8 +1430,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 } else {
                     const zig_err = pythonExceptionToZigError(exc_type);
                     try self.output.writer(self.allocator).print("if ({s} == error.", .{err_var});
-                    try self.emit(zig_err);
-                    try self.emit(") {\n");
+                    try emitConst(self,zig_err);
+                    try emitConst(self,") {\n");
                 }
                 self.indent();
                 // If handler has "as name", always assign the exception variable
@@ -1448,23 +1466,23 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             // Assign to the existing hoisted variable
                             // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
                             if (self.var_renames.get(exc_name)) |renamed| {
-                                try self.emit(renamed);
+                                try emitConst(self,renamed);
                             } else {
                                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             }
-                            try self.emit(" = runtime.getExceptionFull();\n");
+                            try emitConst(self," = runtime.getExceptionFull();\n");
                         } else {
                             // Declare new const - either not declared elsewhere, or declared but not accessible
                             // Use scoped name to avoid shadowing outer variables with the same name
                             const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
-                            try self.emit("const ");
-                            try self.emit(scoped_name);
-                            try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
+                            try emitConst(self,"const ");
+                            try emitConst(self,scoped_name);
+                            try emitConst(self,": runtime.PyException = runtime.getExceptionFull();\n");
                             // Suppress "unused local constant" error - variable may be used or just declared for Python compat
                             try self.emitIndent();
-                            try self.emit("_ = &");
-                            try self.emit(scoped_name);
-                            try self.emit(";\n");
+                            try emitConst(self,"_ = &");
+                            try emitConst(self,scoped_name);
+                            try emitConst(self,";\n");
                             // Add to var_renames so handler body references use the scoped name
                             try self.var_renames.put(exc_name, scoped_name);
                         }
@@ -1480,21 +1498,21 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // to indicate the exception was successfully caught (test passes)
                 if (self.in_assert_raises_context) {
                     try self.emitIndent();
-                    try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
+                    try emitFmtConst(self, "break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
                 }
                 self.dedent();
                 // For catch-all handlers (Exception/BaseException), close the block
                 if (is_catch_all) {
                     try self.emitIndent();
-                    try self.emit("}\n");
+                    try emitConst(self,"}\n");
                 }
                 generated_handler = true;
             } else {
                 if (i > 0) {
-                    try self.emit("{\n");
+                    try emitConst(self,"{\n");
                 } else {
                     try self.emitIndent();
-                    try self.emit("{\n");
+                    try emitConst(self,"{\n");
                 }
                 self.indent();
                 // If handler has "as name", always assign the exception variable
@@ -1529,23 +1547,23 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             // Assign to the existing hoisted variable
                             // Check for rename (e.g., p_e.* for hoisted exception names passed as pointers)
                             if (self.var_renames.get(exc_name)) |renamed| {
-                                try self.emit(renamed);
+                                try emitConst(self,renamed);
                             } else {
                                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), exc_name);
                             }
-                            try self.emit(" = runtime.getExceptionFull();\n");
+                            try emitConst(self," = runtime.getExceptionFull();\n");
                         } else {
                             // Declare new const - either not declared elsewhere, or declared but not accessible
                             // Use scoped name to avoid shadowing outer variables with the same name
                             const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
-                            try self.emit("const ");
-                            try self.emit(scoped_name);
-                            try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
+                            try emitConst(self,"const ");
+                            try emitConst(self,scoped_name);
+                            try emitConst(self,": runtime.PyException = runtime.getExceptionFull();\n");
                             // Suppress "unused local constant" error - variable may be used or just declared for Python compat
                             try self.emitIndent();
-                            try self.emit("_ = &");
-                            try self.emit(scoped_name);
-                            try self.emit(";\n");
+                            try emitConst(self,"_ = &");
+                            try emitConst(self,scoped_name);
+                            try emitConst(self,";\n");
                             // Add to var_renames so handler body references use the scoped name
                             try self.var_renames.put(exc_name, scoped_name);
                         }
@@ -1561,11 +1579,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // to indicate the exception was successfully caught (test passes)
                 if (self.in_assert_raises_context) {
                     try self.emitIndent();
-                    try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
+                    try emitFmtConst(self, "break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
                 }
                 self.dedent();
                 try self.emitIndent();
-                try self.emit("}\n");
+                try emitConst(self,"}\n");
                 generated_handler = true;
             }
         }
@@ -1579,7 +1597,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
             if (!is_catch_all) {
                 try self.emitIndent();
-                try self.emit("} else {\n");
+                try emitConst(self,"} else {\n");
                 self.indent();
                 try self.emitIndent();
                 // If there's a finally block, store exception instead of returning immediately
@@ -1597,13 +1615,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 }
                 self.dedent();
                 try self.emitIndent();
-                try self.emit("}\n");
+                try emitConst(self,"}\n");
             }
         }
 
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
 
         // Generate else block (runs only if NO exception was raised)
         // In Python's try/except/else, the else block executes only when no exception occurred.
@@ -1621,7 +1639,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
     } else {
         // No exception handlers - just try/finally or try/else/finally
@@ -1642,7 +1660,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Generate finally code as defer BEFORE try body
             // defer runs when scope exits (including on return), ensuring cleanup always happens
             try self.emitIndent();
-            try self.emit("defer {\n");
+            try emitConst(self,"defer {\n");
             self.indent();
 
             // Generate finally body inline in the defer
@@ -1664,7 +1682,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
 
         // NOTE: __pending_exception_N is already declared at line 687 for all try blocks with finally
@@ -1702,14 +1720,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         if (has_finally and !can_use_defer and !self.control_flow_terminated) {
             // Emit finally code inline at end of try body
             try self.emitIndent();
-            try self.emit("{ // finally (normal path)\n");
+            try emitConst(self,"{ // finally (normal path)\n");
             self.indent();
             for (try_node.finalbody) |stmt| {
                 try self.generateStmt(stmt);
             }
             self.dedent();
             try self.emitIndent();
-            try self.emit("}\n");
+            try emitConst(self,"}\n");
         }
 
         // Pop finally context after try body
@@ -1785,7 +1803,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // handled the exit (e.g., break :__finally_blk_N null from return, or error from raise)
         self.dedent();
         try self.emitIndent();
-        try self.emit("};\n");
+        try emitConst(self,"};\n");
 
         // Propagate exceptions: finally exception takes precedence over pending exception
         try self.emitIndent();
@@ -1796,7 +1814,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
     self.dedent();
     try self.emitIndent();
-    try self.emit("}\n");
+    try emitConst(self,"}\n");
 
     // NOTE: Do NOT clear hoisted_vars here - keep tracking them for the entire function
     // so subsequent try blocks with the same variable name don't re-hoist them.

@@ -1,9 +1,26 @@
 /// Method call dispatchers (string, list, dict methods)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const zig_keywords = @import("utils.zig_keywords");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 const methods = @import("../methods.zig");
 const io_mod = @import("../io.zig");
@@ -352,21 +369,21 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                 if (call.args.len >= 4) {
                     // type.__new__(cls, name, bases, dict)
                     // cls is the metaclass, name is class name, bases is tuple, dict is namespace
-                    try self.emit("(try runtime.typeNew(__global_allocator, ");
+                    try emitConst(self,"(try runtime.typeNew(__global_allocator, ");
                     try self.genExpr(call.args[0]); // cls/metaclass
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                     try self.genExpr(call.args[1]); // name
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                     try self.genExpr(call.args[2]); // bases
-                    try self.emit(", ");
+                    try emitConst(self,", ");
                     try self.genExpr(call.args[3]); // dict
-                    try self.emit("))");
+                    try emitConst(self,"))");
                     return true;
                 } else if (call.args.len == 1) {
                     // type.__new__(cls) - create empty type for metaclass
-                    try self.emit("(try runtime.typeNew(__global_allocator, ");
+                    try emitConst(self,"(try runtime.typeNew(__global_allocator, ");
                     try self.genExpr(call.args[0]); // cls
-                    try self.emit(", \"\", &[_]*runtime.PyType{}, runtime.hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator)))");
+                    try emitConst(self,", \"\", &[_]*runtime.PyType{}, runtime.hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator)))");
                     return true;
                 }
             }
@@ -379,23 +396,23 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                     // Return the value argument (second arg after cls)
                     // e.g., bool.__new__(bool, 1) -> true, bool.__new__(bool, 0) -> false
                     if (std.mem.eql(u8, parent_name, "bool")) {
-                        try self.emit("runtime.toBool(");
+                        try emitConst(self,"runtime.toBool(");
                         try self.genExpr(call.args[1]);
-                        try self.emit(")");
+                        try emitConst(self,")");
                     } else {
                         try self.genExpr(call.args[1]);
                     }
                     return true;
                 } else {
                     // No value argument - return default for the type
-                    try self.emit(BuiltinTypeDefaults.get(parent_name) orelse "{}");
+                    try emitConst(self,BuiltinTypeDefaults.get(parent_name) orelse "{}");
                     return true;
                 }
             }
 
             // For __init__ or __new__ without value, emit no-op
             // The actual initialization is handled by struct init
-            try self.emit("{}");
+            try emitConst(self,"{}");
             return true;
         }
     }
@@ -561,9 +578,9 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             // int.__index__() returns self - just emit the value
             // For bool: True.__index__() -> 1, False.__index__() -> 0
             if (type_traits.isBoolean(obj_type)) {
-                try self.emit("@as(i64, @intFromBool(");
+                try emitConst(self,"@as(i64, @intFromBool(");
                 try self.genExpr(obj);
-                try self.emit("))");
+                try emitConst(self,"))");
             } else {
                 try self.genExpr(obj);
             }
@@ -572,9 +589,9 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         if (std.mem.eql(u8, method_name, "__int__")) {
             // int.__int__() returns self
             if (type_traits.isBoolean(obj_type)) {
-                try self.emit("@as(i64, @intFromBool(");
+                try emitConst(self,"@as(i64, @intFromBool(");
                 try self.genExpr(obj);
-                try self.emit("))");
+                try emitConst(self,"))");
             } else {
                 try self.genExpr(obj);
             }
@@ -831,7 +848,7 @@ fn handleComplexParentMethodCall(self: *NativeCodegen, call: ast.Node.Call, meth
             }
 
             // Emit the result
-            try self.emit(result.items);
+            try emitConst(self,result.items);
             result.deinit(self.allocator);
             return true;
         }
@@ -845,19 +862,19 @@ fn handleComplexParentMethodCall(self: *NativeCodegen, call: ast.Node.Call, meth
 fn genCExtensionMethodCall(self: *NativeCodegen, obj: ast.Node, method_name: []const u8, args: []ast.Node) CodegenError!void {
     const expressions = @import("../expressions.zig");
 
-    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callMethod(@ptrCast(");
+    try emitConst(self,"@as(*runtime.PyObject, @ptrCast(c_interop.callMethod(@ptrCast(");
     try expressions.genExpr(self, obj);
-    try self.emit("), \"");
-    try self.emit(method_name);
-    try self.emit("\", .{");
+    try emitConst(self,"), \"");
+    try emitConst(self,method_name);
+    try emitConst(self,"\", .{");
 
     // Generate arguments as tuple
     for (args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self,", ");
         try expressions.genExpr(self, arg);
     }
 
-    try self.emit("}).?))");
+    try emitConst(self,"}).?))");
 }
 
 /// Handle super().method() calls for inheritance
@@ -885,21 +902,21 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
     if (is_metaclass and std.mem.eql(u8, method_name, "__new__")) {
         if (call.args.len >= 4) {
             // super().__new__(cls, name, bases, dict)
-            try self.emit("(try runtime.typeNew(__global_allocator, ");
+            try emitConst(self,"(try runtime.typeNew(__global_allocator, ");
             try parent.genExpr(self, call.args[0]); // cls
-            try self.emit(", ");
+            try emitConst(self,", ");
             try parent.genExpr(self, call.args[1]); // name
-            try self.emit(", ");
+            try emitConst(self,", ");
             try parent.genExpr(self, call.args[2]); // bases
-            try self.emit(", ");
+            try emitConst(self,", ");
             try parent.genExpr(self, call.args[3]); // dict
-            try self.emit("))");
+            try emitConst(self,"))");
             return true;
         } else if (call.args.len == 1) {
             // super().__new__(cls) - create empty type
-            try self.emit("(try runtime.typeNew(__global_allocator, ");
+            try emitConst(self,"(try runtime.typeNew(__global_allocator, ");
             try parent.genExpr(self, call.args[0]); // cls
-            try self.emit(", \"\", &[_]*runtime.PyType{}, runtime.hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator)))");
+            try emitConst(self,", \"\", &[_]*runtime.PyType{}, runtime.hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator)))");
             return true;
         }
     }
@@ -908,12 +925,12 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
         // No parent class found (e.g., inheriting from external module like unittest.TestCase)
         // For metaclasses, return empty PyValue
         if (is_metaclass) {
-            try self.emit("runtime.PyValue{ .none = {} }");
+            try emitConst(self,"runtime.PyValue{ .none = {} }");
             return true;
         }
         // Generate a no-op {} since we can't call the actual parent method
         // This is safe because test methods in unittest typically don't need parent return values
-        try self.emit("{}");
+        try emitConst(self,"{}");
         return true;
     };
 
@@ -921,18 +938,18 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
     // Need @constCast because self is *const Child, and parent method may expect mutable pointer
     // Need @ptrCast because self is *Child but parent method expects *Parent
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
-    try self.emit(parent_class);
-    try self.emit(".");
+    try emitConst(self,parent_class);
+    try emitConst(self,".");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_name);
-    try self.emit("(@ptrCast(@constCast(self))");
+    try emitConst(self,"(@ptrCast(@constCast(self))");
 
     // Add remaining arguments
     for (call.args) |arg| {
-        try self.emit(", ");
+        try emitConst(self,", ");
         try parent.genExpr(self, arg);
     }
 
-    try self.emit(")");
+    try emitConst(self,")");
     return true;
 }
 
@@ -942,16 +959,16 @@ fn handleQueueMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: []
     const parent = @import("../expressions.zig");
 
     if (queue_method.prefix.len > 0) {
-        try self.emit(queue_method.prefix);
+        try emitConst(self,queue_method.prefix);
     }
     try parent.genExpr(self, obj);
-    try self.emit(queue_method.suffix);
+    try emitConst(self,queue_method.suffix);
 
     if (queue_method.has_arg) {
         if (call.args.len > 0) {
             try parent.genExpr(self, call.args[0]);
         }
-        try self.emit(")");
+        try emitConst(self,")");
     }
 
     return true;
@@ -985,59 +1002,59 @@ fn handleStreamMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.No
     const method_hash = fnv.hash(method_name);
     if (method_hash == WRITE) {
         // stream.write(data) - returns bytes written (caller handles discard if needed)
-        try self.emit(receiver);
-        try self.emit(".write(");
+        try emitConst(self,receiver);
+        try emitConst(self,".write(");
         if (args.len > 0) try parent.genExpr(self, args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     } else if (method_hash == READ) {
-        try self.emit(receiver);
+        try emitConst(self,receiver);
         if (args.len > 0) {
-            try self.emit(".readSize(");
+            try emitConst(self,".readSize(");
             try parent.genExpr(self, args[0]);
-            try self.emit(")");
+            try emitConst(self,")");
         } else {
-            try self.emit(".read()");
+            try emitConst(self,".read()");
         }
     } else if (method_hash == READLINE) {
-        try self.emit(receiver);
+        try emitConst(self,receiver);
         if (args.len > 0) {
-            try self.emit(".readlineSize(");
+            try emitConst(self,".readlineSize(");
             try parent.genExpr(self, args[0]);
-            try self.emit(")");
+            try emitConst(self,")");
         } else {
-            try self.emit(".readline()");
+            try emitConst(self,".readline()");
         }
     } else if (method_hash == GETVALUE) {
-        try self.emit(receiver);
-        try self.emit(".getvalue()");
+        try emitConst(self,receiver);
+        try emitConst(self,".getvalue()");
     } else if (method_hash == SEEK) {
-        try self.emit(receiver);
+        try emitConst(self,receiver);
         if (args.len > 1) {
-            try self.emit(".seekWhence(");
+            try emitConst(self,".seekWhence(");
             try parent.genExpr(self, args[0]);
-            try self.emit(", ");
+            try emitConst(self,", ");
             try parent.genExpr(self, args[1]);
-            try self.emit(")");
+            try emitConst(self,")");
         } else {
-            try self.emit(".seek(");
-            if (args.len > 0) try parent.genExpr(self, args[0]) else try self.emit("0");
-            try self.emit(")");
+            try emitConst(self,".seek(");
+            if (args.len > 0) try parent.genExpr(self, args[0]) else try emitConst(self,"0");
+            try emitConst(self,")");
         }
     } else if (method_hash == TELL) {
-        try self.emit(receiver);
-        try self.emit(".tell()");
+        try emitConst(self,receiver);
+        try emitConst(self,".tell()");
     } else if (method_hash == TRUNCATE) {
-        try self.emit(receiver);
+        try emitConst(self,receiver);
         if (args.len > 0) {
-            try self.emit(".truncateSize(");
+            try emitConst(self,".truncateSize(");
             try parent.genExpr(self, args[0]);
-            try self.emit(")");
+            try emitConst(self,")");
         } else {
-            try self.emit(".truncate()");
+            try emitConst(self,".truncate()");
         }
     } else if (method_hash == CLOSE) {
-        try self.emit(receiver);
-        try self.emit(".close()");
+        try emitConst(self,receiver);
+        try emitConst(self,".close()");
     } else {
         return false;
     }
@@ -1067,27 +1084,27 @@ fn handleHashMethod(self: *NativeCodegen, method_name: []const u8, obj: ast.Node
     const method_hash = fnv.hash(method_name);
     if (method_hash == UPDATE) {
         // h.update(data) - modifies in place
-        try self.emit(receiver);
-        try self.emit(".update(");
+        try emitConst(self,receiver);
+        try emitConst(self,".update(");
         if (args.len > 0) try parent.genExpr(self, args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     } else if (method_hash == DIGEST) {
         // h.digest(allocator) - returns bytes
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emit("try ");
-        try self.emit(receiver);
-        try self.emitFmt(".digest({s})", .{alloc_name});
+        try emitConst(self,"try ");
+        try emitConst(self,receiver);
+        try emitFmtConst(self, ".digest({s})", .{alloc_name});
     } else if (method_hash == HEXDIGEST) {
         // h.hexdigest(allocator) - returns hex string
         // Use scope-aware allocator: __global_allocator in functions, allocator in main()
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try self.emit("try ");
-        try self.emit(receiver);
-        try self.emitFmt(".hexdigest({s})", .{alloc_name});
+        try emitConst(self,"try ");
+        try emitConst(self,receiver);
+        try emitFmtConst(self, ".hexdigest({s})", .{alloc_name});
     } else if (method_hash == COPY) {
         // h.copy() - returns a copy
-        try self.emit(receiver);
-        try self.emit(".copy()");
+        try emitConst(self,receiver);
+        try emitConst(self,".copy()");
     } else {
         return false;
     }
@@ -1105,16 +1122,16 @@ fn handleSqliteMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: [
     if (obj_type == .sqlite_cursor) {
         if (SqliteCursorMethods.get(method_name)) |sqlite_method| {
             if (sqlite_method.prefix.len > 0) {
-                try self.emit(sqlite_method.prefix);
+                try emitConst(self,sqlite_method.prefix);
             }
             try parent.genExpr(self, obj);
-            try self.emit(sqlite_method.suffix);
+            try emitConst(self,sqlite_method.suffix);
 
             if (sqlite_method.has_arg) {
                 if (call.args.len > 0) {
                     try parent.genExpr(self, call.args[0]);
                 }
-                try self.emit(")");
+                try emitConst(self,")");
             }
             return true;
         }
@@ -1124,16 +1141,16 @@ fn handleSqliteMethods(self: *NativeCodegen, call: ast.Node.Call, method_name: [
     if (obj_type == .sqlite_connection) {
         if (SqliteConnectionMethods.get(method_name)) |sqlite_method| {
             if (sqlite_method.prefix.len > 0) {
-                try self.emit(sqlite_method.prefix);
+                try emitConst(self,sqlite_method.prefix);
             }
             try parent.genExpr(self, obj);
-            try self.emit(sqlite_method.suffix);
+            try emitConst(self,sqlite_method.suffix);
 
             if (sqlite_method.has_arg) {
                 if (call.args.len > 0) {
                     try parent.genExpr(self, call.args[0]);
                 }
-                try self.emit(")");
+                try emitConst(self,")");
             }
             return true;
         }

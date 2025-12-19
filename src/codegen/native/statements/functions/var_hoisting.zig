@@ -1,4 +1,5 @@
 /// Unified Variable Hoisting for Python->Zig Scope Conversion
+/// MIGRATED TO ZIGBUILDER
 ///
 /// Python has function-level scoping - variables assigned anywhere in a function
 /// are visible throughout. Zig has block-level scoping - variables in if/for/while/try
@@ -20,6 +21,15 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const VarTypeContext = @import("var_type_context.zig").VarTypeContext;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 /// Check if an expression contains a reference to a specific variable name.
 /// Used to detect self-references in init expressions (e.g., `line = line.strip()`
@@ -910,7 +920,7 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         }
 
         try self.emitIndent();
-        try self.emit("var ");
+        try emitConst(self,"var ");
         // Use writeLocalVarName to be consistent with expression usage
         // This handles both keyword escaping AND method shadowing (e.g., "format" -> "format_")
         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -950,18 +960,18 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
 
             if (class_type) |cls_name| {
                 // Use class type directly instead of @TypeOf(Class.init(...))
-                try self.emit(": ");
-                try self.emit(cls_name);
+                try emitConst(self,": ");
+                try emitConst(self,cls_name);
             } else if (!has_self_reference and !is_literal and initExprIsSafe(init, &safe_vars)) {
                 // Safe to use @TypeOf - no forward references, no self-references, and not a literal
-                try self.emit(": @TypeOf(");
+                try emitConst(self,": @TypeOf(");
                 try self.genExpr(init.*);
-                try self.emit(")");
+                try emitConst(self,")");
             } else {
                 // Has forward refs, self-reference, or is a literal - use fallback type
                 const fallback = inferFallbackType(init, escaped.source);
-                try self.emit(": ");
-                try self.emit(fallback);
+                try emitConst(self,": ");
+                try emitConst(self,fallback);
             }
         } else if (escaped.source == .for_loop and escaped.for_iter_expr != null and escaped.tuple_index != null) {
             // For-loop tuple unpacking: derive type from iteration expression
@@ -970,22 +980,22 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
             const iter_safe = initExprIsSafe(escaped.for_iter_expr.?, &safe_vars);
             if (iter_safe) {
                 // Generate: var s: @TypeOf(L.items[0].@"0") = undefined;
-                try self.emit(": @TypeOf((");
+                try emitConst(self,": @TypeOf((");
                 try self.genExpr(escaped.for_iter_expr.?.*);
                 // Add .items if it's an ArrayList (list type)
                 const iter_type = self.type_inferrer.inferExpr(escaped.for_iter_expr.?.*) catch .unknown;
                 if (container_traits.isList(iter_type)) {
-                    try self.emit(").items[0].@\"");
+                    try emitConst(self,").items[0].@\"");
                 } else {
                     // For other types (tuples, etc.) access directly
-                    try self.emit(")[0].@\"");
+                    try emitConst(self,")[0].@\"");
                 }
                 try self.output.writer(self.allocator).print("{d}\")", .{escaped.tuple_index.?});
             } else {
                 // Iter expression uses local vars - use fallback type
                 const fallback = inferFallbackType(null, escaped.source);
-                try self.emit(": ");
-                try self.emit(fallback);
+                try emitConst(self,": ");
+                try emitConst(self,fallback);
             }
         } else if (escaped.source == .for_loop and escaped.for_iter_expr != null) {
             // For-loop variable (without tuple unpacking) - analyze iterator to get element type
@@ -993,8 +1003,8 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
             const elem_type = analyzeIterElementType(escaped.for_iter_expr.?);
             if (!std.mem.eql(u8, elem_type, "runtime.PyValue")) {
                 // Known element type from literal analysis (tuple/list/range)
-                try self.emit(": ");
-                try self.emit(elem_type);
+                try emitConst(self,": ");
+                try emitConst(self,elem_type);
             } else {
                 // Unknown collection - try type inference on iterator expression
                 const iter_type = self.type_inferrer.inferExpr(escaped.for_iter_expr.?.*) catch .unknown;
@@ -1004,8 +1014,8 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                 if (elem_native_tag != .unknown and elem_native_tag != .pyvalue) {
                     // Type inferrer knows the element type - use it
                     const zig_type = elem_native_type.toSimpleZigType();
-                    try self.emit(": ");
-                    try self.emit(zig_type);
+                    try emitConst(self,": ");
+                    try emitConst(self,zig_type);
                 } else {
                     // Type inferrer doesn't know - try pre-scanned type context first
                     // This handles: floats = (INF, -INF, 0.0, ...) -> for f in floats:
@@ -1014,24 +1024,24 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                     if (iter_expr.* == .name) {
                         // Iterator is a variable name - look up in pre-scanned type context
                         if (type_ctx.getIteratorElementType(iter_expr.name.id)) |elem_zig_type| {
-                            try self.emit(": ");
-                            try self.emit(elem_zig_type);
+                            try emitConst(self,": ");
+                            try emitConst(self,elem_zig_type);
                         } else {
                             // Not in type context - try @TypeOf if safe, else fallback
                             const iter_safe = initExprIsSafe(iter_expr, &safe_vars);
                             if (iter_safe) {
                                 // Use std.meta.Elem to safely get element type (handles empty arrays)
                                 if (container_traits.isList(iter_type)) {
-                                    try self.emit(": std.meta.Elem(@TypeOf((");
+                                    try emitConst(self,": std.meta.Elem(@TypeOf((");
                                     try self.genExpr(iter_expr.*);
-                                    try self.emit(").items))");
+                                    try emitConst(self,").items))");
                                 } else {
-                                    try self.emit(": std.meta.Elem(@TypeOf(");
+                                    try emitConst(self,": std.meta.Elem(@TypeOf(");
                                     try self.genExpr(iter_expr.*);
-                                    try self.emit("))");
+                                    try emitConst(self,"))");
                                 }
                             } else {
-                                try self.emit(": runtime.PyValue");
+                                try emitConst(self,": runtime.PyValue");
                             }
                         }
                     } else {
@@ -1040,16 +1050,16 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                         if (iter_safe) {
                             // Use std.meta.Elem to safely get element type (handles empty arrays)
                             if (container_traits.isList(iter_type)) {
-                                try self.emit(": std.meta.Elem(@TypeOf((");
+                                try emitConst(self,": std.meta.Elem(@TypeOf((");
                                 try self.genExpr(iter_expr.*);
-                                try self.emit(").items))");
+                                try emitConst(self,").items))");
                             } else {
-                                try self.emit(": std.meta.Elem(@TypeOf(");
+                                try emitConst(self,": std.meta.Elem(@TypeOf(");
                                 try self.genExpr(iter_expr.*);
-                                try self.emit("))");
+                                try emitConst(self,"))");
                             }
                         } else {
-                            try self.emit(": runtime.PyValue");
+                            try emitConst(self,": runtime.PyValue");
                         }
                     }
                 }
@@ -1057,16 +1067,16 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         } else {
             // No init expr - use fallback based on source
             const fallback = inferFallbackType(null, escaped.source);
-            try self.emit(": ");
-            try self.emit(fallback);
+            try emitConst(self,": ");
+            try emitConst(self,fallback);
         }
 
-        try self.emit(" = undefined;\n");
+        try emitConst(self," = undefined;\n");
         // Add discard to prevent "unused variable" errors when body is skipped
         try self.emitIndent();
-        try self.emit("_ = &");
+        try emitConst(self,"_ = &");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), escaped.name);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
 
         // Add this var to safe_vars for subsequent hoisted vars
         try safe_vars.put(escaped.name, {});

@@ -1,4 +1,5 @@
 /// Function and method signature generation
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
@@ -183,6 +184,15 @@ pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
 const core = @import("../../../../../analysis/native_types/core.zig");
 const NativeType = core.NativeType;
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 /// Get inferred return type string from type inferrer (DRY helper)
 /// Returns tuple: (type_string, needs_free)
 fn getInferredReturnTypeStr(self: *NativeCodegen, func_name: []const u8) struct { str: []const u8, needs_free: bool } {
@@ -200,9 +210,9 @@ fn getInferredReturnTypeStr(self: *NativeCodegen, func_name: []const u8) struct 
 fn emitInferredReturnType(self: *NativeCodegen, func_name: []const u8, needs_error: bool) CodegenError!void {
     const type_info = getInferredReturnTypeStr(self, func_name);
     defer if (type_info.needs_free) self.allocator.free(type_info.str);
-    if (needs_error) try self.emit("!");
-    try self.emit(type_info.str);
-    try self.emit(" {\n");
+    if (needs_error) try emitConst(self,"!");
+    try emitConst(self,type_info.str);
+    try emitConst(self," {\n");
 
     // Two-Flow: Track if this function returns PyValue (needs boxing at return statements)
     if (std.mem.eql(u8, type_info.str, "runtime.PyValue")) {
@@ -767,20 +777,20 @@ pub fn genFunctionSignature(
     // Use "inline fn" if function has type-check parameters for comptime branch pruning
     // Use "export fn" for WASM browser targets (expose to JavaScript)
     if (has_type_check_param) {
-        try self.emit("inline fn ");
+        try emitConst(self,"inline fn ");
     } else if (self.target_wasm_browser and !std.mem.eql(u8, func.name, "main")) {
         // Export functions for WASM (except main which becomes _start)
-        try self.emit("export fn ");
+        try emitConst(self,"export fn ");
     } else {
-        try self.emit("fn ");
+        try emitConst(self,"fn ");
     }
     if (std.mem.eql(u8, func.name, "main")) {
-        try self.emit("__user_main");
+        try emitConst(self,"__user_main");
     } else {
         // Escape Zig reserved keywords (e.g., "test" -> @"test")
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
     }
-    try self.emit("(");
+    try emitConst(self,"(");
 
     // Add allocator as first parameter if needed
     var param_offset: usize = 0;
@@ -788,13 +798,13 @@ pub fn genFunctionSignature(
         // Check if allocator is actually used in function body
         const allocator_used = param_analyzer.isNameUsedInBody(func.body, "allocator");
         if (!allocator_used) {
-            try self.emit("_: std.mem.Allocator");
+            try emitConst(self,"_: std.mem.Allocator");
         } else {
-            try self.emit("allocator: std.mem.Allocator");
+            try emitConst(self,"allocator: std.mem.Allocator");
         }
         param_offset = 1;
         if (func.args.len > 0) {
-            try self.emit(", ");
+            try emitConst(self,", ");
         }
     }
 
@@ -804,7 +814,7 @@ pub fn genFunctionSignature(
 
     // Generate parameters
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self,", ");
 
         // Check if parameter name shadows a module-level function, variable, or imported module
         // If so, we need to rename it to avoid Zig shadowing errors
@@ -858,21 +868,21 @@ pub fn genFunctionSignature(
         // For unused parameters, use "_" (anonymous) instead of "_name" in Zig 0.15+
         // "_name" still triggers unused warnings - only "_" fully ignores
         if (!is_used) {
-            try self.emit("_: ");
+            try emitConst(self,"_: ");
             // Skip straight to type - no name, no suffix
         } else {
             // Check if this parameter was renamed (set up in generators.zig before signature generation)
             // This ensures signature and body use the same renamed parameter name
             if (self.var_renames.get(arg.name)) |renamed| {
-                try self.emit(renamed);
+                try emitConst(self,renamed);
                 // NameGen renames don't include _param suffix, so add it if has default
                 if (arg.default != null) {
-                    try self.emit("_param");
+                    try emitConst(self,"_param");
                 }
             } else if (shadows_local_scope) {
                 // Parameter shadows local variable from outer scope - rename to avoid Zig error
                 const renamed = try std.fmt.allocPrint(self.allocator, "{s}__param", .{arg.name});
-                try self.emit(renamed);
+                try emitConst(self,renamed);
                 try self.var_renames.put(arg.name, renamed);
             } else {
                 // Use centralized parameter naming (handles keywords, shadows, and defaults in correct priority)
@@ -880,10 +890,10 @@ pub fn genFunctionSignature(
                 //           shadows method → _ suffix (e.g., "stop" → "stop_")
                 //           zig keyword → @"" escaping (e.g., "type" → @"type")
                 const param_info = try zig_keywords.getZigParamName(self.allocator, arg.name, arg.default != null);
-                try self.emit(param_info.name);
+                try emitConst(self,param_info.name);
                 // Note: No separate _param suffix needed - getZigParamName handles it
             }
-            try self.emit(": ");
+            try emitConst(self,": ");
         }
 
         // Check if this parameter is used as a function (called or returned - decorator pattern)
@@ -903,63 +913,63 @@ pub fn genFunctionSignature(
             break :blk false;
         };
         if (is_func and arg.default == null) {
-            try self.emit("anytype"); // For decorators and higher-order functions (without defaults)
+            try emitConst(self,"anytype"); // For decorators and higher-order functions (without defaults)
             try self.anytype_params.put(arg.name, {});
         } else if (is_iter and arg.type_annotation == null) {
             // Parameter used as iterator (for x in param:) - use anytype for slice inference
             // Note: ?anytype is not valid in Zig, so we don't add ? prefix for anytype params
-            try self.emit("anytype");
+            try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (is_type_check and arg.type_annotation == null) {
             // Parameter used in isinstance() type check - use anytype for runtime type checking
             // e.g., def isint(x): return isinstance(x, int)
-            try self.emit("anytype");
+            try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
         } else if ((is_passed_to_callable or has_callable_param) and arg.type_annotation == null) {
             // Parameter passed to another param that is called as a function, OR
             // function has a callable param (may be passed indirectly)
             // e.g., def foo(fxn, arg, x): fxn(arg); y = (x,) - all non-callable need anytype
-            try self.emit("anytype");
+            try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
             // Use explicit type annotation if provided
             const zig_type = pythonTypeToZig(arg.type_annotation);
             // Make optional if has default value
             if (arg.default != null) {
-                try self.emit("?");
+                try emitConst(self,"?");
             }
-            try self.emit(zig_type);
+            try emitConst(self,zig_type);
         } else if (arg.default) |default_expr| {
             // No annotation but has default - infer type from default value
             const default_type = self.type_inferrer.inferExpr(default_expr.*) catch .unknown;
             const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
             if (default_tag == .unknown) {
                 // Two-Flow: Unknown type with default = uncertain, use PyValue fallback
-                try self.emit("?runtime.PyValue");
+                try emitConst(self,"?runtime.PyValue");
             } else if (default_tag == .none) {
                 // For None defaults, use ?i64 (most common case)
-                try self.emit("?i64");
+                try emitConst(self,"?i64");
             } else {
-                try self.emit("?");
+                try emitConst(self,"?");
                 const zig_type = try self.nativeTypeToZigType(default_type);
                 defer self.allocator.free(zig_type);
-                try self.emit(zig_type);
+                try emitConst(self,zig_type);
             }
         } else if (param_analyzer.isParameterComparedToString(func.body, arg.name)) {
             // Parameter compared to string constant - infer as string type
             // e.g., def foo(encoding): if encoding == "utf-8": ...
             if (arg.default != null) {
-                try self.emit("?");
+                try emitConst(self,"?");
             }
-            try self.emit("[]const u8");
+            try emitConst(self,"[]const u8");
             // Also register with type inferrer so comparison codegen knows to use std.mem.eql
             // Store in scoped_var_types with function name as scope key
             const scoped_key = try std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name });
             try self.type_inferrer.scoped_var_types.put(scoped_key, .{ .string = .literal });
         } else if (try getTypeFromCallSiteOrScope(self, func, arg, i)) |zig_type| {
             defer self.allocator.free(zig_type);
-            if (arg.default != null) try self.emit("?");
-            try self.emit(zig_type);
+            if (arg.default != null) try emitConst(self,"?");
+            try emitConst(self,zig_type);
             // Also register parameter type with type inferrer for aug_assign detection
             // Without this, mutable copies would not know their type
             const native_type_core = @import("../../../../../analysis/native_types/core.zig");
@@ -979,7 +989,7 @@ pub fn genFunctionSignature(
                     const is_none_default = arg.default.?.* == .constant and
                         arg.default.?.constant.value == .none;
                     if (is_none_default) {
-                        try self.emit("anytype");
+                        try emitConst(self,"anytype");
                         try self.anytype_params.put(arg.name, {});
                         continue; // Skip to next parameter
                     }
@@ -988,18 +998,18 @@ pub fn genFunctionSignature(
                 defer self.allocator.free(zig_type);
                 // Make optional if has default value
                 if (arg.default != null) {
-                    try self.emit("?");
+                    try emitConst(self,"?");
                 }
-                try self.emit(zig_type);
+                try emitConst(self,zig_type);
             } else if (arg.default) |default_expr| {
                 // .unknown but has default value - infer from default
                 const default_type = self.type_inferrer.inferExpr(default_expr.*) catch .unknown;
                 const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
                 if (default_tag != .unknown and default_tag != .none) {
-                    try self.emit("?");
+                    try emitConst(self,"?");
                     const zig_type = try self.nativeTypeToZigType(default_type);
                     defer self.allocator.free(zig_type);
-                    try self.emit(zig_type);
+                    try emitConst(self,zig_type);
                 } else {
                     // Two-Flow: Check confidence before defaulting to i64
                     // Create scoped key for parameter confidence lookup
@@ -1010,9 +1020,9 @@ pub fn genFunctionSignature(
                     else
                         .uncertain;
                     if (param_confidence == .uncertain) {
-                        try self.emit("?runtime.PyValue");
+                        try emitConst(self,"?runtime.PyValue");
                     } else {
-                        try self.emit("?i64");
+                        try emitConst(self,"?i64");
                     }
                 }
             } else {
@@ -1024,9 +1034,9 @@ pub fn genFunctionSignature(
                 else
                     .uncertain;
                 if (param_confidence == .uncertain) {
-                    try self.emit("runtime.PyValue");
+                    try emitConst(self,"runtime.PyValue");
                 } else {
-                    try self.emit("i64");
+                    try emitConst(self,"i64");
                 }
             }
         } else if (arg.default) |default_expr| {
@@ -1034,10 +1044,10 @@ pub fn genFunctionSignature(
             const default_type = self.type_inferrer.inferExpr(default_expr.*) catch .unknown;
             const default_tag = @as(std.meta.Tag(@TypeOf(default_type)), default_type);
             if (default_tag != .unknown and default_tag != .none) {
-                try self.emit("?");
+                try emitConst(self,"?");
                 const zig_type = try self.nativeTypeToZigType(default_type);
                 defer self.allocator.free(zig_type);
-                try self.emit(zig_type);
+                try emitConst(self,zig_type);
             } else {
                 // Two-Flow: Check confidence before defaulting to i64
                 const param_scoped_key = std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ func.name, arg.name }) catch null;
@@ -1047,9 +1057,9 @@ pub fn genFunctionSignature(
                 else
                     .uncertain;
                 if (param_confidence == .uncertain) {
-                    try self.emit("?runtime.PyValue");
+                    try emitConst(self,"?runtime.PyValue");
                 } else {
-                    try self.emit("?i64");
+                    try emitConst(self,"?i64");
                 }
             }
         } else {
@@ -1062,40 +1072,40 @@ pub fn genFunctionSignature(
             else
                 .uncertain;
             if (param_confidence == .uncertain) {
-                try self.emit("runtime.PyValue");
+                try emitConst(self,"runtime.PyValue");
             } else {
-                try self.emit("i64");
+                try emitConst(self,"i64");
             }
         }
     }
 
     // Add *args parameter as a slice if present
     if (func.vararg) |vararg_name| {
-        if (func.args.len > 0 or needs_allocator) try self.emit(", ");
+        if (func.args.len > 0 or needs_allocator) try emitConst(self,", ");
         // Check if vararg is used in function body - use "_:" for unused params
         const vararg_is_used = param_analyzer.isNameUsedInBody(func.body, vararg_name);
         if (!vararg_is_used) {
-            try self.emit("_: anytype"); // Unused vararg - use anytype for flexibility
+            try emitConst(self,"_: anytype"); // Unused vararg - use anytype for flexibility
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try self.emit(": anytype"); // Use anytype for varargs to handle any slice type
+            try emitConst(self,": anytype"); // Use anytype for varargs to handle any slice type
         }
     }
 
     // Add **kwargs parameter as a HashMap if present
     if (func.kwarg) |kwarg_name| {
-        if (func.args.len > 0 or func.vararg != null or needs_allocator) try self.emit(", ");
+        if (func.args.len > 0 or func.vararg != null or needs_allocator) try emitConst(self,", ");
         // Check if kwargs is used in function body - use "_:" for unused params
         const kwarg_is_used = param_analyzer.isNameUsedInBody(func.body, kwarg_name);
         if (!kwarg_is_used) {
-            try self.emit("_: *runtime.PyObject"); // Unused kwarg
+            try emitConst(self,"_: *runtime.PyObject"); // Unused kwarg
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-            try self.emit(": *runtime.PyObject"); // PyDict wrapped in PyObject
+            try emitConst(self,": *runtime.PyObject"); // PyDict wrapped in PyObject
         }
     }
 
-    try self.emit(") ");
+    try emitConst(self,") ");
 
     // Determine return type based on type annotation or return statements
     try genReturnType(self, func, needs_allocator);
@@ -1122,103 +1132,103 @@ fn genAsyncFunctionSignature(
 
     // For functions with parameters, generate a context struct first
     if (func.args.len > 0) {
-        try self.emit("const ");
-        try self.emit(func_name);
-        try self.emit("_Context = struct {\n");
+        try emitConst(self,"const ");
+        try emitConst(self,func_name);
+        try emitConst(self,"_Context = struct {\n");
         for (func.args) |arg| {
-            try self.emit("    ");
+            try emitConst(self,"    ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.emit(": ");
+            try emitConst(self,": ");
             if (arg.type_annotation) |_| {
                 const zig_type = pythonTypeToZig(arg.type_annotation);
-                try self.emit(zig_type);
+                try emitConst(self,zig_type);
             } else {
-                try self.emit("i64");
+                try emitConst(self,"i64");
             }
-            try self.emit(",\n");
+            try emitConst(self,",\n");
         }
-        try self.emit("};\n\n");
+        try emitConst(self,"};\n\n");
     }
 
     // Generate wrapper function that spawns green thread
-    try self.emit("fn ");
-    try self.emit(func_name);
-    try self.emit("_async(");
+    try emitConst(self,"fn ");
+    try emitConst(self,func_name);
+    try emitConst(self,"_async(");
 
     // Generate parameters for wrapper
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self,", ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-        try self.emit(": ");
+        try emitConst(self,": ");
 
         if (arg.type_annotation) |_| {
             const zig_type = pythonTypeToZig(arg.type_annotation);
-            try self.emit(zig_type);
+            try emitConst(self,zig_type);
         } else {
-            try self.emit("i64");
+            try emitConst(self,"i64");
         }
     }
 
-    try self.emit(") !*runtime.GreenThread {\n");
+    try emitConst(self,") !*runtime.GreenThread {\n");
 
     // Use spawn0() for zero-parameter functions, spawn() for functions with parameters
     if (func.args.len == 0) {
-        try self.emit("    return try runtime.scheduler.?.spawn0(");
-        try self.emit(func_name);
-        try self.emit("_impl);\n");
+        try emitConst(self,"    return try runtime.scheduler.?.spawn0(");
+        try emitConst(self,func_name);
+        try emitConst(self,"_impl);\n");
     } else {
-        try self.emit("    return try runtime.scheduler.?.spawn(");
-        try self.emit(func_name);
-        try self.emit("_impl, .{");
+        try emitConst(self,"    return try runtime.scheduler.?.spawn(");
+        try emitConst(self,func_name);
+        try emitConst(self,"_impl, .{");
 
         // Pass parameters as struct fields
         for (func.args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try self.emit(".");
-            try self.emit(arg.name);
-            try self.emit(" = ");
-            try self.emit(arg.name);
+            if (i > 0) try emitConst(self,", ");
+            try emitConst(self,".");
+            try emitConst(self,arg.name);
+            try emitConst(self," = ");
+            try emitConst(self,arg.name);
         }
 
-        try self.emit("});\n");
+        try emitConst(self,"});\n");
     }
 
-    try self.emit("}\n\n");
+    try emitConst(self,"}\n\n");
 
     // Generate implementation function
-    try self.emit("fn ");
-    try self.emit(func_name);
-    try self.emit("_impl(");
+    try emitConst(self,"fn ");
+    try emitConst(self,func_name);
+    try emitConst(self,"_impl(");
 
     // For functions with parameters, take pointer to context struct
     if (func.args.len > 0) {
-        try self.emit("ctx: *");
-        try self.emit(func_name);
-        try self.emit("_Context");
+        try emitConst(self,"ctx: *");
+        try emitConst(self,func_name);
+        try emitConst(self,"_Context");
     }
 
-    try self.emit(") !");
+    try emitConst(self,") !");
 
     // Determine return type for implementation
     if (func.return_type) |_| {
         const zig_return_type = pythonTypeToZig(func.return_type);
-        try self.emit(zig_return_type);
+        try emitConst(self,zig_return_type);
     } else if (hasReturnStatement(func.body)) {
-        try self.emit("i64");
+        try emitConst(self,"i64");
     } else {
-        try self.emit("void");
+        try emitConst(self,"void");
     }
 
-    try self.emit(" {\n");
+    try emitConst(self," {\n");
 
     // Unpack context fields into local variables
     if (func.args.len > 0) {
         for (func.args) |arg| {
-            try self.emit("    const ");
+            try emitConst(self,"    const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try self.emit(" = ctx.");
-            try self.emit(arg.name);
-            try self.emit(";\n");
+            try emitConst(self," = ctx.");
+            try emitConst(self,arg.name);
+            try emitConst(self,";\n");
         }
     }
 }
@@ -1232,7 +1242,7 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
     // For generator functions, return []runtime.PyValue (eager evaluation)
     // Generator functions ALWAYS need error union because they allocate ArrayList
     if (self.in_generator_function) {
-        try self.emit("![]runtime.PyValue {\n");
+        try emitConst(self,"![]runtime.PyValue {\n");
         return;
     }
 
@@ -1244,9 +1254,9 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             std.mem.eql(u8, type_hint, "int");
 
         if (is_simple_type) {
-            if (needs_error) try self.emit("!");
-            try self.emit(simple_zig_type);
-            try self.emit(" {\n");
+            if (needs_error) try emitConst(self,"!");
+            try emitConst(self,simple_zig_type);
+            try emitConst(self," {\n");
         } else {
             // Complex type (like tuple[str, str]) - use inferred type
             try emitInferredReturnType(self, func.name, needs_error);
@@ -1279,9 +1289,9 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
         if (returned_param_name != null and !returned_param_has_default) {
             const param_name = returned_param_name.?;
             // Decorator pattern: return @TypeOf(param)
-            try self.emit("@TypeOf(");
-            try self.emit(param_name);
-            try self.emit(") {\n");
+            try emitConst(self,"@TypeOf(");
+            try emitConst(self,param_name);
+            try emitConst(self,") {\n");
         } else if (getReturnedNestedFuncName(func.body)) |nested_func_name| {
             // Function returns a nested function (closure factory pattern)
             // The closure wrapper struct must be pre-declared at module level
@@ -1289,14 +1299,14 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
             const closure_type_name = self.pending_closure_types.get(nested_func_name);
             if (closure_type_name) |type_name| {
                 if (needs_error) {
-                    try self.emit("!");
+                    try emitConst(self,"!");
                 }
-                try self.emit(type_name);
-                try self.emit(" {\n");
+                try emitConst(self,type_name);
+                try emitConst(self," {\n");
             } else {
                 // No pre-declared type - fallback to i64
-                if (needs_error) try self.emit("!");
-                try self.emit("i64 {\n");
+                if (needs_error) try emitConst(self,"!");
+                try emitConst(self,"i64 {\n");
             }
         } else {
             // Try to infer return type from func_return_types
@@ -1305,9 +1315,9 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
     } else {
         // Functions with allocator or errors but no return still need error union for void
         if (needs_error) {
-            try self.emit("!void {\n");
+            try emitConst(self,"!void {\n");
         } else {
-            try self.emit("void {\n");
+            try emitConst(self,"void {\n");
         }
     }
 }
@@ -1333,7 +1343,7 @@ pub fn genMethodSignatureWithSkip(
     is_skipped: bool,
     actually_uses_allocator: bool,
 ) CodegenError!void {
-    try self.emit("\n");
+    try emitConst(self,"\n");
     try self.emitIndent();
 
     // For __new__ methods, the first Python parameter is 'cls' not 'self'
@@ -1352,9 +1362,9 @@ pub fn genMethodSignatureWithSkip(
 
     // Generate "pub fn methodname(...)"
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
-    try self.emit("pub fn ");
+    try emitConst(self,"pub fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
-    try self.emit("(");
+    try emitConst(self,"(");
 
     // For @staticmethod: no self/cls parameter at all
     // For @classmethod: no self parameter (cls is skipped from Python params)
@@ -1377,9 +1387,9 @@ pub fn genMethodSignatureWithSkip(
 
         try self.output.writer(self.allocator).print("{s}: ", .{self_param_name});
         if (mutates_self) {
-            try self.emit("*@This()");
+            try emitConst(self,"*@This()");
         } else {
-            try self.emit("*const @This()");
+            try emitConst(self,"*const @This()");
         }
         has_first_param = true;
     }
@@ -1390,7 +1400,7 @@ pub fn genMethodSignatureWithSkip(
     // Note: Check if "allocator" name is literally used in Python source - the allocator param
     // is added by codegen, so if Python code doesn't use it, we should use "_"
     if (needs_allocator) {
-        if (has_first_param) try self.emit(", ");
+        if (has_first_param) try emitConst(self,", ");
         // Check if any code in the method body actually references "allocator" by name
         // (This handles cases where Python code explicitly uses allocator, though rare)
         const allocator_literally_used = param_analyzer.isNameUsedInBody(method.body, "allocator");
@@ -1399,7 +1409,7 @@ pub fn genMethodSignatureWithSkip(
             const alloc_name = if (is_nested) "__alloc" else "allocator";
             try self.output.writer(self.allocator).print("{s}: std.mem.Allocator", .{alloc_name});
         } else {
-            try self.emit("_: std.mem.Allocator");
+            try emitConst(self,"_: std.mem.Allocator");
         }
         has_first_param = true;
     }
@@ -1428,7 +1438,7 @@ pub fn genMethodSignatureWithSkip(
 
         // Add comma separator before this parameter (if not the first parameter overall)
         if (has_first_param or param_index > 0) {
-            try self.emit(", ");
+            try emitConst(self,", ");
         }
         // Check if parameter is used in method body
         // For __init__ and __new__ methods, exclude parent calls (they're skipped in codegen)
@@ -1498,7 +1508,7 @@ pub fn genMethodSignatureWithSkip(
 
         if (is_skipped or !is_param_used) {
             // Use anonymous parameter for unused
-            try self.emit("_: ");
+            try emitConst(self,"_: ");
         } else {
             // Add rename suffix if shadows class method, imported module, or local scope variable
             // Use deterministic naming ({name}__shadow) so signature and body can compute same name
@@ -1514,7 +1524,7 @@ pub fn genMethodSignatureWithSkip(
                 // Use writeParamName to handle Zig keywords AND method shadowing (e.g., "init" -> "init_arg")
                 try zig_keywords.writeParamName(self.output.writer(self.allocator), arg.name);
             }
-            try self.emit(": ");
+            try emitConst(self,": ");
         }
         // Use anytype for method params without type annotation to support string literals
         // This lets Zig infer the type from the call site
@@ -1533,18 +1543,18 @@ pub fn genMethodSignatureWithSkip(
 
         if (is_callable_param and arg.default == null) {
             // Parameter is called as a function - use anytype for any callable type
-            try self.emit("anytype");
+            try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (receives_bigint) {
             // Parameter receives BigInt at some call site - use anytype
-            try self.emit("anytype");
+            try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
         } else if (arg.type_annotation) |_| {
             if (arg.default != null) {
-                try self.emit("?");
+                try emitConst(self,"?");
             }
             const param_type = pythonTypeToZig(arg.type_annotation);
-            try self.emit(param_type);
+            try emitConst(self,param_type);
         } else if (self.getVarType(arg.name)) |var_type| {
             // Check if this is a dunder arithmetic method that needs anytype for polymorphism
             // Methods like __add__, __sub__, etc. need to accept multiple types (int, Rat, float, etc.)
@@ -1573,7 +1583,7 @@ pub fn genMethodSignatureWithSkip(
 
             if (is_dunder_arithmetic and std.mem.eql(u8, arg.name, "other")) {
                 // Force anytype for polymorphic dunder methods
-                try self.emit("anytype");
+                try emitConst(self,"anytype");
                 try self.anytype_params.put(arg.name, {});
                 param_index += 1;
                 continue;
@@ -1589,15 +1599,15 @@ pub fn genMethodSignatureWithSkip(
                     const inferred_class_name = var_type.class_instance;
                     if (!self.class_registry.classes.contains(inferred_class_name)) {
                         // Class not in registry - use anytype instead
-                        try self.emit("anytype");
+                        try emitConst(self,"anytype");
                         try self.anytype_params.put(arg.name, {});
                     } else {
                         if (arg.default != null) {
-                            try self.emit("?");
+                            try emitConst(self,"?");
                         }
                         const zig_type = try self.nativeTypeToZigType(var_type);
                         defer self.allocator.free(zig_type);
-                        try self.emit(zig_type);
+                        try emitConst(self,zig_type);
                     }
                 } else {
                     // For dict types with =None default, use anytype since different call sites
@@ -1606,27 +1616,27 @@ pub fn genMethodSignatureWithSkip(
                         const is_none_default = arg.default.?.* == .constant and
                             arg.default.?.constant.value == .none;
                         if (is_none_default) {
-                            try self.emit("anytype");
+                            try emitConst(self,"anytype");
                             try self.anytype_params.put(arg.name, {});
                             param_index += 1;
                             continue; // Skip to next parameter
                         }
                     }
                     if (arg.default != null) {
-                        try self.emit("?");
+                        try emitConst(self,"?");
                     }
                     const zig_type = try self.nativeTypeToZigType(var_type);
                     defer self.allocator.free(zig_type);
-                    try self.emit(zig_type);
+                    try emitConst(self,zig_type);
                 }
             } else {
                 // For anytype, we can't use ? prefix, so use anytype as-is
                 // The caller must handle the optionality
-                try self.emit("anytype");
+                try emitConst(self,"anytype");
                 try self.anytype_params.put(arg.name, {});
             }
         } else {
-            try self.emit("anytype");
+            try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
         }
 
@@ -1639,7 +1649,7 @@ pub fn genMethodSignatureWithSkip(
 
     // Add *args parameter as a slice if present
     if (method.vararg) |vararg_name| {
-        if (any_param_emitted) try self.emit(", ");
+        if (any_param_emitted) try emitConst(self,", ");
         any_param_emitted = true;
 
         // Track this method as having varargs for call site argument wrapping
@@ -1649,26 +1659,26 @@ pub fn genMethodSignatureWithSkip(
 
         const is_vararg_used = param_analyzer.isNameUsedInBody(method.body, vararg_name);
         if (is_skipped or !is_vararg_used) {
-            try self.emit("_: []const runtime.PyValue"); // Use concrete slice type
+            try emitConst(self,"_: []const runtime.PyValue"); // Use concrete slice type
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try self.emit(": []const runtime.PyValue"); // Use concrete slice type
+            try emitConst(self,": []const runtime.PyValue"); // Use concrete slice type
         }
     }
 
     // Add **kwargs parameter if present
     if (method.kwarg) |kwarg_name| {
-        if (any_param_emitted) try self.emit(", ");
+        if (any_param_emitted) try emitConst(self,", ");
         const is_kwarg_used = param_analyzer.isNameUsedInBody(method.body, kwarg_name);
         if (is_skipped or !is_kwarg_used) {
-            try self.emit("_: anytype"); // Use anonymous for unused
+            try emitConst(self,"_: anytype"); // Use anonymous for unused
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-            try self.emit(": anytype");
+            try emitConst(self,": anytype");
         }
     }
 
-    try self.emit(") ");
+    try emitConst(self,") ");
 
     // Check for polymorphic return pattern - methods that return different types
     // based on input type (e.g., Rat.__add__ returns Rat for int/Rat, f64 for float)
@@ -1700,16 +1710,16 @@ pub fn genMethodSignatureWithSkip(
             const shadows_local_scope = self.isDeclaredInAnyScope(param_name);
             const param_was_renamed = shadows_class_method or shadows_imported_module or shadows_local_scope;
 
-            try self.emit("PolymorphicReturn__");
-            try self.emit(method.name);
-            try self.emit("(@TypeOf(");
+            try emitConst(self,"PolymorphicReturn__");
+            try emitConst(self,method.name);
+            try emitConst(self,"(@TypeOf(");
             if (param_was_renamed) {
-                try self.emit(param_name);
-                try self.emit("__shadow");
+                try emitConst(self,param_name);
+                try emitConst(self,"__shadow");
             } else {
-                try self.emit(param_name);
+                try emitConst(self,param_name);
             }
-            try self.emit(")) {\n");
+            try emitConst(self,")) {\n");
             return;
         }
     }
@@ -1719,7 +1729,7 @@ pub fn genMethodSignatureWithSkip(
     if (getMagicMethodReturnType(method.name)) |magic_return_type| {
         // Magic method return types already include error union if needed
         // e.g., "__bool__" -> "runtime.PythonError!bool", "__float__" -> "f64"
-        try self.emit(magic_return_type);
+        try emitConst(self,magic_return_type);
     } else if (std.mem.eql(u8, method.name, "__iter__")) {
         // Special handling for __iter__ - returns an iterator/slice
         // Check if method returns 'self' - common pattern for iterator classes
@@ -1736,36 +1746,36 @@ pub fn genMethodSignatureWithSkip(
             break :blk false;
         };
         const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
-        if (needs_error) try self.emit("!");
+        if (needs_error) try emitConst(self,"!");
         if (returns_self) {
             // Iterator class pattern: def __iter__(self): return self
-            try self.emit("*@This()");
+            try emitConst(self,"*@This()");
         } else {
             // Non-self __iter__ - use PyValue for flexibility
             // This handles iter(range(...)) and other complex cases
-            try self.emit("runtime.PyValue");
+            try emitConst(self,"runtime.PyValue");
         }
     } else if (std.mem.eql(u8, method.name, "__next__")) {
         // __next__ returns the next item or raises StopIteration
         // Use PyValue for flexibility
         const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
-        if (needs_error) try self.emit("!");
-        try self.emit("runtime.PyValue");
+        if (needs_error) try emitConst(self,"!");
+        try emitConst(self,"runtime.PyValue");
     } else if (method.return_type != null) {
         // Determine return type (add error union if allocator needed or function can error)
         // Note: funcNeedsErrorUnion uses simple name lookup, which works for most methods
         const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
         if (needs_error) {
-            try self.emit("!");
+            try emitConst(self,"!");
         }
         const type_hint = method.return_type.?;
         // Use explicit return type annotation if provided
         // If return type is class name, use @This() instead for self-reference
         if (std.mem.eql(u8, type_hint, class_name)) {
-            try self.emit("@This()");
+            try emitConst(self,"@This()");
         } else {
             const zig_return_type = pythonTypeToZig(method.return_type);
-            try self.emit(zig_return_type);
+            try emitConst(self,zig_return_type);
         }
     } else if (hasReturnWithValue(method.body)) {
         // Determine if error union is needed for methods without explicit return type
@@ -1791,8 +1801,8 @@ pub fn genMethodSignatureWithSkip(
                     .{id},
                 );
                 defer self.allocator.free(closure_type);
-                try self.emit(closure_type);
-                try self.emit(" {\n");
+                try emitConst(self,closure_type);
+                try emitConst(self," {\n");
                 return;
             }
         }
@@ -1817,13 +1827,13 @@ pub fn genMethodSignatureWithSkip(
         if (returns_self) {
             // For nested classes, self is a pointer, so returning self returns a pointer
             const current_class_is_nested = self.nested_class_names.contains(class_name);
-            if (needs_error) try self.emit("!");
+            if (needs_error) try emitConst(self,"!");
             if (current_class_is_nested) {
-                try self.emit("*@This() {\n");
+                try emitConst(self,"*@This() {\n");
                 return;
             }
             // Top-level classes return value type
-            try self.emit("@This() {\n");
+            try emitConst(self,"@This() {\n");
             return;
         }
 
@@ -1853,10 +1863,10 @@ pub fn genMethodSignatureWithSkip(
         if (returned_param_name) |param_name| {
             // Method returns an anytype param - use @TypeOf(param)
             // Use writeParamName to handle renamed params (e.g., init -> init_arg)
-            if (needs_error) try self.emit("!");
-            try self.emit("@TypeOf(");
+            if (needs_error) try emitConst(self,"!");
+            try emitConst(self,"@TypeOf(");
             try zig_keywords.writeParamName(self.output.writer(self.allocator), param_name);
-            try self.emit(")");
+            try emitConst(self,")");
         } else {
             // First, check if method returns a constructor call to a nested class
             // This handles inherited methods like aug_test.__add__ returning aug_test(...)
@@ -1865,24 +1875,24 @@ pub fn genMethodSignatureWithSkip(
                 // Class constructors can fail (allocator error), so ALWAYS add error union
                 // when returning a class instance. The constructor uses try, so the
                 // method must also be able to propagate errors.
-                try self.emit("!");
+                try emitConst(self,"!");
                 // Nested classes are heap-allocated and return pointers
                 // Check if the returned class OR the current class is nested
                 const current_class_is_nested = self.nested_class_names.contains(class_name);
                 const is_nested = self.nested_class_names.contains(rc) or current_class_is_nested;
                 if (is_nested) {
-                    try self.emit("*");
+                    try emitConst(self,"*");
                 }
                 // If returning same class, use @This() for self-reference
                 if (std.mem.eql(u8, rc, class_name)) {
-                    try self.emit("@This()");
+                    try emitConst(self,"@This()");
                 } else {
                     // Check if the class was hoisted and renamed (e.g., name collision)
                     // hoisted_local_classes stores original_name -> actual_generated_name
                     const actual_name = self.hoisted_local_classes.get(rc) orelse self.var_renames.get(rc) orelse rc;
-                    try self.emit(actual_name);
+                    try emitConst(self,actual_name);
                 }
-                try self.emit(" {\n");
+                try emitConst(self," {\n");
                 return;
             }
 
@@ -1891,7 +1901,7 @@ pub fn genMethodSignatureWithSkip(
             const inferred_type = if (class_info) |info| info.methods.get(method.name) else null;
 
             // Emit error union before the type
-            if (needs_error) try self.emit("!");
+            if (needs_error) try emitConst(self,"!");
 
             if (inferred_type) |inf_type| {
                 // Use inferred type (skip if .int or .unknown - those are defaults)
@@ -1900,7 +1910,7 @@ pub fn genMethodSignatureWithSkip(
                     defer self.allocator.free(return_type_str);
                     // If return type matches class name, use @This() for self-reference
                     if (std.mem.eql(u8, return_type_str, class_name)) {
-                        try self.emit("@This()");
+                        try emitConst(self,"@This()");
                     } else {
                         // Check if the return type is a known class or a safe Zig type
                         // Avoid using unknown names (like captured variables) as types
@@ -1908,36 +1918,36 @@ pub fn genMethodSignatureWithSkip(
                             self.type_inferrer.class_fields.contains(return_type_str) or
                             self.nested_class_names.contains(return_type_str);
                         if (is_known_type) {
-                            try self.emit(return_type_str);
+                            try emitConst(self,return_type_str);
                         } else {
                             // Unknown type (likely a captured variable) - use i64 as safe default
-                            try self.emit("i64");
+                            try emitConst(self,"i64");
                         }
                     }
                 } else {
-                    try self.emit("i64");
+                    try emitConst(self,"i64");
                 }
             } else {
-                try self.emit("i64");
+                try emitConst(self,"i64");
             }
         }
     } else {
         // Methods without return statements - check if it's a generator method
         // Generator methods (with yield) ALWAYS need error union because they allocate ArrayList
         if (hasYieldStatement(method.body)) {
-            try self.emit("![]runtime.PyValue");
+            try emitConst(self,"![]runtime.PyValue");
         } else {
             // Non-generator methods - check if body needs error union
             const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
             if (needs_error) {
-                try self.emit("!void");
+                try emitConst(self,"!void");
             } else {
-                try self.emit("void");
+                try emitConst(self,"void");
             }
         }
     }
 
-    try self.emit(" {\n");
+    try emitConst(self," {\n");
 
     // Emit self parameter suppression directly in signature generation as a safety net.
     // This ensures _ = &self; (or _ = &__self;) is always emitted for regular methods,
@@ -1953,9 +1963,9 @@ pub fn genMethodSignatureWithSkip(
         if (self_param_name) |spn| {
             self.indent();
             try self.emitIndent();
-            try self.emit("_ = &");
-            try self.emit(spn);
-            try self.emit(";\n");
+            try emitConst(self,"_ = &");
+            try emitConst(self,spn);
+            try emitConst(self,";\n");
             self.dedent();
         }
     }

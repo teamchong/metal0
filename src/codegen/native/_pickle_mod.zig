@@ -5,6 +5,26 @@ const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output - uses h.NativeCodegen from mod_helper
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "dumps", genDumps },
     .{ "dump", genDump },
@@ -27,9 +47,9 @@ fn genDumps(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("discard", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("_ = ");
+            try emitConst(c, "_ = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; break :{s} \"\"", .{label});
+            try emitFmtConst(c, "; break :{s} \"\"", .{label});
         }
     }.emit);
 }
@@ -47,9 +67,9 @@ fn genLoads(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("discard", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("_ = ");
+            try emitConst(c, "_ = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; break :{s} null", .{label});
+            try emitFmtConst(c, "; break :{s} null", .{label});
         }
     }.emit);
 }

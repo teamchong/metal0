@@ -1,9 +1,26 @@
 /// String methods - .split(), .upper(), .lower(), .strip(), etc.
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const expr_emitter = @import("../expr_emitter.zig");
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 // Import submodules
 const validation = @import("string/validation.zig");
@@ -73,69 +90,69 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     if (args.len == 0) {
         // split() with no args - split on whitespace using runtime function
-        try self.emit("try runtime.stringSplitWhitespace(");
+        try emitConst(self,"try runtime.stringSplitWhitespace(");
         if (emit_obj) {
             try self.genExpr(obj);
-            try self.emit(".string");
+            try emitConst(self,".string");
         } else {
             try self.genExpr(obj);
         }
-        try self.emit(", __global_allocator)");
+        try emitConst(self,", __global_allocator)");
         return;
     }
 
     // split(separator) or split(separator, maxsplit)
     const split_label = self.nextLabelId();
-    try self.emitFmt("split_{d}: {{\n", .{split_label});
-    try self.emit("    var _split_result = std.ArrayListUnmanaged([]const u8){};\n");
-    try self.emit("    var _split_iter = std.mem.splitSequence(u8, ");
+    try emitFmtConst(self, "split_{d}: {{\n", .{split_label});
+    try emitConst(self,"    var _split_result = std.ArrayListUnmanaged([]const u8){};\n");
+    try emitConst(self,"    var _split_iter = std.mem.splitSequence(u8, ");
     try self.genExpr(obj);
-    try self.emit(", ");
+    try emitConst(self,", ");
     try self.genExpr(args[0]);
-    try self.emit(");\n");
+    try emitConst(self,");\n");
 
     if (args.len >= 2) {
         // maxsplit argument provided
-        try self.emit("    const _maxsplit = @as(usize, @intCast(");
+        try emitConst(self,"    const _maxsplit = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
-        try self.emit("    var _split_count: usize = 0;\n");
-        try self.emit("    while (_split_iter.next()) |part| {\n");
-        try self.emit("        if (_split_count >= _maxsplit) {\n");
-        try self.emit("            // Append rest of string after last split\n");
-        try self.emit("            const _rest = _split_iter.rest();\n");
-        try self.emit("            if (part.len > 0) {\n");
-        try self.emit("                if (_rest.len > 0) {\n");
-        try self.emit("                    const _combined = try __global_allocator.alloc(u8, part.len + ");
+        try emitConst(self,"));\n");
+        try emitConst(self,"    var _split_count: usize = 0;\n");
+        try emitConst(self,"    while (_split_iter.next()) |part| {\n");
+        try emitConst(self,"        if (_split_count >= _maxsplit) {\n");
+        try emitConst(self,"            // Append rest of string after last split\n");
+        try emitConst(self,"            const _rest = _split_iter.rest();\n");
+        try emitConst(self,"            if (part.len > 0) {\n");
+        try emitConst(self,"                if (_rest.len > 0) {\n");
+        try emitConst(self,"                    const _combined = try __global_allocator.alloc(u8, part.len + ");
         try self.genExpr(args[0]);
-        try self.emit(".len + _rest.len);\n");
-        try self.emit("                    @memcpy(_combined[0..part.len], part);\n");
-        try self.emit("                    @memcpy(_combined[part.len..part.len + ");
+        try emitConst(self,".len + _rest.len);\n");
+        try emitConst(self,"                    @memcpy(_combined[0..part.len], part);\n");
+        try emitConst(self,"                    @memcpy(_combined[part.len..part.len + ");
         try self.genExpr(args[0]);
-        try self.emit(".len], ");
+        try emitConst(self,".len], ");
         try self.genExpr(args[0]);
-        try self.emit(");\n");
-        try self.emit("                    @memcpy(_combined[part.len + ");
+        try emitConst(self,");\n");
+        try emitConst(self,"                    @memcpy(_combined[part.len + ");
         try self.genExpr(args[0]);
-        try self.emit(".len..], _rest);\n");
-        try self.emit("                    try _split_result.append(__global_allocator, _combined);\n");
-        try self.emit("                } else {\n");
-        try self.emit("                    try _split_result.append(__global_allocator, part);\n");
-        try self.emit("                }\n");
-        try self.emit("            }\n");
-        try self.emit("            break;\n");
-        try self.emit("        }\n");
-        try self.emit("        try _split_result.append(__global_allocator, part);\n");
-        try self.emit("        _split_count += 1;\n");
-        try self.emit("    }\n");
+        try emitConst(self,".len..], _rest);\n");
+        try emitConst(self,"                    try _split_result.append(__global_allocator, _combined);\n");
+        try emitConst(self,"                } else {\n");
+        try emitConst(self,"                    try _split_result.append(__global_allocator, part);\n");
+        try emitConst(self,"                }\n");
+        try emitConst(self,"            }\n");
+        try emitConst(self,"            break;\n");
+        try emitConst(self,"        }\n");
+        try emitConst(self,"        try _split_result.append(__global_allocator, part);\n");
+        try emitConst(self,"        _split_count += 1;\n");
+        try emitConst(self,"    }\n");
     } else {
-        try self.emit("    while (_split_iter.next()) |part| {\n");
-        try self.emit("        try _split_result.append(__global_allocator, part);\n");
-        try self.emit("    }\n");
+        try emitConst(self,"    while (_split_iter.next()) |part| {\n");
+        try emitConst(self,"        try _split_result.append(__global_allocator, part);\n");
+        try emitConst(self,"    }\n");
     }
 
-    try self.emitFmt("    break :split_{d} _split_result;\n", .{split_label});
-    try self.emit("}");
+    try emitFmtConst(self, "    break :split_{d} _split_result;\n", .{split_label});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.upper()
@@ -145,16 +162,16 @@ pub fn genUpper(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Generate block expression with unique label (use _idx to avoid shadowing user variables)
     const upper_label = self.nextLabelId();
-    try self.emitFmt("upper_{d}: {{\n", .{upper_label});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "upper_{d}: {{\n", .{upper_label});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
-    try self.emit("    for (_text, 0..) |_c, _idx| {\n");
-    try self.emit("        _result[_idx] = std.ascii.toUpper(_c);\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :upper_{d} _result;\n", .{upper_label});
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _result = try __global_allocator.alloc(u8, _text.len);\n");
+    try emitConst(self,"    for (_text, 0..) |_c, _idx| {\n");
+    try emitConst(self,"        _result[_idx] = std.ascii.toUpper(_c);\n");
+    try emitConst(self,"    }\n");
+    try emitFmtConst(self, "    break :upper_{d} _result;\n", .{upper_label});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.lower()
@@ -164,16 +181,16 @@ pub fn genLower(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Generate block expression with unique label (use _idx to avoid shadowing user variables)
     const lower_label = self.nextLabelId();
-    try self.emitFmt("lower_{d}: {{\n", .{lower_label});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "lower_{d}: {{\n", .{lower_label});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
-    try self.emit("    for (_text, 0..) |_c, _idx| {\n");
-    try self.emit("        _result[_idx] = std.ascii.toLower(_c);\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :lower_{d} _result;\n", .{lower_label});
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _result = try __global_allocator.alloc(u8, _text.len);\n");
+    try emitConst(self,"    for (_text, 0..) |_c, _idx| {\n");
+    try emitConst(self,"        _result[_idx] = std.ascii.toLower(_c);\n");
+    try emitConst(self,"    }\n");
+    try emitFmtConst(self, "    break :lower_{d} _result;\n", .{lower_label});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.strip()
@@ -187,19 +204,19 @@ pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Allocate a copy to avoid "Invalid free" when result is used with defer
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
-    try self.emitFmt("strip_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "strip_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
     // Two-Flow: Extract string from PyValue if uncertain
     if (is_uncertain) {
-        try self.emit(".string");
+        try emitConst(self,".string");
     }
-    try self.emit(";\n");
-    try self.emit("    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
-    try self.emit("    @memcpy(_result, _trimmed);\n");
-    try self.emitFmt("    break :strip_{d} _result;\n", .{label_id});
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _trimmed = std.mem.trim(u8, _text, \" \\t\\n\\r\");\n");
+    try emitConst(self,"    const _result = try __global_allocator.alloc(u8, _trimmed.len);\n");
+    try emitConst(self,"    @memcpy(_result, _trimmed);\n");
+    try emitFmtConst(self, "    break :strip_{d} _result;\n", .{label_id});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.replace(old, new[, count])
@@ -212,42 +229,42 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     if (args.len >= 3) {
         // replace(old, new, count) - limited replacement
         const repl_label = self.nextLabelId();
-        try self.emitFmt("repl_{d}: {{\n", .{repl_label});
-        try self.emit("    const _repl_text = ");
+        try emitFmtConst(self, "repl_{d}: {{\n", .{repl_label});
+        try emitConst(self,"    const _repl_text = ");
         try self.genExpr(obj);
-        try self.emit(";\n");
-        try self.emit("    const _repl_old = ");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const _repl_old = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const _repl_new = ");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const _repl_new = ");
         try self.genExpr(args[1]);
-        try self.emit(";\n");
-        try self.emit("    var _repl_count = @as(usize, @intCast(");
+        try emitConst(self,";\n");
+        try emitConst(self,"    var _repl_count = @as(usize, @intCast(");
         try self.genExpr(args[2]);
-        try self.emit("));\n");
-        try self.emitFmt("    if (_repl_count == 0) break :repl_{d} _repl_text;\n", .{repl_label});
-        try self.emit("    var _repl_result = std.ArrayListUnmanaged(u8){};\n");
-        try self.emit("    var _repl_pos: usize = 0;\n");
-        try self.emit("    while (_repl_pos < _repl_text.len and _repl_count > 0) {\n");
-        try self.emit("        if (std.mem.indexOf(u8, _repl_text[_repl_pos..], _repl_old)) |idx| {\n");
-        try self.emit("            try _repl_result.appendSlice(__global_allocator, _repl_text[_repl_pos.._repl_pos + idx]);\n");
-        try self.emit("            try _repl_result.appendSlice(__global_allocator, _repl_new);\n");
-        try self.emit("            _repl_pos += idx + _repl_old.len;\n");
-        try self.emit("            _repl_count -= 1;\n");
-        try self.emit("        } else break;\n");
-        try self.emit("    }\n");
-        try self.emit("    try _repl_result.appendSlice(__global_allocator, _repl_text[_repl_pos..]);\n");
-        try self.emitFmt("    break :repl_{d} _repl_result.items;\n", .{repl_label});
-        try self.emit("}");
+        try emitConst(self,"));\n");
+        try emitFmtConst(self, "    if (_repl_count == 0) break :repl_{d} _repl_text;\n", .{repl_label});
+        try emitConst(self,"    var _repl_result = std.ArrayListUnmanaged(u8){};\n");
+        try emitConst(self,"    var _repl_pos: usize = 0;\n");
+        try emitConst(self,"    while (_repl_pos < _repl_text.len and _repl_count > 0) {\n");
+        try emitConst(self,"        if (std.mem.indexOf(u8, _repl_text[_repl_pos..], _repl_old)) |idx| {\n");
+        try emitConst(self,"            try _repl_result.appendSlice(__global_allocator, _repl_text[_repl_pos.._repl_pos + idx]);\n");
+        try emitConst(self,"            try _repl_result.appendSlice(__global_allocator, _repl_new);\n");
+        try emitConst(self,"            _repl_pos += idx + _repl_old.len;\n");
+        try emitConst(self,"            _repl_count -= 1;\n");
+        try emitConst(self,"        } else break;\n");
+        try emitConst(self,"    }\n");
+        try emitConst(self,"    try _repl_result.appendSlice(__global_allocator, _repl_text[_repl_pos..]);\n");
+        try emitFmtConst(self, "    break :repl_{d} _repl_result.items;\n", .{repl_label});
+        try emitConst(self,"}");
     } else {
         // replace(old, new) - replace all
-        try self.emit("try std.mem.replaceOwned(u8, __global_allocator, ");
+        try emitConst(self,"try std.mem.replaceOwned(u8, __global_allocator, ");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try emitConst(self,")");
     }
 }
 
@@ -263,19 +280,19 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
     // Generate unique labeled block for join operation
     const join_label = self.nextLabelId();
-    try self.emitFmt("join_{d}: {{\n", .{join_label});
-    try self.emit("const __join_sep = ");
+    try emitFmtConst(self, "join_{d}: {{\n", .{join_label});
+    try emitConst(self,"const __join_sep = ");
     try self.genExpr(obj); // The separator string
     // Two-Flow: Extract string from PyValue if uncertain
     if (is_uncertain) {
-        try self.emit(".string");
+        try emitConst(self,".string");
     }
-    try self.emit(";\n");
-    try self.emit("const __join_list = ");
+    try emitConst(self,";\n");
+    try emitConst(self,"const __join_list = ");
     try self.genExpr(args[0]); // The list
-    try self.emit(";\n");
-    try self.emitFmt("break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n", .{join_label});
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitFmtConst(self, "break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n", .{join_label});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.startswith(prefix[, start[, end]])
@@ -286,36 +303,36 @@ pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 
     if (args.len == 1) {
         // Simple case: s.startswith(prefix)
-        try self.emit("std.mem.startsWith(u8, ");
+        try emitConst(self,"std.mem.startsWith(u8, ");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     } else {
         // s.startswith(prefix, start) or s.startswith(prefix, start, end)
         const sw_label = self.nextLabelId();
-        try self.emitFmt("sw_{d}: {{\n", .{sw_label});
-        try self.emit("    const __sw_text = ");
+        try emitFmtConst(self, "sw_{d}: {{\n", .{sw_label});
+        try emitConst(self,"    const __sw_text = ");
         try self.genExpr(obj);
-        try self.emit(";\n");
-        try self.emit("    const __sw_prefix = ");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const __sw_prefix = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const __sw_start = @as(usize, @intCast(");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const __sw_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try emitConst(self,"));\n");
 
         if (args.len >= 3) {
-            try self.emit("    const __sw_end = @min(@as(usize, @intCast(");
+            try emitConst(self,"    const __sw_end = @min(@as(usize, @intCast(");
             try self.genExpr(args[2]);
-            try self.emit(")), __sw_text.len);\n");
+            try emitConst(self,")), __sw_text.len);\n");
         } else {
-            try self.emit("    const __sw_end = __sw_text.len;\n");
+            try emitConst(self,"    const __sw_end = __sw_text.len;\n");
         }
 
-        try self.emitFmt("    if (__sw_start >= __sw_end) break :sw_{d} false;\n", .{sw_label});
-        try self.emitFmt("    break :sw_{d} std.mem.startsWith(u8, __sw_text[__sw_start..__sw_end], __sw_prefix);\n", .{sw_label});
-        try self.emit("}");
+        try emitFmtConst(self, "    if (__sw_start >= __sw_end) break :sw_{d} false;\n", .{sw_label});
+        try emitFmtConst(self, "    break :sw_{d} std.mem.startsWith(u8, __sw_text[__sw_start..__sw_end], __sw_prefix);\n", .{sw_label});
+        try emitConst(self,"}");
     }
 }
 
@@ -327,36 +344,36 @@ pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 
     if (args.len == 1) {
         // Simple case: s.endswith(suffix)
-        try self.emit("std.mem.endsWith(u8, ");
+        try emitConst(self,"std.mem.endsWith(u8, ");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitConst(self,")");
     } else {
         // s.endswith(suffix, start) or s.endswith(suffix, start, end)
         const ew_label = self.nextLabelId();
-        try self.emitFmt("ew_{d}: {{\n", .{ew_label});
-        try self.emit("    const __ew_text = ");
+        try emitFmtConst(self, "ew_{d}: {{\n", .{ew_label});
+        try emitConst(self,"    const __ew_text = ");
         try self.genExpr(obj);
-        try self.emit(";\n");
-        try self.emit("    const __ew_suffix = ");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const __ew_suffix = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const __ew_start = @as(usize, @intCast(");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const __ew_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try emitConst(self,"));\n");
 
         if (args.len >= 3) {
-            try self.emit("    const __ew_end = @min(@as(usize, @intCast(");
+            try emitConst(self,"    const __ew_end = @min(@as(usize, @intCast(");
             try self.genExpr(args[2]);
-            try self.emit(")), __ew_text.len);\n");
+            try emitConst(self,")), __ew_text.len);\n");
         } else {
-            try self.emit("    const __ew_end = __ew_text.len;\n");
+            try emitConst(self,"    const __ew_end = __ew_text.len;\n");
         }
 
-        try self.emitFmt("    if (__ew_start >= __ew_end) break :ew_{d} false;\n", .{ew_label});
-        try self.emitFmt("    break :ew_{d} std.mem.endsWith(u8, __ew_text[__ew_start..__ew_end], __ew_suffix);\n", .{ew_label});
-        try self.emit("}");
+        try emitFmtConst(self, "    if (__ew_start >= __ew_end) break :ew_{d} false;\n", .{ew_label});
+        try emitFmtConst(self, "    break :ew_{d} std.mem.endsWith(u8, __ew_text[__ew_start..__ew_end], __ew_suffix);\n", .{ew_label});
+        try emitConst(self,"}");
     }
 }
 
@@ -369,38 +386,38 @@ pub fn genFind(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     if (args.len == 1) {
         // Simple case: s.find(sub) - no start/end
         // Generate: if (std.mem.indexOf(u8, text, substring)) |idx| @as(i64, @intCast(idx)) else -1
-        try self.emit("if (std.mem.indexOf(u8, ");
+        try emitConst(self,"if (std.mem.indexOf(u8, ");
         try self.genExpr(obj);
-        try self.emit(", ");
+        try emitConst(self,", ");
         try self.genExpr(args[0]);
-        try self.emit(")) |idx| @as(i64, @intCast(idx)) else -1");
+        try emitConst(self,")) |idx| @as(i64, @intCast(idx)) else -1");
     } else {
         // s.find(sub, start) or s.find(sub, start, end)
         // Generate a block that slices the string and adjusts the result
         const find_label = self.nextLabelId();
-        try self.emitFmt("find_{d}: {{\n", .{find_label});
-        try self.emit("    const __find_text = ");
+        try emitFmtConst(self, "find_{d}: {{\n", .{find_label});
+        try emitConst(self,"    const __find_text = ");
         try self.genExpr(obj);
-        try self.emit(";\n");
-        try self.emit("    const __find_sub = ");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const __find_sub = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    const __find_start = @as(usize, @intCast(");
+        try emitConst(self,";\n");
+        try emitConst(self,"    const __find_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try emitConst(self,"));\n");
 
         if (args.len >= 3) {
-            try self.emit("    const __find_end = @min(@as(usize, @intCast(");
+            try emitConst(self,"    const __find_end = @min(@as(usize, @intCast(");
             try self.genExpr(args[2]);
-            try self.emit(")), __find_text.len);\n");
+            try emitConst(self,")), __find_text.len);\n");
         } else {
-            try self.emit("    const __find_end = __find_text.len;\n");
+            try emitConst(self,"    const __find_end = __find_text.len;\n");
         }
 
-        try self.emitFmt("    if (__find_start >= __find_end) break :find_{d} @as(i64, -1);\n", .{find_label});
-        try self.emit("    const __find_slice = __find_text[__find_start..__find_end];\n");
-        try self.emitFmt("    break :find_{d} if (std.mem.indexOf(u8, __find_slice, __find_sub)) |idx| @as(i64, @intCast(idx + __find_start)) else -1;\n", .{find_label});
-        try self.emit("}");
+        try emitFmtConst(self, "    if (__find_start >= __find_end) break :find_{d} @as(i64, -1);\n", .{find_label});
+        try emitConst(self,"    const __find_slice = __find_text[__find_start..__find_end];\n");
+        try emitFmtConst(self, "    break :find_{d} if (std.mem.indexOf(u8, __find_slice, __find_sub)) |idx| @as(i64, @intCast(idx + __find_start)) else -1;\n", .{find_label});
+        try emitConst(self,"}");
     }
 }
 
@@ -412,42 +429,42 @@ pub fn genCount(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Generate loop to count occurrences
     const cnt_label = self.nextLabelId();
-    try self.emitFmt("cnt_{d}: {{\n", .{cnt_label});
-    try self.emit("    const __cnt_text = ");
+    try emitFmtConst(self, "cnt_{d}: {{\n", .{cnt_label});
+    try emitConst(self,"    const __cnt_text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const __cnt_needle = ");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const __cnt_needle = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     if (args.len >= 2) {
-        try self.emit("    const __cnt_start = @as(usize, @intCast(");
+        try emitConst(self,"    const __cnt_start = @as(usize, @intCast(");
         try self.genExpr(args[1]);
-        try self.emit("));\n");
+        try emitConst(self,"));\n");
     } else {
-        try self.emit("    const __cnt_start: usize = 0;\n");
+        try emitConst(self,"    const __cnt_start: usize = 0;\n");
     }
 
     if (args.len >= 3) {
-        try self.emit("    const __cnt_end = @min(@as(usize, @intCast(");
+        try emitConst(self,"    const __cnt_end = @min(@as(usize, @intCast(");
         try self.genExpr(args[2]);
-        try self.emit(")), __cnt_text.len);\n");
+        try emitConst(self,")), __cnt_text.len);\n");
     } else {
-        try self.emit("    const __cnt_end = __cnt_text.len;\n");
+        try emitConst(self,"    const __cnt_end = __cnt_text.len;\n");
     }
 
-    try self.emitFmt("    if (__cnt_start >= __cnt_end) break :cnt_{d} @as(i64, 0);\n", .{cnt_label});
-    try self.emit("    const __cnt_slice = __cnt_text[__cnt_start..__cnt_end];\n");
-    try self.emit("    var __cnt_count: i64 = 0;\n");
-    try self.emit("    var __cnt_pos: usize = 0;\n");
-    try self.emit("    while (__cnt_pos < __cnt_slice.len) {\n");
-    try self.emit("        if (std.mem.indexOf(u8, __cnt_slice[__cnt_pos..], __cnt_needle)) |idx| {\n");
-    try self.emit("            __cnt_count += 1;\n");
-    try self.emit("            __cnt_pos += idx + __cnt_needle.len;\n");
-    try self.emit("        } else break;\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :cnt_{d} __cnt_count;\n", .{cnt_label});
-    try self.emit("}");
+    try emitFmtConst(self, "    if (__cnt_start >= __cnt_end) break :cnt_{d} @as(i64, 0);\n", .{cnt_label});
+    try emitConst(self,"    const __cnt_slice = __cnt_text[__cnt_start..__cnt_end];\n");
+    try emitConst(self,"    var __cnt_count: i64 = 0;\n");
+    try emitConst(self,"    var __cnt_pos: usize = 0;\n");
+    try emitConst(self,"    while (__cnt_pos < __cnt_slice.len) {\n");
+    try emitConst(self,"        if (std.mem.indexOf(u8, __cnt_slice[__cnt_pos..], __cnt_needle)) |idx| {\n");
+    try emitConst(self,"            __cnt_count += 1;\n");
+    try emitConst(self,"            __cnt_pos += idx + __cnt_needle.len;\n");
+    try emitConst(self,"        } else break;\n");
+    try emitConst(self,"    }\n");
+    try emitFmtConst(self, "    break :cnt_{d} __cnt_count;\n", .{cnt_label});
+    try emitConst(self,"}");
 }
 
 /// Alias for genIndex (string.index() in methods.zig)
@@ -463,11 +480,11 @@ pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         // Generate: encode_blk: { runtime.discard(encoding_arg); break :encode_blk text; }
         var em = self.exprEmitter();
         const id = em.reserveLabelId();
-        try self.emitFmt("encode_{d}: {{ runtime.discard(", .{id});
+        try emitFmtConst(self, "encode_{d}: {{ runtime.discard(", .{id});
         try self.genExpr(args[0]);
-        try self.emitFmt("); break :encode_{d} ", .{id});
+        try emitFmtConst(self, "); break :encode_{d} ", .{id});
         try self.genExpr(obj);
-        try self.emit("; }");
+        try emitConst(self,"; }");
     } else {
         try self.genExpr(obj);
     }
@@ -482,11 +499,11 @@ pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         // Generate: decode_blk: { runtime.discard(encoding_arg); break :decode_blk bytes; }
         var em = self.exprEmitter();
         const id = em.reserveLabelId();
-        try self.emitFmt("decode_{d}: {{ runtime.discard(", .{id});
+        try emitFmtConst(self, "decode_{d}: {{ runtime.discard(", .{id});
         try self.genExpr(args[0]);
-        try self.emitFmt("); break :decode_{d} ", .{id});
+        try emitFmtConst(self, "); break :decode_{d} ", .{id});
         try self.genExpr(obj);
-        try self.emit("; }");
+        try emitConst(self,"; }");
     } else {
         try self.genExpr(obj);
     }
@@ -496,43 +513,43 @@ pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 /// Splits string at line boundaries (\n, \r, \r\n)
 pub fn genSplitlines(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
-    try self.emitFmt("splitlines_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "splitlines_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     // keepends argument (default false)
     if (args.len > 0) {
-        try self.emit("    const _keepends = ");
+        try emitConst(self,"    const _keepends = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
+        try emitConst(self,";\n");
     } else {
-        try self.emit("    const _keepends = false;\n");
+        try emitConst(self,"    const _keepends = false;\n");
     }
 
-    try self.emit("    var _result = std.ArrayListUnmanaged([]const u8){};\n");
-    try self.emit("    var _start: usize = 0;\n");
-    try self.emit("    var _i: usize = 0;\n");
-    try self.emit("    while (_i < _text.len) {\n");
-    try self.emit("        if (_i + 1 < _text.len and _text[_i] == '\\r' and _text[_i + 1] == '\\n') {\n");
-    try self.emit("            const _end = if (_keepends) _i + 2 else _i;\n");
-    try self.emit("            try _result.append(__global_allocator, _text[_start.._end]);\n");
-    try self.emit("            _i += 2;\n");
-    try self.emit("            _start = _i;\n");
-    try self.emit("        } else if (_text[_i] == '\\n' or _text[_i] == '\\r') {\n");
-    try self.emit("            const _end = if (_keepends) _i + 1 else _i;\n");
-    try self.emit("            try _result.append(__global_allocator, _text[_start.._end]);\n");
-    try self.emit("            _i += 1;\n");
-    try self.emit("            _start = _i;\n");
-    try self.emit("        } else {\n");
-    try self.emit("            _i += 1;\n");
-    try self.emit("        }\n");
-    try self.emit("    }\n");
-    try self.emit("    if (_start < _text.len) {\n");
-    try self.emit("        try _result.append(__global_allocator, _text[_start..]);\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :splitlines_{d} _result;\n", .{label_id});
-    try self.emit("}");
+    try emitConst(self,"    var _result = std.ArrayListUnmanaged([]const u8){};\n");
+    try emitConst(self,"    var _start: usize = 0;\n");
+    try emitConst(self,"    var _i: usize = 0;\n");
+    try emitConst(self,"    while (_i < _text.len) {\n");
+    try emitConst(self,"        if (_i + 1 < _text.len and _text[_i] == '\\r' and _text[_i + 1] == '\\n') {\n");
+    try emitConst(self,"            const _end = if (_keepends) _i + 2 else _i;\n");
+    try emitConst(self,"            try _result.append(__global_allocator, _text[_start.._end]);\n");
+    try emitConst(self,"            _i += 2;\n");
+    try emitConst(self,"            _start = _i;\n");
+    try emitConst(self,"        } else if (_text[_i] == '\\n' or _text[_i] == '\\r') {\n");
+    try emitConst(self,"            const _end = if (_keepends) _i + 1 else _i;\n");
+    try emitConst(self,"            try _result.append(__global_allocator, _text[_start.._end]);\n");
+    try emitConst(self,"            _i += 1;\n");
+    try emitConst(self,"            _start = _i;\n");
+    try emitConst(self,"        } else {\n");
+    try emitConst(self,"            _i += 1;\n");
+    try emitConst(self,"        }\n");
+    try emitConst(self,"    }\n");
+    try emitConst(self,"    if (_start < _text.len) {\n");
+    try emitConst(self,"        try _result.append(__global_allocator, _text[_start..]);\n");
+    try emitConst(self,"    }\n");
+    try emitFmtConst(self, "    break :splitlines_{d} _result;\n", .{label_id});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.partition(sep)
@@ -543,19 +560,19 @@ pub fn genPartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("partition_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "partition_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _sep = ");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _sep = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("    if (std.mem.indexOf(u8, _text, _sep)) |idx| {\n");
-    try self.emitFmt("        break :partition_{d} .{{ _text[0..idx], _sep, _text[idx + _sep.len..] }};\n", .{label_id});
-    try self.emit("    } else {\n");
-    try self.emitFmt("        break :partition_{d} .{{ _text, \"\", \"\" }};\n", .{label_id});
-    try self.emit("    }\n");
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    if (std.mem.indexOf(u8, _text, _sep)) |idx| {\n");
+    try emitFmtConst(self, "        break :partition_{d} .{{ _text[0..idx], _sep, _text[idx + _sep.len..] }};\n", .{label_id});
+    try emitConst(self,"    } else {\n");
+    try emitFmtConst(self, "        break :partition_{d} .{{ _text, \"\", \"\" }};\n", .{label_id});
+    try emitConst(self,"    }\n");
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.rpartition(sep)
@@ -566,19 +583,19 @@ pub fn genRpartition(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("rpartition_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "rpartition_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _sep = ");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _sep = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("    if (std.mem.lastIndexOf(u8, _text, _sep)) |idx| {\n");
-    try self.emitFmt("        break :rpartition_{d} .{{ _text[0..idx], _sep, _text[idx + _sep.len..] }};\n", .{label_id});
-    try self.emit("    } else {\n");
-    try self.emitFmt("        break :rpartition_{d} .{{ \"\", \"\", _text }};\n", .{label_id});
-    try self.emit("    }\n");
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    if (std.mem.lastIndexOf(u8, _text, _sep)) |idx| {\n");
+    try emitFmtConst(self, "        break :rpartition_{d} .{{ _text[0..idx], _sep, _text[idx + _sep.len..] }};\n", .{label_id});
+    try emitConst(self,"    } else {\n");
+    try emitFmtConst(self, "        break :rpartition_{d} .{{ \"\", \"\", _text }};\n", .{label_id});
+    try emitConst(self,"    }\n");
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.removeprefix(prefix)
@@ -589,19 +606,19 @@ pub fn genRemoveprefix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("removeprefix_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "removeprefix_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _prefix = ");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _prefix = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("    if (std.mem.startsWith(u8, _text, _prefix)) {\n");
-    try self.emitFmt("        break :removeprefix_{d} _text[_prefix.len..];\n", .{label_id});
-    try self.emit("    } else {\n");
-    try self.emitFmt("        break :removeprefix_{d} _text;\n", .{label_id});
-    try self.emit("    }\n");
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    if (std.mem.startsWith(u8, _text, _prefix)) {\n");
+    try emitFmtConst(self, "        break :removeprefix_{d} _text[_prefix.len..];\n", .{label_id});
+    try emitConst(self,"    } else {\n");
+    try emitFmtConst(self, "        break :removeprefix_{d} _text;\n", .{label_id});
+    try emitConst(self,"    }\n");
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.removesuffix(suffix)
@@ -612,19 +629,19 @@ pub fn genRemovesuffix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("removesuffix_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "removesuffix_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _suffix = ");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _suffix = ");
     try self.genExpr(args[0]);
-    try self.emit(";\n");
-    try self.emit("    if (std.mem.endsWith(u8, _text, _suffix)) {\n");
-    try self.emitFmt("        break :removesuffix_{d} _text[0 .. _text.len - _suffix.len];\n", .{label_id});
-    try self.emit("    } else {\n");
-    try self.emitFmt("        break :removesuffix_{d} _text;\n", .{label_id});
-    try self.emit("    }\n");
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    if (std.mem.endsWith(u8, _text, _suffix)) {\n");
+    try emitFmtConst(self, "        break :removesuffix_{d} _text[0 .. _text.len - _suffix.len];\n", .{label_id});
+    try emitConst(self,"    } else {\n");
+    try emitFmtConst(self, "        break :removesuffix_{d} _text;\n", .{label_id});
+    try emitConst(self,"    }\n");
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.rsplit([sep[, maxsplit]])
@@ -632,45 +649,45 @@ pub fn genRemovesuffix(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 pub fn genRsplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("rsplit_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "rsplit_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
+    try emitConst(self,";\n");
 
     if (args.len == 0) {
         // rsplit() with no args - same as split() for now
-        try self.emit("    var _result = try runtime.stringSplitWhitespace(_text, __global_allocator);\n");
-        try self.emit("    std.mem.reverse([]const u8, _result.items);\n");
-        try self.emitFmt("    break :rsplit_{d} _result;\n", .{label_id});
+        try emitConst(self,"    var _result = try runtime.stringSplitWhitespace(_text, __global_allocator);\n");
+        try emitConst(self,"    std.mem.reverse([]const u8, _result.items);\n");
+        try emitFmtConst(self, "    break :rsplit_{d} _result;\n", .{label_id});
     } else {
-        try self.emit("    const _sep = ");
+        try emitConst(self,"    const _sep = ");
         try self.genExpr(args[0]);
-        try self.emit(";\n");
-        try self.emit("    var _result = std.ArrayListUnmanaged([]const u8){};\n");
+        try emitConst(self,";\n");
+        try emitConst(self,"    var _result = std.ArrayListUnmanaged([]const u8){};\n");
 
         if (args.len >= 2) {
-            try self.emit("    const _maxsplit = @as(usize, @intCast(");
+            try emitConst(self,"    const _maxsplit = @as(usize, @intCast(");
             try self.genExpr(args[1]);
-            try self.emit("));\n");
-            try self.emit("    var _count: usize = 0;\n");
-            try self.emit("    var _end = _text.len;\n");
-            try self.emit("    while (_count < _maxsplit) {\n");
-            try self.emit("        if (std.mem.lastIndexOf(u8, _text[0.._end], _sep)) |idx| {\n");
-            try self.emit("            try _result.insert(__global_allocator, 0, _text[idx + _sep.len .. _end]);\n");
-            try self.emit("            _end = idx;\n");
-            try self.emit("            _count += 1;\n");
-            try self.emit("        } else break;\n");
-            try self.emit("    }\n");
-            try self.emit("    try _result.insert(__global_allocator, 0, _text[0.._end]);\n");
+            try emitConst(self,"));\n");
+            try emitConst(self,"    var _count: usize = 0;\n");
+            try emitConst(self,"    var _end = _text.len;\n");
+            try emitConst(self,"    while (_count < _maxsplit) {\n");
+            try emitConst(self,"        if (std.mem.lastIndexOf(u8, _text[0.._end], _sep)) |idx| {\n");
+            try emitConst(self,"            try _result.insert(__global_allocator, 0, _text[idx + _sep.len .. _end]);\n");
+            try emitConst(self,"            _end = idx;\n");
+            try emitConst(self,"            _count += 1;\n");
+            try emitConst(self,"        } else break;\n");
+            try emitConst(self,"    }\n");
+            try emitConst(self,"    try _result.insert(__global_allocator, 0, _text[0.._end]);\n");
         } else {
-            try self.emit("    var _iter = std.mem.splitSequence(u8, _text, _sep);\n");
-            try self.emit("    while (_iter.next()) |part| {\n");
-            try self.emit("        try _result.append(__global_allocator, part);\n");
-            try self.emit("    }\n");
+            try emitConst(self,"    var _iter = std.mem.splitSequence(u8, _text, _sep);\n");
+            try emitConst(self,"    while (_iter.next()) |part| {\n");
+            try emitConst(self,"        try _result.append(__global_allocator, part);\n");
+            try emitConst(self,"    }\n");
         }
-        try self.emitFmt("    break :rsplit_{d} _result;\n", .{label_id});
+        try emitFmtConst(self, "    break :rsplit_{d} _result;\n", .{label_id});
     }
-    try self.emit("}");
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.casefold()
@@ -681,16 +698,16 @@ pub fn genCasefold(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("casefold_{d}: {{\n", .{label_id});
-    try self.emit("    const _text = ");
+    try emitFmtConst(self, "casefold_{d}: {{\n", .{label_id});
+    try emitConst(self,"    const _text = ");
     try self.genExpr(obj);
-    try self.emit(";\n");
-    try self.emit("    const _result = try __global_allocator.alloc(u8, _text.len);\n");
-    try self.emit("    for (_text, 0..) |c, i| {\n");
-    try self.emit("        _result[i] = std.ascii.toLower(c);\n");
-    try self.emit("    }\n");
-    try self.emitFmt("    break :casefold_{d} _result;\n", .{label_id});
-    try self.emit("}");
+    try emitConst(self,";\n");
+    try emitConst(self,"    const _result = try __global_allocator.alloc(u8, _text.len);\n");
+    try emitConst(self,"    for (_text, 0..) |c, i| {\n");
+    try emitConst(self,"        _result[i] = std.ascii.toLower(c);\n");
+    try emitConst(self,"    }\n");
+    try emitFmtConst(self, "    break :casefold_{d} _result;\n", .{label_id});
+    try emitConst(self,"}");
 }
 
 /// Generate code for text.format(*args, **kwargs)
@@ -699,28 +716,28 @@ pub fn genFormat(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keywords
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
-    try self.emitFmt("format_{d}: {{\n", .{label_id});
-    try self.emit("break :format_");
-    try self.emitFmt("{d}", .{label_id});
-    try self.emit(" try runtime.string_utils.pyStrFormat(__global_allocator, ");
+    try emitFmtConst(self, "format_{d}: {{\n", .{label_id});
+    try emitConst(self,"break :format_");
+    try emitFmtConst(self, "{d}", .{label_id});
+    try emitConst(self," try runtime.string_utils.pyStrFormat(__global_allocator, ");
     try self.genExpr(obj);
-    try self.emit(", .{");
+    try emitConst(self,", .{");
 
     // Generate positional arguments first
     for (args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try emitConst(self,", ");
         try self.genExpr(arg);
     }
 
     // Generate keyword arguments as tuples: .{"name", value}
     for (keywords, 0..) |kw, i| {
-        if (i > 0 or args.len > 0) try self.emit(", ");
-        try self.emit(".{\"");
-        try self.emit(kw.name);
-        try self.emit("\", ");
+        if (i > 0 or args.len > 0) try emitConst(self,", ");
+        try emitConst(self,".{\"");
+        try emitConst(self,kw.name);
+        try emitConst(self,"\", ");
         try self.genExpr(kw.value);
-        try self.emit("}");
+        try emitConst(self,"}");
     }
 
-    try self.emit("});\n}");
+    try emitConst(self,"});\n}");
 }

@@ -33,12 +33,26 @@ const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
 fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len == 0) { try self.emit("{}"); return; }
+    if (args.len == 0) {
+        const b = try self.getBuilder();
+        try b.write("{}");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+        return;
+    }
     try self.withInlineBlock("rs", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const sig = @as(u6, @intCast(");
+            const b = try c.getBuilder();
+            try b.write("const sig = @as(u6, @intCast(");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emitFmt(")); _ = std.posix.raise(sig); break :{s} {{}}", .{label});
+            {
+                const b2 = try c.getBuilder();
+                try b2.writeFmt(")); _ = std.posix.raise(sig); break :{s} {{}}", .{label});
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
         }
     }.emit);
 }

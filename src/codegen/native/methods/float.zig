@@ -1,8 +1,25 @@
 /// Float methods (is_integer, as_integer_ratio, hex, fromhex)
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 
 /// Check if a float expression is uncertain (needs PyValue operations)
 /// Two-Flow: routes uncertain floats to PyValue extraction
@@ -29,7 +46,7 @@ fn emitFloatExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     if (isFloatUncertain(self, obj)) {
         // Extract float from PyValue using .asFloat()
         try self.genExpr(obj);
-        try self.emit(".asFloat()");
+        try emitConst(self,".asFloat()");
     } else {
         try self.genExpr(obj);
     }
@@ -41,9 +58,9 @@ fn emitFloatExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 /// Zig: runtime.floatIsInteger(f)
 pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // is_integer takes no arguments
-    try self.emit("runtime.floatIsInteger(");
+    try emitConst(self,"runtime.floatIsInteger(");
     try emitFloatExpr(self, obj);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple as BigInt
@@ -59,11 +76,11 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
     // Return a struct that can be unpacked: { BigInt, BigInt }
     // The IntegerRatioResult has .numerator and .denominator, we convert to anonymous tuple
     const label = try self.emitInlineBlockStart("ratio");
-    try self.emit("const __ratio = try runtime.floatAsIntegerRatioBigInt(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
+    try emitConst(self,"const __ratio = try runtime.floatAsIntegerRatioBigInt(");
+    try emitConst(self,alloc_name);
+    try emitConst(self,", ");
     try emitFloatExpr(self, obj);
-    try self.emitFmt("); break :{s} .{{ __ratio.numerator, __ratio.denominator }}; ", .{label});
+    try emitFmtConst(self, "); break :{s} .{{ __ratio.numerator, __ratio.denominator }}; ", .{label});
     try self.emitInlineBlockEnd();
 }
 
@@ -74,11 +91,11 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
 pub fn genHex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("try runtime.floatHex(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
+    try emitConst(self,"try runtime.floatHex(");
+    try emitConst(self,alloc_name);
+    try emitConst(self,", ");
     try emitFloatExpr(self, obj);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate float.conjugate() - returns the float itself (for complex number compat)
@@ -102,17 +119,17 @@ pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
     if (self.inside_try_body) {
         // In assertRaises context - return error union for expectError to catch
-        try self.emit("(runtime.floatFloorBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try emitConst(self,"(runtime.floatFloorBig(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
         try emitFloatExpr(self, obj);
-        try self.emit("))");
+        try emitConst(self,"))");
     } else {
-        try self.emit("(runtime.floatFloorBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try emitConst(self,"(runtime.floatFloorBig(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
         try emitFloatExpr(self, obj);
-        try self.emit(") catch unreachable)");
+        try emitConst(self,") catch unreachable)");
     }
 }
 
@@ -128,17 +145,17 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
     if (self.inside_try_body) {
         // In assertRaises context - return error union for expectError to catch
-        try self.emit("(runtime.floatCeilBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try emitConst(self,"(runtime.floatCeilBig(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
         try emitFloatExpr(self, obj);
-        try self.emit("))");
+        try emitConst(self,"))");
     } else {
-        try self.emit("(runtime.floatCeilBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try emitConst(self,"(runtime.floatCeilBig(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
         try emitFloatExpr(self, obj);
-        try self.emit(") catch unreachable)");
+        try emitConst(self,") catch unreachable)");
     }
 }
 
@@ -149,11 +166,11 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    try self.emit("(try runtime.floatTrunc(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
+    try emitConst(self,"(try runtime.floatTrunc(");
+    try emitConst(self,alloc_name);
+    try emitConst(self,", ");
     try emitFloatExpr(self, obj);
-    try self.emit("))");
+    try emitConst(self,"))");
 }
 
 /// Generate float.__round__([ndigits]) - round to nearest
@@ -163,20 +180,20 @@ pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
     if (args.len == 0) {
-        try self.emit("(try runtime.floatRound(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
+        try emitConst(self,"(try runtime.floatRound(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
         try emitFloatExpr(self, obj);
-        try self.emit("))");
+        try emitConst(self,"))");
     } else {
         // Round to ndigits decimal places - returns float, not int
         const label = try self.emitInlineBlockStart("round");
-        try self.emit("const __ndigits = ");
+        try emitConst(self,"const __ndigits = ");
         try self.genExpr(args[0]);
-        try self.emit("; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
-        try self.emitFmt("break :{s} @round(", .{label});
+        try emitConst(self,"; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
+        try emitFmtConst(self, "break :{s} @round(", .{label});
         try emitFloatExpr(self, obj);
-        try self.emit(" * __mult) / __mult; ");
+        try emitConst(self," * __mult) / __mult; ");
         try self.emitInlineBlockEnd();
     }
 }
@@ -186,56 +203,56 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Handles both int and BigInt divisors
 pub fn genTruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // obj / args[0], with runtime type dispatch for BigInt
-    try self.emit("((");
+    try emitConst(self,"((");
     try self.genExpr(obj);
-    try self.emit(") / runtime.toFloat(");
+    try emitConst(self,") / runtime.toFloat(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("1");
+        try emitConst(self,"1");
     }
-    try self.emit("))");
+    try emitConst(self,"))");
 }
 
 /// Generate float.__rtruediv__(other) - reverse true division
 /// Python: (10.0).__rtruediv__(3) -> 0.3 (i.e., 3 / 10.0)
 pub fn genRtruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // args[0] / obj
-    try self.emit("(@as(f64, @floatFromInt(");
+    try emitConst(self,"(@as(f64, @floatFromInt(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("1");
+        try emitConst(self,"1");
     }
-    try self.emit(")) / ");
+    try emitConst(self,")) / ");
     try self.genExpr(obj);
-    try self.emit(")");
+    try emitConst(self,")");
 }
 
 /// Generate float.__floordiv__(other) - floor division
 /// Python: (10.0).__floordiv__(3) -> 3.0
 pub fn genFloordiv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try self.emit("@as(f64, @floatFromInt(@divFloor(@as(i64, @intFromFloat(");
+    try emitConst(self,"@as(f64, @floatFromInt(@divFloor(@as(i64, @intFromFloat(");
     try self.genExpr(obj);
-    try self.emit(")), ");
+    try emitConst(self,")), ");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("1");
+        try emitConst(self,"1");
     }
-    try self.emit(")))");
+    try emitConst(self,")))");
 }
 
 /// Generate float.__mod__(other) - modulo
 /// Python: (10.0).__mod__(3) -> 1.0
 pub fn genMod(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try self.emit("@mod(");
+    try emitConst(self,"@mod(");
     try self.genExpr(obj);
-    try self.emit(", @as(f64, @floatFromInt(");
+    try emitConst(self,", @as(f64, @floatFromInt(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try self.emit("1");
+        try emitConst(self,"1");
     }
-    try self.emit(")))");
+    try emitConst(self,")))");
 }

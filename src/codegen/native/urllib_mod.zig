@@ -28,14 +28,33 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genUrljoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) { try self.emit("\"\""); return; }
+    const b = try self.getBuilder();
+    if (args.len < 2) {
+        try b.write("\"\"");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+        return;
+    }
     try self.withInlineBlock("join", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _base = ");
+            const b2 = try c.getBuilder();
+            try b2.write("const _base = ");
+            const output1 = b2.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emit("; const _url = ");
+            {
+                const b3 = try c.getBuilder();
+                try b3.write("; const _url = ");
+                const output2 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
             try c.genExpr(a[1]);
-            try c.emitFmt("; if (std.mem.indexOf(u8, _url, \"://\") != null) break :{s} _url; if (_url.len > 0 and _url[0] == '/') {{ if (std.mem.indexOf(u8, _base, \"://\")) |i| {{ if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| {{ var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, _base[0..j]) catch unreachable; r.appendSlice(__global_allocator, _url) catch unreachable; break :{s} r.items; }} }} }} break :{s} _url", .{ label, label, label });
+            {
+                const b3 = try c.getBuilder();
+                try b3.writeFmt("; if (std.mem.indexOf(u8, _url, \"://\") != null) break :{s} _url; if (_url.len > 0 and _url[0] == '/') {{ if (std.mem.indexOf(u8, _base, \"://\")) |i| {{ if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| {{ var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, _base[0..j]) catch unreachable; r.appendSlice(__global_allocator, _url) catch unreachable; break :{s} r.items; }} }} }} break :{s} _url", .{ label, label, label });
+                const output3 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output3);
+            }
         }
     }.emit);
 }

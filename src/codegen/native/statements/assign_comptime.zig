@@ -187,7 +187,7 @@ pub fn emitComptimeAssignment(
     }
 
     try b.write(";\n");
-    const output = b.getBody();
+    const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }
 

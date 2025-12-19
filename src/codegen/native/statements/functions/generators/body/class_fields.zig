@@ -7,17 +7,21 @@ const signature = @import("../signature.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const type_traits = @import("../../../../../../analysis/traits/type_traits.zig");
 const container_traits = @import("../../../../../../analysis/traits/container_traits.zig");
+const builder_mod = @import("codegen.builder");
 
 /// Generate struct fields from __init__ method
 pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
     try genClassFieldsImpl(self, class_name, init);
 
     // Add __dict__ for dynamic attributes (always enabled)
-    try self.emit("\n");
-    try self.emitIndent();
-    try self.emit("// Dynamic attributes dictionary\n");
-    try self.emitIndent();
-    try self.emit("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    const b = try self.getBuilder();
+    try b.write("\n");
+    try b.writeIndent();
+    try b.write("// Dynamic attributes dictionary\n");
+    try b.writeIndent();
+    try b.write("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// Generate struct fields from a method without adding __dict__ (for additional methods like setUp)
@@ -165,9 +169,10 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                         try self.nativeTypeToZigType(inferred);
                     defer self.allocator.free(field_type_str);
 
-                    try self.emitIndent();
+                    const b = try self.getBuilder();
+                    try b.writeIndent();
                     // Escape field name if it's a Zig keyword (e.g., "test")
-                    const writer = self.output.writer(self.allocator);
+                    const writer = b.body.writer(b.allocator);
                     try zig_keywords.writeEscapedIdent(writer, field_name);
                     if (with_defaults) {
                         // Add default value for fields set at runtime (e.g., setUp)
@@ -185,10 +190,12 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                             .list => ".{}",
                             else => "undefined",
                         };
-                        try writer.print(": {s} = {s},\n", .{ field_type_str, default_val });
+                        try b.writeFmt(": {s} = {s},\n", .{ field_type_str, default_val });
                     } else {
-                        try writer.print(": {s},\n", .{field_type_str});
+                        try b.writeFmt(": {s},\n", .{field_type_str});
                     }
+                    const output = b.getBodyAndClear();
+                    try self.output.appendSlice(self.allocator, output);
                 }
             }
         }
@@ -236,10 +243,11 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
                     try self.nativeTypeToZigType(inferred);
                 defer self.allocator.free(field_type_str);
 
-                try self.emitIndent();
-                try self.emit("// Class-level attribute\n");
-                try self.emitIndent();
-                const writer = self.output.writer(self.allocator);
+                const b = try self.getBuilder();
+                try b.writeIndent();
+                try b.write("// Class-level attribute\n");
+                try b.writeIndent();
+                const writer = b.body.writer(b.allocator);
                 try zig_keywords.writeEscapedIdent(writer, field_name);
                 // Class-level attributes need default initialization
                 // Use .{} for structs/arrays/lists, or specific default for primitives
@@ -250,7 +258,9 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
                     .string => "\"\"",
                     else => ".{}",
                 };
-                try writer.print(": {s} = {s},\n", .{ field_type_str, default_val });
+                try b.writeFmt(": {s} = {s},\n", .{ field_type_str, default_val });
+                const output = b.getBodyAndClear();
+                try self.output.appendSlice(self.allocator, output);
             }
         }
     }
@@ -520,19 +530,20 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                 // Infer type from the value
                 const inferred_type = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
 
-                try self.emitIndent();
-                try self.emit("// Class attribute: ");
-                try self.emit(attr_name);
-                try self.emit("\n");
-                try self.emitIndent();
+                const b = try self.getBuilder();
+                try b.writeIndent();
+                try b.write("// Class attribute: ");
+                try b.write(attr_name);
+                try b.write("\n");
+                try b.writeIndent();
 
                 // Escape Zig keywords using @"..." syntax
                 if (zig_keywords.isZigKeyword(attr_name)) {
-                    try self.emit("@\"");
-                    try self.emit(attr_name);
-                    try self.emit("\"");
+                    try b.write("@\"");
+                    try b.write(attr_name);
+                    try b.write("\"");
                 } else {
-                    try self.emit(attr_name);
+                    try b.write(attr_name);
                 }
 
                 // For tuples of class references, use anytype
@@ -540,23 +551,25 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                 const type_tag = @as(std.meta.Tag(@TypeOf(inferred_type)), inferred_type);
                 if (type_tag == .tuple or type_tag == .unknown or type_tag == .pyvalue) {
                     // Use anytype for complex types - will be set in comptime init
-                    try self.emit(": @TypeOf(.{}) = .{},\n");
+                    try b.write(": @TypeOf(.{}) = .{},\n");
                 } else {
                     const zig_type = self.nativeTypeToZigType(inferred_type) catch "i64";
                     defer self.allocator.free(zig_type);
-                    try self.emit(": ");
-                    try self.emit(zig_type);
-                    try self.emit(" = ");
+                    try b.write(": ");
+                    try b.write(zig_type);
+                    try b.write(" = ");
                     // Generate default value based on type
                     switch (type_tag) {
-                        .int, .usize => try self.emit("0"),
-                        .float => try self.emit("0.0"),
-                        .bool => try self.emit("false"),
-                        .string => try self.emit("\"\""),
-                        else => try self.emit(".{}"),
+                        .int, .usize => try b.write("0"),
+                        .float => try b.write("0.0"),
+                        .bool => try b.write("false"),
+                        .string => try b.write("\"\""),
+                        else => try b.write(".{}"),
                     }
-                    try self.emit(",\n");
+                    try b.write(",\n");
                 }
+                const output = b.getBodyAndClear();
+                try self.output.appendSlice(self.allocator, output);
             }
         }
     }

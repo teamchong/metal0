@@ -40,7 +40,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
         }
 
-        const output = b.getBody();
+        const output = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -73,7 +73,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             try b.write(path);
             try b.write(";\n");
 
-            const output = b.getBody();
+            const output = b.getBodyAndClear();
             try self.output.appendSlice(self.allocator, output);
         }
     }
@@ -104,7 +104,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
             self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
         }
 
-        const output = b.getBody();
+        const output = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -151,7 +151,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 try b.write(";\n");
             }
 
-            const output = b.getBody();
+            const output = b.getBodyAndClear();
             try self.output.appendSlice(self.allocator, output);
         } else {
             // Module uses inline codegen (e.g., random) - track symbols for dispatch

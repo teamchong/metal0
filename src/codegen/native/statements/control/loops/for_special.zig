@@ -8,6 +8,7 @@ const param_analyzer = @import("../../functions/param_analyzer.zig");
 const for_basic = @import("for_basic.zig");
 const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../../../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
 
 /// Generate enumerate loop
 pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
@@ -17,35 +18,73 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         // Generate tuple iteration where each iteration produces a (idx, val) struct
         const var_name = target.name.id;
         if (args.len == 0) {
-            try self.emitIndent();
-            try self.emit("@compileError(\"enumerate() requires at least 1 argument\");\n");
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("@compileError(\"enumerate() requires at least 1 argument\");\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
             return;
         }
-        try self.emitIndent();
-        try self.emit("{\n");
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("{\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         self.indent();
-        try self.emitIndent();
-        try self.emit("var __enum_idx: usize = 0;\n");
-        try self.emitIndent();
-        try self.emit("for (");
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("var __enum_idx: usize = 0;\n");
+            try b.writeIndent();
+            try b.write("for (");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(args[0]);
-        try self.emit(") |__enum_val| {\n");
+        {
+            const b = try self.getBuilder();
+            try b.write(") |__enum_val| {\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         self.indent();
-        try self.emitIndent();
-        try self.emit("const ");
-        try self.emit(var_name);
-        try self.emit(" = .{ __enum_idx, __enum_val };\n");
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("const ");
+            try b.write(var_name);
+            try b.write(" = .{ __enum_idx, __enum_val };\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         for (body) |stmt| {
             try self.generateStmt(stmt);
         }
-        try self.emitIndent();
-        try self.emit("__enum_idx += 1;\n");
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("__enum_idx += 1;\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("}\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("}\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         return;
     }
 
@@ -55,15 +94,21 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         .tuple => |t| t.elts,
         else => {
             // Unknown target type - generate compile error
-            try self.emitIndent();
-            try self.emit("@compileError(\"enumerate() target must be a tuple/list for unpacking or a single variable\");\n");
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("@compileError(\"enumerate() target must be a tuple/list for unpacking or a single variable\");\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
             return;
         },
     };
     if (target_elts.len != 2) {
         // Not exactly 2 elements - Python only supports (idx, value) unpacking
-        try self.emitIndent();
-        try self.emit("@compileError(\"enumerate() unpacking requires exactly 2 variables: (index, value)\");\n");
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("@compileError(\"enumerate() unpacking requires exactly 2 variables: (index, value)\");\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
 
@@ -90,38 +135,66 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     }
 
     // Generate block scope
-    try self.emitIndent();
-    try self.emit("{\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("{\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     self.indent();
 
     // Generate index counter: var __enum_idx_N: usize = start;
     // Use output buffer length as unique ID to avoid shadowing in nested loops
     const unique_id = self.output.items.len;
-    try self.emitIndent();
-    try self.emitFmt("var __enum_idx_{d}: usize = ", .{unique_id});
-    if (start_value != 0) {
-        try self.emitFmt("{d}", .{start_value});
-    } else {
-        try self.emit("0");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.writeFmt("var __enum_idx_{d}: usize = ", .{unique_id});
+        if (start_value != 0) {
+            try b.writeFmt("{d}", .{start_value});
+        } else {
+            try b.write("0");
+        }
+        try b.write(";\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(";\n");
 
     // Generate for loop over iterable
-    try self.emitIndent();
-    try self.emit("for (");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("for (");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // Check if we need to add .items for ArrayList
     const iter_type = try self.type_inferrer.inferExpr(iterable);
 
     // If iterating over list literal, wrap in parens for .items access
     if (container_traits.isList(iter_type) and iterable == .list) {
-        try self.emit("(");
+        {
+            const b = try self.getBuilder();
+            try b.write("(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(iterable);
-        try self.emit(").items");
+        {
+            const b = try self.getBuilder();
+            try b.write(").items");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
     } else {
         try self.genExpr(iterable);
         if (container_traits.isList(iter_type)) {
-            try self.emit(".items");
+            const b = try self.getBuilder();
+            try b.write(".items");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
         }
     }
 
@@ -134,16 +207,21 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     const enum_unique_capture_id = em.peekLabelId();
     if (shadows_import and item_var_used) _ = em.reserveLabelId();
 
-    try self.emit(") |");
-    if (!item_var_used) {
-        try self.emit("_");
-    } else if (shadows_import) {
-        // Use unique capture name to avoid shadowing module import
-        try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
-    } else {
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
+    {
+        const b = try self.getBuilder();
+        try b.write(") |");
+        if (!item_var_used) {
+            try b.write("_");
+        } else if (shadows_import) {
+            // Use unique capture name to avoid shadowing module import
+            try b.writeFmt("__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
+        } else {
+            try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
+        }
+        try b.write("| {\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit("| {\n");
 
     self.indent();
 
@@ -161,50 +239,72 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     // AST-based usage analysis and actual codegen (e.g., class field assignments
     // that get optimized away during class codegen)
     if (item_var_used) {
-        try self.emitIndent();
-        try self.emit("_ = &");
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("_ = &");
         if (shadows_import) {
-            try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
+            try b.writeFmt("__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
         } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
+            try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
         }
-        try self.emit(";\n");
+        try b.write(";\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 
     // Generate: const idx = __enum_idx_N;
-    try self.emitIndent();
-    try self.emit("const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), idx_var);
-    try self.output.writer(self.allocator).print(" = __enum_idx_{d};\n", .{unique_id});
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("const ");
+        try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), idx_var);
+        try b.writeFmt(" = __enum_idx_{d};\n", .{unique_id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     // Suppress unused warning only if idx_var is NOT used in body
     if (!param_analyzer.isNameUsedInBody(body, idx_var)) {
-        try self.emitIndent();
-        try self.emit("_ = ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), idx_var);
-        try self.emit(";\n");
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("_ = ");
+        try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), idx_var);
+        try b.write(";\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 
     // Generate: __enum_idx_N += 1;
-    try self.emitIndent();
-    try self.emitFmt("__enum_idx_{d} += 1;\n", .{unique_id});
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.writeFmt("__enum_idx_{d} += 1;\n", .{unique_id});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // If item was a nested tuple, unpack it
     if (item_is_tuple) {
         const nested_elts = if (target_elts[1] == .tuple) target_elts[1].tuple.elts else target_elts[1].list.elts;
         for (nested_elts, 0..) |elt, i| {
             if (elt == .name) {
-                try self.emitIndent();
-                try self.emit("const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), elt.name.id);
-                try self.emit(" = ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), item_var);
-                try self.output.writer(self.allocator).print(".@\"{d}\";\n", .{i});
+                const b = try self.getBuilder();
+                try b.writeIndent();
+                try b.write("const ");
+                try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), elt.name.id);
+                try b.write(" = ");
+                try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
+                try b.writeFmt(".@\"{d}\";\n", .{i});
+                const output = b.getBodyAndClear();
+                try self.output.appendSlice(self.allocator, output);
                 // Only suppress unused warning if variable is NOT used in body
                 if (!param_analyzer.isNameUsedInBody(body, elt.name.id)) {
-                    try self.emitIndent();
-                    try self.emit("_ = ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), elt.name.id);
-                    try self.emit(";\n");
+                    const b2 = try self.getBuilder();
+                    try b2.writeIndent();
+                    try b2.write("_ = ");
+                    try zig_keywords.writeEscapedIdent(b2.body.writer(b2.allocator), elt.name.id);
+                    try b2.write(";\n");
+                    const output2 = b2.getBody();
+                    try self.output.appendSlice(self.allocator, output2);
                 }
             }
         }
@@ -224,13 +324,23 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     }
 
     self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("}\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // Close block scope
     self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("}\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }
 
 /// Generate zip() loop
@@ -267,8 +377,13 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     }
 
     // Open block for scoping
-    try self.emitIndent();
-    try self.emit("{\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("{\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     self.indent();
 
     // Check type of each iterable to determine if we need .items
@@ -282,53 +397,78 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     // Store each iterable in a temporary variable: const __zip_iter_N = ...
     for (args, 0..) |iterable, i| {
-        try self.emitIndent();
-        try self.emitFmt("const __zip_iter_{d} = ", .{i});
+        {
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.writeFmt("const __zip_iter_{d} = ", .{i});
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.genExpr(iterable);
-        try self.emit(";\n");
+        {
+            const b = try self.getBuilder();
+            try b.write(";\n");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
     }
 
     // Generate: var __zip_idx: usize = 0;
-    try self.emitIndent();
-    try self.emit("var __zip_idx: usize = 0;\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("var __zip_idx: usize = 0;\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // Generate: const __zip_len = @min(iter0.len, @min(iter1.len, ...));
-    try self.emitIndent();
-    try self.emit("const __zip_len = ");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("const __zip_len = ");
 
-    // Build nested @min calls - use .items.len for lists, .len for arrays
-    if (args.len == 2) {
-        try self.emit("@min(__zip_iter_0");
-        if (iter_is_list[0]) try self.emit(".items");
-        try self.emit(".len, __zip_iter_1");
-        if (iter_is_list[1]) try self.emit(".items");
-        try self.emit(".len)");
-    } else {
-        // For 3+ iterables: @min(iter0.len, @min(iter1.len, @min(iter2.len, ...)))
-        try self.emit("@min(__zip_iter_0");
-        if (iter_is_list[0]) try self.emit(".items");
-        try self.emit(".len, ");
-        for (1..args.len - 1) |_| {
-            try self.emit("@min(");
-        }
-        for (1..args.len) |i| {
-            try self.emitFmt("__zip_iter_{d}", .{i});
-            if (iter_is_list[i]) try self.emit(".items");
-            try self.emit(".len");
-            if (i < args.len - 1) {
-                try self.emit(", ");
+        // Build nested @min calls - use .items.len for lists, .len for arrays
+        if (args.len == 2) {
+            try b.write("@min(__zip_iter_0");
+            if (iter_is_list[0]) try b.write(".items");
+            try b.write(".len, __zip_iter_1");
+            if (iter_is_list[1]) try b.write(".items");
+            try b.write(".len)");
+        } else {
+            // For 3+ iterables: @min(iter0.len, @min(iter1.len, @min(iter2.len, ...)))
+            try b.write("@min(__zip_iter_0");
+            if (iter_is_list[0]) try b.write(".items");
+            try b.write(".len, ");
+            for (1..args.len - 1) |_| {
+                try b.write("@min(");
             }
+            for (1..args.len) |i| {
+                try b.writeFmt("__zip_iter_{d}", .{i});
+                if (iter_is_list[i]) try b.write(".items");
+                try b.write(".len");
+                if (i < args.len - 1) {
+                    try b.write(", ");
+                }
+            }
+            for (1..args.len - 1) |_| {
+                try b.write(")");
+            }
+            try b.write(")");
         }
-        for (1..args.len - 1) |_| {
-            try self.emit(")");
-        }
-        try self.emit(")");
+        try b.write(";\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emit(";\n");
 
     // Generate: while (__zip_idx < __zip_len) : (__zip_idx += 1) {
-    try self.emitIndent();
-    try self.emit("while (__zip_idx < __zip_len) : (__zip_idx += 1) {\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("while (__zip_idx < __zip_len) : (__zip_idx += 1) {\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     self.indent();
 
     // Push new scope for loop body
@@ -342,12 +482,15 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     for (target_elts, 0..) |elt, i| {
         const var_name = if (elt == .name) elt.name.id else "_";
-        try self.emitIndent();
-        try self.emit("const ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.output.writer(self.allocator).print(" = __zip_iter_{d}", .{i});
-        if (iter_is_list[i]) try self.emit(".items");
-        try self.emit("[__zip_idx];\n");
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("const ");
+        try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), var_name);
+        try b.writeFmt(" = __zip_iter_{d}", .{i});
+        if (iter_is_list[i]) try b.write(".items");
+        try b.write("[__zip_idx];\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
 
         // Add variable to symbol table so nested scopes can detect shadowing
         if (elt == .name and !std.mem.eql(u8, var_name, "_")) {
@@ -365,10 +508,13 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     // Emit _ = &var; for any unused variables to suppress Zig warnings
     for (unused_vars.items) |var_name| {
-        try self.emitIndent();
-        try self.emit("_ = &");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try self.emit(";\n");
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("_ = &");
+        try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), var_name);
+        try b.write(";\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 
     // Generate body statements
@@ -381,11 +527,21 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     // Close while loop
     self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("}\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 
     // Close block scope
     self.dedent();
-    try self.emitIndent();
-    try self.emit("}\n");
+    {
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.write("}\n");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
 }

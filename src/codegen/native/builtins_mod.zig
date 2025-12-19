@@ -10,26 +10,51 @@ const builtins = @import("builtins.zig");
 const expressions = @import("expressions.zig");
 const expr_emitter = @import("expr_emitter.zig");
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 // Comptime generators
 fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) h.H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-            if (args.len > 0) { try self.emit("(try std.fmt.allocPrint(__global_allocator, \"" ++ prefix ++ "{" ++ fmt ++ "}\", .{"); try self.genExpr(args[0]); try self.emit("}))"); }
-            else try self.emit("\"" ++ default ++ "\"");
+            if (args.len > 0) {
+                {
+                    const b = try self.getBuilder();
+                    try b.write("(try std.fmt.allocPrint(__global_allocator, \"" ++ prefix ++ "{" ++ fmt ++ "}\", .{");
+                    const output = b.getBodyAndClear();
+                    try self.output.appendSlice(self.allocator, output);
+                }
+                try self.genExpr(args[0]);
+                try emitConst(self, "}))");
+            } else try emitConst(self, "\"" ++ default ++ "\"");
         }
     }.f;
 }
+
 fn sideEffect(self: *NativeCodegen, args: []ast.Node, comptime default: []const u8) CodegenError!void {
     if (args.len >= 1 and args[0] == .call) {
         try self.withInlineBlock("side", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try c.emit("_ = ");
+                const b = try c.getBuilder();
+                try b.write("_ = ");
+                const output1 = b.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
-                try c.emitFmt("; break :{s} " ++ default, .{label});
+                {
+                    const b2 = try c.getBuilder();
+                    try b2.writeFmt("; break :{s} " ++ default, .{label});
+                    const output2 = b2.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output2);
+                }
             }
         }.emit);
     } else {
-        try self.emit(default);
+        try emitConst(self, default);
     }
 }
 
@@ -91,9 +116,28 @@ fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2 and (args[0] == .call or args[1] == .call)) {
         try self.withInlineBlock("isinstance", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                if (a[0] == .call) { try c.emit("_ = "); try c.genExpr(a[0]); try c.emit("; "); }
-                if (a[1] == .call) { try c.emit("_ = "); try c.genExpr(a[1]); try c.emit("; "); }
-                try c.emitFmt("break :{s} true", .{label});
+                if (a[0] == .call) {
+                    const b = try c.getBuilder();
+                    try b.write("_ = ");
+                    const output = b.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output);
+                    try c.genExpr(a[0]);
+                    try emitConst(c, "; ");
+                }
+                if (a[1] == .call) {
+                    const b = try c.getBuilder();
+                    try b.write("_ = ");
+                    const output = b.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output);
+                    try c.genExpr(a[1]);
+                    try emitConst(c, "; ");
+                }
+                {
+                    const b = try c.getBuilder();
+                    try b.writeFmt("break :{s} true", .{label});
+                    const output = b.getBodyAndClear();
+                    try c.output.appendSlice(c.allocator, output);
+                }
             }
         }.emit);
     } else try sideEffect(self, args, "true");
@@ -101,48 +145,57 @@ fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "true"); }
 fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "@as(?*anyopaque, null)"); }
 fn genVoid(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "{{}}"); }
+
 pub fn genSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // slice(stop) or slice(start, stop) or slice(start, stop, step)
-    try self.emit(".{ .start = ");
+    try emitConst(self, ".{ .start = ");
     if (args.len >= 2) {
-        try self.emit("@as(?i64, ");
+        try emitConst(self, "@as(?i64, ");
         try expressions.genExpr(self, args[0]);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("@as(?i64, null)");
+        try emitConst(self, "@as(?i64, null)");
     }
-    try self.emit(", .stop = ");
+    try emitConst(self, ", .stop = ");
     if (args.len >= 1) {
-        try self.emit("@as(?i64, ");
+        try emitConst(self, "@as(?i64, ");
         if (args.len == 1) {
             try expressions.genExpr(self, args[0]);
         } else {
             try expressions.genExpr(self, args[1]);
         }
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("@as(?i64, null)");
+        try emitConst(self, "@as(?i64, null)");
     }
-    try self.emit(", .step = ");
+    try emitConst(self, ", .step = ");
     if (args.len >= 3) {
-        try self.emit("@as(?i64, ");
+        try emitConst(self, "@as(?i64, ");
         try expressions.genExpr(self, args[2]);
-        try self.emit(")");
+        try emitConst(self, ")");
     } else {
-        try self.emit("@as(?i64, null)");
+        try emitConst(self, "@as(?i64, null)");
     }
-    try self.emit(" }");
+    try emitConst(self, " }");
 }
 
 pub fn genSuper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     if (self.current_class_name) |current_class| {
         if (self.getParentClassName(current_class)) |parent_class| {
-            try self.emit("@as(*const "); try self.emit(parent_class); try self.emit(", @ptrCast(__self))");
+            const b = try self.getBuilder();
+            try b.write("@as(*const ");
+            try b.write(parent_class);
+            try b.write(", @ptrCast(__self))");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
             return;
         }
     }
     var em = self.exprEmitter();
     const id = em.reserveLabelId();
-    try self.emitFmt("super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
+    const b = try self.getBuilder();
+    try b.writeFmt("super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }

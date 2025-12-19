@@ -11,9 +11,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "pack_into", genPackInto }, .{ "unpack_from", genUnpackFrom }, .{ "iter_unpack", genIterUnpack },
 });
 
-fn emitNum(self: *NativeCodegen, n: usize) CodegenError!void {
-    var buf: [20]u8 = undefined;
-    try self.emit(std.fmt.bufPrint(&buf, "{d}", .{n}) catch return);
+fn emitNum(b: anytype, n: usize) !void {
+    try b.writeFmt("{d}", .{n});
 }
 
 fn getFormatStr(arg: ast.Node) ?[]const u8 {
@@ -38,24 +37,65 @@ fn getFmtOff(fmt: []const u8) usize {
 pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         // struct.pack() with no args or only keyword args raises TypeError
-        try self.emit("runtime.builtins.structPackNoArgs()");
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.structPackNoArgs()");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     const fmt_str = getFormatStr(args[0]);
     const fmt_off: usize = if (fmt_str) |f| getFmtOff(f) else 0;
     // For struct.pack, we need to emit the args inline since we iterate over them
     const label = try self.emitInlineBlockStart("struct_pack");
-    try self.emit("const _fmt = "); try self.genExpr(args[0]);
-    try self.emit("; var _buf: [1024]u8 = undefined; var _pos: usize = 0; ");
+    {
+        const b = try self.getBuilder();
+        try b.write("const _fmt = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+    try self.genExpr(args[0]);
+    {
+        const b = try self.getBuilder();
+        try b.write("; var _buf: [1024]u8 = undefined; var _pos: usize = 0; ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     for (args[1..], 0..) |arg, i| {
         const fc: u8 = if (fmt_str) |f| (if (i + fmt_off < f.len) f[i + fmt_off] else 'i') else 'i';
-        try self.emit("const _val"); try emitNum(self, i); try self.emit(": "); try self.emit(getPackType(fc));
-        try self.emit(if (fc == 'f' or fc == 'd') " = @floatCast(" else " = runtime.packInt("); try self.genExpr(arg);
-        try self.emit("); const _bytes"); try emitNum(self, i); try self.emit(" = std.mem.asBytes(&_val"); try emitNum(self, i);
-        try self.emit("); @memcpy(_buf[_pos..][0.._bytes"); try emitNum(self, i); try self.emit(".len], _bytes"); try emitNum(self, i);
-        try self.emit("); _pos += _bytes"); try emitNum(self, i); try self.emit(".len; ");
+        {
+            const b = try self.getBuilder();
+            try b.write("const _val");
+            try emitNum(b, i);
+            try b.write(": ");
+            try b.write(getPackType(fc));
+            try b.write(if (fc == 'f' or fc == 'd') " = @floatCast(" else " = runtime.packInt(");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
+        try self.genExpr(arg);
+        {
+            const b = try self.getBuilder();
+            try b.write("); const _bytes");
+            try emitNum(b, i);
+            try b.write(" = std.mem.asBytes(&_val");
+            try emitNum(b, i);
+            try b.write("); @memcpy(_buf[_pos..][0.._bytes");
+            try emitNum(b, i);
+            try b.write(".len], _bytes");
+            try emitNum(b, i);
+            try b.write("); _pos += _bytes");
+            try emitNum(b, i);
+            try b.write(".len; ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
     }
-    try self.emitFmt("_ = _fmt; break :{s} _buf[0.._pos]; ", .{label});
+    {
+        const b = try self.getBuilder();
+        try b.writeFmt("_ = _fmt; break :{s} _buf[0.._pos]; ", .{label});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     try self.emitInlineBlockEnd();
 }
 
@@ -64,28 +104,74 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const fmt_str = getFormatStr(args[0]);
     // For struct.unpack, we need to emit inline since we iterate over fmt
     const label = try self.emitInlineBlockStart("struct_unpack");
-    try self.emit("const _fmt = "); try self.genExpr(args[0]);
-    try self.emit("; const _raw_data = "); try self.genExpr(args[1]);
+    {
+        const b = try self.getBuilder();
+        try b.write("const _fmt = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+    try self.genExpr(args[0]);
+    {
+        const b = try self.getBuilder();
+        try b.write("; const _raw_data = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+    try self.genExpr(args[1]);
     // Handle PyBytes (has .data field) vs raw slice
-    try self.emit("; const _data = if (@TypeOf(_raw_data) == runtime.builtins.PyBytes) _raw_data.data else _raw_data; _ = _fmt; ");
+    {
+        const b = try self.getBuilder();
+        try b.write("; const _data = if (@TypeOf(_raw_data) == runtime.builtins.PyBytes) _raw_data.data else _raw_data; _ = _fmt; ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     if (fmt_str) |fmt| {
-        try self.emit("var _pos: usize = 0; ");
+        {
+            const b = try self.getBuilder();
+            try b.write("var _pos: usize = 0; ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         for (fmt, 0..) |c, i| {
             const ty = getPackType(c);
-            try self.emit("const _val"); try emitNum(self, i);
+            const b = try self.getBuilder();
+            try b.write("const _val");
+            try emitNum(b, i);
             if (c == 'f' or c == 'd') {
-                try self.emit(": "); try self.emit(ty); try self.emit(" = std.mem.bytesToValue("); try self.emit(ty);
+                try b.write(": ");
+                try b.write(ty);
+                try b.write(" = std.mem.bytesToValue(");
+                try b.write(ty);
             } else {
-                try self.emit(": i64 = @intCast(std.mem.bytesToValue("); try self.emit(ty);
+                try b.write(": i64 = @intCast(std.mem.bytesToValue(");
+                try b.write(ty);
             }
-            try self.emit(", _data[_pos..][0.."); try self.emit(getUnpackSize(c)); try self.emit("])); _pos += "); try self.emit(getUnpackSize(c)); try self.emit("; ");
+            try b.write(", _data[_pos..][0..");
+            try b.write(getUnpackSize(c));
+            try b.write("])); _pos += ");
+            try b.write(getUnpackSize(c));
+            try b.write("; ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
         }
-        try self.emitFmt("break :{s} .{{", .{label});
-        for (0..fmt.len) |i| { if (i > 0) try self.emit(", "); try self.emit("_val"); try emitNum(self, i); }
-        try self.emit("}; ");
+        {
+            const b = try self.getBuilder();
+            try b.writeFmt("break :{s} .{{", .{label});
+            for (0..fmt.len) |i| {
+                if (i > 0) try b.write(", ");
+                try b.write("_val");
+                try emitNum(b, i);
+            }
+            try b.write("}; ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
         try self.emitInlineBlockEnd();
     } else {
-        try self.emitFmt("const _val = std.mem.bytesToValue(i32, _data[0..4]); break :{s} .{{_val}}; ", .{label});
+        const b = try self.getBuilder();
+        try b.writeFmt("const _val = std.mem.bytesToValue(i32, _data[0..4]); break :{s} .{{_val}}; ", .{label});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         try self.emitInlineBlockEnd();
     }
 }
@@ -93,14 +179,25 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 // struct.calcsize: handle both []const u8 and PyValue (from generators)
 pub fn genCalcsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("@as(i64, 0)");
+        const b = try self.getBuilder();
+        try b.write("@as(i64, 0)");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.withInlineBlock("struct_calcsize", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _raw_fmt = ");
+            const b = try c.getBuilder();
+            try b.write("const _raw_fmt = ");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emitFmt("; const _fmt = if (@TypeOf(_raw_fmt) == runtime.PyValue) _raw_fmt.asString() else _raw_fmt; var _size: usize = 0; for (_fmt) |c| {{ _size += switch (c) {{ 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }}; }} break :{s} @as(i64, @intCast(_size)); ", .{label});
+            {
+                const b2 = try c.getBuilder();
+                try b2.writeFmt("; const _fmt = if (@TypeOf(_raw_fmt) == runtime.PyValue) _raw_fmt.asString() else _raw_fmt; var _size: usize = 0; for (_fmt) |fc| {{ _size += switch (fc) {{ 'b', 'B', 'c', '?', 'x' => 1, 'h', 'H' => 2, 'i', 'I', 'l', 'L', 'f' => 4, 'q', 'Q', 'd' => 8, else => 0 }}; }} break :{s} @as(i64, @intCast(_size)); ", .{label});
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
         }
     }.emit);
 }
@@ -108,21 +205,74 @@ pub fn genCalcsize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 fn genPackInto(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) {
         // struct.pack_into() with insufficient args raises TypeError
-        try self.emit("runtime.builtins.structPackIntoNoArgs()");
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.structPackIntoNoArgs()");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     // For struct.pack_into, we need to emit inline since we iterate over args
     const label = try self.emitInlineBlockStart("struct_pack_into");
-    try self.emit("const _fmt = "); try self.genExpr(args[0]);
-    try self.emit("; const _buf = "); try self.genExpr(args[1]);
-    try self.emit("; var _offset: usize = @intCast("); try self.genExpr(args[2]); try self.emit("); _ = _fmt; ");
-    for (args[3..], 0..) |arg, i| {
-        try self.emit("const _val"); try emitNum(self, i); try self.emit(" = "); try self.genExpr(arg);
-        try self.emit("; const _bytes"); try emitNum(self, i); try self.emit(" = std.mem.asBytes(&_val"); try emitNum(self, i);
-        try self.emit("); @memcpy(_buf[_offset..][0.._bytes"); try emitNum(self, i); try self.emit(".len], _bytes"); try emitNum(self, i);
-        try self.emit("); _offset += _bytes"); try emitNum(self, i); try self.emit(".len; ");
+    {
+        const b = try self.getBuilder();
+        try b.write("const _fmt = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
-    try self.emitFmt("break :{s}; ", .{label});
+    try self.genExpr(args[0]);
+    {
+        const b = try self.getBuilder();
+        try b.write("; const _buf = ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+    try self.genExpr(args[1]);
+    {
+        const b = try self.getBuilder();
+        try b.write("; var _offset: usize = @intCast(");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+    try self.genExpr(args[2]);
+    {
+        const b = try self.getBuilder();
+        try b.write("); _ = _fmt; ");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+    for (args[3..], 0..) |arg, i| {
+        {
+            const b = try self.getBuilder();
+            try b.write("const _val");
+            try emitNum(b, i);
+            try b.write(" = ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
+        try self.genExpr(arg);
+        {
+            const b = try self.getBuilder();
+            try b.write("; const _bytes");
+            try emitNum(b, i);
+            try b.write(" = std.mem.asBytes(&_val");
+            try emitNum(b, i);
+            try b.write("); @memcpy(_buf[_offset..][0.._bytes");
+            try emitNum(b, i);
+            try b.write(".len], _bytes");
+            try emitNum(b, i);
+            try b.write("); _offset += _bytes");
+            try emitNum(b, i);
+            try b.write(".len; ");
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+        }
+    }
+    {
+        const b = try self.getBuilder();
+        try b.writeFmt("break :{s}; ", .{label});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
     try self.emitInlineBlockEnd();
 }
 
@@ -130,26 +280,78 @@ fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) return error.UnsupportedSyntax;
     try self.withInlineBlock("struct_unpack_from", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _fmt = "); try c.genExpr(a[0]);
-            try c.emit("; const _data = "); try c.genExpr(a[1]); try c.emit("; const _offset: usize = ");
-            if (a.len > 2) { try c.emit("@intCast("); try c.genExpr(a[2]); try c.emit(")"); } else try c.emit("0");
-            try c.emitFmt("; _ = _fmt; const _val = std.mem.bytesToValue(i32, _data[_offset..][0..4]); break :{s} .{{_val}}; ", .{label});
+            const b = try c.getBuilder();
+            try b.write("const _fmt = ");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
+            try c.genExpr(a[0]);
+            {
+                const b2 = try c.getBuilder();
+                try b2.write("; const _data = ");
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
+            try c.genExpr(a[1]);
+            {
+                const b3 = try c.getBuilder();
+                try b3.write("; const _offset: usize = ");
+                const output3 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output3);
+            }
+            if (a.len > 2) {
+                const b4 = try c.getBuilder();
+                try b4.write("@intCast(");
+                const output4 = b4.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output4);
+                try c.genExpr(a[2]);
+                const b5 = try c.getBuilder();
+                try b5.write(")");
+                const output5 = b5.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output5);
+            } else {
+                const b4 = try c.getBuilder();
+                try b4.write("0");
+                const output4 = b4.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output4);
+            }
+            {
+                const b6 = try c.getBuilder();
+                try b6.writeFmt("; _ = _fmt; const _val = std.mem.bytesToValue(i32, _data[_offset..][0..4]); break :{s} .{{_val}}; ", .{label});
+                const output6 = b6.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output6);
+            }
         }
     }.emit);
 }
 
 fn genIterUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try self.emit("struct { pub fn next(__self: *@This()) ?i32 { _ = __self; return null; } }{}");
+        const b = try self.getBuilder();
+        try b.write("struct { pub fn next(__self: *@This()) ?i32 { _ = __self; return null; } }{}");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.withInlineBlock("struct_iter_unpack", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _fmt = ");
+            const b = try c.getBuilder();
+            try b.write("const _fmt = ");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emit("; const _data = ");
+            {
+                const b2 = try c.getBuilder();
+                try b2.write("; const _data = ");
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
             try c.genExpr(a[1]);
-            try c.emitFmt("; _ = _fmt; _ = _data; break :{s} struct {{ items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 {{ if (__self.pos + 4 <= __self.items.len) {{ const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; }} return null; }} }}{{ .items = _data }}; ", .{label});
+            {
+                const b3 = try c.getBuilder();
+                try b3.writeFmt("; _ = _fmt; _ = _data; break :{s} struct {{ items: []const u8, pos: usize = 0, pub fn next(__self: *@This()) ?i32 {{ if (__self.pos + 4 <= __self.items.len) {{ const val = std.mem.bytesToValue(i32, __self.items[__self.pos..][0..4]); __self.pos += 4; return val; }} return null; }} }}{{ .items = _data }}; ", .{label});
+                const output3 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output3);
+            }
         }
     }.emit);
 }

@@ -17,40 +17,72 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genBisectLeft(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len < 2) {
-        try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write("0");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.withInlineBlock("bsl", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const arr = ");
+            const b = try c.getBuilder();
+            try b.write("const arr = ");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emit("; const x = ");
+            {
+                const b2 = try c.getBuilder();
+                try b2.write("; const x = ");
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
             try c.genExpr(a[1]);
-            try c.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (arr[mid] < x) {{ lo = mid + 1; }} else {{ hi = mid; }} }} break :{s} @as(i64, @intCast(lo))", .{label});
+            {
+                const b3 = try c.getBuilder();
+                try b3.writeFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (arr[mid] < x) {{ lo = mid + 1; }} else {{ hi = mid; }} }} break :{s} @as(i64, @intCast(lo))", .{label});
+                const output3 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output3);
+            }
         }
     }.emit);
 }
 
 fn genBisectRight(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len < 2) {
-        try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
+        const b = try self.getBuilder();
+        try b.write("0");
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
     try self.withInlineBlock("bsr", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const arr = ");
+            const b = try c.getBuilder();
+            try b.write("const arr = ");
+            const output1 = b.getBodyAndClear();
+            try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
-            try c.emit("; const x = ");
+            {
+                const b2 = try c.getBuilder();
+                try b2.write("; const x = ");
+                const output2 = b2.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output2);
+            }
             try c.genExpr(a[1]);
-            try c.emitFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (x < arr[mid]) {{ hi = mid; }} else {{ lo = mid + 1; }} }} break :{s} @as(i64, @intCast(lo))", .{label});
+            {
+                const b3 = try c.getBuilder();
+                try b3.writeFmt("; var lo: usize = 0; var hi: usize = arr.len; while (lo < hi) {{ const mid = (lo + hi) / 2; if (x < arr[mid]) {{ hi = mid; }} else {{ lo = mid + 1; }} }} break :{s} @as(i64, @intCast(lo))", .{label});
+                const output3 = b3.getBodyAndClear();
+                try c.output.appendSlice(c.allocator, output3);
+            }
         }
     }.emit);
 }
 
 fn genInsort(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    try b.write("{}");
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
 }

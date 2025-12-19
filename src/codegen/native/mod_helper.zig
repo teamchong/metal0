@@ -1,16 +1,33 @@
 /// Shared module helper types and comptime generators for *_mod.zig files
+/// MIGRATED TO ZIGBUILDER
 const std = @import("std");
 const ast = @import("analysis.ast");
 pub const CodegenError = @import("main.zig").CodegenError;
 pub const NativeCodegen = @import("main.zig").NativeCodegen;
 const expr_emitter = @import("expr_emitter.zig");
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+
 /// Module handler function pointer type
 pub const H = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
 /// Generates a handler that emits a constant string
 pub fn c(comptime v: []const u8) H {
-    return struct { pub fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try self.emit(v); } }.f;
+    return struct { pub fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void { _ = args; try emitConst(self,v); } }.f;
 }
 
 /// Generates a handler that emits @as(i32, N)
@@ -49,19 +66,19 @@ pub fn discard(comptime ret: []const u8) H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len == 0) {
-                try self.emit(ret);
+                try emitConst(self,ret);
                 return;
             }
             // Generate: (__m{id}_discard: { _ = arg1; _ = arg2; break :__m{id}_discard default; })
             const label = try self.emitInlineBlockStart("discard");
             for (args, 0..) |arg, i| {
                 // Emit: _ = arg; (semicolon only needed before next arg)
-                if (i > 0) try self.emit(" ");
-                try self.emit("_ = ");
+                if (i > 0) try emitConst(self," ");
+                try emitConst(self,"_ = ");
                 try self.genExpr(arg);
-                if (i < args.len - 1) try self.emit(";"); // semicolon between args, not after last
+                if (i < args.len - 1) try emitConst(self,";"); // semicolon between args, not after last
             }
-            try self.emitFmt("; break :{s} {s}; ", .{ label, ret });
+            try emitFmtConst(self, "; break :{s} {s}; ", .{ label, ret });
             try self.emitInlineBlockEnd();
         }
     }.f;
@@ -70,7 +87,7 @@ pub fn discard(comptime ret: []const u8) H {
 /// Generates a handler that passes through first arg or emits default
 pub fn pass(comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) try self.genExpr(args[0]) else try self.emit(default);
+        if (args.len > 0) try self.genExpr(args[0]) else try emitConst(self,default);
     } }.f;
 }
 
@@ -79,28 +96,28 @@ pub fn pass(comptime default: []const u8) H {
 /// Generates @builtin(@as(f64, arg)) or default
 pub fn builtin1(comptime b: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(b ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+        if (args.len > 0) { try emitConst(self,b ++ "(@as(f64, "); try self.genExpr(args[0]); try emitConst(self,"))"); } else try emitConst(self,d);
     } }.f;
 }
 
 /// Generates std.math.fn(@as(f64, arg)) or default
 pub fn stdmath1(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+        if (args.len > 0) { try emitConst(self,"std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try emitConst(self,"))"); } else try emitConst(self,d);
     } }.f;
 }
 
 /// Generates std.math.fn(f64, @as(f64, arg)) or default
 pub fn stdmathT(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(f64, @as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+        if (args.len > 0) { try emitConst(self,"std.math." ++ fn_name ++ "(f64, @as(f64, "); try self.genExpr(args[0]); try emitConst(self,"))"); } else try emitConst(self,d);
     } }.f;
 }
 
 /// Generates std.math.fn(@as(f64, a), @as(f64, b)) or default
 pub fn stdmath2(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("), @as(f64, "); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit(d);
+        if (args.len >= 2) { try emitConst(self,"std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try emitConst(self,"), @as(f64, "); try self.genExpr(args[1]); try emitConst(self,"))"); } else try emitConst(self,d);
     } }.f;
 }
 
@@ -109,21 +126,21 @@ pub fn stdmath2(comptime fn_name: []const u8, comptime d: []const u8) H {
 /// Generates binary operator: (a op b) or default
 pub fn binop(comptime op: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit(d);
+        if (args.len >= 2) { try emitConst(self,"("); try self.genExpr(args[0]); try emitConst(self,op); try self.genExpr(args[1]); try emitConst(self,")"); } else try emitConst(self,d);
     } }.f;
 }
 
 /// Generates unary: pre + arg + suf
 pub fn unary(comptime pre: []const u8, comptime suf: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit("@as(i64, 0)");
+        if (args.len > 0) { try emitConst(self,pre); try self.genExpr(args[0]); try emitConst(self,suf); } else try emitConst(self,"@as(i64, 0)");
     } }.f;
 }
 
 /// Generates shift: (a op @intCast(b)) or default
 pub fn shift(comptime op: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit("@as(i64, 0)");
+        if (args.len >= 2) { try emitConst(self,"("); try self.genExpr(args[0]); try emitConst(self,op); try emitConst(self,"@intCast("); try self.genExpr(args[1]); try emitConst(self,"))"); } else try emitConst(self,"@as(i64, 0)");
     } }.f;
 }
 
@@ -132,7 +149,7 @@ pub fn shift(comptime op: []const u8) H {
 /// Use wrapBlk() instead for labeled blocks.
 pub fn wrap(comptime pre: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(suf); } else try self.emit(d);
+        if (args.len > 0) { try emitConst(self,pre); try self.genExpr(args[0]); try emitConst(self,suf); } else try emitConst(self,d);
     } }.f;
 }
 
@@ -144,11 +161,11 @@ pub fn wrap(comptime pre: []const u8, comptime suf: []const u8, comptime d: []co
 /// @param d: default value when no args
 pub fn wrapBlk(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(d); return; }
+        if (args.len == 0) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v = ");
+        try emitConst(self,"const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; {s} break :{s} {s}; ", .{ body, label, result });
+        try emitFmtConst(self, "; {s} break :{s} {s}; ", .{ body, label, result });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -157,11 +174,11 @@ pub fn wrapBlk(comptime name: []const u8, comptime body: []const u8, comptime re
 /// Use for stubs that need to consume arg but return a constant
 pub fn discardBlk(comptime name: []const u8, comptime result: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(d); return; }
+        if (args.len == 0) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("_ = ");
+        try emitConst(self,"_ = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} {s}; ", .{ label, result });
+        try emitFmtConst(self, "; break :{s} {s}; ", .{ label, result });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -172,11 +189,11 @@ pub fn discardBlk(comptime name: []const u8, comptime result: []const u8, compti
 /// @param d: default struct literal
 pub fn structBlk(comptime name: []const u8, comptime fields: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(d); return; }
+        if (args.len == 0) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v = ");
+        try emitConst(self,"const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} .{{ {s} }}; ", .{ label, fields });
+        try emitFmtConst(self, "; break :{s} .{{ {s} }}; ", .{ label, fields });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -184,7 +201,7 @@ pub fn structBlk(comptime name: []const u8, comptime fields: []const u8, comptim
 /// Passthrough Nth argument (0-indexed) or default
 pub fn passN(comptime n: usize, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > n) try self.genExpr(args[n]) else try self.emit(d);
+        if (args.len > n) try self.genExpr(args[n]) else try emitConst(self,d);
     } }.f;
 }
 
@@ -192,7 +209,7 @@ pub fn passN(comptime n: usize, comptime d: []const u8) H {
 /// WARNING: If pre contains "blk:", this will cause label conflicts. Use wrap2Blk() instead.
 pub fn wrap2(comptime pre: []const u8, comptime mid: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid); try self.genExpr(args[1]); try self.emit(suf); } else try self.emit(d);
+        if (args.len >= 2) { try emitConst(self,pre); try self.genExpr(args[0]); try emitConst(self,mid); try self.genExpr(args[1]); try emitConst(self,suf); } else try emitConst(self,d);
     } }.f;
 }
 
@@ -203,13 +220,13 @@ pub fn wrap2(comptime pre: []const u8, comptime mid: []const u8, comptime suf: [
 /// @param d: default when < 2 args
 pub fn wrap2Blk(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len < 2) { try self.emit(d); return; }
+        if (args.len < 2) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v0 = ");
+        try emitConst(self,"const __v0 = ");
         try self.genExpr(args[0]);
-        try self.emit("; const __v1 = ");
+        try emitConst(self,"; const __v1 = ");
         try self.genExpr(args[1]);
-        try self.emitFmt("; {s} break :{s} {s}; ", .{ body, label, result });
+        try emitFmtConst(self, "; {s} break :{s} {s}; ", .{ body, label, result });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -217,15 +234,15 @@ pub fn wrap2Blk(comptime name: []const u8, comptime body: []const u8, comptime r
 /// Generates wrap3Blk with unique ID: captures 3 args as __v0, __v1, __v2, executes body, returns result
 pub fn wrap3Blk(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len < 3) { try self.emit(d); return; }
+        if (args.len < 3) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v0 = ");
+        try emitConst(self,"const __v0 = ");
         try self.genExpr(args[0]);
-        try self.emit("; const __v1 = ");
+        try emitConst(self,"; const __v1 = ");
         try self.genExpr(args[1]);
-        try self.emit("; const __v2 = ");
+        try emitConst(self,"; const __v2 = ");
         try self.genExpr(args[2]);
-        try self.emitFmt("; {s} break :{s} {s}; ", .{ body, label, result });
+        try emitFmtConst(self, "; {s} break :{s} {s}; ", .{ body, label, result });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -233,21 +250,21 @@ pub fn wrap3Blk(comptime name: []const u8, comptime body: []const u8, comptime r
 /// Generates wrap3: pre + arg0 + mid1 + arg1 + mid2 + arg2 + suf, or default (requires 3+ args)
 pub fn wrap3(comptime pre: []const u8, comptime mid1: []const u8, comptime mid2: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 3) { try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid1); try self.genExpr(args[1]); try self.emit(mid2); try self.genExpr(args[2]); try self.emit(suf); } else try self.emit(d);
+        if (args.len >= 3) { try emitConst(self,pre); try self.genExpr(args[0]); try emitConst(self,mid1); try self.genExpr(args[1]); try emitConst(self,mid2); try self.genExpr(args[2]); try emitConst(self,suf); } else try emitConst(self,d);
     } }.f;
 }
 
 /// Generates type test: ((arg & mask) == expected) for stat module
 pub fn typeTest(comptime expected: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("(("); try self.genExpr(args[0]); try self.emit(" & 0o170000) == " ++ expected ++ ")"); } else try self.emit("false");
+        if (args.len > 0) { try emitConst(self,"(("); try self.genExpr(args[0]); try emitConst(self," & 0o170000) == " ++ expected ++ ")"); } else try emitConst(self,"false");
     } }.f;
 }
 
 /// Generates wrapN: pre + arg[n] + suf, or default
 pub fn wrapN(comptime n: usize, comptime pre: []const u8, comptime suf: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > n) { try self.emit(pre); try self.genExpr(args[n]); try self.emit(suf); } else try self.emit(d);
+        if (args.len > n) { try emitConst(self,pre); try self.genExpr(args[n]); try emitConst(self,suf); } else try emitConst(self,d);
     } }.f;
 }
 
@@ -256,9 +273,9 @@ pub fn logLevel(comptime level: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
         const label = try self.emitInlineBlockStart("log");
-        try self.emit("const _m = ");
+        try emitConst(self,"const _m = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; std.debug.print(\"{s}: {{s}}\\n\", .{{_m}}); break :{s}; ", .{ level, label });
+        try emitFmtConst(self, "; std.debug.print(\"{s}: {{s}}\\n\", .{{_m}}); break :{s}; ", .{ level, label });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -266,7 +283,7 @@ pub fn logLevel(comptime level: []const u8) H {
 /// Generates codec result: .{ arg, arg.len } or default tuple
 pub fn codecResult(comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(".{ "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[0]); try self.emit(".len }"); } else try self.emit(d);
+        if (args.len > 0) { try emitConst(self,".{ "); try self.genExpr(args[0]); try emitConst(self,", "); try self.genExpr(args[0]); try emitConst(self,".len }"); } else try emitConst(self,d);
     } }.f;
 }
 
@@ -275,16 +292,16 @@ pub fn codecResult(comptime d: []const u8) H {
 /// Generates complex from @builtin: .{ .re = @builtin(arg), .im = 0.0 }
 pub fn complexBuiltin(comptime b: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(".{ .re = " ++ d ++ ", .im = 0.0 }"); return; }
-        try self.emit(".{ .re = " ++ b ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit("))), .im = 0.0 }");
+        if (args.len == 0) { try emitConst(self,".{ .re = " ++ d ++ ", .im = 0.0 }"); return; }
+        try emitConst(self,".{ .re = " ++ b ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try emitConst(self,"))), .im = 0.0 }");
     } }.f;
 }
 
 /// Generates complex from std.math: .{ .re = std.math.fn(arg), .im = 0.0 }
 pub fn complexStdMath(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(".{ .re = " ++ d ++ ", .im = 0.0 }"); return; }
-        try self.emit(".{ .re = std.math." ++ fn_name ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try self.emit("))), .im = 0.0 }");
+        if (args.len == 0) { try emitConst(self,".{ .re = " ++ d ++ ", .im = 0.0 }"); return; }
+        try emitConst(self,".{ .re = std.math." ++ fn_name ++ "(@as(f64, @floatFromInt("); try self.genExpr(args[0]); try emitConst(self,"))), .im = 0.0 }");
     } }.f;
 }
 
@@ -295,10 +312,10 @@ pub fn b64enc(comptime encoder: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
         const label = try self.emitInlineBlockStart("b64enc");
-        try self.emit("const d = ");
+        try emitConst(self,"const d = ");
         try self.genExpr(args[0]);
-        try self.emit("; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :");
-        try self.emitFmt("{s} \"\"; break :{s} std.base64." ++ encoder ++ ".Encoder.encode(buf, d); ", .{ label, label });
+        try emitConst(self,"; const len = std.base64." ++ encoder ++ ".Encoder.calcSize(d.len); const buf = __global_allocator.alloc(u8, len) catch break :");
+        try emitFmtConst(self, "{s} \"\"; break :{s} std.base64." ++ encoder ++ ".Encoder.encode(buf, d); ", .{ label, label });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -308,9 +325,9 @@ pub fn b64dec(comptime decoder: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
         const label = try self.emitInlineBlockStart("b64dec");
-        try self.emit("const d = ");
+        try emitConst(self,"const d = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :{s} \"\"; const buf = __global_allocator.alloc(u8, len) catch break :{s} \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :{s} \"\"; break :{s} buf; ", .{ label, label, label, label });
+        try emitFmtConst(self, "; const len = std.base64." ++ decoder ++ ".Decoder.calcSizeForSlice(d) catch break :{s} \"\"; const buf = __global_allocator.alloc(u8, len) catch break :{s} \"\"; std.base64." ++ decoder ++ ".Decoder.decode(buf, d) catch break :{s} \"\"; break :{s} buf; ", .{ label, label, label, label });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -320,9 +337,9 @@ pub fn stub(comptime result: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len == 0) return error.UnsupportedSyntax;
         const label = try self.emitInlineBlockStart("stub");
-        try self.emit("_ = ");
+        try emitConst(self,"_ = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} {s}; ", .{ label, result });
+        try emitFmtConst(self, "; break :{s} {s}; ", .{ label, result });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -334,11 +351,11 @@ pub fn hashNew(comptime name: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
             const label = try self.emitInlineBlockStart("hash");
-            try self.emit("var _h = hashlib." ++ name ++ "(); _h.update(");
+            try emitConst(self,"var _h = hashlib." ++ name ++ "(); _h.update(");
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :{s} _h; ", .{label});
+            try emitFmtConst(self, "); break :{s} _h; ", .{label});
             try self.emitInlineBlockEnd();
-        } else try self.emit("hashlib." ++ name ++ "()");
+        } else try emitConst(self,"hashlib." ++ name ++ "()");
     } }.f;
 }
 
@@ -347,11 +364,11 @@ pub fn compareDigest() H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len < 2) return error.UnsupportedSyntax;
         const label = try self.emitInlineBlockStart("cmp");
-        try self.emit("const _a = ");
+        try emitConst(self,"const _a = ");
         try self.genExpr(args[0]);
-        try self.emit("; const _b = ");
+        try emitConst(self,"; const _b = ");
         try self.genExpr(args[1]);
-        try self.emitFmt("; if (_a.len != _b.len) break :{s} false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| {{ _diff |= a_byte ^ b_byte; }} break :{s} _diff == 0; ", .{ label, label });
+        try emitFmtConst(self, "; if (_a.len != _b.len) break :{s} false; var _diff: u8 = 0; for (_a, _b) |a_byte, b_byte| {{ _diff |= a_byte ^ b_byte; }} break :{s} _diff == 0; ", .{ label, label });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -359,8 +376,8 @@ pub fn compareDigest() H {
 /// Compare two strings with std.mem.order
 pub fn memOrder() H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
-        try self.emit("std.mem.order(u8, "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
+        if (args.len < 2) { try emitConst(self,"@as(i64, 0)"); return; }
+        try emitConst(self,"std.mem.order(u8, "); try self.genExpr(args[0]); try emitConst(self,", "); try self.genExpr(args[1]); try emitConst(self,")");
     } }.f;
 }
 
@@ -369,8 +386,8 @@ pub fn memOrder() H {
 /// Character function: label: { const c = arg[0]; body }
 pub fn charFunc(comptime label: []const u8, comptime default: []const u8, comptime body: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(default); return; }
-        try self.emit(label ++ ": { const c = "); try self.genExpr(args[0]); try self.emit("[0]; " ++ body ++ " }");
+        if (args.len == 0) { try emitConst(self,default); return; }
+        try emitConst(self,label ++ ": { const c = "); try self.genExpr(args[0]); try emitConst(self,"[0]; " ++ body ++ " }");
     } }.f;
 }
 
@@ -379,30 +396,30 @@ pub fn checkCond(comptime cond: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
             const label = try self.emitInlineBlockStart("check");
-            try self.emit("const x = ");
+            try emitConst(self,"const x = ");
             try self.genExpr(args[0]);
-            try self.emitFmt("; break :{s} {s}; ", .{ label, cond });
+            try emitFmtConst(self, "; break :{s} {s}; ", .{ label, cond });
             try self.emitInlineBlockEnd();
-        } else try self.emit("false");
+        } else try emitConst(self,"false");
     } }.f;
 }
 
 /// Debug print: std.debug.print(prefix ++ fmt, .{arg}) or default
 pub fn debugPrint(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(default); return; }
-        try self.emit("runtime.print(\"" ++ prefix ++ fmt ++ "\\n\", .{"); try self.genExpr(args[0]); try self.emit("})");
+        if (args.len == 0) { try emitConst(self,default); return; }
+        try emitConst(self,"runtime.print(\"" ++ prefix ++ fmt ++ "\\n\", .{"); try self.genExpr(args[0]); try emitConst(self,"})");
     } }.f;
 }
 
 /// Buffer print: bufPrint to get string representation
 pub fn bufPrint(comptime fmt: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(default); return; }
+        if (args.len == 0) { try emitConst(self,default); return; }
         const label = try self.emitInlineBlockStart("buf");
-        try self.emitFmt("var buf: [4096]u8 = undefined; break :{s} std.fmt.bufPrint(&buf, \"{s}\", .{{", .{ label, fmt });
+        try emitFmtConst(self, "var buf: [4096]u8 = undefined; break :{s} std.fmt.bufPrint(&buf, \"{s}\", .{{", .{ label, fmt });
         try self.genExpr(args[0]);
-        try self.emit("}) catch \"\"; ");
+        try emitConst(self,"}) catch \"\"; ");
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -410,11 +427,11 @@ pub fn bufPrint(comptime fmt: []const u8, comptime default: []const u8) H {
 /// Struct wrap: .{ .field = arg, ... } pattern
 pub fn structField(comptime field: []const u8, comptime rest: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(default); return; }
+        if (args.len == 0) { try emitConst(self,default); return; }
         const label = try self.emitInlineBlockStart("struct");
-        try self.emit("const _v = ");
+        try emitConst(self,"const _v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} .{{ .{s} = _v{s} }}; ", .{ label, field, rest });
+        try emitFmtConst(self, "; break :{s} .{{ .{s} = _v{s} }}; ", .{ label, field, rest });
         try self.emitInlineBlockEnd();
     } }.f;
 }
@@ -422,8 +439,8 @@ pub fn structField(comptime field: []const u8, comptime rest: []const u8, compti
 /// Shift left: (1 << cast(arg)) pattern
 pub fn shiftL(comptime pre: []const u8, comptime post: []const u8, comptime default: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(default); return; }
-        try self.emit(pre); try self.genExpr(args[0]); try self.emit(post);
+        if (args.len == 0) { try emitConst(self,default); return; }
+        try emitConst(self,pre); try self.genExpr(args[0]); try emitConst(self,post);
     } }.f;
 }
 
@@ -444,11 +461,11 @@ pub fn shiftL(comptime pre: []const u8, comptime post: []const u8, comptime defa
 /// @param compare: comparison expression using __search and __item (e.g., "std.mem.eql(u8, __search, __item)")
 pub fn listContains(comptime name: []const u8, comptime list_items: []const u8, comptime compare: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit("false"); return; }
+        if (args.len == 0) { try emitConst(self,"false"); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __search = ");
+        try emitConst(self,"const __search = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if ({s}) break :{s} true; }} break :{s} false; ",
+        try emitFmtConst(self, "; const __items = [_][]const u8{{ {s} }}; for (__items) |__item| {{ if ({s}) break :{s} true; }} break :{s} false; ",
             .{ list_items, compare, label, label });
         try self.emitInlineBlockEnd();
     } }.f;
@@ -464,11 +481,11 @@ pub fn listContains(comptime name: []const u8, comptime list_items: []const u8, 
 /// @param d: default value if optional is null
 pub fn unwrapOptional(comptime name: []const u8, comptime expr: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(d); return; }
+        if (args.len == 0) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __opt = ");
+        try emitConst(self,"const __opt = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} if (__opt) |__v| {s} else {s}; ",
+        try emitFmtConst(self, "; break :{s} if (__opt) |__v| {s} else {s}; ",
             .{ label, expr, d });
         try self.emitInlineBlockEnd();
     } }.f;
@@ -484,11 +501,11 @@ pub fn unwrapOptional(comptime name: []const u8, comptime expr: []const u8, comp
 /// @param d: default value on error
 pub fn tryOrDefault(comptime name: []const u8, comptime expr: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(d); return; }
+        if (args.len == 0) { try emitConst(self,d); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v = ");
+        try emitConst(self,"const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} ({s}) catch {s}; ",
+        try emitFmtConst(self, "; break :{s} ({s}) catch {s}; ",
             .{ label, expr, d });
         try self.emitInlineBlockEnd();
     } }.f;
@@ -503,11 +520,11 @@ pub fn tryOrDefault(comptime name: []const u8, comptime expr: []const u8, compti
 /// @param fmt: format string (use {{}} for format specifiers)
 pub fn allocPrint(comptime name: []const u8, comptime fmt: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit("\"\""); return; }
+        if (args.len == 0) { try emitConst(self,"\"\""); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v = ");
+        try emitConst(self,"const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{__v}}); ",
+        try emitFmtConst(self, "; break :{s} try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{__v}}); ",
             .{ label, fmt });
         try self.emitInlineBlockEnd();
     } }.f;
@@ -524,11 +541,11 @@ pub fn allocPrint(comptime name: []const u8, comptime fmt: []const u8) H {
 /// @param else_expr: expression if false (can use __v)
 pub fn conditional(comptime name: []const u8, comptime condition: []const u8, comptime then_expr: []const u8, comptime else_expr: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len == 0) { try self.emit(else_expr); return; }
+        if (args.len == 0) { try emitConst(self,else_expr); return; }
         const label = try self.emitInlineBlockStart(name);
-        try self.emit("const __v = ");
+        try emitConst(self,"const __v = ");
         try self.genExpr(args[0]);
-        try self.emitFmt("; break :{s} if ({s}) {s} else {s}; ",
+        try emitFmtConst(self, "; break :{s} if ({s}) {s} else {s}; ",
             .{ label, condition, then_expr, else_expr });
         try self.emitInlineBlockEnd();
     } }.f;
