@@ -50,8 +50,30 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
     try self.output.appendSlice(self.allocator, output);
 }
 
+// ============================================
+// Call helpers - auto-closing patterns
+// ============================================
 
+/// Emit runtime function call start: runtime.funcName(
+fn emitRuntimeCallStart(self: *NativeCodegen, func_name: []const u8) CodegenError!void {
+    try emitConst(self, "runtime.");
+    try emitConst(self, func_name);
+    try emitConst(self, "(");
+}
 
+/// Emit class init call start: ClassName.init(__global_allocator
+fn emitInitCallStart(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
+    try emitConst(self, class_name);
+    try emitConst(self, ".init(__global_allocator");
+}
+
+/// Emit PyValue.from wrapper: runtime.PyValue.from(expr)
+fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    const genExpr = @import("../expressions.zig").genExpr;
+    try emitConst(self, "runtime.PyValue.from(");
+    try genExpr(self, expr);
+    try emitConst(self, ")");
+}
 
 // Import trait functions for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
@@ -323,8 +345,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Generate: AliasedName.init(__global_allocator, args...)
                 // Class-body-level nested classes return @This(), NOT error union
                 // So we don't need try here (unlike method-local nested classes)
-                try emitConst(self, aliased_name);
-                try emitConst(self, ".init(__global_allocator");
+                try emitInitCallStart(self, aliased_name);
                 for (call.args) |arg| {
                     try emitConst(self, ", ");
                     try genExpr(self, arg);
@@ -379,7 +400,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "object")) {
             if (std.mem.eql(u8, attr.attr, "__hash__")) {
                 // object.__hash__(x) -> runtime.pyHash(x) for consistency with hash()
-                try emitConst(self, "runtime.pyHash(");
+                try emitRuntimeCallStart(self, "pyHash");
                 if (call.args.len > 0) {
                     try genExpr(self, call.args[0]);
                 }
@@ -392,7 +413,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
             if (std.mem.eql(u8, attr.attr, "__getformat__")) {
                 // float.__getformat__('double') -> runtime.floatGetFormat("double")
-                try emitConst(self, "runtime.floatGetFormat(");
+                try emitRuntimeCallStart(self, "floatGetFormat");
                 if (call.args.len > 0) {
                     try genExpr(self, call.args[0]);
                 }
@@ -759,17 +780,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 var arg_idx: usize = 0;
                 for (call.args[@min(vararg_start_index, call.args.len)..]) |arg| {
                     if (arg_idx > 0) try emitConst(self, ", ");
-                    try emitConst(self, "runtime.PyValue.from(");
-                    try genExpr(self, arg);
-                    try emitConst(self, ")");
+                    try emitPyValueFrom(self, arg);
                     arg_idx += 1;
                 }
                 // Add keyword arguments as positional arguments
                 for (call.keyword_args) |kwarg| {
                     if (arg_idx > 0) try emitConst(self, ", ");
-                    try emitConst(self, "runtime.PyValue.from(");
-                    try genExpr(self, kwarg.value);
-                    try emitConst(self, ")");
+                    try emitPyValueFrom(self, kwarg.value);
                     arg_idx += 1;
                 }
                 try emitConst(self, "}");
@@ -1253,9 +1270,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     try emitConst(self, ".initWithArgs(__global_allocator, &[_]runtime.PyValue{");
                     for (call.args, 0..) |arg, i| {
                         if (i > 0) try emitConst(self, ", ");
-                        try emitConst(self, "runtime.PyValue.from(");
-                        try genExpr(self, arg);
-                        try emitConst(self, ")");
+                        try emitPyValueFrom(self, arg);
                     }
                     try emitConst(self, "}))");
                     return;

@@ -15,6 +15,39 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// ============================================
+// Constant helpers - auto-closing patterns
+// ============================================
+
+/// Emit quoted string: "content"
+fn emitQuotedString(self: *NativeCodegen, content: []const u8, ctx: StringContext) CodegenError!void {
+    try emitConst(self, "\"");
+    try emitZigStringContent(self, content, ctx);
+    try emitConst(self, "\"");
+}
+
+/// Emit bytes literal: runtime.builtins.bytesLiteral("content")
+fn emitBytesLiteral(self: *NativeCodegen, content: []const u8) CodegenError!void {
+    try emitConst(self, "runtime.builtins.bytesLiteral(\"");
+    try emitZigStringContent(self, content, StringContext.bytes);
+    try emitConst(self, "\")");
+}
+
+/// Emit PyComplex.create(real, imag)
+fn emitComplexCreate(self: *NativeCodegen, real: f64, imag: f64) CodegenError!void {
+    try emitConst(self, "runtime.PyComplex.create(");
+    try self.output.writer(self.allocator).print("{d}", .{real});
+    try emitConst(self, ", ");
+    if (std.math.isInf(imag)) {
+        try emitConst(self, if (imag < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+    } else if (std.math.isNan(imag)) {
+        try emitConst(self, "std.math.nan(f64)");
+    } else {
+        try self.output.writer(self.allocator).print("{d}", .{imag});
+    }
+    try emitConst(self, ")");
+}
+
 
 
 /// String context for unified escape handling
@@ -52,28 +85,16 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
         .none => try emitConst(self, "null"),
         .complex => |imag| {
             // Handle inf/nan in imaginary part like we do for floats
-            try emitConst(self, "runtime.PyComplex.create(0.0, ");
-            if (std.math.isInf(imag)) {
-                try emitConst(self, if (imag < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
-            } else if (std.math.isNan(imag)) {
-                try emitConst(self, "std.math.nan(f64)");
-            } else {
-                try self.output.writer(self.allocator).print("{d}", .{imag});
-            }
-            try emitConst(self, ")");
+            try emitComplexCreate(self, 0.0, imag);
         },
         .string => |s| {
             // String content already has quotes stripped by parser
-            try emitConst(self, "\"");
-            try emitZigStringContent(self, s, StringContext.default);
-            try emitConst(self, "\"");
+            try emitQuotedString(self, s, StringContext.default);
         },
         .bytes => |s| {
             // Bytes content: use runtime helper to preserve Python bytes type
             // This enables repr() to correctly output b'...' format
-            try emitConst(self, "runtime.builtins.bytesLiteral(\"");
-            try emitZigStringContent(self, s, StringContext.bytes);
-            try emitConst(self, "\")");
+            try emitBytesLiteral(self, s);
         },
     }
 }
