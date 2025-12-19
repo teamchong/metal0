@@ -86,12 +86,20 @@ Priority operator files:
 1. ✅ **expressions/operators/unary_ops.zig** - Unary operations (commit 6bcd181a)
 2. ✅ **expressions/operators/unified_int_ops.zig** - UnifiedInt/Complex ops (commit 6bcd181a)
 3. ✅ **expressions/operators/collection_ops.zig** - Collection ops (commit 44a71bb1)
+4. ✅ **expressions/operators/pyvalue_ops.zig** - PyValue binary ops (commit 799f7712)
+5. ✅ **expressions/operators/bigint_ops.zig** - BigInt operations (commit 799f7712)
+6. ✅ **builtins/math.zig** - Math builtins ord() (commit 799f7712)
+7. ✅ **expressions/comp_expr_subs.zig** - Comprehension substitution (commit effecc8f)
+8. ✅ **expressions/lambda_closure.zig** - Lambda/closure codegen (commit 4a8def8f)
+9. ✅ **_stat_mod.zig** - Stat module genSIMODE (commit 5cd30b80)
+10. ✅ **builtins/conversions/float_conv.zig** - Float error handling (commit 5cd30b80)
+11. ✅ **statements/control/loops/for_special.zig** - For loop list iteration (commit 5cd30b80)
 
-Remaining files (~80) in:
-- `expressions/` (23 files)
-- `statements/` (28 files)
-- `builtins/` (12 files)
-- `methods/` (8 files)
+Remaining files with patterns (not priority - low risk or intentional):
+- `expressions/calls.zig` - Many patterns, complex logic
+- `expressions/operators/comparison.zig` - Conditional patterns
+- `main/core.zig` - Core patterns, some intentional
+- `itertools_mod.zig` - Intentional block wrapping
 
 ## Migration Patterns
 
