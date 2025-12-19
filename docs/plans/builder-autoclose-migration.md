@@ -80,9 +80,14 @@ Priority order (by complexity and usage):
 7. ✅ **statements/control/conditionals.zig** - No migration needed (no bracket patterns)
 8. ✅ **statements/control/loops/*.zig** - Minimal patterns already safe
 
-### Phase 3: Migrate Remaining Files
+### Phase 3: Migrate Remaining Files (IN PROGRESS)
 
-After core files are done, migrate remaining ~80 files in:
+Priority operator files:
+1. ✅ **expressions/operators/unary_ops.zig** - Unary operations (commit 6bcd181a)
+2. ✅ **expressions/operators/unified_int_ops.zig** - UnifiedInt/Complex ops (commit 6bcd181a)
+3. ✅ **expressions/operators/collection_ops.zig** - Collection ops (commit 44a71bb1)
+
+Remaining files (~80) in:
 - `expressions/` (23 files)
 - `statements/` (28 files)
 - `builtins/` (12 files)
