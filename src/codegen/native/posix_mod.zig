@@ -16,16 +16,21 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 // Runtime generator functions with unique block IDs
 
 fn genGetcwd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     try self.withInlineBlock("getcwd", &.{}, struct {
         fn emit(c: *NativeCodegen, label: []const u8, _: []ast.Node) !void {
-            const b = try c.getBuilder();
-            try b.writeFmt("var buf: [4096]u8 = undefined; break :{s} std.fs.cwd().realpath(\".\", &buf) catch \".\"; ", .{label});
-            const output = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output);
+            try emitFmtConst(c, "var buf: [4096]u8 = undefined; break :{s} std.fs.cwd().realpath(\".\", &buf) catch \".\"; ", .{label});
         }
     }.emit);
 }
@@ -39,12 +44,7 @@ fn genChdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.posix.chdir(path) catch unreachable; break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.posix.chdir(path) catch unreachable; break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -58,12 +58,7 @@ fn genMkdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.fs.cwd().makeDir(path) catch unreachable; break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.fs.cwd().makeDir(path) catch unreachable; break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -77,12 +72,7 @@ fn genRmdir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.fs.cwd().deleteDir(path) catch unreachable; break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.fs.cwd().deleteDir(path) catch unreachable; break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -96,12 +86,7 @@ fn genUnlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.fs.cwd().deleteFile(path) catch unreachable; break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.fs.cwd().deleteFile(path) catch unreachable; break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -117,12 +102,7 @@ fn genRename(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try c.genExpr(a[0]);
             try emitConst(c, "; const dst = ");
             try c.genExpr(a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.fs.cwd().rename(src, dst) catch unreachable; break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.fs.cwd().rename(src, dst) catch unreachable; break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -136,14 +116,7 @@ fn genStat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; const stat = std.fs.cwd().statFile(path) catch break :{s} ", .{label});
-                try b.write(statDefault);
-                try b.writeFmt("; break :{s} .{{ .st_size = @intCast(stat.size), .st_mode = @intCast(@intFromEnum(stat.kind)) }}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; const stat = std.fs.cwd().statFile(path) catch break :{s} .{{ .st_size = 0, .st_mode = 0 }}; break :{s} .{{ .st_size = @intCast(stat.size), .st_mode = @intCast(@intFromEnum(stat.kind)) }}; ", .{ label, label });
         }
     }.emit);
 }
@@ -157,12 +130,7 @@ fn genGetenv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; _ = path; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv(path); ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; _ = path; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv(path); ", .{label});
         }
     }.emit);
 }
@@ -178,12 +146,7 @@ fn genKill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try c.genExpr(a[0]);
             try emitConst(c, "; const sig = ");
             try c.genExpr(a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; _ = std.c.kill(@intCast(pid), @intCast(sig)); break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; _ = std.c.kill(@intCast(pid), @intCast(sig)); break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -197,12 +160,7 @@ fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; const file = std.fs.cwd().openFile(path, .{{}}) catch break :{s} @as(i32, -1); break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(i32, @truncate(@as(i64, @intFromPtr(file.handle)))) else @intCast(file.handle); ", .{ label, label });
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; const file = std.fs.cwd().openFile(path, .{{}}) catch break :{s} @as(i32, -1); break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(i32, @truncate(@as(i64, @intFromPtr(file.handle)))) else @intCast(file.handle); ", .{ label, label });
         }
     }.emit);
 }
@@ -216,12 +174,7 @@ fn genClose(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const fd = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.posix.close(@intCast(fd)); break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.posix.close(@intCast(fd)); break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -235,12 +188,7 @@ fn genAccess(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; _ = std.fs.cwd().statFile(path) catch break :{s} false; break :{s} true; ", .{ label, label });
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; _ = std.fs.cwd().statFile(path) catch break :{s} false; break :{s} true; ", .{ label, label });
         }
     }.emit);
 }
@@ -256,12 +204,7 @@ fn genSymlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try c.genExpr(a[0]);
             try emitConst(c, "; const dst = ");
             try c.genExpr(a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; std.fs.cwd().symLink(src, dst, .{{}}) catch unreachable; break :{s} {{}}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; std.fs.cwd().symLink(src, dst, .{{}}) catch unreachable; break :{s} {{}}; ", .{label});
         }
     }.emit);
 }
@@ -275,12 +218,7 @@ fn genReadlink(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const path = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; var buf: [4096]u8 = undefined; break :{s} std.fs.cwd().readLink(path, &buf) catch \"\"; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; var buf: [4096]u8 = undefined; break :{s} std.fs.cwd().readLink(path, &buf) catch \"\"; ", .{label});
         }
     }.emit);
 }
@@ -294,12 +232,7 @@ fn genUrandom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, "const n = ");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; var buf = __global_allocator.alloc(u8, @intCast(n)) catch break :{s} \"\"; std.crypto.random.bytes(buf); break :{s} buf; ", .{ label, label });
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; var buf = __global_allocator.alloc(u8, @intCast(n)) catch break :{s} \"\"; std.crypto.random.bytes(buf); break :{s} buf; ", .{ label, label });
         }
     }.emit);
 }
