@@ -21,52 +21,46 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
-fn genGetConfigVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+fn genGetConfigVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try b.write("null");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "null");
         return;
     }
     try self.withInlineBlock("gcv", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const name = ");
-            const output1 = b2.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output1);
+            try emitConst(c, "const name = ");
             try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; if (std.mem.eql(u8, name, \"prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"exec_prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"EXT_SUFFIX\")) break :{s} \".so\" else break :{s} null", .{ label, label, label, label });
-                const output2 = b3.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+            try emitFmtConst(c, "; if (std.mem.eql(u8, name, \"prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"exec_prefix\")) break :{s} \"/usr/local\" else if (std.mem.eql(u8, name, \"EXT_SUFFIX\")) break :{s} \".so\" else break :{s} null", .{ label, label, label, label });
         }
     }.emit);
 }
 
 fn genGetPath(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.write("null");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "null");
         return;
     }
     try self.withInlineBlock("gp", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const name = ");
-            const output1 = b2.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output1);
+            try emitConst(c, "const name = ");
             try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; if (std.mem.eql(u8, name, \"stdlib\")) break :{s} \"/usr/local/lib/python3.12\" else if (std.mem.eql(u8, name, \"purelib\")) break :{s} \"/usr/local/lib/python3.12/site-packages\" else if (std.mem.eql(u8, name, \"scripts\")) break :{s} \"/usr/local/bin\" else break :{s} null", .{ label, label, label, label });
-                const output2 = b3.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+            try emitFmtConst(c, "; if (std.mem.eql(u8, name, \"stdlib\")) break :{s} \"/usr/local/lib/python3.12\" else if (std.mem.eql(u8, name, \"purelib\")) break :{s} \"/usr/local/lib/python3.12/site-packages\" else if (std.mem.eql(u8, name, \"scripts\")) break :{s} \"/usr/local/bin\" else break :{s} null", .{ label, label, label, label });
         }
     }.emit);
 }
