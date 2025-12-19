@@ -16,6 +16,14 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 fn needsItems(self: *NativeCodegen, arg: ast.Node) bool {
     const t = self.type_inferrer.inferExpr(arg) catch return false;
     return container_traits.isList(t) or t == .deque;
@@ -29,12 +37,7 @@ fn predFilter(self: *NativeCodegen, args: []ast.Node, comptime hint: []const u8,
             try emitConst(c, "; const _iter = ");
             try emitIter(c, a[1]);
             try emitConst(c, "; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; " ++ body);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt(" break :{s} _result; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, " break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -67,10 +70,7 @@ fn emitNativeRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " var __rs = std.ArrayListUnmanaged(i64){}; ");
             if (a.len == 0) {
-                const b = try c.getBuilder();
-                try b.writeFmt("break :{s} __rs.items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
+                try emitFmtConst(c, "break :{s} __rs.items; ", .{label});
                 return;
             }
 
@@ -94,12 +94,7 @@ fn emitNativeRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 }
                 try emitConst(c, "; while (if (__step > 0) __i < __stop else __i > __stop) : (__i += __step) { __rs.append(__global_allocator, __i) catch continue; }");
             }
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt(" break :{s} __rs.items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, " break :{s} __rs.items; ", .{label});
         }
     }.emit);
     try emitConst(self, ")");
@@ -134,10 +129,7 @@ pub fn genChain(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " var _result = std.ArrayListUnmanaged(i64){}; ");
             for (a) |arg| { try emitConst(c, "for ("); try emitIter(c, arg); try emitConst(c, ") |item| { _result.append(__global_allocator, item) catch continue; } "); }
-            const b = try c.getBuilder();
-            try b.writeFmt("break :{s} _result; ", .{label});
-            const output = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output);
+            try emitFmtConst(c, "break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -155,10 +147,7 @@ pub fn genRepeat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try emitConst(c, "var _i: usize = 0; while (_i < @as(usize, @intCast("); try c.genExpr(a[1]);
                 try emitConst(c, "))) : (_i += 1) { _result.append(__global_allocator, "); try c.genExpr(a[0]); try emitConst(c, ") catch continue; }");
             } else { try emitConst(c, "_result.append(__global_allocator, "); try c.genExpr(a[0]); try emitConst(c, ") catch unreachable;"); }
-            const b = try c.getBuilder();
-            try b.writeFmt(" break :{s} _result; ", .{label});
-            const output = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output);
+            try emitFmtConst(c, " break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -170,12 +159,7 @@ pub fn genCount(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (a.len >= 1) try c.genExpr(a[0]) else try emitConst(c, "@as(i64, 0)");
             try emitConst(c, "; const _step = ");
             if (a.len >= 2) try c.genExpr(a[1]) else try emitConst(c, "@as(i64, 1)");
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} .{{ .start = _start, .step = _step }}; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; break :{s} .{{ .start = _start, .step = _step }}; ", .{label});
         }
     }.emit);
 }
@@ -191,12 +175,7 @@ pub fn genIslice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try emitIter(c, a[0]);
             try emitConst(c, "; const _stop = @as(usize, @intCast(");
             try c.genExpr(a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt(")); var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){{}}; for (_iter[0..@min(_stop, _iter.len)]) |item| {{ _result.append(__global_allocator, item) catch continue; }} break :{s} _result; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, ")); var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){{}}; for (_iter[0..@min(_stop, _iter.len)]) |item| {{ _result.append(__global_allocator, item) catch continue; }} break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -208,12 +187,7 @@ pub fn genZipLongest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
                 try emitConst(c, " const _a = "); try c.genExpr(a[0]);
                 try emitConst(c, "; const _b = "); try c.genExpr(a[1]);
-                {
-                    const b = try c.getBuilder();
-                    try b.writeFmt("; const _len = @max(_a.items.len, _b.items.len); var _result = std.ArrayListUnmanaged(struct {{ @\"0\": i64, @\"1\": i64 }}){{}}; for (0.._len) |i| {{ const _va = if (i < _a.items.len) _a.items[i] else 0; const _vb = if (i < _b.items.len) _b.items[i] else 0; _result.append(__global_allocator, .{{ .@\"0\" = _va, .@\"1\" = _vb }}) catch continue; }} break :{s} _result; ", .{label});
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitFmtConst(c, "; const _len = @max(_a.items.len, _b.items.len); var _result = std.ArrayListUnmanaged(struct {{ @\"0\": i64, @\"1\": i64 }}){{}}; for (0.._len) |i| {{ const _va = if (i < _a.items.len) _a.items[i] else 0; const _vb = if (i < _b.items.len) _b.items[i] else 0; _result.append(__global_allocator, .{{ .@\"0\" = _va, .@\"1\" = _vb }}) catch continue; }} break :{s} _result; ", .{label});
             }
         }.emit);
     } else try self.genExpr(args[0]);
@@ -226,12 +200,7 @@ fn genAccumulate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
             try emitConst(c, "; var _result = std.ArrayListUnmanaged(@TypeOf(_iter[0])){}; var _acc: @TypeOf(_iter[0]) = _iter[0]; _result.append(__global_allocator, _acc) catch unreachable; for (_iter[1..]) |item| { _acc = ");
             if (a.len > 1) { try c.genExpr(a[1]); try emitConst(c, "(_acc, item)"); } else try emitConst(c, "_acc + item");
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; _result.append(__global_allocator, _acc) catch continue; }} break :{s} _result; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; _result.append(__global_allocator, _acc) catch continue; }} break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -242,12 +211,7 @@ fn genStarmap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _func = "); try c.genExpr(a[0]);
             try emitConst(c, "; const _iter = "); try emitIter(c, a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; var _result = std.ArrayListUnmanaged(@TypeOf(_func(_iter[0].@\"0\", _iter[0].@\"1\"))){{}}; for (_iter) |item| {{ _result.append(__global_allocator, _func(item.@\"0\", item.@\"1\")) catch continue; }} break :{s} _result; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; var _result = std.ArrayListUnmanaged(@TypeOf(_func(_iter[0].@\"0\", _iter[0].@\"1\"))){{}}; for (_iter) |item| {{ _result.append(__global_allocator, _func(item.@\"0\", item.@\"1\")) catch continue; }} break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -259,12 +223,7 @@ fn genCompress(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _data = "); try emitIter(c, a[0]);
             try emitConst(c, "; const _selectors = "); try emitIter(c, a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} (try runtime.itertools_ops.compress(@TypeOf(_data[0]), __global_allocator, _data, _selectors)).items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; break :{s} (try runtime.itertools_ops.compress(@TypeOf(_data[0]), __global_allocator, _data, _selectors)).items; ", .{label});
         }
     }.emit);
 }
@@ -280,12 +239,7 @@ fn genPairwise(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.withInlineBlock("pairwise", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} (try runtime.itertools_ops.pairwise(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; break :{s} (try runtime.itertools_ops.pairwise(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
         }
     }.emit);
 }
@@ -314,12 +268,7 @@ pub fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try emitConst(c, "\n const _a = "); try emitIter(c, a[0]);
                 try emitConst(c, ";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]) }){};\n ");
                 try emitConst(c, "for (_a) |item| { _result.append(__global_allocator, .{ .@\"0\" = item }) catch continue; }\n ");
-                {
-                    const b = try c.getBuilder();
-                    try b.writeFmt("break :{s} _result;\n ", .{label});
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitFmtConst(c, "break :{s} _result;\n ", .{label});
             }
         }.emit);
         return;
@@ -332,12 +281,7 @@ pub fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try emitConst(c, ";\n const _b = "); try emitIter(c, a[1]);
                 try emitConst(c, ";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]) }){};\n ");
                 try emitConst(c, "for (_a) |a| { for (_b) |b| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } }\n ");
-                {
-                    const b = try c.getBuilder();
-                    try b.writeFmt("break :{s} _result;\n ", .{label});
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitFmtConst(c, "break :{s} _result;\n ", .{label});
             }
         }.emit);
         return;
@@ -350,12 +294,7 @@ pub fn genProduct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try emitConst(c, ";\n const _c = "); try emitIter(c, a[2]);
             try emitConst(c, ";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]), @\"1\": @TypeOf(_b[0]), @\"2\": @TypeOf(_c[0]) }){};\n ");
             try emitConst(c, "for (_a) |a| { for (_b) |b| { for (_c) |c| { _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b, .@\"2\" = c }) catch continue; } } }\n ");
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("break :{s} _result;\n ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "break :{s} _result;\n ", .{label});
         }
     }.emit);
 }
@@ -366,34 +305,21 @@ pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) C
     if (repeat <= 0) { try emitConst(self, "std.ArrayListUnmanaged(struct {}){}"); return; }
     if (repeat == 1) {
         // Single iteration - wrap each in tuple
-        // Use builder pattern directly for this case
-        const b = try self.getBuilder();
         const id = self.nextNameId();
         const label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_product_repeat", .{id});
-        try b.writeFmt("({s}: {{ ", .{label});
-        const output1 = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output1);
+        try emitFmtConst(self, "({s}: {{ ", .{label});
 
         try emitConst(self, "\n const _a = "); try emitIter(self, iter);
         try emitConst(self, ";\n var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_a[0]) }){};\n ");
         try emitConst(self, "for (_a) |item| { _result.append(__global_allocator, .{ .@\"0\" = item }) catch continue; }\n ");
-        {
-            const b2 = try self.getBuilder();
-            try b2.writeFmt("break :{s} _result;\n }})", .{label});
-            const output2 = b2.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output2);
-        }
+        try emitFmtConst(self, "break :{s} _result;\n }})", .{label});
         return;
     }
 
     // Generate N nested loops for repeat=N
-    // For complex case with dynamic loops, use builder directly
-    const b = try self.getBuilder();
     const id = self.nextNameId();
     const label = try std.fmt.allocPrint(self.arena.allocator(), "__m{d}_product_repeat", .{id});
-    try b.writeFmt("({s}: {{ ", .{label});
-    const output1 = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output1);
+    try emitFmtConst(self, "({s}: {{ ", .{label});
 
     try emitConst(self, "\n const _iter = ");
     try emitIter(self, iter);
@@ -404,20 +330,14 @@ pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) C
     var i: i64 = 0;
     while (i < repeat) : (i += 1) {
         if (i > 0) try emitConst(self, ", ");
-        const b2 = try self.getBuilder();
-        try b2.writeFmt("@\"{d}\": @TypeOf(_iter[0])", .{i});
-        const output2 = b2.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output2);
+        try emitFmtConst(self, "@\"{d}\": @TypeOf(_iter[0])", .{i});
     }
     try emitConst(self, " }){};\n");
 
     // Generate N nested for loops
     i = 0;
     while (i < repeat) : (i += 1) {
-        const b3 = try self.getBuilder();
-        try b3.writeFmt("for (_iter) |_v{d}| {{ ", .{i});
-        const output3 = b3.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output3);
+        try emitFmtConst(self, "for (_iter) |_v{d}| {{ ", .{i});
     }
 
     // Append tuple
@@ -425,10 +345,7 @@ pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) C
     i = 0;
     while (i < repeat) : (i += 1) {
         if (i > 0) try emitConst(self, ", ");
-        const b4 = try self.getBuilder();
-        try b4.writeFmt(".@\"{d}\" = _v{d}", .{ i, i });
-        const output4 = b4.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output4);
+        try emitFmtConst(self, ".@\"{d}\" = _v{d}", .{ i, i });
     }
     try emitConst(self, " }) catch {{}}; ");
 
@@ -438,12 +355,7 @@ pub fn genProductWithRepeat(self: *NativeCodegen, iter: ast.Node, repeat: i64) C
         try emitConst(self, "} ");
     }
 
-    {
-        const b5 = try self.getBuilder();
-        try b5.writeFmt("\nbreak :{s} _result;\n }})", .{label});
-        const output5 = b5.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output5);
-    }
+    try emitFmtConst(self, "\nbreak :{s} _result;\n }})", .{label});
 }
 
 /// itertools.permutations(iterable, r=None) - r-length permutations
@@ -455,12 +367,7 @@ fn genPermutations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
             try emitConst(c, "; var _result = std.ArrayListUnmanaged(struct { @\"0\": @TypeOf(_iter[0]), @\"1\": @TypeOf(_iter[0]) }){}; ");
             try emitConst(c, "for (_iter, 0..) |a, i| { for (_iter, 0..) |b, j| { if (i != j) _result.append(__global_allocator, .{ .@\"0\" = a, .@\"1\" = b }) catch continue; } } ");
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("break :{s} _result; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "break :{s} _result; ", .{label});
         }
     }.emit);
 }
@@ -472,12 +379,7 @@ fn genCombinations(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.withInlineBlock("combs", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} (try runtime.itertools_ops.combinations(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; break :{s} (try runtime.itertools_ops.combinations(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
         }
     }.emit);
 }
@@ -489,12 +391,7 @@ fn genCombinationsWithReplacement(self: *NativeCodegen, args: []ast.Node) Codege
     try self.withInlineBlock("combswr", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} (try runtime.itertools_ops.combinationsWithReplacement(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; break :{s} (try runtime.itertools_ops.combinationsWithReplacement(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
         }
     }.emit);
 }
@@ -506,12 +403,7 @@ fn genGroupby(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.withInlineBlock("groupby", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} (try runtime.itertools_ops.groupby(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "; break :{s} (try runtime.itertools_ops.groupby(@TypeOf(_iter[0]), __global_allocator, _iter)).items; ", .{label});
         }
     }.emit);
 }
@@ -524,12 +416,7 @@ fn genBatched(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitConst(c, " const _iter = "); try emitIter(c, a[0]);
             try emitConst(c, "; const _n = @as(usize, @intCast("); try c.genExpr(a[1]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt(")); break :{s} (try runtime.itertools_ops.batched(@TypeOf(_iter[0]), __global_allocator, _iter, _n)).items; ", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, ")); break :{s} (try runtime.itertools_ops.batched(@TypeOf(_iter[0]), __global_allocator, _iter, _n)).items; ", .{label});
         }
     }.emit);
 }
