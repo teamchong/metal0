@@ -5,42 +5,39 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const builder_mod = @import("codegen.builder");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        const b = try self.getBuilder();
-        try b.write("return error.TypeError");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "return error.TypeError");
         return;
     }
-    {
-        const b = try self.getBuilder();
-        try b.write("runtime.getattr_builtin(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "runtime.getattr_builtin(");
     try self.genExpr(args[0]); // object
-    {
-        const b = try self.getBuilder();
-        try b.write(", ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", ");
     try self.genExpr(args[1]); // name
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
 
 pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 3) {
-        const b = try self.getBuilder();
-        try b.write("return error.TypeError");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "return error.TypeError");
         return;
     }
     // Handle setattr for both:
@@ -48,132 +45,63 @@ pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // 2. Regular objects with __dict__ - use __dict__.put()
     // Use comptime type introspection to select the correct approach
     const id = self.nextNameId();
-    {
-        const b = try self.getBuilder();
-        try b.writeFmt("__m{d}_setattr: {{ const __sa_obj = ", .{id});
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitFmtConst(self, "__m{d}_setattr: {{ const __sa_obj = ", .{id});
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        try b.write("; const __sa_name = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "; const __sa_name = ");
     try self.genExpr(args[1]);
-    {
-        const b = try self.getBuilder();
-        try b.write("; const __sa_name_str: []const u8 = if (@hasField(@TypeOf(__sa_name), \"__base_value__\")) __sa_name.__base_value__ else __sa_name;");
-        try b.write(" const __sa_val = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "; const __sa_name_str: []const u8 = if (@hasField(@TypeOf(__sa_name), \"__base_value__\")) __sa_name.__base_value__ else __sa_name; const __sa_val = ");
     try self.genExpr(args[2]);
-    {
-        const b = try self.getBuilder();
-        try b.write("; ");
-        // Check if object is a PyType (has setattr method) vs regular struct (has __dict__ field)
-        try b.write("const __sa_obj_type = @TypeOf(__sa_obj); ");
-        try b.write("const __is_pytype = @typeInfo(__sa_obj_type) == .pointer and @hasDecl(@typeInfo(__sa_obj_type).pointer.child, \"setattr\"); ");
-        if (self.inside_defer) {
-            try b.write("if (__is_pytype) { @constCast(__sa_obj).setattr(__sa_name_str, runtime.PyValue.from(__sa_val)) catch unreachable; ");
-            try b.write("} else if (@hasField(@typeInfo(__sa_obj_type).pointer.child, \"__dict__\")) { ");
-            try b.write("@constCast(&__sa_obj.__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)) catch unreachable; ");
-        } else {
-            try b.write("if (__is_pytype) { try @constCast(__sa_obj).setattr(__sa_name_str, runtime.PyValue.from(__sa_val)); ");
-            try b.write("} else if (@hasField(@typeInfo(__sa_obj_type).pointer.child, \"__dict__\")) { ");
-            try b.write("try @constCast(&__sa_obj.__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)); ");
-        }
-        try b.writeFmt("}} break :__m{d}_setattr {{}}; }}", .{id});
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+    // Check if object is a PyType (has setattr method) vs regular struct (has __dict__ field)
+    try emitConst(self, "; const __sa_obj_type = @TypeOf(__sa_obj); ");
+    try emitConst(self, "const __is_pytype = @typeInfo(__sa_obj_type) == .pointer and @hasDecl(@typeInfo(__sa_obj_type).pointer.child, \"setattr\"); ");
+    if (self.inside_defer) {
+        try emitConst(self, "if (__is_pytype) { @constCast(__sa_obj).setattr(__sa_name_str, runtime.PyValue.from(__sa_val)) catch unreachable; ");
+        try emitConst(self, "} else if (@hasField(@typeInfo(__sa_obj_type).pointer.child, \"__dict__\")) { ");
+        try emitConst(self, "@constCast(&__sa_obj.__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)) catch unreachable; ");
+    } else {
+        try emitConst(self, "if (__is_pytype) { try @constCast(__sa_obj).setattr(__sa_name_str, runtime.PyValue.from(__sa_val)); ");
+        try emitConst(self, "} else if (@hasField(@typeInfo(__sa_obj_type).pointer.child, \"__dict__\")) { ");
+        try emitConst(self, "try @constCast(&__sa_obj.__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)); ");
     }
+    try emitFmtConst(self, "}} break :__m{d}_setattr {{}}; }}", .{id});
 }
 
 pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        const b = try self.getBuilder();
-        try b.write("return error.TypeError");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "return error.TypeError");
         return;
     }
-    {
-        const b = try self.getBuilder();
-        try b.write("runtime.hasattr_builtin(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "runtime.hasattr_builtin(");
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        try b.write(", ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", ");
     try self.genExpr(args[1]);
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
 
 pub fn genVars(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    {
-        const b = try self.getBuilder();
-        try b.write("runtime.vars_builtin(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "runtime.vars_builtin(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     }
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
 
 pub fn genGlobals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    const b = try self.getBuilder();
-    try b.write("runtime.globals_builtin()");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitConst(self, "runtime.globals_builtin()");
 }
 
 pub fn genLocals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    const b = try self.getBuilder();
-    try b.write("runtime.locals_builtin()");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitConst(self, "runtime.locals_builtin()");
 }
 
 pub fn genDir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    {
-        const b = try self.getBuilder();
-        try b.write("runtime.dir_builtin(");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "runtime.dir_builtin(");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        const b = try self.getBuilder();
-        try b.write("null");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "null");
     }
-    {
-        const b = try self.getBuilder();
-        try b.write(")");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ")");
 }
