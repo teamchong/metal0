@@ -3,6 +3,24 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "new", genNew },
@@ -25,169 +43,92 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "openssl_md_meth_names", genOpensslMdMethNames },
 });
 
-fn genNew(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        const b = try self.getBuilder();
-        try b.write(".{ .name = \"sha256\", .digest_size = 32 }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, ".{ .name = \"sha256\", .digest_size = 32 }");
         return;
     }
     try self.withInlineBlock("new", args, struct {
-        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b = try c.getBuilder();
-            try b.write("const name = ");
-            const output1 = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output1);
+        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+            try emitConst(c, "const name = ");
             try c.genExpr(a[0]);
-            {
-                const b2 = try c.getBuilder();
-                try b2.writeFmt("; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}", .{label});
-                const output2 = b2.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+            try emitFmtConst(c, "; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}", .{label});
         }
     }.emit);
 }
 
-fn genOpensslMd5(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"md5\", .digest_size = 16 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslMd5(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"md5\", .digest_size = 16 }");
 }
 
-fn genOpensslSha1(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha1\", .digest_size = 20 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha1(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha1\", .digest_size = 20 }");
 }
 
-fn genOpensslSha224(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha224\", .digest_size = 28 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha224(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha224\", .digest_size = 28 }");
 }
 
-fn genOpensslSha256(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha256\", .digest_size = 32 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha256(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha256\", .digest_size = 32 }");
 }
 
-fn genOpensslSha384(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha384\", .digest_size = 48 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha384(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha384\", .digest_size = 48 }");
 }
 
-fn genOpensslSha512(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha512\", .digest_size = 64 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha512(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha512\", .digest_size = 64 }");
 }
 
-fn genOpensslSha3_224(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha3_224\", .digest_size = 28 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha3_224(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha3_224\", .digest_size = 28 }");
 }
 
-fn genOpensslSha3_256(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha3_256\", .digest_size = 32 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha3_256(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha3_256\", .digest_size = 32 }");
 }
 
-fn genOpensslSha3_384(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha3_384\", .digest_size = 48 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha3_384(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha3_384\", .digest_size = 48 }");
 }
 
-fn genOpensslSha3_512(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"sha3_512\", .digest_size = 64 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslSha3_512(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"sha3_512\", .digest_size = 64 }");
 }
 
-fn genOpensslShake128(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"shake_128\", .digest_size = 0 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslShake128(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"shake_128\", .digest_size = 0 }");
 }
 
-fn genOpensslShake256(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .name = \"shake_256\", .digest_size = 0 }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslShake256(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ".{ .name = \"shake_256\", .digest_size = 0 }");
 }
 
-fn genPbkdf2Hmac(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("&[_]u8{} ** 32");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genPbkdf2Hmac(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "&[_]u8{} ** 32");
 }
 
-fn genScrypt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("&[_]u8{} ** 64");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genScrypt(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "&[_]u8{} ** 64");
 }
 
-fn genHmacDigest(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("&[_]u8{} ** 32");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genHmacDigest(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "&[_]u8{} ** 32");
 }
 
-fn genCompareDigest(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genCompareDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        {
-            const b = try self.getBuilder();
-            try b.write("std.mem.eql(u8, ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "std.mem.eql(u8, ");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")");
     } else {
-        const b = try self.getBuilder();
-        try b.write("false");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "false");
     }
 }
 
-fn genOpensslMdMethNames(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("&[_][]const u8{ \"md5\", \"sha1\", \"sha224\", \"sha256\", \"sha384\", \"sha512\", \"sha3_224\", \"sha3_256\", \"sha3_384\", \"sha3_512\", \"shake_128\", \"shake_256\", \"blake2b\", \"blake2s\" }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genOpensslMdMethNames(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "&[_][]const u8{ \"md5\", \"sha1\", \"sha224\", \"sha256\", \"sha384\", \"sha512\", \"sha3_224\", \"sha3_256\", \"sha3_384\", \"sha3_512\", \"shake_128\", \"shake_256\", \"blake2b\", \"blake2s\" }");
 }
