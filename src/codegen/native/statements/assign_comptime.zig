@@ -14,8 +14,6 @@ pub fn emitComptimeAssignment(
     is_first_assignment: bool,
     is_mutable: bool,
 ) CodegenError!void {
-    try self.emitIndent();
-
     // Check if var_name would shadow a module-level import, function, or global var
     // If so, create a prefixed name to avoid Zig's "shadows declaration" error
     // This must happen BEFORE checking var_renames, so the rename gets created
@@ -50,30 +48,33 @@ pub fn emitComptimeAssignment(
     // Check if variable has been renamed (e.g., for try/except pointer params or shadowing)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
+    const b = try self.getBuilder();
+    try b.writeIndent();
+
     if (is_first_assignment) {
         // Use var for mutable variables, const for immutable
         if (is_mutable) {
-            try self.emit("var ");
+            try b.write("var ");
         } else {
-            try self.emit("const ");
+            try b.write("const ");
         }
     }
 
     // Escape Zig reserved keywords (e.g., "false" -> @"false")
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+    try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), actual_name);
 
     if (is_first_assignment) {
         // Emit type annotation
-        try self.emit(": ");
+        try b.write(": ");
         switch (value) {
-            .int => try self.emit("i64"),
-            .float => try self.emit("f64"),
-            .bool => try self.emit("bool"),
-            .string, .owned_string => try self.emit("[]const u8"),
-            .bytes, .owned_bytes => try self.emit("runtime.builtins.PyBytes"),
+            .int => try b.write("i64"),
+            .float => try b.write("f64"),
+            .bool => try b.write("bool"),
+            .string, .owned_string => try b.write("[]const u8"),
+            .bytes, .owned_bytes => try b.write("runtime.builtins.PyBytes"),
             .list, .owned_list => |items| {
                 if (items.len == 0) {
-                    try self.emit("[0]i64"); // Empty list default type
+                    try b.write("[0]i64"); // Empty list default type
                 } else {
                     // Infer element type from first element
                     const elem_type = switch (items[0]) {
@@ -84,107 +85,110 @@ pub fn emitComptimeAssignment(
                         .bytes, .owned_bytes => "runtime.builtins.PyBytes",
                         .list, .owned_list => "ComptimeValue", // Nested lists not fully supported
                     };
-                    try self.output.writer(self.allocator).print("[{d}]{s}", .{ items.len, elem_type });
+                    try b.writeFmt("[{d}]{s}", .{ items.len, elem_type });
                 }
             },
         }
     }
 
-    try self.emit(" = ");
+    try b.write(" = ");
 
     // Emit value
+    const writer = b.body.writer(b.allocator);
     switch (value) {
-        .int => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
+        .int => |v| try b.writeFmt("{d}", .{v}),
         .float => |v| {
             // Handle special values first to avoid printing just "inf" or "nan"
             if (std.math.isInf(v)) {
-                try self.emit(if (v < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+                try b.write(if (v < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
             } else if (std.math.isNan(v)) {
-                try self.emit("std.math.nan(f64)");
+                try b.write("std.math.nan(f64)");
             } else if (@mod(v, 1.0) == 0.0) {
                 // Use Python-style float formatting (always show .0 for whole numbers)
-                try self.output.writer(self.allocator).print("{d:.1}", .{v});
+                try b.writeFmt("{d:.1}", .{v});
             } else {
-                try self.output.writer(self.allocator).print("{d}", .{v});
+                try b.writeFmt("{d}", .{v});
             }
         },
         .bool => |v| {
             const bool_str = if (v) "true" else "false";
-            try self.emit(bool_str);
+            try b.write(bool_str);
         },
         .string, .owned_string => |v| {
             // Escape the string properly
-            try self.emit("\"");
+            try b.write("\"");
             for (v) |c| {
                 switch (c) {
-                    '\n' => try self.emit("\\n"),
-                    '\r' => try self.emit("\\r"),
-                    '\t' => try self.emit("\\t"),
-                    '\\' => try self.emit("\\\\"),
-                    '"' => try self.emit("\\\""),
-                    else => try self.output.append(self.allocator, c),
+                    '\n' => try b.write("\\n"),
+                    '\r' => try b.write("\\r"),
+                    '\t' => try b.write("\\t"),
+                    '\\' => try b.write("\\\\"),
+                    '"' => try b.write("\\\""),
+                    else => try writer.writeByte(c),
                 }
             }
-            try self.emit("\"");
+            try b.write("\"");
         },
         .bytes, .owned_bytes => |v| {
             // Use runtime.builtins.bytesLiteral for Python bytes type
-            try self.emit("runtime.builtins.bytesLiteral(\"");
+            try b.write("runtime.builtins.bytesLiteral(\"");
             for (v) |c| {
                 switch (c) {
-                    '\n' => try self.emit("\\n"),
-                    '\r' => try self.emit("\\r"),
-                    '\t' => try self.emit("\\t"),
-                    '\\' => try self.emit("\\\\"),
-                    '"' => try self.emit("\\\""),
+                    '\n' => try b.write("\\n"),
+                    '\r' => try b.write("\\r"),
+                    '\t' => try b.write("\\t"),
+                    '\\' => try b.write("\\\\"),
+                    '"' => try b.write("\\\""),
                     else => {
                         // For bytes, emit hex for non-printable chars
                         if (c < 0x20 or c >= 0x7f) {
-                            try self.output.writer(self.allocator).print("\\x{x:0>2}", .{c});
+                            try b.writeFmt("\\x{x:0>2}", .{c});
                         } else {
-                            try self.output.append(self.allocator, c);
+                            try writer.writeByte(c);
                         }
                     },
                 }
             }
-            try self.emit("\")");
+            try b.write("\")");
         },
         .list, .owned_list => |items| {
             if (items.len == 0) {
-                try self.emit(".{}");
+                try b.write(".{}");
             } else {
-                try self.emit(".{ ");
+                try b.write(".{ ");
                 for (items, 0..) |item, i| {
-                    if (i > 0) try self.emit(", ");
+                    if (i > 0) try b.write(", ");
 
                     switch (item) {
-                        .int => |v| try self.output.writer(self.allocator).print("{d}", .{v}),
+                        .int => |v| try b.writeFmt("{d}", .{v}),
                         .float => |v| {
                             // Use Python-style float formatting (always show .0 for whole numbers)
                             if (@mod(v, 1.0) == 0.0) {
-                                try self.output.writer(self.allocator).print("{d:.1}", .{v});
+                                try b.writeFmt("{d:.1}", .{v});
                             } else {
-                                try self.output.writer(self.allocator).print("{d}", .{v});
+                                try b.writeFmt("{d}", .{v});
                             }
                         },
                         .bool => |v| {
                             const bool_str = if (v) "true" else "false";
-                            try self.emit(bool_str);
+                            try b.write(bool_str);
                         },
-                        .string, .owned_string => |v| try self.output.writer(self.allocator).print("\"{s}\"", .{v}),
-                        .bytes, .owned_bytes => |v| try self.output.writer(self.allocator).print("runtime.builtins.bytesLiteral(\"{s}\")", .{v}),
+                        .string, .owned_string => |v| try b.writeFmt("\"{s}\"", .{v}),
+                        .bytes, .owned_bytes => |v| try b.writeFmt("runtime.builtins.bytesLiteral(\"{s}\")", .{v}),
                         .list, .owned_list => {
                             // Nested lists not fully supported yet
-                            try self.emit(".{}");
+                            try b.write(".{}");
                         },
                     }
                 }
-                try self.emit(" }");
+                try b.write(" }");
             }
         },
     }
 
-    try self.emit(";\n");
+    try b.write(";\n");
+    const output = b.getBody();
+    try self.output.appendSlice(self.allocator, output);
 }
 
 /// Free memory allocated for comptime value
