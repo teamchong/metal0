@@ -7,26 +7,33 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const builder_mod = @import("codegen.builder");
 
+// MIGRATED TO ZIGBUILDER
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 /// Generate the error handling suffix for failable float operations.
 /// Inside try blocks, use "try" to propagate errors to handlers.
 /// Otherwise, use "catch 0.0" to silently handle errors.
 fn emitFloatErrorHandling(self: *NativeCodegen, expr_start: []const u8, expr_end: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
     if (self.inside_try_body) {
         // Inside try block - propagate errors up
-        try b.write("(try ");
-        try b.write(expr_start);
-        try b.write(expr_end);
-        try b.write(")");
+        try emitConst(self, "(try ");
+        try emitConst(self, expr_start);
+        try emitConst(self, expr_end);
+        try emitConst(self, ")");
     } else {
         // Outside try block - catch and return default
-        try b.write("(");
-        try b.write(expr_start);
-        try b.write(expr_end);
-        try b.write(" catch 0.0)");
+        try emitConst(self, "(");
+        try emitConst(self, expr_start);
+        try emitConst(self, expr_end);
+        try emitConst(self, " catch 0.0)");
     }
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
 }
 
 /// Check if a string is a special float literal (case-insensitive)
@@ -66,17 +73,11 @@ fn getSpecialFloatLiteral(str: []const u8) ?[]const u8 {
 pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // float() with no args returns 0.0
     if (args.len == 0) {
-        const b = try self.getBuilder();
-        try b.write("@as(f64, 0.0)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "@as(f64, 0.0)");
         return;
     }
     if (args.len != 1) {
-        const b = try self.getBuilder();
-        try b.write("@as(f64, 0.0)");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "@as(f64, 0.0)");
         return;
     }
 
@@ -107,55 +108,29 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const str_val = args[0].constant.value.string;
             // Handle special float values (inf, nan, etc.) case-insensitively
             if (getSpecialFloatLiteral(str_val)) |zig_const| {
-                const b = try self.getBuilder();
-                try b.write(zig_const);
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
+                try emitConst(self, zig_const);
                 return;
             }
             // Try to parse as a numeric literal at comptime
             // Strip leading + for Zig compatibility (Zig doesn't accept "+123")
             const parse_str = if (str_val.len > 0 and str_val[0] == '+') str_val[1..] else str_val;
             if (std.fmt.parseFloat(f64, parse_str)) |_| {
-                const b = try self.getBuilder();
-                try b.write("@as(f64, ");
-                try b.write(parse_str);
-                try b.write(")");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
+                try emitConst(self, "@as(f64, ");
+                try emitConst(self, parse_str);
+                try emitConst(self, ")");
                 return;
             } else |_| {}
         }
         // For non-literal strings, use runtime float parsing (handles Unicode digits)
         if (self.inside_try_body) {
             // Use parseFloatStr which sets proper error message for except handlers
-            {
-                const b = try self.getBuilder();
-                try b.write("(try runtime.parseFloatStr(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "(try runtime.parseFloatStr(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write("))");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "))");
         } else {
-            {
-                const b = try self.getBuilder();
-                try b.write("(runtime.parseFloatWithUnicode(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "(runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(") catch 0.0)");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ") catch 0.0)");
         }
         return;
     }
@@ -167,67 +142,27 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Use runtime fallback instead which handles all types
         if (args[0] == .name) {
             if (self.inside_try_body) {
-                {
-                    const b = try self.getBuilder();
-                    try b.write("(try runtime.floatBuiltinCall(");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, "(try runtime.floatBuiltinCall(");
                 try self.genExpr(args[0]);
-                {
-                    const b = try self.getBuilder();
-                    try b.write(", .{}))");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, ", .{}))");
             } else {
-                {
-                    const b = try self.getBuilder();
-                    try b.write("(runtime.floatBuiltinCall(");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, "(runtime.floatBuiltinCall(");
                 try self.genExpr(args[0]);
-                {
-                    const b = try self.getBuilder();
-                    try b.write(", .{}) catch 0.0)");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, ", .{}) catch 0.0)");
             }
             return;
         }
-        {
-            const b = try self.getBuilder();
-            try b.write("@as(f64, @floatFromInt(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write("))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "))");
         return;
     }
 
     // Cast bool to float (True -> 1.0, False -> 0.0)
     if (type_traits.isBoolean(arg_type)) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@as(f64, @floatFromInt(@intFromBool(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@as(f64, @floatFromInt(@intFromBool(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")))");
         return;
     }
 
@@ -253,33 +188,13 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use runtime.floatBuiltinCall which handles both cases via @hasDecl
     if (has_magic_method and args[0] == .name) {
         if (self.inside_try_body) {
-            {
-                const b = try self.getBuilder();
-                try b.write("(try runtime.floatBuiltinCall(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "(try runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(", .{}))");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ", .{}))");
         } else {
-            {
-                const b = try self.getBuilder();
-                try b.write("(runtime.floatBuiltinCall(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "(runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(", .{}) catch 0.0)");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ", .{}) catch 0.0)");
         }
         return;
     }
@@ -287,65 +202,25 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
     if (string_traits.isString(arg_type)) {
         if (self.inside_try_body) {
-            {
-                const b = try self.getBuilder();
-                try b.write("(try runtime.parseFloatWithUnicode(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "(try runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write("))");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "))");
         } else {
-            {
-                const b = try self.getBuilder();
-                try b.write("(runtime.parseFloatWithUnicode(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "(runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);
-            {
-                const b = try self.getBuilder();
-                try b.write(") catch 0.0)");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, ") catch 0.0)");
         }
         return;
     }
 
     // Generic fallback for unknown types - use runtime.floatBuiltinCall which handles all types
     if (self.inside_try_body) {
-        {
-            const b = try self.getBuilder();
-            try b.write("(try runtime.floatBuiltinCall(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "(try runtime.floatBuiltinCall(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", .{}))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", .{}))");
     } else {
-        {
-            const b = try self.getBuilder();
-            try b.write("(runtime.floatBuiltinCall(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "(runtime.floatBuiltinCall(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", .{}) catch 0.0)");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", .{}) catch 0.0)");
     }
 }
