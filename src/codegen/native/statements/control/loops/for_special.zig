@@ -156,9 +156,9 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // If iterating over list literal, wrap in parens for .items access
     if (container_traits.isList(iter_type) and iterable == .list) {
-        try emitConst(self, "(");
-        try self.genExpr(iterable);
-        try emitConst(self, ").items");
+        // Use emitParens auto-close helper for guaranteed bracket matching
+        try self.emitParens(iterable);
+        try emitConst(self, ".items");
     } else {
         try self.genExpr(iterable);
         if (container_traits.isList(iter_type)) {

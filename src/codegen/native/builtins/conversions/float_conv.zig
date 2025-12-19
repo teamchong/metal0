@@ -21,19 +21,26 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
 /// Inside try blocks, use "try" to propagate errors to handlers.
 /// Otherwise, use "catch 0.0" to silently handle errors.
 fn emitFloatErrorHandling(self: *NativeCodegen, expr_start: []const u8, expr_end: []const u8) CodegenError!void {
-    if (self.inside_try_body) {
-        // Inside try block - propagate errors up
-        try emitConst(self, "(try ");
-        try emitConst(self, expr_start);
-        try emitConst(self, expr_end);
-        try emitConst(self, ")");
-    } else {
-        // Outside try block - catch and return default
-        try emitConst(self, "(");
-        try emitConst(self, expr_start);
-        try emitConst(self, expr_end);
-        try emitConst(self, " catch 0.0)");
-    }
+    // Uses auto-close pattern for guaranteed bracket matching
+    const Ctx = struct { es: []const u8, ee: []const u8, try_body: bool };
+    try self.withParensCtx(Ctx{
+        .es = expr_start,
+        .ee = expr_end,
+        .try_body = self.inside_try_body,
+    }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            if (ctx.try_body) {
+                // Inside try block - propagate errors up
+                try emitConst(s, "try ");
+            }
+            try emitConst(s, ctx.es);
+            try emitConst(s, ctx.ee);
+            if (!ctx.try_body) {
+                // Outside try block - catch and return default
+                try emitConst(s, " catch 0.0");
+            }
+        }
+    }.f);
 }
 
 /// Check if a string is a special float literal (case-insensitive)

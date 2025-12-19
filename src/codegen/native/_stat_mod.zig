@@ -254,9 +254,13 @@ fn genSISSOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genSIMODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "(");
-        try self.genExpr(args[0]);
-        try emitConst(self, " & 0o7777)");
+        // Use auto-close pattern for bitwise and expression
+        try self.withParensCtx(args[0], struct {
+            pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                try s.genExpr(arg);
+                try emitConst(s, " & 0o7777");
+            }
+        }.f);
     } else {
         try emitConst(self, "@as(u32, 0)");
     }
