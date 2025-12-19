@@ -330,28 +330,36 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     try emitStrNotContains(self, compare.comparators[i], current_left);
                 },
                 .Is => {
-                    // Identity comparison for strings: compare pointer/length
-                    try emitConst(self, "(");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ".ptr == ");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ".ptr and ");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ".len == ");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ".len)");
+                    // Identity comparison for strings: compare pointer/length (auto-close pattern)
+                    const IsCtx = struct { left: ast.Node, right: ast.Node };
+                    try self.withParensCtx(IsCtx{ .left = current_left, .right = compare.comparators[i] }, struct {
+                        pub fn f(s: *NativeCodegen, ctx: IsCtx) CodegenError!void {
+                            try genExpr(s, ctx.left);
+                            try emitConst(s, ".ptr == ");
+                            try genExpr(s, ctx.right);
+                            try emitConst(s, ".ptr and ");
+                            try genExpr(s, ctx.left);
+                            try emitConst(s, ".len == ");
+                            try genExpr(s, ctx.right);
+                            try emitConst(s, ".len");
+                        }
+                    }.f);
                 },
                 .IsNot => {
-                    // Negated identity comparison for strings
-                    try emitConst(self, "(");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ".ptr != ");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ".ptr or ");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ".len != ");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ".len)");
+                    // Negated identity comparison for strings (auto-close pattern)
+                    const IsNotCtx = struct { left: ast.Node, right: ast.Node };
+                    try self.withParensCtx(IsNotCtx{ .left = current_left, .right = compare.comparators[i] }, struct {
+                        pub fn f(s: *NativeCodegen, ctx: IsNotCtx) CodegenError!void {
+                            try genExpr(s, ctx.left);
+                            try emitConst(s, ".ptr != ");
+                            try genExpr(s, ctx.right);
+                            try emitConst(s, ".ptr or ");
+                            try genExpr(s, ctx.left);
+                            try emitConst(s, ".len != ");
+                            try genExpr(s, ctx.right);
+                            try emitConst(s, ".len");
+                        }
+                    }.f);
                 },
                 else => {
                     // String comparison operators other than == and != not supported
@@ -502,12 +510,16 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                     // Check if container is a tuple - need inline comparisons (can't iterate tuples at runtime)
                     if (compare.comparators[i] == .tuple) {
                         const tuple_elts = compare.comparators[i].tuple.elts;
-                        try emitConst(self, "(");
-                        for (tuple_elts, 0..) |elt, j| {
-                            if (j > 0) try emitConst(self, " or ");
-                            try emitStrEql(self, current_left, elt);
-                        }
-                        try emitConst(self, ")");
+                        // Use auto-close pattern for tuple membership
+                        const TupleCtx = struct { left: ast.Node, elts: []ast.Node };
+                        try self.withParensCtx(TupleCtx{ .left = current_left, .elts = tuple_elts }, struct {
+                            pub fn f(s: *NativeCodegen, ctx: TupleCtx) CodegenError!void {
+                                for (ctx.elts, 0..) |elt, j| {
+                                    if (j > 0) try emitConst(s, " or ");
+                                    try emitStrEql(s, ctx.left, elt);
+                                }
+                            }
+                        }.f);
                     } else {
                         // Generate inline block expression that loops through array
                         var em = self.exprEmitter();
@@ -726,15 +738,19 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
             if (is_class_instance) {
                 // Both are pointers to heap-allocated objects - direct pointer comparison
-                try emitConst(self, "(");
-                try genExpr(self, current_left);
-                if (op == .Is) {
-                    try emitConst(self, " == ");
-                } else {
-                    try emitConst(self, " != ");
-                }
-                try genExpr(self, compare.comparators[i]);
-                try emitConst(self, ")");
+                // Use auto-close pattern for class instance identity comparison
+                const ClassCmpCtx = struct { left: ast.Node, right: ast.Node, is_eq: bool };
+                try self.withParensCtx(ClassCmpCtx{
+                    .left = current_left,
+                    .right = compare.comparators[i],
+                    .is_eq = (op == .Is),
+                }, struct {
+                    pub fn f(s: *NativeCodegen, ctx: ClassCmpCtx) CodegenError!void {
+                        try genExpr(s, ctx.left);
+                        try emitConst(s, if (ctx.is_eq) " == " else " != ");
+                        try genExpr(s, ctx.right);
+                    }
+                }.f);
             } else if (needs_ptr_compare) {
                 // Compare pointers for identity
                 // For ArrayList aliases, the alias is a pointer (*ArrayList), so &alias gives **ArrayList
@@ -924,46 +940,65 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (op == .NotEq) {
                     try emitConst(self, "!");
                 }
-                try emitConst(self, "(");
-                // Check left side length
-                if (left_is_empty_list) {
-                    // Empty literal - length is always 0, just emit "true" for the left == 0 part
-                    try emitConst(self, "true");
-                } else if (left_is_array) {
-                    try emitConst(self, "((");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ").len == 0)");
-                } else if (left_is_literal) {
-                    try emitConst(self, "((");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ").items.len == 0)");
-                } else {
-                    // Call or variable returning list - wrap and check .items.len
-                    // For calls like list([]), this generates ArrayList which has .items
-                    try emitConst(self, "((");
-                    try genExpr(self, current_left);
-                    try emitConst(self, ").items.len == 0)");
-                }
-                try emitConst(self, " and ");
-                // Check right side length
-                if (right_is_empty_list) {
-                    // Empty literal - length is always 0
-                    try emitConst(self, "true");
-                } else if (right_is_array) {
-                    try emitConst(self, "((");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ").len == 0)");
-                } else if (right_is_literal) {
-                    try emitConst(self, "((");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ").items.len == 0)");
-                } else {
-                    // Call or variable returning list - wrap and check .items.len
-                    try emitConst(self, "((");
-                    try genExpr(self, compare.comparators[i]);
-                    try emitConst(self, ").items.len == 0)");
-                }
-                try emitConst(self, ")");
+                // Use auto-close pattern for empty list comparison
+                const EmptyListCtx = struct {
+                    s: *NativeCodegen,
+                    left: ast.Node,
+                    right: ast.Node,
+                    left_empty: bool,
+                    right_empty: bool,
+                    left_arr: bool,
+                    right_arr: bool,
+                    left_lit: bool,
+                    right_lit: bool,
+                };
+                try self.withParensCtx(EmptyListCtx{
+                    .s = self,
+                    .left = current_left,
+                    .right = compare.comparators[i],
+                    .left_empty = left_is_empty_list,
+                    .right_empty = right_is_empty_list,
+                    .left_arr = left_is_array,
+                    .right_arr = right_is_array,
+                    .left_lit = left_is_literal,
+                    .right_lit = right_is_literal,
+                }, struct {
+                    pub fn f(_: *NativeCodegen, ctx: EmptyListCtx) CodegenError!void {
+                        // Check left side length
+                        if (ctx.left_empty) {
+                            try emitConst(ctx.s, "true");
+                        } else if (ctx.left_arr) {
+                            try emitConst(ctx.s, "(");
+                            try ctx.s.emitParens(ctx.left);
+                            try emitConst(ctx.s, ".len == 0)");
+                        } else if (ctx.left_lit) {
+                            try emitConst(ctx.s, "(");
+                            try ctx.s.emitParens(ctx.left);
+                            try emitConst(ctx.s, ".items.len == 0)");
+                        } else {
+                            try emitConst(ctx.s, "(");
+                            try ctx.s.emitParens(ctx.left);
+                            try emitConst(ctx.s, ".items.len == 0)");
+                        }
+                        try emitConst(ctx.s, " and ");
+                        // Check right side length
+                        if (ctx.right_empty) {
+                            try emitConst(ctx.s, "true");
+                        } else if (ctx.right_arr) {
+                            try emitConst(ctx.s, "(");
+                            try ctx.s.emitParens(ctx.right);
+                            try emitConst(ctx.s, ".len == 0)");
+                        } else if (ctx.right_lit) {
+                            try emitConst(ctx.s, "(");
+                            try ctx.s.emitParens(ctx.right);
+                            try emitConst(ctx.s, ".items.len == 0)");
+                        } else {
+                            try emitConst(ctx.s, "(");
+                            try ctx.s.emitParens(ctx.right);
+                            try emitConst(ctx.s, ".items.len == 0)");
+                        }
+                    }
+                }.f);
                 // No need to update current_left/current_left_type - they're recomputed at loop start
             } else {
                 // Get element type for pySliceEql
@@ -1009,15 +1044,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Slice subscript (e.g., a[1:3]) already returns []T - use directly
                 try genExpr(self, current_left);
             } else if (left_is_array) {
-                // Constant array literal: use & to get slice
-                try emitConst(self, "&(");
-                try genExpr(self, current_left);
-                try emitConst(self, ")");
+                // Constant array literal: use & to get slice (auto-close pattern)
+                try emitConst(self, "&");
+                try self.emitParens(current_left);
             } else if (left_is_literal) {
-                // List with variables → ArrayList block: use .items
-                try emitConst(self, "(");
-                try genExpr(self, current_left);
-                try emitConst(self, ").items");
+                // List with variables → ArrayList block: use .items (auto-close pattern)
+                try self.emitParens(current_left);
+                try emitConst(self, ".items");
             } else {
                 // ArrayList variable or call returning ArrayList OR slice variable
                 // Use container_dispatch helper to reduce monomorphization
@@ -1034,15 +1067,13 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 // Slice subscript (e.g., a[1:3]) already returns []T - use directly
                 try genExpr(self, compare.comparators[i]);
             } else if (right_is_array) {
-                // Constant array literal: use & to get slice
-                try emitConst(self, "&(");
-                try genExpr(self, compare.comparators[i]);
-                try emitConst(self, ")");
+                // Constant array literal: use & to get slice (auto-close pattern)
+                try emitConst(self, "&");
+                try self.emitParens(compare.comparators[i]);
             } else if (right_is_literal) {
-                // List with variables → ArrayList block: use .items
-                try emitConst(self, "(");
-                try genExpr(self, compare.comparators[i]);
-                try emitConst(self, ").items");
+                // List with variables → ArrayList block: use .items (auto-close pattern)
+                try self.emitParens(compare.comparators[i]);
+                try emitConst(self, ".items");
             } else {
                 // ArrayList variable or call returning ArrayList OR slice variable
                 // Use container_dispatch helper to reduce monomorphization
@@ -1462,24 +1493,31 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             if (!both_primitive and (op == .Eq or op == .NotEq)) {
                 if (op == .NotEq) try emitConst(self, "!");
                 // Always use pyAnyEql for Python-semantic comparison
+                // Uses emitParens auto-close when wrapping needed
                 try emitConst(self, "runtime.pyAnyEql(");
-                if (left_needs_wrap) try emitConst(self, "(");
-                try genExpr(self, current_left);
-                if (left_needs_wrap) try emitConst(self, ")");
+                if (left_needs_wrap) {
+                    try self.emitParens(current_left);
+                } else {
+                    try genExpr(self, current_left);
+                }
                 try emitConst(self, ", ");
-                if (right_needs_wrap) try emitConst(self, "(");
-                try genExpr(self, compare.comparators[i]);
-                if (right_needs_wrap) try emitConst(self, ")");
+                if (right_needs_wrap) {
+                    try self.emitParens(compare.comparators[i]);
+                } else {
+                    try genExpr(self, compare.comparators[i]);
+                }
                 try emitConst(self, ")");
             } else {
                 // Cast left operand if needed
                 if (left_is_usize and needs_cast) {
                     try emitConst(self, "@as(i64, @intCast(");
                 }
-                // Wrap block expressions in parentheses
-                if (left_needs_wrap) try emitConst(self, "(");
-                try genExpr(self, current_left);
-                if (left_needs_wrap) try emitConst(self, ")");
+                // Wrap block expressions in parentheses (uses emitParens auto-close)
+                if (left_needs_wrap) {
+                    try self.emitParens(current_left);
+                } else {
+                    try genExpr(self, current_left);
+                }
                 if (left_is_usize and needs_cast) {
                     try emitConst(self, "))");
                 }
@@ -1490,10 +1528,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                 if (right_is_usize and needs_cast) {
                     try emitConst(self, "@as(i64, @intCast(");
                 }
-                // Wrap block expressions in parentheses
-                if (right_needs_wrap) try emitConst(self, "(");
-                try genExpr(self, compare.comparators[i]);
-                if (right_needs_wrap) try emitConst(self, ")");
+                // Wrap block expressions in parentheses (uses emitParens auto-close)
+                if (right_needs_wrap) {
+                    try self.emitParens(compare.comparators[i]);
+                } else {
+                    try genExpr(self, compare.comparators[i]);
+                }
                 if (right_is_usize and needs_cast) {
                     try emitConst(self, "))");
                 }
