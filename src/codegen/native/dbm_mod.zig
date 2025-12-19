@@ -4,6 +4,16 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
+const NativeCodegen = h.NativeCodegen;
+const CodegenError = h.CodegenError;
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "open", genOpen },
@@ -11,38 +21,22 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "whichdb", genWhichdb },
 });
 
-fn genOpen(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
+fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         // With argument: .{ .path = __v, .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }
-        try b.write(".{ .path = ");
-        const output1 = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output1);
+        try emitConst(self, ".{ .path = ");
         try self.genExpr(args[0]);
-        {
-            const b2 = try self.getBuilder();
-            try b2.write(", .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }");
-            const output2 = b2.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output2);
-        }
+        try emitConst(self, ", .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }");
     } else {
         // Without argument: default struct
-        try b.write(".{ .path = \"\", .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, ".{ .path = \"\", .data = hashmap_helper.StringHashMap([]const u8).init(__global_allocator) }");
     }
 }
 
-fn genError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("error.DbmError");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genError(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "error.DbmError");
 }
 
-fn genWhichdb(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("@as(?[]const u8, \"dbm.dumb\")");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+fn genWhichdb(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "@as(?[]const u8, \"dbm.dumb\")");
 }

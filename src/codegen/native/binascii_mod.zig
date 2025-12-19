@@ -8,52 +8,46 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
-fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+fn genHexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try b.write("\"\"");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "\"\"");
         return;
     }
     try self.withInlineBlock("hex", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const _data = ");
-            const output1 = b2.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output1);
+            try emitConst(c, "const _data = ");
             try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; const _hex = __global_allocator.alloc(u8, _data.len * 2) catch break :{s} \"\"; const _hex_chars = \"0123456789abcdef\"; for (_data, 0..) |b, i| {{ _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; }} break :{s} _hex", .{ label, label });
-                const output2 = b3.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+            try emitFmtConst(c, "; const _hex = __global_allocator.alloc(u8, _data.len * 2) catch break :{s} \"\"; const _hex_chars = \"0123456789abcdef\"; for (_data, 0..) |b, i| {{ _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; }} break :{s} _hex", .{ label, label });
         }
     }.emit);
 }
 
 fn genUnhexlify(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.write("\"\"");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "\"\"");
         return;
     }
     try self.withInlineBlock("unhex", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const _hexstr = ");
-            const output1 = b2.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output1);
+            try emitConst(c, "const _hexstr = ");
             try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; const _result = __global_allocator.alloc(u8, _hexstr.len / 2) catch break :{s} \"\"; for (0..(_hexstr.len / 2)) |i| {{ const _hi = if (_hexstr[i * 2] >= 'a') _hexstr[i * 2] - 'a' + 10 else if (_hexstr[i * 2] >= 'A') _hexstr[i * 2] - 'A' + 10 else _hexstr[i * 2] - '0'; const _lo = if (_hexstr[i * 2 + 1] >= 'a') _hexstr[i * 2 + 1] - 'a' + 10 else if (_hexstr[i * 2 + 1] >= 'A') _hexstr[i * 2 + 1] - 'A' + 10 else _hexstr[i * 2 + 1] - '0'; _result[i] = (_hi << 4) | _lo; }} break :{s} _result", .{ label, label });
-                const output2 = b3.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+            try emitFmtConst(c, "; const _result = __global_allocator.alloc(u8, _hexstr.len / 2) catch break :{s} \"\"; for (0..(_hexstr.len / 2)) |i| {{ const _hi = if (_hexstr[i * 2] >= 'a') _hexstr[i * 2] - 'a' + 10 else if (_hexstr[i * 2] >= 'A') _hexstr[i * 2] - 'A' + 10 else _hexstr[i * 2] - '0'; const _lo = if (_hexstr[i * 2 + 1] >= 'a') _hexstr[i * 2 + 1] - 'a' + 10 else if (_hexstr[i * 2 + 1] >= 'A') _hexstr[i * 2 + 1] - 'A' + 10 else _hexstr[i * 2 + 1] - '0'; _result[i] = (_hi << 4) | _lo; }} break :{s} _result", .{ label, label });
         }
     }.emit);
 }

@@ -4,8 +4,18 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
+const NativeCodegen = h.NativeCodegen;
+const CodegenError = h.CodegenError;
 
 const ctx_val = "struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}";
+
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Decimal", genDecimal },
@@ -35,163 +45,118 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Clamped", genClamped },
 });
 
-fn genDecimal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        const b = try self.getBuilder();
-        try b.emitValue(builder_mod.ZigValue.raw("runtime.Decimal{ .value = 0 }"), builder_mod.EmitConfig.forExpression());
+        try emitConst(self, "runtime.Decimal{ .value = 0 }");
         return;
     }
-    const b = try self.getBuilder();
-    try b.write("runtime.Decimal{ .value = ");
-    const output1 = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output1);
+    try emitConst(self, "runtime.Decimal{ .value = ");
     if (args[0] == .constant and args[0].constant.value == .string) {
-        const b2 = try self.getBuilder();
-        try b2.write("std.fmt.parseFloat(f64, ");
-        const out2 = b2.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out2);
+        try emitConst(self, "std.fmt.parseFloat(f64, ");
         try self.genExpr(args[0]);
-        const b3 = try self.getBuilder();
-        try b3.write(") catch 0");
-        const out3 = b3.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out3);
+        try emitConst(self, ") catch 0");
     } else if (args[0] == .constant) {
-        const b2 = try self.getBuilder();
-        try b2.write("@as(f64, @floatFromInt(");
-        const out2 = b2.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out2);
+        try emitConst(self, "@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        const b3 = try self.getBuilder();
-        try b3.write("))");
-        const out3 = b3.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out3);
+        try emitConst(self, "))");
     } else {
         try self.genExpr(args[0]);
     }
-    {
-        const b4 = try self.getBuilder();
-        try b4.write(" }");
-        const output2 = b4.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output2);
-    }
+    try emitConst(self, " }");
 }
 
-fn genSetcontext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+fn genSetcontext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "{}");
 }
 
-fn genGetcontext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(ctx_val), builder_mod.EmitConfig.forExpression());
+fn genGetcontext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ctx_val);
 }
 
-fn genLocalcontext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(ctx_val), builder_mod.EmitConfig.forExpression());
+fn genLocalcontext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ctx_val);
 }
 
-fn genBasicContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(ctx_val), builder_mod.EmitConfig.forExpression());
+fn genBasicContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ctx_val);
 }
 
-fn genExtendedContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(ctx_val), builder_mod.EmitConfig.forExpression());
+fn genExtendedContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ctx_val);
 }
 
-fn genDefaultContext(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(ctx_val), builder_mod.EmitConfig.forExpression());
+fn genDefaultContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, ctx_val);
 }
 
-fn genRoundCeiling(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_CEILING"), builder_mod.EmitConfig.forExpression());
+fn genRoundCeiling(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_CEILING\"");
 }
 
-fn genRoundDown(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_DOWN"), builder_mod.EmitConfig.forExpression());
+fn genRoundDown(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_DOWN\"");
 }
 
-fn genRoundFloor(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_FLOOR"), builder_mod.EmitConfig.forExpression());
+fn genRoundFloor(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_FLOOR\"");
 }
 
-fn genRoundHalfDown(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_HALF_DOWN"), builder_mod.EmitConfig.forExpression());
+fn genRoundHalfDown(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_HALF_DOWN\"");
 }
 
-fn genRoundHalfEven(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_HALF_EVEN"), builder_mod.EmitConfig.forExpression());
+fn genRoundHalfEven(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_HALF_EVEN\"");
 }
 
-fn genRoundHalfUp(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_HALF_UP"), builder_mod.EmitConfig.forExpression());
+fn genRoundHalfUp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_HALF_UP\"");
 }
 
-fn genRoundUp(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_UP"), builder_mod.EmitConfig.forExpression());
+fn genRoundUp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_UP\"");
 }
 
-fn genRound05Up(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("ROUND_05UP"), builder_mod.EmitConfig.forExpression());
+fn genRound05Up(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"ROUND_05UP\"");
 }
 
-fn genDecimalException(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("DecimalException"), builder_mod.EmitConfig.forExpression());
+fn genDecimalException(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"DecimalException\"");
 }
 
-fn genInvalidOperation(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("InvalidOperation"), builder_mod.EmitConfig.forExpression());
+fn genInvalidOperation(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"InvalidOperation\"");
 }
 
-fn genDivisionByZero(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("DivisionByZero"), builder_mod.EmitConfig.forExpression());
+fn genDivisionByZero(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"DivisionByZero\"");
 }
 
-fn genOverflow(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("Overflow"), builder_mod.EmitConfig.forExpression());
+fn genOverflow(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"Overflow\"");
 }
 
-fn genUnderflow(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("Underflow"), builder_mod.EmitConfig.forExpression());
+fn genUnderflow(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"Underflow\"");
 }
 
-fn genInexact(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("Inexact"), builder_mod.EmitConfig.forExpression());
+fn genInexact(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"Inexact\"");
 }
 
-fn genRounded(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("Rounded"), builder_mod.EmitConfig.forExpression());
+fn genRounded(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"Rounded\"");
 }
 
-fn genSubnormal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("Subnormal"), builder_mod.EmitConfig.forExpression());
+fn genSubnormal(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"Subnormal\"");
 }
 
-fn genFloatOperation(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("FloatOperation"), builder_mod.EmitConfig.forExpression());
+fn genFloatOperation(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"FloatOperation\"");
 }
 
-fn genClamped(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("Clamped"), builder_mod.EmitConfig.forExpression());
+fn genClamped(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    try emitConst(self, "\"Clamped\"");
 }

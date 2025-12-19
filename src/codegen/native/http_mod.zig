@@ -6,6 +6,14 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 // HTTPResponse struct definition - used inline by connection types
 // Uses simple types to avoid hashmap_helper dependency in generated code
 const http_response_struct = "struct { status: i64 = 200, reason: []const u8 = \"OK\", version: i64 = 11, _body: []const u8 = \"\", pub fn read(__self: *@This(), amt: ?usize) []const u8 { _ = amt; return __self._body; } pub fn readline(__self: *@This(), limit: ?usize) []const u8 { _ = __self; _ = limit; return \"\"; } pub fn readlines(__self: *@This(), hint: ?usize) [][]const u8 { _ = __self; _ = hint; return &[_][]const u8{}; } pub fn getheader(__self: *@This(), name: []const u8, default: ?[]const u8) ?[]const u8 { _ = __self; _ = name; return default; } pub fn getheaders(__self: *@This()) []struct { []const u8, []const u8 } { _ = __self; return &.{}; } pub fn fileno(__self: *@This()) i64 { _ = __self; return -1; } pub fn close(__self: *@This()) void { _ = __self; } pub fn isclosed(__self: *@This()) bool { _ = __self; return false; } }";
@@ -31,34 +39,19 @@ pub const HttpCookiesFuncs = std.StaticStringMap(h.H).initComptime(.{
 const conn_fields = ", socket: ?i64 = null";
 const conn_decls = ", pub const HTTPResponse = " ++ http_response_struct ++ "; pub fn request(__self: *@This(), method: []const u8, url: []const u8, body: ?[]const u8, headers: anytype) void { _ = __self; _ = method; _ = url; _ = body; _ = headers; } pub fn getresponse(__self: *@This()) HTTPResponse { _ = __self; return HTTPResponse{}; } pub fn connect(__self: *@This()) void { _ = __self; } pub fn close(__self: *@This()) void { __self.socket = null; }";
 fn genConn(self: *NativeCodegen, args: []ast.Node, comptime default_port: []const u8, comptime extra_fields: []const u8, comptime extra_methods: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("struct { host: []const u8 = ");
-    const output1 = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output1);
-    if (args.len > 0) try self.genExpr(args[0]) else {
-        const b2 = try self.getBuilder();
-        try b2.write("\"localhost\"");
-        const out = b2.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out);
+    try emitConst(self, "struct { host: []const u8 = ");
+    if (args.len > 0) {
+        try self.genExpr(args[0]);
+    } else {
+        try emitConst(self, "\"localhost\"");
     }
-    {
-        const b3 = try self.getBuilder();
-        try b3.write(", port: u16 = ");
-        const output2 = b3.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output2);
+    try emitConst(self, ", port: u16 = ");
+    if (args.len > 1) {
+        try self.genExpr(args[1]);
+    } else {
+        try emitConst(self, default_port);
     }
-    if (args.len > 1) try self.genExpr(args[1]) else {
-        const b4 = try self.getBuilder();
-        try b4.write(default_port);
-        const out = b4.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out);
-    }
-    {
-        const b5 = try self.getBuilder();
-        try b5.write(conn_fields ++ extra_fields ++ conn_decls ++ extra_methods ++ " }{}");
-        const output3 = b5.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output3);
-    }
+    try emitConst(self, conn_fields ++ extra_fields ++ conn_decls ++ extra_methods ++ " }{}");
 }
 fn genHTTPConnection(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try genConn(self, args, "80", ", response_buf: []u8 = &[_]u8{}", " pub fn set_debuglevel(__self: *@This(), level: i64) void { _ = __self; _ = level; } pub fn set_tunnel(__self: *@This(), host: []const u8, port: ?u16, headers: anytype) void { _ = __self; _ = host; _ = port; _ = headers; } pub fn putrequest(__self: *@This(), method: []const u8, url: []const u8) void { _ = __self; _ = method; _ = url; } pub fn putheader(__self: *@This(), header: []const u8, value: []const u8) void { _ = __self; _ = header; _ = value; } pub fn endheaders(__self: *@This(), message_body: ?[]const u8) void { _ = __self; _ = message_body; } pub fn send(__self: *@This(), data: []const u8) void { _ = __self; _ = data; }");
