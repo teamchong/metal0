@@ -14,6 +14,14 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 // Public exports for dispatch/builtins.zig
 pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // defaultdict(factory) - factory is used for missing key access
@@ -33,17 +41,9 @@ pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             // Non-variable (like int, str, list literals) - wrap in discard block
             try self.withInlineBlock("discard", args, struct {
                 fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    const b = try c.getBuilder();
-                    try b.write("_ = ");
-                    const output1 = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output1);
+                    try emitConst(c, "_ = ");
                     try c.genExpr(a[0]);
-                    {
-                        const b2 = try c.getBuilder();
-                        try b2.writeFmt("; break :{s} hashmap_helper.StringHashMap(i64).init(__global_allocator)", .{label});
-                        const output2 = b2.getBodyAndClear();
-                        try c.output.appendSlice(c.allocator, output2);
-                    }
+                    try emitFmtConst(c, "; break :{s} hashmap_helper.StringHashMap(i64).init(__global_allocator)", .{label});
                 }
             }.emit);
         }
@@ -64,17 +64,9 @@ pub fn genOrderedDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
             // Non-variable - wrap in discard block
             try self.withInlineBlock("discard", args, struct {
                 fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    const b = try c.getBuilder();
-                    try b.write("_ = ");
-                    const output1 = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output1);
+                    try emitConst(c, "_ = ");
                     try c.genExpr(a[0]);
-                    {
-                        const b2 = try c.getBuilder();
-                        try b2.writeFmt("; break :{s} hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)", .{label});
-                        const output2 = b2.getBodyAndClear();
-                        try c.output.appendSlice(c.allocator, output2);
-                    }
+                    try emitFmtConst(c, "; break :{s} hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)", .{label});
                 }
             }.emit);
         }
@@ -97,20 +89,10 @@ pub const CounterMethods = std.StaticStringMap(MethodHandler).initComptime(.{
 /// Returns list of (element, count) tuples sorted by count descending
 pub fn genCounterMostCommon(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // Generate: runtime.counterMostCommon(counter, n)
-    {
-        const b = try self.getBuilder();
-        try b.write("runtime.counterMostCommon(__global_allocator, ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "runtime.counterMostCommon(__global_allocator, ");
     try self.genExpr(obj);
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write(", @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", @intCast(");
         try self.genExpr(args[0]);
         try emitConst(self, ")");
     } else {
@@ -124,12 +106,7 @@ pub fn genCounterMostCommon(self: *NativeCodegen, obj: ast.Node, args: []ast.Nod
 pub fn genCounterElements(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     // Generate: runtime.counterElements(counter)
-    {
-        const b = try self.getBuilder();
-        try b.write("runtime.counterElements(__global_allocator, ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "runtime.counterElements(__global_allocator, ");
     try self.genExpr(obj);
     try emitConst(self, ")");
 }
@@ -139,19 +116,9 @@ pub fn genCounterElements(self: *NativeCodegen, obj: ast.Node, args: []ast.Node)
 pub fn genCounterSubtract(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     // Generate: { const __other = expr; for (__other.keys()) |__k| { if (obj.getPtr(__k)) |__p| { __p.* -= __other.get(__k) orelse 0; } } }
-    {
-        const b = try self.getBuilder();
-        try b.write("{ const __other = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "{ const __other = ");
     try self.genExpr(args[0]);
-    {
-        const b = try self.getBuilder();
-        try b.write("; for (__other.keys()) |__k| { if (");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "; for (__other.keys()) |__k| { if (");
     try self.genExpr(obj);
     try emitConst(self, ".getPtr(__k)) |__p| { __p.* -= __other.get(__k) orelse 0; } } }");
 }
@@ -166,17 +133,9 @@ pub fn genCounterTotal(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     var temp_args = [_]ast.Node{obj};
     try self.withInlineBlock("counter_total", &temp_args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b = try c.getBuilder();
-            try b.write("var __sum: i64 = 0; for (");
-            const output1 = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output1);
+            try emitConst(c, "var __sum: i64 = 0; for (");
             try c.genExpr(a[0]);
-            {
-                const b2 = try c.getBuilder();
-                try b2.writeFmt(".values()) |__v| {{ __sum += __v; }} break :{s} __sum", .{label});
-                const output2 = b2.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+            try emitFmtConst(c, ".values()) |__v| {{ __sum += __v; }} break :{s} __sum", .{label});
         }
     }.emit);
 }
@@ -205,17 +164,9 @@ pub fn genUserDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Non-variable - wrap in discard block
             try self.withInlineBlock("discard", args, struct {
                 fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    const b = try c.getBuilder();
-                    try b.write("_ = ");
-                    const output1 = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output1);
+                    try emitConst(c, "_ = ");
                     try c.genExpr(a[0]);
-                    {
-                        const b2 = try c.getBuilder();
-                        try b2.writeFmt("; break :{s} hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)", .{label});
-                        const output2 = b2.getBodyAndClear();
-                        try c.output.appendSlice(c.allocator, output2);
-                    }
+                    try emitFmtConst(c, "; break :{s} hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)", .{label});
                 }
             }.emit);
         }
@@ -236,17 +187,9 @@ pub fn genUserList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Non-variable - wrap in discard block
             try self.withInlineBlock("discard", args, struct {
                 fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    const b = try c.getBuilder();
-                    try b.write("_ = ");
-                    const output1 = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output1);
+                    try emitConst(c, "_ = ");
                     try c.genExpr(a[0]);
-                    {
-                        const b2 = try c.getBuilder();
-                        try b2.writeFmt("; break :{s} std.ArrayListUnmanaged(*runtime.PyObject){{}}", .{label});
-                        const output2 = b2.getBodyAndClear();
-                        try c.output.appendSlice(c.allocator, output2);
-                    }
+                    try emitFmtConst(c, "; break :{s} std.ArrayListUnmanaged(*runtime.PyObject){{}}", .{label});
                 }
             }.emit);
         }
@@ -260,17 +203,9 @@ pub fn genCounter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("counter", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                const b = try c.getBuilder();
-                try b.write("const _iter_raw = ");
-                const output1 = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output1);
+                try emitConst(c, "const _iter_raw = ");
                 try c.genExpr(a[0]);
-                {
-                    const b2 = try c.getBuilder();
-                    try b2.writeFmt("; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| {{ const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) {{ entry.value_ptr.* += 1; }} else {{ entry.value_ptr.* = 1; }} }} break :{s} _counter", .{label});
-                    const output2 = b2.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output2);
-                }
+                try emitFmtConst(c, "; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| {{ const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) {{ entry.value_ptr.* += 1; }} else {{ entry.value_ptr.* = 1; }} }} break :{s} _counter", .{label});
             }
         }.emit);
     } else {
@@ -283,17 +218,9 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("deque", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                const b = try c.getBuilder();
-                try b.write("const _iter_raw = ");
-                const output1 = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output1);
+                try emitConst(c, "const _iter_raw = ");
                 try c.genExpr(a[0]);
-                {
-                    const b2 = try c.getBuilder();
-                    try b2.writeFmt("; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){{}}; for (_iterable) |item| {{ _deque.append(__global_allocator, item) catch continue; }} break :{s} _deque", .{label});
-                    const output2 = b2.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output2);
-                }
+                try emitFmtConst(c, "; const _iterable = runtime.iterSlice(_iter_raw); var _deque = std.ArrayListUnmanaged(@TypeOf(_iterable[0])){{}}; for (_iterable) |item| {{ _deque.append(__global_allocator, item) catch continue; }} break :{s} _deque", .{label});
             }
         }.emit);
     } else {
@@ -349,50 +276,22 @@ pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.withInlineBlock("chainmap", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, _: []ast.Node) !void {
-                const b = try c.getBuilder();
-                try b.writeFmt("var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){{}}; break :{s} _maps", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
+                try emitFmtConst(c, "var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){{}}; break :{s} _maps", .{label});
             }
         }.emit);
         return;
     }
     try self.withInlineBlock("chainmap", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            {
-                const b = try c.getBuilder();
-                try b.write("var _maps = std.ArrayListUnmanaged(@TypeOf(");
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitConst(c, "var _maps = std.ArrayListUnmanaged(@TypeOf(");
             try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.write(")){}; ");
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitConst(c, ")){}; ");
             for (a) |arg| {
-                {
-                    const b = try c.getBuilder();
-                    try b.write("_maps.append(__global_allocator, ");
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitConst(c, "_maps.append(__global_allocator, ");
                 try c.genExpr(arg);
-                {
-                    const b = try c.getBuilder();
-                    try b.write(") catch unreachable; ");
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitConst(c, ") catch unreachable; ");
             }
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("break :{s} _maps", .{label});
-                const output = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output);
-            }
+            try emitFmtConst(c, "break :{s} _maps", .{label});
         }
     }.emit);
 }
