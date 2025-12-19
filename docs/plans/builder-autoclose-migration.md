@@ -22,7 +22,7 @@ Create callback-based auto-closing helpers that **guarantee matching**:
 try self.emitBinOp(left, " + ", right);  // Auto-wraps in ()
 ```
 
-## Current State (as of 2024-12)
+## Current State (✅ MIGRATION COMPLETE - 2024-12)
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -67,7 +67,7 @@ emitField(val, field)         // val.field
 emitExprList(exprs)           // expr1, expr2, ...
 ```
 
-### Phase 2: Migrate High-Impact Files (IN PROGRESS)
+### Phase 2: Migrate High-Impact Files (✅ COMPLETE)
 
 Priority order (by complexity and usage):
 
@@ -80,7 +80,7 @@ Priority order (by complexity and usage):
 7. ✅ **statements/control/conditionals.zig** - No migration needed (no bracket patterns)
 8. ✅ **statements/control/loops/*.zig** - Minimal patterns already safe
 
-### Phase 3: Migrate Remaining Files (MOSTLY COMPLETE)
+### Phase 3: Migrate Remaining Files (✅ COMPLETE)
 
 Priority operator files:
 1. ✅ **expressions/operators/unary_ops.zig** - Unary operations (commit 6bcd181a)
