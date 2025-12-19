@@ -71,13 +71,14 @@ emitExprList(exprs)           // expr1, expr2, ...
 
 Priority order (by complexity and usage):
 
-1. **expressions/operators/arithmetic.zig** - Binary ops like `+`, `-`, `*`, `/`
-2. **expressions/operators/comparison.zig** - Comparison ops
-3. **expressions/operators/logical.zig** - `and`, `or`, `not`
-4. **expressions/subscript.zig** - Array/dict subscripting
-5. **expressions/calls.zig** - Function calls
-6. **statements/control/conditionals.zig** - if/else
-7. **statements/control/loops/*.zig** - for/while loops
+1. ✅ **expressions/operators/power_div_ops.zig** - Power, division, modulo ops (commit f6e75e05)
+2. ✅ **expressions/operators/arithmetic.zig** - Binary ops dispatcher (commit 17032ecc)
+3. ✅ **expressions/operators/comparison.zig** - Comparison ops (commit 76b00b39)
+4. ✅ **expressions/operators/logical.zig** - `and`, `or`, `not` (commit d5e8732c)
+5. **expressions/subscript.zig** - Array/dict subscripting
+6. **expressions/calls.zig** - Function calls
+7. **statements/control/conditionals.zig** - if/else
+8. **statements/control/loops/*.zig** - for/while loops
 
 ### Phase 3: Migrate Remaining Files
 
