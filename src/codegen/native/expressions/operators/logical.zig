@@ -30,24 +30,40 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
 // ============================================
 
 /// Emit runtime.toBool(operand)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.toBool(");
-    try self.emitZigValue(operand);
-    try emitConst(self, ")");
+    try emitConst(self, "runtime.toBool");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+        }
+    }.f);
 }
 
 /// Emit runtime.toBool((try runtime.pyOr/pyAnd(alloc, a, b)))
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimePyBoolOp(self: *NativeCodegen, is_or: bool, a_operand: ZigValue, b_operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.toBool(");
-    if (is_or) {
-        try emitConst(self, "(try runtime.pyOr(__global_allocator, ");
-    } else {
-        try emitConst(self, "(try runtime.pyAnd(__global_allocator, ");
-    }
-    try self.emitZigValue(a_operand);
-    try emitConst(self, ", ");
-    try self.emitZigValue(b_operand);
-    try emitConst(self, ")))");
+    try emitConst(self, "runtime.toBool");
+    const Ctx = struct { a: ZigValue, b: ZigValue, or_op: bool };
+    try self.withParensCtx(Ctx{ .a = a_operand, .b = b_operand, .or_op = is_or }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            const Inner = struct { a: ZigValue, b: ZigValue };
+            if (ctx.or_op) {
+                try emitConst(s, "try runtime.pyOr");
+            } else {
+                try emitConst(s, "try runtime.pyAnd");
+            }
+            try s.withParensCtx(Inner{ .a = ctx.a, .b = ctx.b }, struct {
+                pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
+                    try emitConst(si, "__global_allocator, ");
+                    try si.emitZigValue(inner.a);
+                    try emitConst(si, ", ");
+                    try si.emitZigValue(inner.b);
+                }
+            }.g);
+        }
+    }.f);
 }
 
 
