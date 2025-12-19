@@ -4,6 +4,14 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");
 
+// Helper for simple constant output
+fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "datetime", genDatetime },
     .{ "date", genDate },
@@ -17,250 +25,96 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn ic(self: *h.NativeCodegen, args: []ast.Node, idx: usize) h.CodegenError!void {
     if (args.len > idx) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@intCast(");
         try self.genExpr(args[idx]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")");
     } else {
-        const b = try self.getBuilder();
-        try b.write("0");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, "0");
     }
 }
 
 fn genDatetime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 3) {
-        {
-            const b = try self.getBuilder();
-            try b.write(".{ .year = @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ".{ .year = @intCast(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write("), .month = @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "), .month = @intCast(");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write("), .day = @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "), .day = @intCast(");
         try self.genExpr(args[2]);
-        {
-            const b = try self.getBuilder();
-            try b.write("), .hour = ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "), .hour = ");
         try ic(self, args, 3);
-        {
-            const b = try self.getBuilder();
-            try b.write(", .minute = ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", .minute = ");
         try ic(self, args, 4);
-        {
-            const b = try self.getBuilder();
-            try b.write(", .second = ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", .second = ");
         try ic(self, args, 5);
-        {
-            const b = try self.getBuilder();
-            try b.write(", .microsecond = ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", .microsecond = ");
         try ic(self, args, 6);
-        {
-            const b = try self.getBuilder();
-            try b.write(" }");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, " }");
     } else {
-        const b = try self.getBuilder();
-        try b.write(".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, ".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
     }
 }
 
 fn genDate(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 3) {
-        {
-            const b = try self.getBuilder();
-            try b.write(".{ .year = @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ".{ .year = @intCast(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write("), .month = @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "), .month = @intCast(");
         try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write("), .day = @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "), .day = @intCast(");
         try self.genExpr(args[2]);
-        {
-            const b = try self.getBuilder();
-            try b.write(") }");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ") }");
     } else {
-        const b = try self.getBuilder();
-        try b.write(".{ .year = 1970, .month = 1, .day = 1 }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, ".{ .year = 1970, .month = 1, .day = 1 }");
     }
 }
 
 fn genTime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    {
-        const b = try self.getBuilder();
-        try b.write(".{ .hour = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ".{ .hour = ");
     try ic(self, args, 0);
-    {
-        const b = try self.getBuilder();
-        try b.write(", .minute = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", .minute = ");
     try ic(self, args, 1);
-    {
-        const b = try self.getBuilder();
-        try b.write(", .second = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", .second = ");
     try ic(self, args, 2);
-    {
-        const b = try self.getBuilder();
-        try b.write(", .microsecond = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", .microsecond = ");
     try ic(self, args, 3);
-    {
-        const b = try self.getBuilder();
-        try b.write(" }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, " }");
 }
 
 fn genTimedelta(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    {
-        const b = try self.getBuilder();
-        try b.write(".{ .days = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ".{ .days = ");
     try ic(self, args, 0);
-    {
-        const b = try self.getBuilder();
-        try b.write(", .seconds = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", .seconds = ");
     try ic(self, args, 1);
-    {
-        const b = try self.getBuilder();
-        try b.write(", .microseconds = ");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, ", .microseconds = ");
     try ic(self, args, 2);
-    {
-        const b = try self.getBuilder();
-        try b.write(" }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, " }");
 }
 
 fn genTimezone(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write(".{ .offset = ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ".{ .offset = ");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", .name = ");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ", .name = ");
         if (args.len > 1) {
             try self.genExpr(args[1]);
         } else {
-            const b = try self.getBuilder();
-            try b.write("null");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
+            try emitConst(self, "null");
         }
-        {
-            const b = try self.getBuilder();
-            try b.write(" }");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, " }");
     } else {
-        const b = try self.getBuilder();
-        try b.write(".{ .offset = 0, .name = null }");
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
+        try emitConst(self, ".{ .offset = 0, .name = null }");
     }
 }
 
 fn genMinyear(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("@as(i32, 1)");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitConst(self, "@as(i32, 1)");
 }
 
 fn genMaxyear(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write("@as(i32, 9999)");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitConst(self, "@as(i32, 9999)");
 }
 
 fn genTimezoneUtc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(".{ .offset = 0, .name = \"UTC\" }");
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitConst(self, ".{ .offset = 0, .name = \"UTC\" }");
 }
