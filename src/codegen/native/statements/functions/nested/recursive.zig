@@ -27,13 +27,17 @@ pub fn genRecursiveClosure(
     // inner.seen = seen;
     // inner.call(w);  // initial call
 
-    try self.emitIndent();
-    try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{func.name});
+    const b = try self.getBuilder();
+    try b.writeIndent();
+    try b.writeFmt("const {s} = struct {{\n", .{func.name});
+    const output1 = b.getBody();
+    try self.output.appendSlice(self.allocator, output1);
     self.indent();
 
     // Static capture variables (prefixed with __c_ to avoid shadowing)
     for (captured_vars) |var_name| {
-        try self.emitIndent();
+        const b2 = try self.getBuilder();
+        try b2.writeIndent();
         // Use @TypeOf to get the correct type from the outer variable
         const outer_var_name = blk: {
             if (self.var_renames.get(var_name)) |renamed| {
@@ -41,23 +45,28 @@ pub fn genRecursiveClosure(
             }
             break :blk var_name;
         };
-        try self.output.writer(self.allocator).print("var __c_{s}: @TypeOf({s}) = undefined;\n", .{ var_name, outer_var_name });
+        try b2.writeFmt("var __c_{s}: @TypeOf({s}) = undefined;\n", .{ var_name, outer_var_name });
+        const output2 = b2.getBody();
+        try self.output.appendSlice(self.allocator, output2);
     }
 
     // The recursive function
     // Use anytype for parameters to accept any type (int, bool, etc.)
-    try self.emitIndent();
-    try self.emit("pub fn call(");
+    const b3 = try self.getBuilder();
+    try b3.writeIndent();
+    try b3.write("pub fn call(");
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) try b3.write(", ");
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
-            try self.output.writer(self.allocator).print("__p_{s}_{d}: anytype", .{ arg.name, saved_id });
+            try b3.writeFmt("__p_{s}_{d}: anytype", .{ arg.name, saved_id });
         } else {
-            try self.emit("_: anytype");
+            try b3.write("_: anytype");
         }
     }
-    try self.emit(") void {\n");
+    try b3.write(") void {\n");
+    const output3 = b3.getBody();
+    try self.output.appendSlice(self.allocator, output3);
     self.indent();
 
     // Generate body
@@ -169,8 +178,11 @@ pub fn genRecursiveClosure(
     // Emit var copies for reassigned parameters
     for (func.args) |arg| {
         if (var_tracking.isParamReassignedInStmts(arg.name, func.body)) {
-            try self.emitIndent();
-            try self.output.writer(self.allocator).print("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_id, arg.name, saved_id });
+            const b4 = try self.getBuilder();
+            try b4.writeIndent();
+            try b4.writeFmt("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_id, arg.name, saved_id });
+            const output4 = b4.getBody();
+            try self.output.appendSlice(self.allocator, output4);
         }
     }
 
@@ -214,24 +226,33 @@ pub fn genRecursiveClosure(
     self.popScope();
     self.dedent();
 
-    try self.emitIndent();
-    try self.emit("}\n");
+    const b5 = try self.getBuilder();
+    try b5.writeIndent();
+    try b5.write("}\n");
+    const output5 = b5.getBody();
+    try self.output.appendSlice(self.allocator, output5);
 
     self.dedent();
-    try self.emitIndent();
-    try self.emit("};\n");
+    const b6 = try self.getBuilder();
+    try b6.writeIndent();
+    try b6.write("};\n");
+    const output6 = b6.getBody();
+    try self.output.appendSlice(self.allocator, output6);
 
     // Initialize the capture variables (use __c_ prefix)
     // Now var_renames has been restored so outer scope renames work
     for (captured_vars) |var_name| {
-        try self.emitIndent();
-        try self.output.writer(self.allocator).print("{s}.__c_{s} = ", .{ func.name, var_name });
+        const b7 = try self.getBuilder();
+        try b7.writeIndent();
+        try b7.writeFmt("{s}.__c_{s} = ", .{ func.name, var_name });
         if (self.var_renames.get(var_name)) |renamed| {
-            try self.emit(renamed);
+            try b7.write(renamed);
         } else {
-            try self.emit(var_name);
+            try b7.write(var_name);
         }
-        try self.emit(";\n");
+        try b7.write(";\n");
+        const output7 = b7.getBody();
+        try self.output.appendSlice(self.allocator, output7);
     }
 
     // Mark inner as a closure for .call() syntax
