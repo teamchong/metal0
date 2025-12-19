@@ -29,6 +29,7 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
 // ============================================
 
 /// Emit UnifiedInt binary op: runtime.unified_int_ops.func(left, right, allocator)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitUnifiedIntBinaryOp(
     self: *NativeCodegen,
     func: []const u8,
@@ -39,14 +40,19 @@ fn emitUnifiedIntBinaryOp(
 ) CodegenError!void {
     try emitConst(self, "runtime.unified_int_ops.");
     try emitConst(self, func);
-    try emitConst(self, "(");
-    try emitAsUnifiedInt(self, left_operand, left_type);
-    try emitConst(self, ", ");
-    try emitAsUnifiedInt(self, right_operand, right_type);
-    try emitConst(self, ", __global_allocator)");
+    const Ctx = struct { s: *NativeCodegen, lo: ZigValue, lt: NativeType, ro: ZigValue, rt: NativeType };
+    try self.withParensCtx(Ctx{ .s = self, .lo = left_operand, .lt = left_type, .ro = right_operand, .rt = right_type }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitAsUnifiedInt(ctx.s, ctx.lo, ctx.lt);
+            try emitConst(s, ", ");
+            try emitAsUnifiedInt(ctx.s, ctx.ro, ctx.rt);
+            try emitConst(s, ", __global_allocator");
+        }
+    }.f);
 }
 
 /// Emit UnifiedInt shift/pow op: runtime.unified_int_ops.func(left, @as(u32, right), allocator)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitUnifiedIntShiftOp(
     self: *NativeCodegen,
     func: []const u8,
@@ -56,14 +62,24 @@ fn emitUnifiedIntShiftOp(
 ) CodegenError!void {
     try emitConst(self, "runtime.unified_int_ops.");
     try emitConst(self, func);
-    try emitConst(self, "(");
-    try emitAsUnifiedInt(self, left_operand, left_type);
-    try emitConst(self, ", @as(u32, @intCast(");
-    try self.emitZigValue(right_operand);
-    try emitConst(self, ")), __global_allocator)");
+    const Ctx = struct { s: *NativeCodegen, lo: ZigValue, lt: NativeType, ro: ZigValue };
+    try self.withParensCtx(Ctx{ .s = self, .lo = left_operand, .lt = left_type, .ro = right_operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitAsUnifiedInt(ctx.s, ctx.lo, ctx.lt);
+            try emitConst(s, ", @as(u32, @intCast");
+            const Inner = struct { o: ZigValue };
+            try s.withParensCtx(Inner{ .o = ctx.ro }, struct {
+                pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
+                    try si.emitZigValue(inner.o);
+                }
+            }.g);
+            try emitConst(s, "), __global_allocator");
+        }
+    }.f);
 }
 
 /// Emit complex binary op: left.method(right)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitComplexBinaryOp(
     self: *NativeCodegen,
     method: []const u8,
@@ -75,9 +91,12 @@ fn emitComplexBinaryOp(
     try emitAsComplex(self, left_operand, left_type);
     try emitConst(self, ".");
     try emitConst(self, method);
-    try emitConst(self, "(");
-    try emitAsComplex(self, right_operand, right_type);
-    try emitConst(self, ")");
+    const Ctx = struct { s: *NativeCodegen, ro: ZigValue, rt: NativeType };
+    try self.withParensCtx(Ctx{ .s = self, .ro = right_operand, .rt = right_type }, struct {
+        pub fn f(_: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitAsComplex(ctx.s, ctx.ro, ctx.rt);
+        }
+    }.f);
 }
 
 /// Check if a type is UnifiedInt (handles both small i64 and large BigInt)
@@ -102,25 +121,42 @@ pub const UnifiedIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
 
 /// Emit an operand as UnifiedInt value
 /// Handles conversion from different source types
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitAsUnifiedInt(self: *NativeCodegen, operand: ZigValue, t: NativeType) CodegenError!void {
     if (isUnifiedInt(t)) {
         // Already UnifiedInt - emit directly
         try self.emitZigValue(operand);
     } else if (t == .bigint) {
         // BigInt -> UnifiedInt.fromBigInt (no allocation needed)
-        try emitConst(self, "runtime.UnifiedInt.fromBigInt(");
-        try self.emitZigValue(operand);
-        try emitConst(self, ")");
+        try emitConst(self, "runtime.UnifiedInt.fromBigInt");
+        const Ctx = struct { o: ZigValue };
+        try self.withParensCtx(Ctx{ .o = operand }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.emitZigValue(ctx.o);
+            }
+        }.f);
     } else if (t == .int or t == .usize) {
         // i64/usize -> UnifiedInt.fromI64 (no allocation needed)
-        try emitConst(self, "runtime.unified_int_ops.fromI64(@as(i64, ");
-        try self.emitZigValue(operand);
-        try emitConst(self, "))");
+        try emitConst(self, "runtime.unified_int_ops.fromI64");
+        const Ctx = struct { o: ZigValue };
+        try self.withParensCtx(Ctx{ .o = operand }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try emitConst(s, "@as(i64, ");
+                try s.emitZigValue(ctx.o);
+                try emitConst(s, ")");
+            }
+        }.f);
     } else {
         // Unknown - try to convert as i64
-        try emitConst(self, "runtime.unified_int_ops.fromI64(@as(i64, ");
-        try self.emitZigValue(operand);
-        try emitConst(self, "))");
+        try emitConst(self, "runtime.unified_int_ops.fromI64");
+        const Ctx = struct { o: ZigValue };
+        try self.withParensCtx(Ctx{ .o = operand }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try emitConst(s, "@as(i64, ");
+                try s.emitZigValue(ctx.o);
+                try emitConst(s, ")");
+            }
+        }.f);
     }
 }
 

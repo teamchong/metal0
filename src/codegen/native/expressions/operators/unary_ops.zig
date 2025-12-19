@@ -34,50 +34,81 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
 // ============================================
 
 /// Emit method call on operand: (operand).method()
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitMethodCall(self: *NativeCodegen, operand: ZigValue, method: []const u8) CodegenError!void {
-    try emitConst(self, "(");
-    try self.emitZigValue(operand);
-    try emitConst(self, ").");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+        }
+    }.f);
+    try emitConst(self, ".");
     try emitConst(self, method);
     try emitConst(self, "()");
 }
 
 /// Emit negation: -(operand)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitNegate(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "-(");
-    try self.emitZigValue(operand);
-    try emitConst(self, ")");
+    try emitConst(self, "-");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+        }
+    }.f);
 }
 
 /// Emit logical not: !(operand)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitLogicalNot(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "!(");
-    try self.emitZigValue(operand);
-    try emitConst(self, ")");
+    try emitConst(self, "!");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+        }
+    }.f);
 }
 
 /// Emit runtime function with allocator: runtime.func(operand, __global_allocator)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimeUnary(self: *NativeCodegen, func: []const u8, operand: ZigValue) CodegenError!void {
     try emitConst(self, func);
-    try emitConst(self, "(");
-    try self.emitZigValue(operand);
-    try emitConst(self, ", __global_allocator)");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+            try emitConst(s, ", __global_allocator");
+        }
+    }.f);
 }
 
 /// Emit bool-to-int with prefix: prefix@as(i64, @intFromBool(operand))suffix
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitBoolToInt(self: *NativeCodegen, prefix: []const u8, operand: ZigValue, suffix: []const u8) CodegenError!void {
     try emitConst(self, prefix);
-    try emitConst(self, "@as(i64, @intFromBool(");
-    try self.emitZigValue(operand);
-    try emitConst(self, "))");
+    try emitConst(self, "@as(i64, @intFromBool");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+        }
+    }.f);
+    try emitConst(self, ")");
     try emitConst(self, suffix);
 }
 
 /// Emit runtime.toBool wrapper: !runtime.toBool(operand)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitNotToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "!runtime.toBool(");
-    try self.emitZigValue(operand);
-    try emitConst(self, ")");
+    try emitConst(self, "!runtime.toBool");
+    const Ctx = struct { o: ZigValue };
+    try self.withParensCtx(Ctx{ .o = operand }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.o);
+        }
+    }.f);
 }
 
 /// Generate unary operations (not, -, ~)
