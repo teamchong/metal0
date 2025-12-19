@@ -43,20 +43,30 @@ fn emitRuntimeCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.Zi
 }
 
 /// Emit runtime function call: runtime.func(arg1, arg2)
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.ZigValue, arg2: builder_mod.ZigValue) CodegenError!void {
     try emitConst(self, func);
-    try emitConst(self, "(");
-    try self.emitZigValue(arg1);
-    try emitConst(self, ", ");
-    try self.emitZigValue(arg2);
-    try emitConst(self, ")");
+    const Ctx = struct { a1: builder_mod.ZigValue, a2: builder_mod.ZigValue };
+    try self.withParensCtx(Ctx{ .a1 = arg1, .a2 = arg2 }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.a1);
+            try emitConst(s, ", ");
+            try s.emitZigValue(ctx.a2);
+        }
+    }.f);
 }
 
 /// Emit count as usize cast: @as(usize, @intCast(count))
+/// Uses auto-close pattern to guarantee matching parentheses
 fn emitCountAsUsize(self: *NativeCodegen, count: builder_mod.ZigValue) CodegenError!void {
-    try emitConst(self, "@as(usize, @intCast(");
-    try self.emitZigValue(count);
-    try emitConst(self, "))");
+    try emitConst(self, "@as(usize, @intCast");
+    const Ctx = struct { c: builder_mod.ZigValue };
+    try self.withParensCtx(Ctx{ .c = count }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitZigValue(ctx.c);
+        }
+    }.f);
+    try emitConst(self, ")");
 }
 
 /// Check if a list will be generated as a fixed array (constant + homogeneous)
@@ -85,11 +95,10 @@ fn allConstantsSameType(elements: []ast.Node) bool {
 }
 
 /// Generate expression, wrapping in parentheses if it's a block expression
+/// Uses emitParens auto-close helper when needed
 pub fn genExprWrapped(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (producesBlockExpression(expr)) {
-        try emitConst(self, "(");
-        try genExpr(self, expr);
-        try emitConst(self, ")");
+        try self.emitParens(expr);
     } else {
         try genExpr(self, expr);
     }
@@ -275,9 +284,13 @@ pub fn genSliceRepeatDynamic(self: *NativeCodegen, list_expr: ast.Node, count_ex
         try self.emitZigValue(list_operand);
     } else if (producesBlockExpression(list_expr)) {
         const list_operand = try self.captureExpr(list_expr);
-        try emitConst(self, "(");
-        try self.emitZigValue(list_operand);
-        try emitConst(self, ").items");
+        const Ctx = struct { o: builder_mod.ZigValue };
+        try self.withParensCtx(Ctx{ .o = list_operand }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.emitZigValue(ctx.o);
+            }
+        }.f);
+        try emitConst(self, ".items");
     } else {
         const list_operand = try self.captureExpr(list_expr);
         try self.emitZigValue(list_operand);
