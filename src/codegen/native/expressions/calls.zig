@@ -266,19 +266,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
-        try emitConst(self, "(");
-
-        for (call.args, 0..) |arg, i| {
-            if (i > 0) try emitConst(self, ", ");
-            try genExpr(self, arg);
-        }
-
-        for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
-            try genExpr(self, kwarg.value);
-        }
-
-        try emitConst(self, ")");
+        // Use auto-close pattern for call arguments
+        const CallArgsCtx = struct { args: []ast.Node, kwargs: []ast.Node.KeywordArg };
+        try self.withParensCtx(CallArgsCtx{
+            .args = call.args,
+            .kwargs = call.keyword_args,
+        }, struct {
+            pub fn f(s: *NativeCodegen, ctx: CallArgsCtx) CodegenError!void {
+                for (ctx.args, 0..) |arg, i| {
+                    if (i > 0) try emitConst(s, ", ");
+                    try genExpr(s, arg);
+                }
+                for (ctx.kwargs, 0..) |kwarg, i| {
+                    if (i > 0 or ctx.args.len > 0) try emitConst(s, ", ");
+                    try genExpr(s, kwarg.value);
+                }
+            }
+        }.f);
         return;
     }
 
@@ -328,16 +332,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Generate direct function call (no & prefix for immediate calls)
         try emitConst(self, lambda_name);
-        try emitConst(self, "(");
-        for (call.args, 0..) |arg, i| {
-            if (i > 0) try emitConst(self, ", ");
-            try genExpr(self, arg);
-        }
-        for (call.keyword_args, 0..) |kwarg, i| {
-            if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
-            try genExpr(self, kwarg.value);
-        }
-        try emitConst(self, ")");
+        // Use auto-close pattern for lambda call arguments
+        const LambdaArgsCtx = struct { args: []ast.Node, kwargs: []ast.Node.KeywordArg };
+        try self.withParensCtx(LambdaArgsCtx{
+            .args = call.args,
+            .kwargs = call.keyword_args,
+        }, struct {
+            pub fn f(s: *NativeCodegen, ctx: LambdaArgsCtx) CodegenError!void {
+                for (ctx.args, 0..) |arg, i| {
+                    if (i > 0) try emitConst(s, ", ");
+                    try genExpr(s, arg);
+                }
+                for (ctx.kwargs, 0..) |kwarg, i| {
+                    if (i > 0 or ctx.args.len > 0) try emitConst(s, ", ");
+                    try genExpr(s, kwarg.value);
+                }
+            }
+        }.f);
         return;
     }
 
