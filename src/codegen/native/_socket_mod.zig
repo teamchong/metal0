@@ -43,10 +43,21 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "herror", genHerror },
 });
 
+const CodegenError = h.CodegenError;
+const NativeCodegen = h.NativeCodegen;
+
 // Helper for simple constant output
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
     const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }
@@ -71,21 +82,13 @@ fn genGetfqdn(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     try emitConst(self, "\"localhost\"");
 }
 
-fn genGethostbyname(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genGethostbyname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("ghn", args, struct {
-            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                const b = try c.getBuilder();
-                try b.write("const __v = ");
-                const output1 = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output1);
+            fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
+                try emitConst(c, "const __v = ");
                 try c.genExpr(a[0]);
-                {
-                    const b2 = try c.getBuilder();
-                    try b2.writeFmt("; _ = __v; break :{s} \"127.0.0.1\"", .{label});
-                    const output2 = b2.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output2);
-                }
+                try emitFmtConst(c, "; _ = __v; break :{s} \"127.0.0.1\"", .{label});
             }
         }.emit);
     } else {
@@ -121,81 +124,41 @@ fn genSetdefaulttimeout(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!vo
     try emitConst(self, "{}");
 }
 
-fn genNtohs(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genNtohs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@byteSwap(@as(u16, @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@byteSwap(@as(u16, @intCast(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")))");
     } else {
         try emitConst(self, "@as(u16, 0)");
     }
 }
 
-fn genNtohl(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genNtohl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@byteSwap(@as(u32, @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@byteSwap(@as(u32, @intCast(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")))");
     } else {
         try emitConst(self, "@as(u32, 0)");
     }
 }
 
-fn genHtons(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genHtons(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@byteSwap(@as(u16, @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@byteSwap(@as(u16, @intCast(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")))");
     } else {
         try emitConst(self, "@as(u16, 0)");
     }
 }
 
-fn genHtonl(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+fn genHtonl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@byteSwap(@as(u32, @intCast(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@byteSwap(@as(u32, @intCast(");
         try self.genExpr(args[0]);
-        {
-            const b = try self.getBuilder();
-            try b.write(")))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, ")))");
     } else {
         try emitConst(self, "@as(u32, 0)");
     }
