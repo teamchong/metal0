@@ -14,28 +14,26 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 fn genRounding(comptime blt: []const u8) h.H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
             const t = self.type_inferrer.inferExpr(args[0]) catch .unknown;
             if (t == .float) {
-                {
-                    const b = try self.getBuilder();
-                    try b.write("@as(i64, @intFromFloat(" ++ blt ++ "(");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, "@as(i64, @intFromFloat(" ++ blt ++ "(");
                 try self.genExpr(args[0]);
                 try emitConst(self, ")))");
             } else if (t == .int) {
                 try self.genExpr(args[0]);
             } else {
-                {
-                    const b = try self.getBuilder();
-                    try b.write("@as(i64, @intFromFloat(" ++ blt ++ "(@as(f64, ");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, "@as(i64, @intFromFloat(" ++ blt ++ "(@as(f64, ");
                 try self.genExpr(args[0]);
                 try emitConst(self, "))))");
             }
@@ -98,12 +96,7 @@ fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 1) {
         try self.withInlineBlock("perm", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                {
-                    const b = try c.getBuilder();
-                    try b.write("const n = @as(u64, @intCast(");
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitConst(c, "const n = @as(u64, @intCast(");
                 try c.genExpr(a[0]);
                 try emitConst(c, ")); const k = ");
                 if (a.len >= 2) {
@@ -113,12 +106,7 @@ fn genPerm(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 } else {
                     try emitConst(c, "n");
                 }
-                {
-                    const b2 = try c.getBuilder();
-                    try b2.writeFmt("; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result))", .{ label, label });
-                    const output2 = b2.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output2);
-                }
+                try emitFmtConst(c, "; if (k > n) break :{s} @as(i64, 0); var result: u64 = 1; var i: u64 = 0; while (i < k) : (i += 1) {{ result *= (n - i); }} break :{s} @as(i64, @intCast(result))", .{ label, label });
             }
         }.emit);
     } else {
@@ -140,12 +128,7 @@ const genUlp = h.wrapBlk("ulp", "const _x = @abs(@as(f64, __v)); const _exp = @a
 // Note: std.math uses camelCase (isNan, isInf, isFinite)
 fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.math.isNan(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.math.isNan(");
         try self.genExpr(args[0]);
         try emitConst(self, ")");
     } else {
@@ -155,12 +138,7 @@ fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.math.isInf(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.math.isInf(");
         try self.genExpr(args[0]);
         try emitConst(self, ")");
     } else {
@@ -170,12 +148,7 @@ fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.math.isFinite(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.math.isFinite(");
         try self.genExpr(args[0]);
         try emitConst(self, ")");
     } else {
@@ -185,12 +158,7 @@ fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genCopysign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        {
-            const b = try self.getBuilder();
-            try b.write("runtime.math.copysign(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "runtime.math.copysign(");
         try self.genExpr(args[0]);
         try emitConst(self, ", ");
         try self.genExpr(args[1]);

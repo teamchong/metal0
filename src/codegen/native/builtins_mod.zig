@@ -18,17 +18,20 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 // Comptime generators
 fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) h.H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len > 0) {
-                {
-                    const b = try self.getBuilder();
-                    try b.write("(try std.fmt.allocPrint(__global_allocator, \"" ++ prefix ++ "{" ++ fmt ++ "}\", .{");
-                    const output = b.getBodyAndClear();
-                    try self.output.appendSlice(self.allocator, output);
-                }
+                try emitConst(self, "(try std.fmt.allocPrint(__global_allocator, \"" ++ prefix ++ "{" ++ fmt ++ "}\", .{");
                 try self.genExpr(args[0]);
                 try emitConst(self, "}))");
             } else try emitConst(self, "\"" ++ default ++ "\"");
@@ -40,17 +43,9 @@ fn sideEffect(self: *NativeCodegen, args: []ast.Node, comptime default: []const 
     if (args.len >= 1 and args[0] == .call) {
         try self.withInlineBlock("side", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                const b = try c.getBuilder();
-                try b.write("_ = ");
-                const output1 = b.getBodyAndClear();
-                try c.output.appendSlice(c.allocator, output1);
+                try emitConst(c, "_ = ");
                 try c.genExpr(a[0]);
-                {
-                    const b2 = try c.getBuilder();
-                    try b2.writeFmt("; break :{s} " ++ default, .{label});
-                    const output2 = b2.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output2);
-                }
+                try emitFmtConst(c, "; break :{s} " ++ default, .{label});
             }
         }.emit);
     } else {
@@ -117,27 +112,16 @@ fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.withInlineBlock("isinstance", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
                 if (a[0] == .call) {
-                    const b = try c.getBuilder();
-                    try b.write("_ = ");
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
+                    try emitConst(c, "_ = ");
                     try c.genExpr(a[0]);
                     try emitConst(c, "; ");
                 }
                 if (a[1] == .call) {
-                    const b = try c.getBuilder();
-                    try b.write("_ = ");
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
+                    try emitConst(c, "_ = ");
                     try c.genExpr(a[1]);
                     try emitConst(c, "; ");
                 }
-                {
-                    const b = try c.getBuilder();
-                    try b.writeFmt("break :{s} true", .{label});
-                    const output = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output);
-                }
+                try emitFmtConst(c, "break :{s} true", .{label});
             }
         }.emit);
     } else try sideEffect(self, args, "true");
@@ -183,19 +167,13 @@ pub fn genSuper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     if (self.current_class_name) |current_class| {
         if (self.getParentClassName(current_class)) |parent_class| {
-            const b = try self.getBuilder();
-            try b.write("@as(*const ");
-            try b.write(parent_class);
-            try b.write(", @ptrCast(__self))");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
+            try emitConst(self, "@as(*const ");
+            try emitConst(self, parent_class);
+            try emitConst(self, ", @ptrCast(__self))");
             return;
         }
     }
     var em = self.exprEmitter();
     const id = em.reserveLabelId();
-    const b = try self.getBuilder();
-    try b.writeFmt("super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitFmtConst(self, "super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
 }

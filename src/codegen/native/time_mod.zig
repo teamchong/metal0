@@ -16,6 +16,14 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 const nano_ts = h.c("@as(i64, @intCast(std.time.nanoTimestamp()))");
 
 fn genNsToSec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -23,10 +31,7 @@ fn genNsToSec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use scoped label to avoid conflicts with nested blocks
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    const b = try self.getBuilder();
-    try b.writeFmt("time_{d}: {{ const _t = std.time.nanoTimestamp(); break :time_{d} @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }}", .{ label_id, label_id });
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    try emitFmtConst(self, "time_{d}: {{ const _t = std.time.nanoTimestamp(); break :time_{d} @as(f64, @floatFromInt(_t)) / 1_000_000_000.0; }}", .{ label_id, label_id });
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -53,36 +58,18 @@ fn genSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (self.inside_try_body) {
             try self.withInlineBlock("sleep", args, struct {
                 fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    const b = try c.getBuilder();
-                    try b.write("const __sleep_v = runtime.floatBuiltinCall(");
-                    const output1 = b.getBodyAndClear();
-                    try c.output.appendSlice(c.allocator, output1);
+                    try emitConst(c, "const __sleep_v = runtime.floatBuiltinCall(");
                     try c.genExpr(a[0]);
-                    {
-                        const b2 = try c.getBuilder();
-                        try b2.writeFmt(", .{{}}) catch |e| break :{s} @as(anyerror!void, e); std.Thread.sleep(@as(u64, @intFromFloat(__sleep_v * 1_000_000_000))); break :{s} @as(anyerror!void, {{}})", .{ label, label });
-                        const output2 = b2.getBodyAndClear();
-                        try c.output.appendSlice(c.allocator, output2);
-                    }
+                    try emitFmtConst(c, ", .{{}}) catch |e| break :{s} @as(anyerror!void, e); std.Thread.sleep(@as(u64, @intFromFloat(__sleep_v * 1_000_000_000))); break :{s} @as(anyerror!void, {{}})", .{ label, label });
                 }
             }.emit);
         } else {
-            {
-                const b = try self.getBuilder();
-                try b.write("std.Thread.sleep(@as(u64, @intFromFloat((runtime.floatBuiltinCall(");
-                const output = b.getBodyAndClear();
-                try self.output.appendSlice(self.allocator, output);
-            }
+            try emitConst(self, "std.Thread.sleep(@as(u64, @intFromFloat((runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
             try emitConst(self, ", .{}) catch 0.0) * 1_000_000_000)))");
         }
     } else {
-        {
-            const b = try self.getBuilder();
-            try b.write("std.Thread.sleep(@as(u64, @intFromFloat(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "std.Thread.sleep(@as(u64, @intFromFloat(");
         try self.genExpr(args[0]);
         try emitConst(self, " * 1_000_000_000)))");
     }
@@ -92,29 +79,14 @@ fn genGmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use scoped label to avoid conflicts with nested blocks
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    {
-        const b = try self.getBuilder();
-        try b.writeFmt("gmtime_{d}: {{ const _ts: i64 = ", .{label_id});
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitFmtConst(self, "gmtime_{d}: {{ const _ts: i64 = ", .{label_id});
     if (args.len > 0) {
-        {
-            const b = try self.getBuilder();
-            try b.write("@intFromFloat(");
-            const output = b.getBodyAndClear();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        try emitConst(self, "@intFromFloat(");
         try self.genExpr(args[0]);
         try emitConst(self, ")");
     } else {
         try emitConst(self, "@intCast(std.time.timestamp())");
     }
-    {
-        const b = try self.getBuilder();
-        try b.write("; const _epoch = std.time.epoch.EpochSeconds{ .secs = @intCast(_ts) }; const _day = _epoch.getEpochDay(); const _year_day = _day.calculateYearDay(); const _day_seconds = _epoch.getDaySeconds(); ");
-        try b.writeFmt("break :gmtime_{d} .{{ .tm_year = _year_day.year, .tm_mon = @as(i32, @intFromEnum(_year_day.month)), .tm_mday = _day.calculateYearDay().day_of_month, .tm_hour = _day_seconds.getHoursIntoDay(), .tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), .tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }}; }}", .{label_id});
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
-    }
+    try emitConst(self, "; const _epoch = std.time.epoch.EpochSeconds{ .secs = @intCast(_ts) }; const _day = _epoch.getEpochDay(); const _year_day = _day.calculateYearDay(); const _day_seconds = _epoch.getDaySeconds(); ");
+    try emitFmtConst(self, "break :gmtime_{d} .{{ .tm_year = _year_day.year, .tm_mon = @as(i32, @intFromEnum(_year_day.month)), .tm_mday = _day.calculateYearDay().day_of_month, .tm_hour = _day_seconds.getHoursIntoDay(), .tm_min = _day_seconds.getMinutesIntoHour(), .tm_sec = _day_seconds.getSecondsIntoMinute(), .tm_wday = @as(i32, @intFromEnum(_day.dayOfWeek())), .tm_yday = _year_day.getDayOfYear(), .tm_isdst = 0 }}; }}", .{label_id});
 }

@@ -18,6 +18,22 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "DEFAULT_ENTROPY", h.I64(32) },
 });
 
+// Helper for simple constant output
+fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.write(val);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Helper for formatted output
+fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.writeFmt(fmt, args);
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
 const nbytes_init = "const _nbytes: usize = ";
 // Note: This is a static string constant, so it uses a descriptive static label
 // The actual block label will be inserted by the genToken* functions
@@ -27,42 +43,22 @@ fn isNoneArg(arg: ast.Node) bool {
     return (arg == .constant and arg.constant.value == .none) or (arg == .name and std.mem.eql(u8, arg.name.id, "None"));
 }
 fn emitNbytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(nbytes_init);
-    const output1 = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output1);
+    try emitConst(self, nbytes_init);
     if (args.len > 0 and !isNoneArg(args[0])) {
-        const b2 = try self.getBuilder();
-        try b2.write("@intCast(");
-        const out2 = b2.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out2);
+        try emitConst(self, "@intCast(");
         try self.genExpr(args[0]);
-        const b3 = try self.getBuilder();
-        try b3.write(")");
-        const out3 = b3.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out3);
+        try emitConst(self, ")");
     } else {
-        const b2 = try self.getBuilder();
-        try b2.write("32");
-        const out2 = b2.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, out2);
+        try emitConst(self, "32");
     }
-    {
-        const b4 = try self.getBuilder();
-        try b4.write(nbytes_alloc);
-        const output2 = b4.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output2);
-    }
+    try emitConst(self, nbytes_alloc);
 }
 
 fn genTokenBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.withInlineBlock("token", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitNbytes(c, a);
-            const b = try c.getBuilder();
-            try b.writeFmt(" break :{s} _buf; ", .{label});
-            const output = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output);
+            try emitFmtConst(c, " break :{s} _buf; ", .{label});
         }
     }.emit);
 }
@@ -70,12 +66,9 @@ fn genTokenHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.withInlineBlock("token", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitNbytes(c, a);
-            const b = try c.getBuilder();
-            try b.writeFmt(" const _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :{s} \"\"; ", .{label});
-            try b.write("const _hex_chars = \"0123456789abcdef\"; for (_buf, 0..) |b, i| { _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; } ");
-            try b.writeFmt("break :{s} _hex; ", .{label});
-            const output = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output);
+            try emitFmtConst(c, " const _hex = __global_allocator.alloc(u8, _nbytes * 2) catch break :{s} \"\"; ", .{label});
+            try emitConst(c, "const _hex_chars = \"0123456789abcdef\"; for (_buf, 0..) |b, i| { _hex[i * 2] = _hex_chars[b >> 4]; _hex[i * 2 + 1] = _hex_chars[b & 0xf]; } ");
+            try emitFmtConst(c, "break :{s} _hex; ", .{label});
         }
     }.emit);
 }
@@ -83,12 +76,9 @@ fn genTokenUrlsafe(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.withInlineBlock("token", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try emitNbytes(c, a);
-            const b = try c.getBuilder();
-            try b.writeFmt(" const _encoded_len = std.base64.url_safe_no_pad.Encoder.calcSize(_nbytes); const _result = __global_allocator.alloc(u8, _encoded_len) catch break :{s} \"\"; ", .{label});
-            try b.write("_ = std.base64.url_safe_no_pad.Encoder.encode(_result, _buf); ");
-            try b.writeFmt("break :{s} _result; ", .{label});
-            const output = b.getBodyAndClear();
-            try c.output.appendSlice(c.allocator, output);
+            try emitFmtConst(c, " const _encoded_len = std.base64.url_safe_no_pad.Encoder.calcSize(_nbytes); const _result = __global_allocator.alloc(u8, _encoded_len) catch break :{s} \"\"; ", .{label});
+            try emitConst(c, "_ = std.base64.url_safe_no_pad.Encoder.encode(_result, _buf); ");
+            try emitFmtConst(c, "break :{s} _result; ", .{label});
         }
     }.emit);
 }
