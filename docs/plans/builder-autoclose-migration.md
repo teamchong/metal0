@@ -80,7 +80,7 @@ Priority order (by complexity and usage):
 7. ✅ **statements/control/conditionals.zig** - No migration needed (no bracket patterns)
 8. ✅ **statements/control/loops/*.zig** - Minimal patterns already safe
 
-### Phase 3: Migrate Remaining Files (IN PROGRESS)
+### Phase 3: Migrate Remaining Files (MOSTLY COMPLETE)
 
 Priority operator files:
 1. ✅ **expressions/operators/unary_ops.zig** - Unary operations (commit 6bcd181a)
@@ -94,12 +94,25 @@ Priority operator files:
 9. ✅ **_stat_mod.zig** - Stat module genSIMODE (commit 5cd30b80)
 10. ✅ **builtins/conversions/float_conv.zig** - Float error handling (commit 5cd30b80)
 11. ✅ **statements/control/loops/for_special.zig** - For loop list iteration (commit 5cd30b80)
+12. ✅ **expressions/operators/comparison.zig** - 11/14 patterns migrated (commit 8bf3e324)
+13. ✅ **expressions/calls.zig** - 2/13 patterns migrated (commit eb382ada)
 
-Remaining files with patterns (not priority - low risk or intentional):
-- `expressions/calls.zig` - Many patterns, complex logic
-- `expressions/operators/comparison.zig` - Conditional patterns
-- `main/core.zig` - Core patterns, some intentional
-- `itertools_mod.zig` - Intentional block wrapping
+### Remaining Patterns (26 total - Low Risk or Intentional)
+
+| File | Count | Status |
+|------|-------|--------|
+| `expressions/calls.zig` | 11 | Intentional - caller closes |
+| `main/core.zig` | 6 | Core helpers, intentional |
+| `expressions/operators/comparison.zig` | 3 | Structural - spans function |
+| `expressions/comp_expr_subs.zig` | 2 | Function call patterns |
+| `builtins/math.zig` | 2 | Helper function patterns |
+| `itertools_mod.zig` | 1 | Intentional block wrapping |
+| `expressions/operators/unary_ops.zig` | 1 | Intentional pattern |
+
+These remaining patterns are either:
+- **Intentional open patterns** where the caller is responsible for closing
+- **Structural patterns** that span entire functions and can't be easily wrapped
+- **Low-risk patterns** with clear matching in adjacent code
 
 ## Migration Patterns
 
