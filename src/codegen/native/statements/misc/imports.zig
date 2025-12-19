@@ -4,6 +4,8 @@ const ast = @import("analysis.ast");
 const zig_keywords = @import("utils.zig_keywords");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
 
 /// Generate import statement: import module
 /// For module-level imports, this is handled in PHASE 3
@@ -22,19 +24,24 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
     // Check if module was marked as unavailable (e.g., winreg on Mac)
     // Generate code that raises ModuleNotFoundError like Python does
     if (self.isSkippedModule(module_name)) {
+        const b = try self.getBuilder();
+
         // At module level (indent 0 or struct level), use comptime block with @compileError
         // At function level, generate runtime error
         if (self.indent_level == 0 or (self.mode == .module and self.indent_level == 1)) {
             // Module-level: emit comptime block that fails compilation
             // This matches Python behavior where import fails immediately
-            try self.emitIndent();
-            try self.emitFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
+            try b.writeIndent();
+            try b.writeFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
         } else {
             // Local import: generate runtime error
-            try self.emitIndent();
-            try self.emitFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
+            try b.writeIndent();
+            try b.writeFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
             self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
         }
+
+        const output = b.getBody();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
 
@@ -58,12 +65,16 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         // Prefer direct_import for DCE-friendly imports, fallback to zig_import
         const import_path = info.direct_import orelse info.zig_import;
         if (import_path) |path| {
-            try self.emitIndent();
-            try self.emit("const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias);
-            try self.emit(" = ");
-            try self.emit(path);
-            try self.emit(";\n");
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("const ");
+            try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
+            try b.write(" = ");
+            try b.write(path);
+            try b.write(";\n");
+
+            const output = b.getBody();
+            try self.output.appendSlice(self.allocator, output);
         }
     }
 }
@@ -77,19 +88,24 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
     // Check if module was marked as unavailable (e.g., winreg on Mac)
     // Generate code that raises ModuleNotFoundError like Python does
     if (self.isSkippedModule(module_name)) {
+        const b = try self.getBuilder();
+
         // At module level (indent 0 or struct level), use comptime block with @compileError
         // At function level, generate runtime error
         if (self.indent_level == 0 or (self.mode == .module and self.indent_level == 1)) {
             // Module-level: emit comptime block that fails compilation
             // This matches Python behavior where import fails immediately
-            try self.emitIndent();
-            try self.emitFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
+            try b.writeIndent();
+            try b.writeFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
         } else {
             // Local import: generate runtime error
-            try self.emitIndent();
-            try self.emitFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
+            try b.writeIndent();
+            try b.writeFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
             self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
         }
+
+        const output = b.getBody();
+        try self.output.appendSlice(self.allocator, output);
         return;
     }
 
@@ -103,6 +119,8 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
         // Prefer direct_import for DCE-friendly imports, fallback to zig_import
         const import_path = info.direct_import orelse info.zig_import;
         if (import_path) |path| {
+            const b = try self.getBuilder();
+
             // Generate const bindings for each imported name
             // from random import getrandbits -> const getrandbits = runtime.random.getrandbits;
             for (import.names, 0..) |name, i| {
@@ -117,21 +135,24 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                     continue;
                 }
 
-                try self.emitIndent();
-                try self.emit("const ");
-                try self.emit(alias);
-                try self.emit(" = ");
-                try self.emit(path);
-                try self.emit(".");
-                try self.emit(name);
-                try self.emit(";\n");
+                try b.writeIndent();
+                try b.write("const ");
+                try b.write(alias);
+                try b.write(" = ");
+                try b.write(path);
+                try b.write(".");
+                try b.write(name);
+                try b.write(";\n");
                 // Emit discard immediately to suppress "unused constant" error
                 // Local from-imports may not be used if they're only for type hints
-                try self.emitIndent();
-                try self.emit("_ = &");
-                try self.emit(alias);
-                try self.emit(";\n");
+                try b.writeIndent();
+                try b.write("_ = &");
+                try b.write(alias);
+                try b.write(";\n");
             }
+
+            const output = b.getBody();
+            try self.output.appendSlice(self.allocator, output);
         } else {
             // Module uses inline codegen (e.g., random) - track symbols for dispatch
             // from random import getrandbits -> record "getrandbits" -> "random"
