@@ -15,12 +15,15 @@ pub fn genStmtWithCaptureStruct(
 ) CodegenError!void {
     switch (stmt) {
         .return_stmt => |ret| {
-            try self.emitIndent();
-            try self.emit("return ");
+            const b = try self.getBuilder();
+            try b.writeIndent();
+            try b.write("return ");
             if (ret.value) |val| {
-                try genExprWithCaptureStruct(self, val.*, captured_vars, capture_param_name);
+                try genExprWithCaptureStructBuilder(self, b, val.*, captured_vars, capture_param_name);
             }
-            try self.emit(";\n");
+            try b.write(";\n");
+            const output = b.getBody();
+            try self.output.appendSlice(self.allocator, output);
         },
         .function_def => |func| {
             // Handle nested function definition within a closure
@@ -33,18 +36,21 @@ pub fn genStmtWithCaptureStruct(
             if (assign.targets.len == 1 and assign.targets[0] == .name) {
                 const var_name = assign.targets[0].name.id;
                 const is_already_declared = self.isDeclared(var_name);
-                try self.emitIndent();
+                const b = try self.getBuilder();
+                try b.writeIndent();
                 if (is_already_declared) {
                     // Variable already exists (e.g., function parameter being reassigned)
                     // Just emit assignment without declaration
-                    try self.emit(var_name);
+                    try b.write(var_name);
                 } else {
-                    try self.emit("const ");
-                    try self.emit(var_name);
+                    try b.write("const ");
+                    try b.write(var_name);
                 }
-                try self.emit(" = ");
-                try genExprWithCaptureStruct(self, assign.value.*, captured_vars, capture_param_name);
-                try self.emit(";\n");
+                try b.write(" = ");
+                try genExprWithCaptureStructBuilder(self, b, assign.value.*, captured_vars, capture_param_name);
+                try b.write(";\n");
+                const output = b.getBody();
+                try self.output.appendSlice(self.allocator, output);
             } else if (assign.targets.len == 1 and (assign.targets[0] == .tuple or assign.targets[0] == .list)) {
                 // Tuple/list unpacking - use regular assignment generation
                 try self.generateStmt(stmt);
@@ -61,8 +67,25 @@ pub fn genStmtWithCaptureStruct(
 }
 
 /// Generate expression with captured variable references prefixed with capture param name
+/// Legacy wrapper that creates builder and flushes - for external callers
 pub fn genExprWithCaptureStruct(
     self: *NativeCodegen,
+    node: ast.Node,
+    captured_vars: [][]const u8,
+    capture_param_name: []const u8,
+) CodegenError!void {
+    const b = try self.getBuilder();
+    try genExprWithCaptureStructBuilder(self, b, node, captured_vars, capture_param_name);
+    const output = b.getBody();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+const builder_mod = @import("codegen.builder");
+
+/// Generate expression with captured variable references - builder version for recursion
+fn genExprWithCaptureStructBuilder(
+    self: *NativeCodegen,
+    b: *builder_mod.ZigBuilder,
     node: ast.Node,
     captured_vars: [][]const u8,
     capture_param_name: []const u8,
@@ -72,47 +95,49 @@ pub fn genExprWithCaptureStruct(
             // Check if this variable is captured
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
-                    try self.emit(capture_param_name);
-                    try self.emit(".");
-                    try self.emit(n.id);
+                    try b.write(capture_param_name);
+                    try b.write(".");
+                    try b.write(n.id);
                     return;
                 }
             }
-            try self.emit(n.id);
+            try b.write(n.id);
         },
-        .binop => |b| {
+        .binop => |bin| {
             // Use @mod for modulo to handle signed integers properly
-            if (b.op == .Mod) {
-                try self.emit("@mod(");
-                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
-                try self.emit(", ");
-                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
-                try self.emit(")");
-            } else if (b.op == .Pow) {
+            if (bin.op == .Mod) {
+                try b.write("@mod(");
+                try genExprWithCaptureStructBuilder(self, b, bin.left.*, captured_vars, capture_param_name);
+                try b.write(", ");
+                try genExprWithCaptureStructBuilder(self, b, bin.right.*, captured_vars, capture_param_name);
+                try b.write(")");
+            } else if (bin.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try self.emit("std.math.pow(i64, ");
-                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
-                try self.emit(", ");
-                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
-                try self.emit(")");
-            } else if (b.op == .FloorDiv) {
+                try b.write("std.math.pow(i64, ");
+                try genExprWithCaptureStructBuilder(self, b, bin.left.*, captured_vars, capture_param_name);
+                try b.write(", ");
+                try genExprWithCaptureStructBuilder(self, b, bin.right.*, captured_vars, capture_param_name);
+                try b.write(")");
+            } else if (bin.op == .FloorDiv) {
                 // Floor division uses @divFloor for Python semantics
-                try self.emit("@divFloor(");
-                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
-                try self.emit(", ");
-                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
-                try self.emit(")");
+                try b.write("@divFloor(");
+                try genExprWithCaptureStructBuilder(self, b, bin.left.*, captured_vars, capture_param_name);
+                try b.write(", ");
+                try genExprWithCaptureStructBuilder(self, b, bin.right.*, captured_vars, capture_param_name);
+                try b.write(")");
             } else {
-                try self.emit("(");
-                try genExprWithCaptureStruct(self, b.left.*, captured_vars, capture_param_name);
-                try self.emit(BinOpStrings.get(@tagName(b.op)) orelse " ? ");
-                try genExprWithCaptureStruct(self, b.right.*, captured_vars, capture_param_name);
-                try self.emit(")");
+                try b.write("(");
+                try genExprWithCaptureStructBuilder(self, b, bin.left.*, captured_vars, capture_param_name);
+                try b.write(BinOpStrings.get(@tagName(bin.op)) orelse " ? ");
+                try genExprWithCaptureStructBuilder(self, b, bin.right.*, captured_vars, capture_param_name);
+                try b.write(")");
             }
         },
         .constant => |c| {
-            const expressions = @import("../../../expressions.zig");
-            try expressions.genConstant(self, c);
+            // For constants, capture to builder using captureExpr pattern
+            const val = try self.captureExpr(node);
+            try b.emitValue(val, .{});
+            _ = c;
         },
         .call => |c| {
             // Check if calling a closure variable - need to use .call() syntax
@@ -122,42 +147,43 @@ pub fn genExprWithCaptureStruct(
             } else false;
 
             if (is_closure_call) {
-                try genExprWithCaptureStruct(self, c.func.*, captured_vars, capture_param_name);
-                try self.emit(".call(");
+                try genExprWithCaptureStructBuilder(self, b, c.func.*, captured_vars, capture_param_name);
+                try b.write(".call(");
             } else {
-                try genExprWithCaptureStruct(self, c.func.*, captured_vars, capture_param_name);
-                try self.emit("(");
+                try genExprWithCaptureStructBuilder(self, b, c.func.*, captured_vars, capture_param_name);
+                try b.write("(");
             }
             for (c.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExprWithCaptureStruct(self, arg, captured_vars, capture_param_name);
+                if (i > 0) try b.write(", ");
+                try genExprWithCaptureStructBuilder(self, b, arg, captured_vars, capture_param_name);
             }
-            try self.emit(")");
+            try b.write(")");
         },
         .attribute => |attr| {
             // Handle attribute access like self.foo, rewriting captured var prefix
-            try genExprWithCaptureStruct(self, attr.value.*, captured_vars, capture_param_name);
-            try self.emit(".");
-            try self.emit(attr.attr);
+            try genExprWithCaptureStructBuilder(self, b, attr.value.*, captured_vars, capture_param_name);
+            try b.write(".");
+            try b.write(attr.attr);
         },
         .subscript => |sub| {
             // Handle subscript like foo[bar], rewriting captured vars in both parts
-            try genExprWithCaptureStruct(self, sub.value.*, captured_vars, capture_param_name);
-            try self.emit("[");
+            try genExprWithCaptureStructBuilder(self, b, sub.value.*, captured_vars, capture_param_name);
+            try b.write("[");
             switch (sub.slice) {
-                .index => |idx| try genExprWithCaptureStruct(self, idx.*, captured_vars, capture_param_name),
+                .index => |idx| try genExprWithCaptureStructBuilder(self, b, idx.*, captured_vars, capture_param_name),
                 else => {
-                    // For slice expressions, fall back to regular generation
-                    const expressions = @import("../../../expressions.zig");
-                    try expressions.genExpr(self, node);
+                    // For slice expressions, capture and emit
+                    const val = try self.captureExpr(node);
+                    try b.emitValue(val, .{});
                     return;
                 },
             }
-            try self.emit("]");
+            try b.write("]");
         },
         else => {
-            const expressions = @import("../../../expressions.zig");
-            try expressions.genExpr(self, node);
+            // For other expressions, capture and emit
+            const val = try self.captureExpr(node);
+            try b.emitValue(val, .{});
         },
     }
 }
