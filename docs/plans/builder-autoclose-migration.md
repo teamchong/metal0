@@ -19,11 +19,7 @@ Create callback-based auto-closing helpers that **guarantee matching**:
 
 ```zig
 // DESIRED - impossible to mismatch
-try self.withParens(fn (c) {
-    try c.genExpr(left);
-    try c.emit(" + ");
-    try c.genExpr(right);
-});  // Auto-closes with )
+try self.emitBinOp(left, " + ", right);  // Auto-wraps in ()
 ```
 
 ## Current State (as of 2024-12)
@@ -33,102 +29,45 @@ try self.withParens(fn (c) {
 | `emitConst` in module files | ✅ 85/85 | Reduces boilerplate but no auto-close |
 | `withInlineBlock` | ✅ 81 files | Auto-closes labeled blocks `(__m{id}: { ... })` |
 | `mod_helper.zig` patterns | ✅ Done | `wrapBlk`, `wrap2Blk`, etc. |
-| Auto-close `()` parens | ❌ Missing | Need for expressions |
-| Auto-close `{}` braces | ❌ Missing | Need for statements |
-| Auto-close `[]` brackets | ❌ Missing | Need for subscripts |
+| Auto-close `()` parens | ✅ Done | `withParens`, `emitParens`, `emitBinOp` |
+| Auto-close `{}` braces | ✅ Done | `withBraces`, `withStructLit` |
+| Auto-close `[]` brackets | ✅ Done | `withBrackets`, `emitSubscript`, `emitSlice` |
 
 ## Implementation Plan
 
-### Phase 1: Core Auto-Close Helpers (in `main/core.zig`)
+### Phase 1: Core Auto-Close Helpers (in `main/core.zig`) ✅ DONE
 
-Add these methods to `NativeCodegen`:
+Added these methods to `NativeCodegen` in `src/codegen/native/main/core.zig`:
 
+**Basic auto-close (callback-based):**
 ```zig
-/// Auto-close parentheses: ( ... )
-pub fn withParens(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, "(");
-    try body_fn(self);
-    try emitConst(self, ")");
-}
-
-/// Auto-close braces: { ... }
-pub fn withBraces(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, "{ ");
-    try body_fn(self);
-    try emitConst(self, " }");
-}
-
-/// Auto-close brackets: [ ... ]
-pub fn withBrackets(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, "[");
-    try body_fn(self);
-    try emitConst(self, "]");
-}
-
-/// Auto-close angle brackets for type params: < ... >
-/// Note: Zig doesn't use <>, but useful for generic patterns
-pub fn withAngle(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, "<");
-    try body_fn(self);
-    try emitConst(self, ">");
-}
-
-/// Emit binary operation with auto-parens: (left op right)
-pub fn withBinOp(self: *NativeCodegen, left: ast.Node, op: []const u8, right: ast.Node) !void {
-    try emitConst(self, "(");
-    try self.genExpr(left);
-    try emitConst(self, op);
-    try self.genExpr(right);
-    try emitConst(self, ")");
-}
-
-/// Emit function call: name(args...)
-pub fn withCall(self: *NativeCodegen, name: []const u8, body_fn: anytype) !void {
-    try emitConst(self, name);
-    try emitConst(self, "(");
-    try body_fn(self);
-    try emitConst(self, ")");
-}
-
-/// Emit struct literal: .{ ... }
-pub fn withStructLit(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, ".{ ");
-    try body_fn(self);
-    try emitConst(self, " }");
-}
-
-/// Emit array literal: .{ ... } (same as struct but semantic difference)
-pub fn withArrayLit(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, ".{ ");
-    try body_fn(self);
-    try emitConst(self, " }");
-}
-
-/// Emit if expression: if (cond) then_val else else_val
-pub fn withIfExpr(self: *NativeCodegen, cond_fn: anytype, then_fn: anytype, else_fn: anytype) !void {
-    try emitConst(self, "if (");
-    try cond_fn(self);
-    try emitConst(self, ") ");
-    try then_fn(self);
-    try emitConst(self, " else ");
-    try else_fn(self);
-}
-
-/// Emit try expression: try expr
-pub fn withTry(self: *NativeCodegen, body_fn: anytype) !void {
-    try emitConst(self, "try ");
-    try body_fn(self);
-}
-
-/// Emit catch expression: expr catch default
-pub fn withCatch(self: *NativeCodegen, expr_fn: anytype, default: []const u8) !void {
-    try expr_fn(self);
-    try emitConst(self, " catch ");
-    try emitConst(self, default);
-}
+withParens(body_fn)           // ( ... )
+withParensCtx(ctx, body_fn)   // ( ... ) with context
+withBraces(body_fn)           // { ... }
+withBracesCtx(ctx, body_fn)   // { ... } with context
+withBrackets(body_fn)         // [ ... ]
+withBracketsCtx(ctx, body_fn) // [ ... ] with context
+withStructLit(body_fn)        // .{ ... }
+withStructLitCtx(ctx, body_fn)// .{ ... } with context
 ```
 
-### Phase 2: Migrate High-Impact Files
+**Convenience helpers (direct AST node):**
+```zig
+emitParens(expr)              // (expr)
+emitBinOp(left, op, right)    // (left op right)
+emitCall(name, body_fn)       // name(...)
+emitCallCtx(name, ctx, body)  // name(...) with context
+emitIfExpr(cond, then, else)  // if (cond) then else else
+emitTry(expr)                 // try expr
+emitOrelse(expr, default)     // expr orelse default
+emitCatch(expr, default)      // expr catch default
+emitSlice(val, start, end)    // val[start..end]
+emitSubscript(val, index)     // val[index]
+emitField(val, field)         // val.field
+emitExprList(exprs)           // expr1, expr2, ...
+```
+
+### Phase 2: Migrate High-Impact Files (IN PROGRESS)
 
 Priority order (by complexity and usage):
 
@@ -148,37 +87,106 @@ After core files are done, migrate remaining ~80 files in:
 - `builtins/` (12 files)
 - `methods/` (8 files)
 
-## Migration Pattern
+## Migration Patterns
 
-For each file:
+### Pattern 1: Simple expression wrapping
+```zig
+// BEFORE
+try emitConst(self, "(");
+try self.genExpr(expr);
+try emitConst(self, ")");
 
-1. **Identify bracket patterns**:
+// AFTER
+try self.emitParens(expr);
+```
+
+### Pattern 2: Binary operations
+```zig
+// BEFORE
+try emitConst(self, "(");
+try self.genExpr(left);
+try emitConst(self, " + ");
+try self.genExpr(right);
+try emitConst(self, ")");
+
+// AFTER
+try self.emitBinOp(left, " + ", right);
+```
+
+### Pattern 3: Function calls
+```zig
+// BEFORE
+try emitConst(self, "std.math.max(");
+try self.genExpr(a);
+try emitConst(self, ", ");
+try self.genExpr(b);
+try emitConst(self, ")");
+
+// AFTER (with emitExprList)
+try self.emitCall("std.math.max", struct {
+    pub fn f(c: *NativeCodegen) !void {
+        try c.emitExprList(&.{ a, b });
+    }
+}.f);
+
+// OR simpler for 2 args:
+try emitConst(self, "std.math.max");
+try self.withParens(struct {
+    pub fn f(c: *NativeCodegen) !void {
+        try c.genExpr(a);
+        try emitConst(c, ", ");
+        try c.genExpr(b);
+    }
+}.f);
+```
+
+### Pattern 4: Subscript/slice
+```zig
+// BEFORE
+try self.genExpr(value);
+try emitConst(self, "[");
+try self.genExpr(index);
+try emitConst(self, "]");
+
+// AFTER
+try self.emitSubscript(value, index);
+
+// For slices:
+try self.emitSlice(value, start_opt, end_opt);
+```
+
+### Pattern 5: Struct literals
+```zig
+// BEFORE
+try emitConst(self, ".{ .x = ");
+try self.genExpr(x);
+try emitConst(self, ", .y = ");
+try self.genExpr(y);
+try emitConst(self, " }");
+
+// AFTER
+try self.withStructLit(struct {
+    pub fn f(c: *NativeCodegen) !void {
+        try emitConst(c, ".x = ");
+        try c.genExpr(x);
+        try emitConst(c, ", .y = ");
+        try c.genExpr(y);
+    }
+}.f);
+```
+
+## How to Migrate a File
+
+1. **Find bracket patterns**:
    ```bash
-   grep -n 'emitConst.*"("' file.zig
-   grep -n 'emitConst.*"{"' file.zig
-   grep -n 'emitConst.*"\\["' file.zig
+   grep -n 'emitConst.*"("' file.zig | head -20
    ```
 
-2. **Replace with callback**:
-   ```zig
-   // BEFORE
-   try emitConst(self, "(");
-   try self.genExpr(expr);
-   try emitConst(self, ")");
+2. **Replace each pattern** using the examples above
 
-   // AFTER
-   try self.withParens(struct {
-       expr: ast.Node,
-       fn call(c: *NativeCodegen) !void {
-           try c.genExpr(@This().expr);  // Capture via @This()
-       }
-   }{ .expr = expr }.call);
+3. **Test**: `zig build && ./zig-out/bin/metal0 test tests/cpython longexp`
 
-   // OR simpler for single expressions:
-   try self.emitParens(expr);  // Helper that just wraps genExpr
-   ```
-
-3. **Test**: Run `zig build` and `metal0 test tests/cpython longexp`
+4. **Commit**: One file per commit for easy rollback
 
 ## Verification Checklist
 
