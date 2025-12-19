@@ -72,18 +72,51 @@ pub fn genExprWithSubs(
                 try emitConst(self, ")");
             } else if (b.op == .LShift or b.op == .RShift) {
                 // Bit shifts need RHS cast to u6 (Zig requires unsigned shift amount)
-                try emitConst(self, "(");
-                try genExprWithSubs(self, b.left.*, subs);
-                try emitConst(self, if (b.op == .LShift) " << " else " >> ");
-                try emitConst(self, "@as(u6, @intCast(@mod(");
-                try genExprWithSubs(self, b.right.*, subs);
-                try emitConst(self, ", 64))))");
+                // Uses auto-close pattern for outer parens
+                const ShiftCtx = struct {
+                    s: *NativeCodegen,
+                    sb: *const hashmap_helper.StringHashMap([]const u8),
+                    left: ast.Node,
+                    right: ast.Node,
+                    op_str: []const u8,
+                };
+                try self.withParensCtx(ShiftCtx{
+                    .s = self,
+                    .sb = subs,
+                    .left = b.left.*,
+                    .right = b.right.*,
+                    .op_str = if (b.op == .LShift) " << " else " >> ",
+                }, struct {
+                    pub fn f(_: *NativeCodegen, ctx: ShiftCtx) CodegenError!void {
+                        try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
+                        try emitConst(ctx.s, ctx.op_str);
+                        try emitConst(ctx.s, "@as(u6, @intCast(@mod(");
+                        try genExprWithSubs(ctx.s, ctx.right, ctx.sb);
+                        try emitConst(ctx.s, ", 64)))");
+                    }
+                }.f);
             } else {
-                try emitConst(self, "(");
-                try genExprWithSubs(self, b.left.*, subs);
-                try emitConst(self, BinOpStrings.get(@tagName(b.op)) orelse " ? ");
-                try genExprWithSubs(self, b.right.*, subs);
-                try emitConst(self, ")");
+                // Standard binary ops with auto-close pattern
+                const BinOpCtx = struct {
+                    s: *NativeCodegen,
+                    sb: *const hashmap_helper.StringHashMap([]const u8),
+                    left: ast.Node,
+                    right: ast.Node,
+                    op_str: []const u8,
+                };
+                try self.withParensCtx(BinOpCtx{
+                    .s = self,
+                    .sb = subs,
+                    .left = b.left.*,
+                    .right = b.right.*,
+                    .op_str = BinOpStrings.get(@tagName(b.op)) orelse " ? ",
+                }, struct {
+                    pub fn f(_: *NativeCodegen, ctx: BinOpCtx) CodegenError!void {
+                        try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
+                        try emitConst(ctx.s, ctx.op_str);
+                        try genExprWithSubs(ctx.s, ctx.right, ctx.sb);
+                    }
+                }.f);
             }
         },
         .constant => |c| {
@@ -118,29 +151,30 @@ pub fn genExprWithSubs(
             try genSubscriptWithSubs(self, sub, subs);
         },
         .unaryop => |u| {
-            // Handle unary operations with substitution
-            switch (u.op) {
-                .USub => {
-                    try emitConst(self, "(-");
-                    try genExprWithSubs(self, u.operand.*, subs);
-                    try emitConst(self, ")");
-                },
-                .UAdd => {
-                    try emitConst(self, "(+");
-                    try genExprWithSubs(self, u.operand.*, subs);
-                    try emitConst(self, ")");
-                },
-                .Not => {
-                    try emitConst(self, "(!");
-                    try genExprWithSubs(self, u.operand.*, subs);
-                    try emitConst(self, ")");
-                },
-                .Invert => {
-                    try emitConst(self, "(~");
-                    try genExprWithSubs(self, u.operand.*, subs);
-                    try emitConst(self, ")");
-                },
-            }
+            // Handle unary operations with substitution using auto-close pattern
+            const prefix = switch (u.op) {
+                .USub => "-",
+                .UAdd => "+",
+                .Not => "!",
+                .Invert => "~",
+            };
+            const UnaryCtx = struct {
+                s: *NativeCodegen,
+                sb: *const hashmap_helper.StringHashMap([]const u8),
+                operand: ast.Node,
+                pfx: []const u8,
+            };
+            try self.withParensCtx(UnaryCtx{
+                .s = self,
+                .sb = subs,
+                .operand = u.operand.*,
+                .pfx = prefix,
+            }, struct {
+                pub fn f(_: *NativeCodegen, ctx: UnaryCtx) CodegenError!void {
+                    try emitConst(ctx.s, ctx.pfx);
+                    try genExprWithSubs(ctx.s, ctx.operand, ctx.sb);
+                }
+            }.f);
         },
         .attribute => |a| {
             // Handle attribute access with substitution: x.attr
@@ -497,22 +531,37 @@ fn genCompareWithSubs(
         const parent = @import("../expressions.zig");
         try parent.genExpr(self, expr);
     } else {
-        // Simple single-operator comparisons can be handled inline with substitution
-        try emitConst(self, "(");
-        try genExprWithSubs(self, cmp.left.*, subs);
-        for (cmp.ops, 0..) |op, idx| {
-            const op_str = switch (op) {
-                .Eq => " == ",
-                .NotEq => " != ",
-                .Lt => " < ",
-                .LtEq => " <= ",
-                .Gt => " > ",
-                .GtEq => " >= ",
-                else => " == ", // Fallback (shouldn't reach here)
-            };
-            try emitConst(self, op_str);
-            try genExprWithSubs(self, cmp.comparators[idx], subs);
-        }
-        try emitConst(self, ")");
+        // Simple single-operator comparisons with auto-close pattern
+        const CmpCtx = struct {
+            s: *NativeCodegen,
+            sb: *const hashmap_helper.StringHashMap([]const u8),
+            left: ast.Node,
+            ops: []const ast.CompareOp,
+            comparators: []ast.Node,
+        };
+        try self.withParensCtx(CmpCtx{
+            .s = self,
+            .sb = subs,
+            .left = cmp.left.*,
+            .ops = cmp.ops,
+            .comparators = cmp.comparators,
+        }, struct {
+            pub fn f(_: *NativeCodegen, ctx: CmpCtx) CodegenError!void {
+                try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
+                for (ctx.ops, 0..) |op, idx| {
+                    const op_str = switch (op) {
+                        .Eq => " == ",
+                        .NotEq => " != ",
+                        .Lt => " < ",
+                        .LtEq => " <= ",
+                        .Gt => " > ",
+                        .GtEq => " >= ",
+                        else => " == ", // Fallback (shouldn't reach here)
+                    };
+                    try emitConst(ctx.s, op_str);
+                    try genExprWithSubs(ctx.s, ctx.comparators[idx], ctx.sb);
+                }
+            }
+        }.f);
     }
 }
