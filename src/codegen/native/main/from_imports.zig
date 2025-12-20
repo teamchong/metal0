@@ -56,15 +56,15 @@ fn isKnownOperatorFunc(name: []const u8) bool {
     return known.has(name);
 }
 
-/// Operator wrappers route to PyValue methods to avoid anytype monomorphization explosion.
-/// PyValue.from() monomorphizes per type, but eql/lt/gt/le/ge compile once.
+/// Operator wrappers route to Lib.operator functions for proper Python comparison semantics.
+/// These functions implement the full rich comparison protocol with NotImplemented handling.
 const OperatorWrappers = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "eq", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).eql(runtime.PyValue.from(b)); }\n" },
-    .{ "ne", "(a: anytype, b: anytype) bool { return !runtime.PyValue.from(a).eql(runtime.PyValue.from(b)); }\n" },
-    .{ "lt", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).lt(runtime.PyValue.from(b)); }\n" },
-    .{ "le", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).le(runtime.PyValue.from(b)); }\n" },
-    .{ "gt", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).gt(runtime.PyValue.from(b)); }\n" },
-    .{ "ge", "(a: anytype, b: anytype) bool { return runtime.PyValue.from(a).ge(runtime.PyValue.from(b)); }\n" },
+    .{ "eq", "(a: anytype, b: anytype) bool { return runtime.Lib.operator.eq(a, b); }\n" },
+    .{ "ne", "(a: anytype, b: anytype) bool { return runtime.Lib.operator.ne(a, b); }\n" },
+    .{ "lt", "(a: anytype, b: anytype) bool { return runtime.Lib.operator.lt(a, b); }\n" },
+    .{ "le", "(a: anytype, b: anytype) bool { return runtime.Lib.operator.le(a, b); }\n" },
+    .{ "gt", "(a: anytype, b: anytype) bool { return runtime.Lib.operator.gt(a, b); }\n" },
+    .{ "ge", "(a: anytype, b: anytype) bool { return runtime.Lib.operator.ge(a, b); }\n" },
     .{ "add", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).add(runtime.PyValue.from(b)); }\n" },
     .{ "sub", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).sub(runtime.PyValue.from(b)); }\n" },
     .{ "mul", "(a: anytype, b: anytype) runtime.PyValue { return runtime.PyValue.from(a).mul(runtime.PyValue.from(b)); }\n" },

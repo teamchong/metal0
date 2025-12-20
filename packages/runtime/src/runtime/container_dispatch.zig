@@ -239,13 +239,18 @@ pub fn isSlice(comptime T: type) bool {
     return info == .pointer and info.pointer.size == .slice;
 }
 
-/// Check if pointer type has a declaration (dunder method) on its child type
+/// Check if type has a declaration (dunder method)
+/// Handles both pointer types (*Rat) and value types (Rat)
 /// Used for reverse dunder dispatch (__radd__, __rsub__, etc.)
 /// Compiles ONCE per type, not per arithmetic expression
 pub fn hasPtrChildDecl(comptime T: type, comptime decl_name: []const u8) bool {
     const info = @typeInfo(T);
     if (info == .pointer and info.pointer.size == .one) {
         return @hasDecl(info.pointer.child, decl_name);
+    }
+    // Also check struct types directly (for value types like `r: Rat`)
+    if (info == .@"struct") {
+        return @hasDecl(T, decl_name);
     }
     return false;
 }

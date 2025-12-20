@@ -766,17 +766,31 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
+    // === CLASS INSTANCE COMPARISON ===
+    // Class instances have __eq__ methods that pyAnyEql will call.
+    // PyValue.from() can't represent class instances properly, so use pyAnyEql.
+    if (tag_a == .class_instance or tag_b == .class_instance) {
+        try emitConst(self,"if (!runtime.pyAnyEql(");
+        try parent.genExpr(self, args[0]);
+        try emitConst(self,", ");
+        try parent.genExpr(self, args[1]);
+        try emitConst(self,")) return error.AssertionFailed;\n");
+        return;
+    }
+
     // === PyValue COMPARISON (for uncertain types) ===
-    // When either type is unknown/pyvalue, use PyValue.eql() directly
-    // This compiles ONCE instead of monomorphizing for each type combination
+    // When either type is unknown/pyvalue, use pyAnyEql which handles __eq__ on class instances.
+    // This compiles ONCE instead of monomorphizing for each type combination.
+    // Note: using pyAnyEql instead of PyValue.from().eql() to handle class instances
+    // that may be returned from method calls (e.g., Rat.__radd__).
     const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
         type_b == .pyvalue or type_b == .unknown);
     if (is_uncertain) {
-        try emitConst(self,"if (!runtime.PyValue.from(");
+        try emitConst(self,"if (!runtime.pyAnyEql(");
         try parent.genExpr(self, args[0]);
-        try emitConst(self,").eql(runtime.PyValue.from(");
+        try emitConst(self,", ");
         try parent.genExpr(self, args[1]);
-        try emitConst(self,"))) return error.AssertionFailed;\n");
+        try emitConst(self,")) return error.AssertionFailed;\n");
         return;
     }
 
@@ -1177,16 +1191,44 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     }
 
     // For assertRaises, we need to check if the callable raises an error
-    // Use unittest.expectError helper which handles both error and non-error types
+    // Extract exception type name if it's a known Python exception
+    const exception_name: ?[]const u8 = blk: {
+        if (args[0] == .name) {
+            const name = args[0].name.id;
+            // Map Python exception names to Zig error names
+            if (std.mem.eql(u8, name, "ValueError")) break :blk "ValueError";
+            if (std.mem.eql(u8, name, "TypeError")) break :blk "TypeError";
+            if (std.mem.eql(u8, name, "OverflowError")) break :blk "OverflowError";
+            if (std.mem.eql(u8, name, "ZeroDivisionError")) break :blk "ZeroDivisionError";
+            if (std.mem.eql(u8, name, "IndexError")) break :blk "IndexError";
+            if (std.mem.eql(u8, name, "KeyError")) break :blk "KeyError";
+            if (std.mem.eql(u8, name, "AttributeError")) break :blk "AttributeError";
+            if (std.mem.eql(u8, name, "RuntimeError")) break :blk "RuntimeError";
+            if (std.mem.eql(u8, name, "StopIteration")) break :blk "StopIteration";
+            if (std.mem.eql(u8, name, "AssertionError")) break :blk "AssertionError";
+        }
+        break :blk null;
+    };
+
     const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
     // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
     const prev_inside_try = self.inside_try_body;
     self.inside_try_body = true;
-    try emitConst(self,"if (unittest.expectError(");
-    try emitCallableInvocation(self, args[1], call_args, &.{});
+
+    if (exception_name) |exc_name| {
+        // Use expectSpecificError for known exception types
+        // Use if-else chain instead of switch to avoid trailing semicolon issues
+        try emitConst(self, "{ const __ar_result = unittest.expectSpecificError(");
+        try emitCallableInvocation(self, args[1], call_args, &.{});
+        try emitFmtConst(self, ", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}", .{exc_name});
+    } else {
+        // Fall back to expectError for unknown exception types
+        try emitConst(self, "if (unittest.expectError(");
+        try emitCallableInvocation(self, args[1], call_args, &.{});
+        // expectError returns true if NO error was raised (test should fail)
+        try emitConst(self, ")) return error.ExpectedExceptionNotRaised;");
+    }
     self.inside_try_body = prev_inside_try;
-    // expectError returns true if NO error was raised (test should fail)
-    try emitConst(self,")) return error.ExpectedExceptionNotRaised;");
 }
 
 /// Generate code for self.assertRaises(exception_type, callable, *args, **kwargs)
@@ -1202,15 +1244,42 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         return;
     }
 
+    // Extract exception type name if it's a known Python exception
+    const exception_name: ?[]const u8 = blk: {
+        if (args[0] == .name) {
+            const name = args[0].name.id;
+            if (std.mem.eql(u8, name, "ValueError")) break :blk "ValueError";
+            if (std.mem.eql(u8, name, "TypeError")) break :blk "TypeError";
+            if (std.mem.eql(u8, name, "OverflowError")) break :blk "OverflowError";
+            if (std.mem.eql(u8, name, "ZeroDivisionError")) break :blk "ZeroDivisionError";
+            if (std.mem.eql(u8, name, "IndexError")) break :blk "IndexError";
+            if (std.mem.eql(u8, name, "KeyError")) break :blk "KeyError";
+            if (std.mem.eql(u8, name, "AttributeError")) break :blk "AttributeError";
+            if (std.mem.eql(u8, name, "RuntimeError")) break :blk "RuntimeError";
+            if (std.mem.eql(u8, name, "StopIteration")) break :blk "StopIteration";
+            if (std.mem.eql(u8, name, "AssertionError")) break :blk "AssertionError";
+        }
+        break :blk null;
+    };
+
     const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
     // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
     const prev_inside_try = self.inside_try_body;
     self.inside_try_body = true;
-    // Generate: if (unittest.expectError(<call_with_kwargs>)) @panic(...)
-    try emitConst(self,"if (unittest.expectError(");
-    try emitCallableInvocation(self, args[1], call_args, keyword_args);
+
+    if (exception_name) |exc_name| {
+        // Use expectSpecificError for known exception types
+        // Use if-else chain instead of switch to avoid trailing semicolon issues
+        try emitConst(self, "{ const __ar_result = unittest.expectSpecificError(");
+        try emitCallableInvocation(self, args[1], call_args, keyword_args);
+        try emitFmtConst(self, ", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}", .{exc_name});
+    } else {
+        // Fall back to expectError for unknown exception types
+        try emitConst(self, "if (unittest.expectError(");
+        try emitCallableInvocation(self, args[1], call_args, keyword_args);
+        try emitConst(self, ")) return error.ExpectedExceptionNotRaised;");
+    }
     self.inside_try_body = prev_inside_try;
-    try emitConst(self,")) return error.ExpectedExceptionNotRaised;");
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args, **kwargs)

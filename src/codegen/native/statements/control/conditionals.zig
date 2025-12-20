@@ -586,9 +586,11 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         // Use type-specific inline bool conversion to avoid anytype monomorphization
         const prefix = bool_conv.getBoolPrefix(cond_type);
         const suffix = bool_conv.getBoolSuffix(cond_type);
-        _ = try builder.write(prefix);
-        try self.genExpr(if_stmt.condition.*);
-        _ = try builder.write(suffix);
+        try builder.withAsBool(prefix, suffix, struct {
+            pub fn emit(_: *CodeBuilder, ctx: anytype) !void {
+                try ctx.self.genExpr(ctx.condition.*);
+            }
+        }.emit, .{ .self = self, .condition = if_stmt.condition });
     }
     _ = try builder.write(")");
     _ = try builder.beginBlock();

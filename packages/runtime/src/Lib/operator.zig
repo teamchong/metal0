@@ -10,8 +10,8 @@
 //! in generated code for known concrete types.
 
 const std = @import("std");
-const comparison_ops = @import("runtime").comparison_ops;
-const PyValue = @import("runtime").PyValue;
+const comparison_ops = @import("../runtime/comparison_ops.zig");
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 // ============================================================================
 // Comparison Operations
@@ -348,7 +348,7 @@ pub fn contains(sequence: anytype, item: anytype) bool {
 
 /// PyValue containment - compiles ONCE
 fn containsPyValue(sequence: []const PyValue, item: PyValue) bool {
-    const equality = @import("runtime").equality;
+    const equality = @import("../runtime/equality.zig");
     for (sequence) |elem| {
         if (equality.pyValueEql(elem, item)) return true;
     }
@@ -378,7 +378,7 @@ pub fn countOf(sequence: anytype, item: anytype) usize {
 
 /// PyValue count - compiles ONCE
 fn countOfPyValue(sequence: []const PyValue, item: PyValue) usize {
-    const equality = @import("runtime").equality;
+    const equality = @import("../runtime/equality.zig");
     var count: usize = 0;
     for (sequence) |elem| {
         if (equality.pyValueEql(elem, item)) count += 1;
@@ -408,7 +408,7 @@ pub fn indexOf(sequence: anytype, item: anytype) !usize {
 
 /// PyValue indexOf - compiles ONCE
 fn indexOfPyValue(sequence: []const PyValue, item: PyValue) !usize {
-    const equality = @import("runtime").equality;
+    const equality = @import("../runtime/equality.zig");
     for (sequence, 0..) |elem, i| {
         if (equality.pyValueEql(elem, item)) return i;
     }

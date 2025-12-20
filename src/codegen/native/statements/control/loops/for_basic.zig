@@ -1024,13 +1024,21 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 }
             }
 
-            // Mark as error-callable if tuple contains pow (either builtin or operator.pow)
+            // Mark as error-callable if tuple contains ONLY pow builtin (not mixed with function refs)
+            // When mixed (pow + operator.pow), both are emitted as function pointers and called directly
             // Both runtime.builtins.pow.call and operator.pow return !f64, so both need try
-            if (has_pow_builtin) {
+            // But with mixed types, we can't use .call() since function pointers don't have that method
+            if (has_pow_builtin and !has_function_ref) {
                 const owned_name = try self.arena.allocator().dupe(u8, var_name);
                 try self.callable_vars.put(owned_name, {});
                 const owned_name2 = try self.arena.allocator().dupe(u8, var_name);
                 try self.error_callable_vars.put(owned_name2, {});
+            } else if (has_pow_builtin and has_function_ref) {
+                // Mixed callable+function tuple - mark as error callable but NOT as callable_vars
+                // This means pow_op(args) will be called directly, not pow_op.call(args)
+                // Both return error unions so we still need try
+                const owned_name = try self.arena.allocator().dupe(u8, var_name);
+                try self.error_callable_vars.put(owned_name, {});
             }
         }
 

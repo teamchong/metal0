@@ -1176,6 +1176,45 @@ pub const ZigBuilder = struct {
         try self.write("}\n");
     }
 
+    /// While loop with automatic bool conversion for Python truthiness semantics
+    /// Use this when the condition may not be a boolean type (e.g., integers, strings)
+    /// The caller provides the bool conversion prefix/suffix (from bool_conv module)
+    /// Example prefixes/suffixes:
+    /// - int: "(" / ") != 0"
+    /// - float: "(" / ") != 0.0"
+    /// - string: "(" / ").len > 0"
+    /// - bool: "(" / ")" (passthrough)
+    pub fn withWhileBool(self: *ZigBuilder, condition: ZigValue, bool_prefix: []const u8, bool_suffix: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.write("while (");
+        try self.emitAsBool(condition, bool_prefix, bool_suffix);
+        try self.write(") {\n");
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Emit a value with Python truthiness bool conversion
+    /// Wraps the value with the provided prefix/suffix strings
+    pub fn emitAsBool(self: *ZigBuilder, value: ZigValue, prefix: []const u8, suffix: []const u8) !void {
+        try self.write(prefix);
+        try self.emitValue(value, .{});
+        try self.write(suffix);
+    }
+
+    /// Emit with Python truthiness bool conversion using a callback for the inner expression
+    /// Use this when generating expressions inline (via genExpr) rather than captured values
+    /// Example: withAsBool("(", ")", fn) emits "(expr)" for bool type, "((expr) != 0)" for int
+    pub fn withAsBool(self: *ZigBuilder, prefix: []const u8, suffix: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.write(prefix);
+        try body_fn(self, context);
+        try self.write(suffix);
+    }
+
     /// For loop with callback style
     pub fn withFor(self: *ZigBuilder, iterable: ZigValue, capture: []const u8, body_fn: anytype, context: anytype) !void {
         try self.writeIndent();

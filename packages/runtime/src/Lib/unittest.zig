@@ -93,6 +93,35 @@ pub fn expectError(value: anytype) bool {
     }
 }
 
+/// Result of expectSpecificError - used by assertRaises with specific exception types
+pub const ExpectErrorResult = enum {
+    no_error, // No error was raised - test should fail
+    wrong_error, // Error was raised but wrong type - test should fail
+    correct_error, // Correct error type was raised - test passes
+};
+
+/// Helper for assertRaises(SpecificError, ...) - checks if a specific error type was raised
+/// Returns ExpectErrorResult indicating: no error, wrong error, or correct error
+pub fn expectSpecificError(value: anytype, comptime expected_error_name: []const u8) ExpectErrorResult {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    if (info == .error_union) {
+        if (value) |_| {
+            return .no_error; // No error raised
+        } else |err| {
+            const actual_error_name = @errorName(err);
+            if (std.mem.eql(u8, actual_error_name, expected_error_name)) {
+                return .correct_error;
+            } else {
+                return .wrong_error;
+            }
+        }
+    } else {
+        // Not an error union - no error possible
+        return .no_error;
+    }
+}
+
 /// Base TestCase class with setUp/tearDown stubs
 /// Python classes call super().setUp() which becomes unittest.TestCase.setUp()
 pub const TestCase = struct {

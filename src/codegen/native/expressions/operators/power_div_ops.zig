@@ -449,9 +449,9 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
 
             // For shift operations, the RHS must be u6 for i64
             if (ctx.shift) {
-                try emitConst(s, "@as(u6, @intCast(@mod");
-                try s.emitParens(ctx.b.right.*);
-                try emitConst(s, ", 64))");
+                try emitConst(s, "@as(u6, @intCast(@mod(");
+                try s.genExpr(ctx.b.right.*);
+                try emitConst(s, ", 64)))");
             } else if (ctx.rb) {
                 try emitConst(s, "@as(i64, @intFromBool");
                 try s.emitParens(ctx.b.right.*);

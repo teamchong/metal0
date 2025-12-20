@@ -832,9 +832,9 @@ pub const PyValue = union(enum) {
             .bytes => |v| v.data.len == 0,
             .list => |v| v.items.len == 0,
             .tuple => |v| v.len == 0,
-            .bigint => |v| v.eqlZero(),
+            .bigint => |v| v.isZero(),
             .complex => |v| v.real == 0.0 and v.imag == 0.0,
-            .ptr, .type_obj => false, // Objects are truthy by default
+            .ptr, .type_obj, .object => false, // Objects are truthy by default
         };
     }
 
@@ -897,25 +897,24 @@ pub const PyValue = union(enum) {
                 .type_obj => |v| v == other.type_obj,
                 .ptr => |self_ptr| blk: {
                     const other_ptr = other.ptr;
-                    // Python rich comparison protocol:
-                    // 1. Try self.__eq__(other)
-                    // 2. If NotImplemented, try other.__eq__(self)
-                    // 3. If both NotImplemented, fall back to identity (is)
-
-                    // Try to call __eq__ on self
-                    const self_result = callDunderMethod(self_ptr, "__eq__", other);
+                    // No type information available for .ptr - use identity comparison
+                    // For typed class instances, use .object variant instead
+                    break :blk self_ptr == other_ptr;
+                },
+                .object => |self_obj| blk: {
+                    const other_obj = other.object;
+                    // Python rich comparison protocol with type information
+                    // Try self.__eq__(other) using PyType method lookup
+                    const self_result = callDunderMethod(self_obj, "__eq__", other);
                     if (self_result) |result| {
                         if (result != .not_implemented) {
-                            // Got a concrete result from self.__eq__(other)
                             if (result == .bool) break :blk result.bool;
-                            // Truthy check for other types
                             break :blk !isFalsy(result);
                         }
                     }
 
-                    // self.__eq__(other) returned NotImplemented or doesn't exist
                     // Try other.__eq__(self)
-                    const other_result = callDunderMethod(other_ptr, "__eq__", self);
+                    const other_result = callDunderMethod(other_obj, "__eq__", self);
                     if (other_result) |result| {
                         if (result != .not_implemented) {
                             if (result == .bool) break :blk result.bool;
@@ -924,7 +923,7 @@ pub const PyValue = union(enum) {
                     }
 
                     // Both returned NotImplemented, fall back to identity
-                    break :blk self_ptr == other_ptr;
+                    break :blk self_obj.ptr == other_obj.ptr;
                 },
             };
         }

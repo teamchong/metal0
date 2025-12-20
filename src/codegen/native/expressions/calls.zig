@@ -985,6 +985,28 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // Check if this is an error-returning callable used directly (function pointer, not PyCallable)
+        // This happens when iterating over mixed tuples like (pow, operator.pow)
+        // Both return error unions but are function pointers, called directly without .call()
+        if (self.error_callable_vars.contains(raw_func_name) and !self.callable_vars.contains(raw_func_name)) {
+            try emitConst(self, "(try ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+            try emitConst(self, "(");
+
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try emitConst(self, ", ");
+                try genExpr(self, arg);
+            }
+
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try emitConst(self, ", ");
+                try genExpr(self, kwarg.value);
+            }
+
+            try emitConst(self, "))");
+            return;
+        }
+
         // Check if this is a captured variable being called (captured function/callable from outer scope)
         // Must check BEFORE class constructor check to avoid treating captured callables as classes
         if (self.current_class_captures) |captures| {

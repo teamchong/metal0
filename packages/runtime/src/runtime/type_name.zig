@@ -24,7 +24,7 @@ pub fn pyTypeName(value: anytype) []const u8 {
         .bool => return "bool",
         .pointer => |ptr_info| {
             // Handle []const u8 and []u8 (strings)
-            if (ptr_info.size == .Slice) {
+            if (ptr_info.size == .slice) {
                 const Child = ptr_info.child;
                 if (Child == u8) {
                     return "str";

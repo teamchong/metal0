@@ -342,18 +342,26 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         // Check for unexpected keyword arguments
         // Most builtins (bool, float, str, len, etc.) don't accept keyword args
         if (call.keyword_args.len > 0 and !accepts_kwargs.has(func_name)) {
-            // Generate a block expression that prints error and returns error union
-            try emitConst(self,"(blk_kwarg_err: {\n");
-            self.indent();
-            try self.emitIndent();
-            try emitConst(self,"runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
-            try emitConst(self,func_name);
-            try emitConst(self,"() takes no keyword arguments\", @src().line);\n");
-            try self.emitIndent();
-            try emitConst(self,"break :blk_kwarg_err error.TypeError;\n");
-            self.dedent();
-            try self.emitIndent();
-            try emitConst(self,"})");
+            // Generate a block that prints error and returns error
+            // Inside try body, use return error directly; otherwise use a block expression
+            if (self.inside_try_body) {
+                // In try context, just print error and return - the catch will handle it
+                try emitConst(self, "{ runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                try emitConst(self, func_name);
+                try emitConst(self, "() takes no keyword arguments\", @src().line); return error.TypeError; }");
+            } else {
+                try emitConst(self, "(blk_kwarg_err: {\n");
+                self.indent();
+                try self.emitIndent();
+                try emitConst(self, "runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                try emitConst(self, func_name);
+                try emitConst(self, "() takes no keyword arguments\", @src().line);\n");
+                try self.emitIndent();
+                try emitConst(self, "break :blk_kwarg_err error.TypeError;\n");
+                self.dedent();
+                try self.emitIndent();
+                try emitConst(self, "})");
+            }
             return true;
         }
 

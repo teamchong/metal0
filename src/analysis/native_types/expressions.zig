@@ -1510,7 +1510,17 @@ fn inferBinOpWithInferrer(
             if (right_tag == .class_instance and left_tag == .unknown) {
                 return right_type;
             }
-            // Mixed class types or class + primitive: fall back to unknown
+            // Class + primitive: the class's dunder method handles both operand orders.
+            // For `Rat + 1`, Rat.__add__ is called and returns Rat.
+            // For `1 + Rat`, Rat.__radd__ is called and returns Rat.
+            // Return the class type since it handles the operation.
+            if (left_tag == .class_instance) {
+                return left_type;
+            }
+            if (right_tag == .class_instance) {
+                return right_type;
+            }
+            // Mixed class types: fall back to unknown
             return .unknown;
         }
     }

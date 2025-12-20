@@ -280,9 +280,19 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         }
         // Special case: structs (tuples) - check for __eq__ method first
         if (a_info == .@"struct") {
-            // Class instances with __eq__ - call it directly
+            // Class instances with __eq__ - call it directly and handle result type
             if (@hasDecl(A, "__eq__")) {
-                return a.__eq__(b);
+                const result = a.__eq__(b);
+                const ResultType = @TypeOf(result);
+                if (ResultType == PyValue) {
+                    if (result == .not_implemented) {
+                        // Fallback to identity comparison
+                        return &a == &b;
+                    }
+                    return if (result == .bool) result.bool else !PyValue.isFalsy(result);
+                } else if (ResultType == bool) {
+                    return result;
+                }
             }
             // Regular structs/tuples - use PyValue conversion to avoid recursive inline for
             // This prevents monomorphization explosion for complex nested types

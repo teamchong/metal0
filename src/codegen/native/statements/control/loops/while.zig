@@ -15,20 +15,16 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     // Check condition type - need to handle non-boolean conditions
     const cond_type = self.type_inferrer.inferExpr(while_stmt.condition.*) catch .unknown;
 
-    // Build condition value
-    const cond_val = if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue)
-        // TWO-FLOW: Unknown/PyValue type - use runtime truthiness check
-        blk: {
-            const expr = try self.captureExpr(while_stmt.condition.*);
-            // TODO: Wrap in pyTruthy() call - for now use raw
-            break :blk expr;
-        }
-    else
-        // Use type-specific inline bool conversion
-        try self.captureExpr(while_stmt.condition.*);
+    // Get bool conversion prefix/suffix for Python truthiness semantics
+    const bool_prefix = bool_conv.getBoolPrefix(cond_type);
+    const bool_suffix = bool_conv.getBoolSuffix(cond_type);
 
-    // Use callback style to ensure proper closing
-    try b.withWhile(cond_val, struct {
+    // Capture the condition expression
+    const cond_val = try self.captureExpr(while_stmt.condition.*);
+
+    // Use withWhileBool which handles Python truthiness conversion automatically
+    // For bool types, it passes through directly; for other types, it wraps with != 0, .len > 0, etc.
+    try b.withWhileBool(cond_val, bool_prefix, bool_suffix, struct {
         fn body(builder: *ZigBuilder, ctx: anytype) !void {
             const codegen: *NativeCodegen = ctx.codegen;
             const stmt_node = ctx.while_stmt;

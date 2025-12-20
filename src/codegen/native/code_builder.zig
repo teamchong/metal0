@@ -151,6 +151,21 @@ pub const CodeBuilder = struct {
         try self.write(")");
         return self;
     }
+
+    /// Emit with Python truthiness bool conversion using a callback for the inner expression
+    /// Use this when generating expressions inline (via genExpr) rather than captured values
+    /// Example: withAsBool("(", ") != 0", fn) emits "((expr) != 0)" for int types
+    pub fn withAsBool(
+        self: *CodeBuilder,
+        prefix: []const u8,
+        suffix: []const u8,
+        body_fn: anytype,
+        context: anytype,
+    ) CodegenError!void {
+        _ = try self.write(prefix);
+        try body_fn(self, context);
+        _ = try self.write(suffix);
+    }
 };
 
 /// Common code patterns
