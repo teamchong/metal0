@@ -691,8 +691,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             var em = self.exprEmitter();
             var blk = try em.labeledBlock("mcall", "__obj", attr.value.*);
             try blk.startBreak();
-            // In defer blocks, 'try' is not allowed - use catch {} instead
-            if (emit_try and !self.inside_defer) {
+            // In defer blocks or functions returning PyValue, 'try' is not allowed - use catch {} instead
+            if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue) {
                 try emitConst(self, "try ");
             }
             // For @staticmethod: use @TypeOf(__obj.*).method() since staticmethod has no self parameter
@@ -725,8 +725,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            // In defer blocks, append 'catch {}' to silence errors
-            if (emit_try and self.inside_defer) {
+            // In defer blocks or functions returning PyValue, append 'catch {}' to silence errors
+            if (emit_try and (self.inside_defer or self.current_function_returns_pyvalue)) {
                 try emitConst(self, ") catch {}");
             } else {
                 try emitConst(self, ")");
@@ -734,8 +734,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try blk.close();
         } else {
             // Normal path - no wrapping needed
-            // In defer blocks, 'try' is not allowed - use catch {} at the end instead
-            if (emit_try and !self.inside_defer) {
+            // In defer blocks or functions returning PyValue, 'try' is not allowed - use catch {} at the end instead
+            if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue) {
                 try emitConst(self, "try ");
             }
 
@@ -772,10 +772,21 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
 
             // Check if this is a vararg method call - if so, wrap arguments in slice literal
+            // Also check inherited methods by walking up the inheritance chain
             const vararg_method_info: ?usize = if (method_class_name) |cn| blk: {
+                var current_class = cn;
                 var method_key_buf: [512]u8 = undefined;
-                const key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ cn, attr.attr }) catch break :blk null;
-                break :blk self.vararg_methods.get(key);
+
+                // Check current class and all parent classes
+                while (true) {
+                    const key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ current_class, attr.attr }) catch break :blk null;
+                    if (self.vararg_methods.get(key)) |info| {
+                        break :blk info;
+                    }
+                    // Check parent class
+                    current_class = self.getParentClassName(current_class) orelse break;
+                }
+                break :blk null;
             } else null;
             const is_vararg_method = vararg_method_info != null;
 
@@ -842,8 +853,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            // In defer blocks, append 'catch {}' to silence errors
-            if (emit_try and self.inside_defer) {
+            // In defer blocks or functions returning PyValue, append 'catch {}' to silence errors
+            if (emit_try and (self.inside_defer or self.current_function_returns_pyvalue)) {
                 try emitConst(self, ") catch {}");
             } else {
                 try emitConst(self, ")");

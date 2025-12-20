@@ -1731,6 +1731,11 @@ pub fn genMethodSignatureWithSkip(
         // Magic method return types already include error union if needed
         // e.g., "__bool__" -> "runtime.PythonError!bool", "__float__" -> "f64"
         try emitConst(self,magic_return_type);
+
+        // Track if this method returns PyValue (for comparison magic methods)
+        if (std.mem.eql(u8, magic_return_type, "runtime.PyValue")) {
+            self.current_function_returns_pyvalue = true;
+        }
     } else if (std.mem.eql(u8, method.name, "__iter__")) {
         // Special handling for __iter__ - returns an iterator/slice
         // Check if method returns 'self' - common pattern for iterator classes
