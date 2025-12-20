@@ -185,6 +185,31 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
+        // Handle os.path submodule (from os.path import dirname, basename, join, etc.)
+        // os.path functions are available as os.path.dirname, os.path.basename, etc. in the runtime
+        if (std.mem.eql(u8, from_imp.module, "os.path")) {
+            for (from_imp.names, 0..) |name, i| {
+                if (std.mem.eql(u8, name, "*")) continue;
+
+                const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                    from_imp.asnames[i].?
+                else
+                    name;
+
+                // Skip if already generated
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // Generate: const symbol_name = os.path.function_name;
+                try emitConst(self, "const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                try emitConst(self, " = os.path.");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name);
+                try emitConst(self, ";\n");
+                try generated_symbols.put(symbol_name, {});
+            }
+            continue;
+        }
+
         // Handle _testbuffer module specially - expand all constants for "from _testbuffer import *"
         if (std.mem.eql(u8, from_imp.module, "_testbuffer")) {
             for (from_imp.names, 0..) |name, i| {
