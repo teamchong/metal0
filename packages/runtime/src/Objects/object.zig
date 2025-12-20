@@ -25,16 +25,104 @@ pub const PyValue = union(enum) {
 
     pub const Complex = struct { real: f64, imag: f64 };
 
-    /// Class instance with type information for runtime method dispatch
-    /// TODO: Dynamic dispatch for dunder methods requires either:
-    /// - Function pointers for each method (vtable approach)
-    /// - Runtime reflection (not available in Zig)
-    /// - Generated dispatch functions per module
-    /// For now, PyValue.object instances fall back to identity comparison
+    /// Virtual table for Python object dunder methods
+    /// Follows the same pattern as WakerVTable in async/future/waker.zig
+    pub const PyObjectVTable = struct {
+        /// __eq__ method: equality comparison
+        eq: ?*const fn (*anyopaque, PyValue) PyValue = null,
+        /// __ne__ method: inequality comparison
+        ne: ?*const fn (*anyopaque, PyValue) PyValue = null,
+        /// __lt__ method: less than comparison
+        lt: ?*const fn (*anyopaque, PyValue) PyValue = null,
+        /// __le__ method: less than or equal comparison
+        le: ?*const fn (*anyopaque, PyValue) PyValue = null,
+        /// __gt__ method: greater than comparison
+        gt: ?*const fn (*anyopaque, PyValue) PyValue = null,
+        /// __ge__ method: greater than or equal comparison
+        ge: ?*const fn (*anyopaque, PyValue) PyValue = null,
+    };
+
+    /// Class instance with vtable for dynamic method dispatch
+    /// Uses the same vtable pattern as WakerData in async/future/waker.zig
     pub const ObjectInstance = struct {
         ptr: *anyopaque,
         type_info: ?*pytype.PyType, // Optional type for method lookup via MRO
+        vtable: *const PyObjectVTable, // Function pointers for dunder methods
     };
+
+    /// Generate a vtable for a given type T at comptime
+    /// Returns a static const vtable with function pointers for available dunder methods
+    fn generateVTable(comptime T: type) PyObjectVTable {
+        var vtable = PyObjectVTable{};
+
+        // Generate __eq__ wrapper if the type has it
+        if (@hasDecl(T, "__eq__")) {
+            const EqWrapper = struct {
+                fn call(ptr: *anyopaque, other: PyValue) PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__eq__(other);
+                }
+            };
+            vtable.eq = EqWrapper.call;
+        }
+
+        // Generate __ne__ wrapper if the type has it
+        if (@hasDecl(T, "__ne__")) {
+            const NeWrapper = struct {
+                fn call(ptr: *anyopaque, other: PyValue) PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__ne__(other);
+                }
+            };
+            vtable.ne = NeWrapper.call;
+        }
+
+        // Generate __lt__ wrapper if the type has it
+        if (@hasDecl(T, "__lt__")) {
+            const LtWrapper = struct {
+                fn call(ptr: *anyopaque, other: PyValue) PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__lt__(other);
+                }
+            };
+            vtable.lt = LtWrapper.call;
+        }
+
+        // Generate __le__ wrapper if the type has it
+        if (@hasDecl(T, "__le__")) {
+            const LeWrapper = struct {
+                fn call(ptr: *anyopaque, other: PyValue) PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__le__(other);
+                }
+            };
+            vtable.le = LeWrapper.call;
+        }
+
+        // Generate __gt__ wrapper if the type has it
+        if (@hasDecl(T, "__gt__")) {
+            const GtWrapper = struct {
+                fn call(ptr: *anyopaque, other: PyValue) PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__gt__(other);
+                }
+            };
+            vtable.gt = GtWrapper.call;
+        }
+
+        // Generate __ge__ wrapper if the type has it
+        if (@hasDecl(T, "__ge__")) {
+            const GeWrapper = struct {
+                fn call(ptr: *anyopaque, other: PyValue) PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__ge__(other);
+                }
+            };
+            vtable.ge = GeWrapper.call;
+        }
+
+        return vtable;
+    }
 
     /// Create a PyValue list from a slice (allocates ArrayList on heap)
     pub fn listFromSlice(allocator: std.mem.Allocator, items: []const PyValue) !PyValue {
@@ -441,8 +529,7 @@ pub const PyValue = union(enum) {
                 return .{ .tuple = result };
             }
             // Detect Python class instances (structs with __name__ or dunder methods)
-            // Store as .ptr to preserve the instance without losing methods
-            // TODO: Dynamic dispatch for dunder methods on PyValue.object not yet implemented
+            // Store as .object with vtable for dynamic method dispatch
             const is_class_instance = @hasDecl(T, "__name__") or
                                       @hasDecl(T, "__eq__") or
                                       @hasDecl(T, "__lt__") or
@@ -452,12 +539,23 @@ pub const PyValue = union(enum) {
                                       @hasDecl(T, "__repr__");
 
             if (is_class_instance) {
-                // Allocate class instance on heap and store as .ptr
-                // This preserves the instance but operator.eq() won't be able to call __eq__
-                // because we lose type information
+                // Generate vtable at comptime for this type
+                const VTableForT = struct {
+                    const vtable: PyObjectVTable = generateVTable(T);
+                };
+
+                // Allocate class instance on heap and store as .object with vtable
                 const ptr = try allocator.create(T);
                 ptr.* = value;
-                return .{ .ptr = @ptrCast(ptr) };
+
+                // Get PyType if available (for MRO-based method lookup)
+                const type_info: ?*pytype.PyType = if (@hasDecl(T, "__type__")) @field(T, "__type__") else null;
+
+                return .{ .object = .{
+                    .ptr = @ptrCast(ptr),
+                    .type_info = type_info,
+                    .vtable = &VTableForT.vtable,
+                } };
             }
 
             // Non-tuple, non-class struct - convert to tuple of fields
@@ -865,20 +963,36 @@ pub const PyValue = union(enum) {
 
     /// Try to call a dunder method on an object instance
     /// Returns null if the method doesn't exist, or the PyValue result if it does
-    /// Uses comptime type checking to dispatch to the actual method
+    /// Uses vtable for dynamic dispatch
     fn callDunderMethod(obj: ObjectInstance, comptime method_name: []const u8, arg: PyValue) ?PyValue {
-        _ = obj;
-        _ = method_name;
-        _ = arg;
-        // This is a placeholder for dynamic dispatch
-        // The actual implementation requires either:
-        // 1. Function pointers stored in ObjectInstance
-        // 2. Generated dispatch functions that know about module types
-        // 3. Runtime reflection (not available in Zig)
-        //
-        // For now, comparison will fall back to identity comparison
-        // The proper fix is being implemented in operator.eq() to handle
-        // PyValue.object by generating type-specific dispatch code
+        const vtable = obj.vtable;
+
+        if (std.mem.eql(u8, method_name, "__eq__")) {
+            if (vtable.eq) |eq_fn| {
+                return eq_fn(obj.ptr, arg);
+            }
+        } else if (std.mem.eql(u8, method_name, "__ne__")) {
+            if (vtable.ne) |ne_fn| {
+                return ne_fn(obj.ptr, arg);
+            }
+        } else if (std.mem.eql(u8, method_name, "__lt__")) {
+            if (vtable.lt) |lt_fn| {
+                return lt_fn(obj.ptr, arg);
+            }
+        } else if (std.mem.eql(u8, method_name, "__le__")) {
+            if (vtable.le) |le_fn| {
+                return le_fn(obj.ptr, arg);
+            }
+        } else if (std.mem.eql(u8, method_name, "__gt__")) {
+            if (vtable.gt) |gt_fn| {
+                return gt_fn(obj.ptr, arg);
+            }
+        } else if (std.mem.eql(u8, method_name, "__ge__")) {
+            if (vtable.ge) |ge_fn| {
+                return ge_fn(obj.ptr, arg);
+            }
+        }
+
         return null;
     }
 
