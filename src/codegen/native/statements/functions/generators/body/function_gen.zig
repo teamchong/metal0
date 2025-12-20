@@ -243,11 +243,22 @@ fn generateComptimeTypeDispatch(
     self.dedent();
     try self.emitIndent();
     try emitConst(self,"} else if (comptime __T == ");
-    try emitConst(self,class_name);
-    try emitConst(self," or __T == *");
-    try emitConst(self,class_name);
-    try emitConst(self," or __T == *const ");
-    try emitConst(self,class_name);
+
+    // Check if this is the current class - if so, use @This() to avoid forward reference
+    const use_this = if (self.current_class_name) |current|
+        std.mem.eql(u8, class_name, current)
+    else
+        false;
+
+    if (use_this) {
+        try emitConst(self,"@This() or __T == *@This() or __T == *const @This()");
+    } else {
+        try emitConst(self,class_name);
+        try emitConst(self," or __T == *");
+        try emitConst(self,class_name);
+        try emitConst(self," or __T == *const ");
+        try emitConst(self,class_name);
+    }
     try emitConst(self,") {\n");
     self.indent();
 

@@ -173,6 +173,11 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
 /// Check if expression returns a value that needs `_ = ` prefix
 fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
+    // Module docstrings (bare string literals) need discard
+    if (expr == .constant) {
+        if (expr.constant.value == .string) return true;
+    }
+
     // PyValue.call() dispatch
     if (expr == .call and expr.call.func.* == .attribute) {
         const attr = expr.call.func.attribute;
