@@ -1902,9 +1902,21 @@ pub const NativeCodegen = struct {
 
         const start_pos = self.output.items.len;
         try self.generateStmt(stmt);
-        const generated = self.output.items[start_pos..];
+
+        // Defensive check: nested captureStmt() may have shrunk the buffer
+        // If start_pos > current length, the code went to builder instead
+        const current_len = self.output.items.len;
+        const generated = if (start_pos <= current_len)
+            self.output.items[start_pos..]
+        else
+            &[_]u8{}; // Empty slice - code is in builder buffer
+
         const code = try self.arena.allocator().dupe(u8, generated);
-        self.output.shrinkRetainingCapacity(start_pos);
+
+        // Only shrink if we have content in output buffer
+        if (start_pos <= self.output.items.len) {
+            self.output.shrinkRetainingCapacity(start_pos);
+        }
 
         // Restore builder state
         if (builder_save) |saved| {
