@@ -94,10 +94,30 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const trimmed_end = std.mem.trimRight(u8, expr_output, " \t\n;");
     const ends_with_brace = trimmed_end.len > 0 and trimmed_end[trimmed_end.len - 1] == '}';
 
-    // Check if this is a catch block suffix (pattern: "catch {}" or "catch |err| {}")
+    // Check if this is a catch block suffix (pattern: "catch {}" or "catch |err| { ... }")
+    // Must END with catch block, not just contain one
+    // Simple heuristic: if there's a "catch |" followed by ") {", it's a catch block suffix
     const is_catch_suffix = ends_with_brace and (
         std.mem.endsWith(u8, trimmed_end, "catch {}") or
-        std.mem.indexOf(u8, trimmed_end, "catch |") != null
+        blk: {
+            if (std.mem.lastIndexOf(u8, trimmed_end, "catch |")) |catch_pos| {
+                // Check if there's a ") {" pattern after the "catch |"
+                if (std.mem.indexOf(u8, trimmed_end[catch_pos..], ") {")) |rel_pos| {
+                    // Make sure this is at the end (no other blocks after it)
+                    const abs_pos = catch_pos + rel_pos + 2; // Position of '{'
+                    // Count braces from this point to end - should be balanced and end at the final '}'
+                    var depth: i32 = 0;
+                    var i = abs_pos;
+                    while (i < trimmed_end.len) : (i += 1) {
+                        if (trimmed_end[i] == '{') depth += 1
+                        else if (trimmed_end[i] == '}') depth -= 1;
+                    }
+                    // If depth is -1, the catch block ends at the final '}'
+                    break :blk depth == -1;
+                }
+            }
+            break :blk false;
+        }
     );
 
     // Check if this looks like a labeled block expression wrapped in parens
