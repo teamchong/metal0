@@ -111,12 +111,18 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Context for the statement callback
     const StmtCtx = struct {
         pre_generated: []const u8,
+        needs_discard: bool,
     };
 
     // Use builder.withStatement for atomic indent + expr + semicolon
     try builder.withStatement(
         struct {
             fn emit(b: *ZigBuilder, ctx: StmtCtx) !void {
+                // Add discard prefix if needed
+                if (ctx.needs_discard) {
+                    try b.write("_ = ");
+                }
+
                 var output = ctx.pre_generated;
 
                 // Strip trailing semicolons, newlines, and spaces aggressively
@@ -159,9 +165,9 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }.emit,
         StmtCtx{
             .pre_generated = expr_output,
+            .needs_discard = needs_discard,
         },
         .{
-            .add_discard = needs_discard,
             .skip_semicolon = should_skip_semicolon,
         }
     );
@@ -178,9 +184,80 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         if (expr.constant.value == .string) return true;
     }
 
+    // Builtin function calls that return values (bool, int, float, str, etc.)
+    if (expr == .call and expr.call.func.* == .name) {
+        const func_name = expr.call.func.name.id;
+        // Type conversion builtins always return values
+        const returns_value = std.mem.eql(u8, func_name, "bool") or
+            std.mem.eql(u8, func_name, "int") or
+            std.mem.eql(u8, func_name, "float") or
+            std.mem.eql(u8, func_name, "str") or
+            std.mem.eql(u8, func_name, "bytes") or
+            std.mem.eql(u8, func_name, "list") or
+            std.mem.eql(u8, func_name, "dict") or
+            std.mem.eql(u8, func_name, "tuple") or
+            std.mem.eql(u8, func_name, "set") or
+            std.mem.eql(u8, func_name, "frozenset") or
+            std.mem.eql(u8, func_name, "len") or
+            std.mem.eql(u8, func_name, "range") or
+            std.mem.eql(u8, func_name, "abs") or
+            std.mem.eql(u8, func_name, "min") or
+            std.mem.eql(u8, func_name, "max") or
+            std.mem.eql(u8, func_name, "sum") or
+            std.mem.eql(u8, func_name, "sorted") or
+            std.mem.eql(u8, func_name, "reversed") or
+            std.mem.eql(u8, func_name, "enumerate") or
+            std.mem.eql(u8, func_name, "zip") or
+            std.mem.eql(u8, func_name, "map") or
+            std.mem.eql(u8, func_name, "filter") or
+            std.mem.eql(u8, func_name, "isinstance") or
+            std.mem.eql(u8, func_name, "issubclass") or
+            std.mem.eql(u8, func_name, "hasattr") or
+            std.mem.eql(u8, func_name, "getattr") or
+            std.mem.eql(u8, func_name, "callable") or
+            std.mem.eql(u8, func_name, "type") or
+            std.mem.eql(u8, func_name, "id") or
+            std.mem.eql(u8, func_name, "hash") or
+            std.mem.eql(u8, func_name, "repr") or
+            std.mem.eql(u8, func_name, "format") or
+            std.mem.eql(u8, func_name, "chr") or
+            std.mem.eql(u8, func_name, "ord") or
+            std.mem.eql(u8, func_name, "hex") or
+            std.mem.eql(u8, func_name, "oct") or
+            std.mem.eql(u8, func_name, "bin") or
+            std.mem.eql(u8, func_name, "pow") or
+            std.mem.eql(u8, func_name, "round") or
+            std.mem.eql(u8, func_name, "divmod") or
+            std.mem.eql(u8, func_name, "all") or
+            std.mem.eql(u8, func_name, "any") or
+            std.mem.eql(u8, func_name, "next") or
+            std.mem.eql(u8, func_name, "iter") or
+            std.mem.eql(u8, func_name, "object") or
+            std.mem.eql(u8, func_name, "super") or
+            std.mem.eql(u8, func_name, "property") or
+            std.mem.eql(u8, func_name, "classmethod") or
+            std.mem.eql(u8, func_name, "staticmethod") or
+            std.mem.eql(u8, func_name, "vars") or
+            std.mem.eql(u8, func_name, "dir") or
+            std.mem.eql(u8, func_name, "globals") or
+            std.mem.eql(u8, func_name, "locals") or
+            std.mem.eql(u8, func_name, "input") or
+            std.mem.eql(u8, func_name, "open") or
+            std.mem.eql(u8, func_name, "eval") or
+            std.mem.eql(u8, func_name, "exec") or
+            std.mem.eql(u8, func_name, "compile");
+        if (returns_value) return true;
+    }
+
     // PyValue.call() dispatch
     if (expr == .call and expr.call.func.* == .attribute) {
         const attr = expr.call.func.attribute;
+
+        // Always discard .call() method invocations (PyValue.call returns PyValue)
+        if (std.mem.eql(u8, attr.attr, "call")) {
+            return true;
+        }
+
         const attr_type = self.type_inferrer.inferExpr(expr.call.func.*) catch .unknown;
 
         if (attr_type == .pyvalue) return true;
