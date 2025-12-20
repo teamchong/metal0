@@ -262,13 +262,29 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             // Two-Flow: Box return values when function returns PyValue
             // This handles isinstance narrowing where local vars become raw types
             // inside if blocks but function still returns PyValue
-            if (self.current_function_returns_pyvalue) {
-                const val = try self.captureExpr(value.*);
+            // BUT: Don't wrap if the value is already a PyValue container (ArrayList, etc.)
+            const should_wrap = blk: {
+                if (!self.current_function_returns_pyvalue) break :blk false;
+                // Don't wrap variables that are PyValue containers
+                if (value.* == .name) {
+                    const var_name = value.name.id;
+                    if (self.type_inferrer.getTypedVar(var_name)) |typed_var| {
+                        const var_type = typed_var.native_type;
+                        // ArrayList/slice of PyValue should not be wrapped
+                        if (var_type == .array and var_type.array.element_type.* == .pyvalue) {
+                            break :blk false;
+                        }
+                    }
+                }
+                break :blk true;
+            };
+
+            const val = try self.captureExpr(value.*);
+            if (should_wrap) {
                 try b.write("runtime.PyValue.from(");
                 try b.emitValue(val, .{});
                 try b.write(")");
             } else {
-                const val = try self.captureExpr(value.*);
                 try b.emitValue(val, .{});
             }
         }

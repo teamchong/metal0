@@ -170,6 +170,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         }
     }
 
+    // Two-Flow: Reset PyValue return tracking before generating each function
+    self.current_function_returns_pyvalue = false;
+
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
 

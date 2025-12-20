@@ -1733,6 +1733,7 @@ pub fn genMethodSignatureWithSkip(
         try emitConst(self,magic_return_type);
 
         // Track if this method returns PyValue (for comparison magic methods)
+        // But not if it returns a CONTAINER of PyValue (ArrayList, slice, etc.)
         if (std.mem.eql(u8, magic_return_type, "runtime.PyValue")) {
             self.current_function_returns_pyvalue = true;
         }
