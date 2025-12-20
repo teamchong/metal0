@@ -26,6 +26,36 @@ pub fn lt(a: anytype, b: @TypeOf(a)) bool {
     if (T == f64) return comparison_ops.ltF64(a, b);
     if (T == PyValue) return comparison_ops.ltPyValue(a, b);
     if (T == []const u8) return comparison_ops.ltStr(a, b);
+
+    // Python rich comparison protocol for class instances
+    if (@typeInfo(T) == .pointer) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@typeInfo(Child) == .@"struct") {
+            // Try a.__lt__(b)
+            if (@hasDecl(Child, "__lt__")) {
+                const a_result = a.__lt__(b);
+                const a_result_type = @TypeOf(a_result);
+                if (a_result_type == PyValue) {
+                    if (a_result != .not_implemented) {
+                        return if (a_result == .bool) a_result.bool else !PyValue.isFalsy(a_result);
+                    }
+                }
+            }
+            // Try b.__gt__(a) (reflected operation)
+            if (@hasDecl(Child, "__gt__")) {
+                const b_result = b.__gt__(a);
+                const b_result_type = @TypeOf(b_result);
+                if (b_result_type == PyValue) {
+                    if (b_result != .not_implemented) {
+                        return if (b_result == .bool) b_result.bool else !PyValue.isFalsy(b_result);
+                    }
+                }
+            }
+            // No comparison method available for class instances
+            return false;
+        }
+    }
+
     // Fallback for other types (still monomorphizes, but rare)
     return a < b;
 }
@@ -66,6 +96,8 @@ pub fn le(a: anytype, b: @TypeOf(a)) bool {
                     }
                 }
             }
+            // No comparison method available for class instances
+            return false;
         }
     }
 
@@ -143,6 +175,36 @@ pub fn ge(a: anytype, b: @TypeOf(a)) bool {
     if (T == f64) return comparison_ops.geF64(a, b);
     if (T == PyValue) return comparison_ops.gePyValue(a, b);
     if (T == []const u8) return comparison_ops.geStr(a, b);
+
+    // Python rich comparison protocol for class instances
+    if (@typeInfo(T) == .pointer) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@typeInfo(Child) == .@"struct") {
+            // Try a.__ge__(b)
+            if (@hasDecl(Child, "__ge__")) {
+                const a_result = a.__ge__(b);
+                const a_result_type = @TypeOf(a_result);
+                if (a_result_type == PyValue) {
+                    if (a_result != .not_implemented) {
+                        return if (a_result == .bool) a_result.bool else !PyValue.isFalsy(a_result);
+                    }
+                }
+            }
+            // Try b.__le__(a) (reflected operation)
+            if (@hasDecl(Child, "__le__")) {
+                const b_result = b.__le__(a);
+                const b_result_type = @TypeOf(b_result);
+                if (b_result_type == PyValue) {
+                    if (b_result != .not_implemented) {
+                        return if (b_result == .bool) b_result.bool else !PyValue.isFalsy(b_result);
+                    }
+                }
+            }
+            // No comparison method available for class instances
+            return false;
+        }
+    }
+
     return a >= b;
 }
 
@@ -153,6 +215,36 @@ pub fn gt(a: anytype, b: @TypeOf(a)) bool {
     if (T == f64) return comparison_ops.gtF64(a, b);
     if (T == PyValue) return comparison_ops.gtPyValue(a, b);
     if (T == []const u8) return comparison_ops.gtStr(a, b);
+
+    // Python rich comparison protocol for class instances
+    if (@typeInfo(T) == .pointer) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@typeInfo(Child) == .@"struct") {
+            // Try a.__gt__(b)
+            if (@hasDecl(Child, "__gt__")) {
+                const a_result = a.__gt__(b);
+                const a_result_type = @TypeOf(a_result);
+                if (a_result_type == PyValue) {
+                    if (a_result != .not_implemented) {
+                        return if (a_result == .bool) a_result.bool else !PyValue.isFalsy(a_result);
+                    }
+                }
+            }
+            // Try b.__lt__(a) (reflected operation)
+            if (@hasDecl(Child, "__lt__")) {
+                const b_result = b.__lt__(a);
+                const b_result_type = @TypeOf(b_result);
+                if (b_result_type == PyValue) {
+                    if (b_result != .not_implemented) {
+                        return if (b_result == .bool) b_result.bool else !PyValue.isFalsy(b_result);
+                    }
+                }
+            }
+            // No comparison method available for class instances
+            return false;
+        }
+    }
+
     return a > b;
 }
 

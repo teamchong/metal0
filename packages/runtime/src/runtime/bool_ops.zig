@@ -381,6 +381,9 @@ pub fn toBoolValue(value: PyValue) bool {
         .bigint => |b| !b.isZero(),
         .complex => |c| c.real != 0.0 or c.imag != 0.0, // 0j is falsy
         .ptr => true, // Pointers are truthy
+        .type_obj => true, // Type objects are truthy
+        .object => true, // Class instances are truthy (TODO: call __bool__ via vtable)
+        .not_implemented => true, // NotImplemented is truthy
     };
 }
 

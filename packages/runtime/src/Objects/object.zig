@@ -924,22 +924,110 @@ pub const PyValue = union(enum) {
                 .string => |b| std.mem.order(u8, a, b) == .lt,
                 else => false,
             },
+            .object => |self_obj| blk: {
+                // Python rich comparison protocol: try self.__lt__(other), then other.__gt__(self)
+                const self_result = callDunderMethod(self_obj, "__lt__", other);
+                if (self_result) |result| {
+                    if (result != .not_implemented) {
+                        if (result == .bool) break :blk result.bool;
+                        break :blk !isFalsy(result);
+                    }
+                }
+                // Try reflected operation: other.__gt__(self)
+                if (other == .object) {
+                    const other_result = callDunderMethod(other.object, "__gt__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) break :blk result.bool;
+                            break :blk !isFalsy(result);
+                        }
+                    }
+                }
+                // Both returned NotImplemented, no ordering defined
+                break :blk false;
+            },
             else => false,
         };
     }
 
     /// Compare two PyValues (less than or equal)
     pub fn le(self: PyValue, other: PyValue) bool {
+        // For .object instances, try __le__ first via vtable
+        if (self == .object) {
+            const self_result = callDunderMethod(self.object, "__le__", other);
+            if (self_result) |result| {
+                if (result != .not_implemented) {
+                    if (result == .bool) return result.bool;
+                    return !isFalsy(result);
+                }
+            }
+            // Try reflected operation: other.__ge__(self)
+            if (other == .object) {
+                const other_result = callDunderMethod(other.object, "__ge__", self);
+                if (other_result) |result| {
+                    if (result != .not_implemented) {
+                        if (result == .bool) return result.bool;
+                        return !isFalsy(result);
+                    }
+                }
+            }
+            // Fallback: __lt__ or __eq__
+            return self.lt(other) or self.eql(other);
+        }
         return self.lt(other) or self.eql(other);
     }
 
     /// Compare two PyValues (greater than)
     pub fn gt(self: PyValue, other: PyValue) bool {
+        // For .object instances, try __gt__ first via vtable
+        if (self == .object) {
+            const self_result = callDunderMethod(self.object, "__gt__", other);
+            if (self_result) |result| {
+                if (result != .not_implemented) {
+                    if (result == .bool) return result.bool;
+                    return !isFalsy(result);
+                }
+            }
+            // Try reflected operation: other.__lt__(self)
+            if (other == .object) {
+                const other_result = callDunderMethod(other.object, "__lt__", self);
+                if (other_result) |result| {
+                    if (result != .not_implemented) {
+                        if (result == .bool) return result.bool;
+                        return !isFalsy(result);
+                    }
+                }
+            }
+            // Both returned NotImplemented, no ordering defined
+            return false;
+        }
         return other.lt(self);
     }
 
     /// Compare two PyValues (greater than or equal)
     pub fn ge(self: PyValue, other: PyValue) bool {
+        // For .object instances, try __ge__ first via vtable
+        if (self == .object) {
+            const self_result = callDunderMethod(self.object, "__ge__", other);
+            if (self_result) |result| {
+                if (result != .not_implemented) {
+                    if (result == .bool) return result.bool;
+                    return !isFalsy(result);
+                }
+            }
+            // Try reflected operation: other.__le__(self)
+            if (other == .object) {
+                const other_result = callDunderMethod(other.object, "__le__", self);
+                if (other_result) |result| {
+                    if (result != .not_implemented) {
+                        if (result == .bool) return result.bool;
+                        return !isFalsy(result);
+                    }
+                }
+            }
+            // Fallback: __gt__ or __eq__
+            return self.gt(other) or self.eql(other);
+        }
         return other.lt(self) or self.eql(other);
     }
 
