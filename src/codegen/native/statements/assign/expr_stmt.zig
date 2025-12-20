@@ -87,11 +87,6 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const is_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
         std.mem.startsWith(u8, std.mem.trim(u8, expr_output, " \t"), "__m");
 
-    // Check if expression already has semicolon
-    const has_semicolon = expr_output.len >= 2 and
-        expr_output[expr_output.len - 2] == ';' and
-        expr_output[expr_output.len - 1] == '\n';
-
     // Check if this is a block statement (ends with } or }\n)
     // Block statements like if/while/for with braces don't need semicolons
     const ends_with_brace = (expr_output.len > 0 and expr_output[expr_output.len - 1] == '}') or
@@ -99,7 +94,9 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const is_block_stmt = ends_with_brace and !is_labeled_block;
 
     // Determine if we should skip semicolon
-    const should_skip_semicolon = is_block_stmt or is_labeled_block or has_semicolon;
+    // Only skip for block statements and labeled blocks, NOT for expressions that already have semicolons
+    // (we'll strip existing semicolons in the callback, then add them back via withStatement)
+    const should_skip_semicolon = is_block_stmt or is_labeled_block;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);
