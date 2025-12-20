@@ -1171,8 +1171,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_lt = if (class_info) |info| info.methods.contains("__lt__") else false;
 
                         if (has_lt) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __lt__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, current_left);
                             try emitConst(self, ".__lt__(");
                             try genExpr(self, compare.comparators[i]);
@@ -1190,8 +1190,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_le = if (class_info) |info| info.methods.contains("__le__") else false;
 
                         if (has_le) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __le__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, current_left);
                             try emitConst(self, ".__le__(");
                             try genExpr(self, compare.comparators[i]);
@@ -1208,8 +1208,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_gt = if (class_info) |info| info.methods.contains("__gt__") else false;
 
                         if (has_gt) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __gt__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, current_left);
                             try emitConst(self, ".__gt__(");
                             try genExpr(self, compare.comparators[i]);
@@ -1226,8 +1226,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         const has_ge = if (class_info) |info| info.methods.contains("__ge__") else false;
 
                         if (has_ge) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __ge__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, current_left);
                             try emitConst(self, ".__ge__(");
                             try genExpr(self, compare.comparators[i]);
@@ -1262,8 +1262,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a < b where b is class instance → b.__gt__(a)
                         const has_gt = if (right_class_info) |info| info.methods.contains("__gt__") else false;
                         if (has_gt) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __gt__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, compare.comparators[i]);
                             try emitConst(self, ".__gt__(");
                             try genExpr(self, current_left);
@@ -1280,8 +1280,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a <= b where b is class instance → b.__ge__(a)
                         const has_ge = if (right_class_info) |info| info.methods.contains("__ge__") else false;
                         if (has_ge) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __ge__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, compare.comparators[i]);
                             try emitConst(self, ".__ge__(");
                             try genExpr(self, current_left);
@@ -1298,8 +1298,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a > b where b is class instance → b.__lt__(a)
                         const has_lt = if (right_class_info) |info| info.methods.contains("__lt__") else false;
                         if (has_lt) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __lt__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, compare.comparators[i]);
                             try emitConst(self, ".__lt__(");
                             try genExpr(self, current_left);
@@ -1316,8 +1316,8 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
                         // a >= b where b is class instance → b.__le__(a)
                         const has_le = if (right_class_info) |info| info.methods.contains("__le__") else false;
                         if (has_le) {
-                            // Dunder returns object - wrap with try and convert to bool
-                            try emitConst(self, "runtime.toBool(try ");
+                            // __le__ returns PyValue (not error union), so no try needed
+                            try emitConst(self, "runtime.toBool(");
                             try genExpr(self, compare.comparators[i]);
                             try emitConst(self, ".__le__(");
                             try genExpr(self, current_left);
