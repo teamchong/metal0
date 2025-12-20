@@ -23,7 +23,7 @@ runs:
       id: cpython-cache
       with:
         path: ~/cpython-install
-        key: cpython-3.13.1-${{ inputs.os }}-${{ runner.arch }}
+        key: cpython-3.13.1-${{ inputs.os }}-${{ runner.arch }}-v2
 
     - name: Cache CPython build (Windows)
       if: inputs.os == 'windows'
@@ -31,7 +31,7 @@ runs:
       id: cpython-cache-win
       with:
         path: C:\cpython-install
-        key: cpython-3.13.1-windows-${{ runner.arch }}
+        key: cpython-3.13.1-windows-${{ runner.arch }}-v2
 
     # =========================================================================
     # Build CPython from source (Linux)
@@ -42,10 +42,11 @@ runs:
       run: |
         set -e
 
-        # Install build dependencies
+        # Install build dependencies (including pkg-config!)
         sudo apt-get update -qq
         sudo apt-get install -qq -y \
           build-essential \
+          pkg-config \
           libssl-dev \
           zlib1g-dev \
           libncurses5-dev \
@@ -61,12 +62,13 @@ runs:
           libffi-dev \
           uuid-dev
 
-        # Clone CPython at pinned commit (v3.13.1)
+        # Clone CPython at pinned tag (v3.13.1)
         git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git ~/cpython-src
         cd ~/cpython-src
 
-        # Configure with optimizations
-        ./configure --prefix=$HOME/cpython-install --enable-optimizations --with-lto
+        # Configure WITHOUT --enable-optimizations (PGO takes too long in CI)
+        # Still use --with-lto for smaller binary
+        ./configure --prefix=$HOME/cpython-install
 
         # Build (use all available cores)
         make -j$(nproc)
@@ -78,6 +80,9 @@ runs:
         # Cleanup source to save space
         rm -rf ~/cpython-src
 
+        # Verify
+        $HOME/cpython-install/bin/python3 --version
+
     # =========================================================================
     # Build CPython from source (macOS)
     # =========================================================================
@@ -88,17 +93,18 @@ runs:
         set -e
 
         # Install build dependencies via Homebrew
-        brew install openssl readline sqlite3 xz zlib tcl-tk
+        brew install openssl@3 readline sqlite3 xz zlib tcl-tk pkg-config
 
-        # Clone CPython at pinned commit (v3.13.1)
+        # Clone CPython at pinned tag (v3.13.1)
         git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git ~/cpython-src
         cd ~/cpython-src
 
-        # Configure with Homebrew paths
-        export LDFLAGS="-L$(brew --prefix openssl)/lib -L$(brew --prefix readline)/lib -L$(brew --prefix sqlite3)/lib -L$(brew --prefix zlib)/lib"
-        export CPPFLAGS="-I$(brew --prefix openssl)/include -I$(brew --prefix readline)/include -I$(brew --prefix sqlite3)/include -I$(brew --prefix zlib)/include"
+        # Configure with Homebrew paths (no --enable-optimizations for speed)
+        export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:$(brew --prefix sqlite3)/lib/pkgconfig:$(brew --prefix zlib)/lib/pkgconfig"
+        export LDFLAGS="-L$(brew --prefix openssl@3)/lib -L$(brew --prefix readline)/lib -L$(brew --prefix sqlite3)/lib -L$(brew --prefix zlib)/lib"
+        export CPPFLAGS="-I$(brew --prefix openssl@3)/include -I$(brew --prefix readline)/include -I$(brew --prefix sqlite3)/include -I$(brew --prefix zlib)/include"
 
-        ./configure --prefix=$HOME/cpython-install --enable-optimizations --with-openssl=$(brew --prefix openssl)
+        ./configure --prefix=$HOME/cpython-install --with-openssl=$(brew --prefix openssl@3)
 
         # Build (use all available cores)
         make -j$(sysctl -n hw.ncpu)
@@ -110,6 +116,9 @@ runs:
         # Cleanup source
         rm -rf ~/cpython-src
 
+        # Verify
+        $HOME/cpython-install/bin/python3 --version
+
     # =========================================================================
     # Build CPython from source (Windows)
     # =========================================================================
@@ -117,21 +126,28 @@ runs:
       if: inputs.os == 'windows' && steps.cpython-cache-win.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
-        # Clone CPython at pinned commit (v3.13.1)
+        # Clone CPython at pinned tag (v3.13.1)
         git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git C:\cpython-src
         Set-Location C:\cpython-src\PCbuild
 
         # Get external dependencies (for ssl, etc.)
         .\get_externals.bat
 
-        # Build using the provided script
-        .\build.bat -p x64
+        # Build using the provided script (Release build)
+        .\build.bat -p x64 -c Release
 
-        # Create install directory and copy binaries
+        # Create install directory structure
         New-Item -ItemType Directory -Force -Path C:\cpython-install
+        New-Item -ItemType Directory -Force -Path C:\cpython-install\DLLs
+
+        # Copy binaries
         Copy-Item C:\cpython-src\PCbuild\amd64\python.exe C:\cpython-install\
+        Copy-Item C:\cpython-src\PCbuild\amd64\pythonw.exe C:\cpython-install\
         Copy-Item C:\cpython-src\PCbuild\amd64\python*.dll C:\cpython-install\
-        Copy-Item C:\cpython-src\PCbuild\amd64\*.pyd C:\cpython-install\
+        Copy-Item C:\cpython-src\PCbuild\amd64\*.pyd C:\cpython-install\DLLs\
+        Copy-Item C:\cpython-src\PCbuild\amd64\*.dll C:\cpython-install\DLLs\ -ErrorAction SilentlyContinue
+
+        # Copy Lib folder
         Copy-Item -Recurse C:\cpython-src\Lib C:\cpython-install\Lib
 
         # Ensure pip is installed
@@ -139,6 +155,9 @@ runs:
 
         # Cleanup source
         Remove-Item -Recurse -Force C:\cpython-src
+
+        # Verify
+        C:\cpython-install\python.exe --version
 
     # =========================================================================
     # Set up PATH and output
@@ -152,15 +171,22 @@ runs:
         echo "python-path=$HOME/cpython-install/bin/python3" >> $GITHUB_OUTPUT
 
         # Verify installation
+        echo "Python version:"
         $HOME/cpython-install/bin/python3 --version
+        echo "Python path:"
+        echo "$HOME/cpython-install/bin/python3"
 
     - name: Set Python path (Windows)
       if: inputs.os == 'windows'
       id: set-output-win
       shell: pwsh
       run: |
-        "C:\cpython-install" | Out-File -Append -FilePath $env:GITHUB_PATH
-        "python-path=C:\cpython-install\python.exe" | Out-File -Append -FilePath $env:GITHUB_OUTPUT
+        "C:\cpython-install" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+        "C:\cpython-install\DLLs" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+        "python-path=C:\cpython-install\python.exe" | Out-File -Append -FilePath $env:GITHUB_OUTPUT -Encoding utf8
 
         # Verify installation
+        Write-Host "Python version:"
         C:\cpython-install\python.exe --version
+        Write-Host "Python path:"
+        Write-Host "C:\cpython-install\python.exe"

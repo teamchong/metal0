@@ -53,17 +53,16 @@ fn emitExprBoolCoerced(self: *NativeCodegen, expr: ast.Node, is_bool: bool) Code
 }
 
 /// Emit two-argument function call: func(expr1, expr2)
-/// Uses auto-close pattern to guarantee matching parentheses
+/// NOTE: func string should include opening paren and any prefix args with trailing comma
+/// Example: "runtime.pyFloorDiv(__global_allocator, " generates: pyFloorDiv(__global_allocator, left, right)
 fn emitBinaryCall(self: *NativeCodegen, func: []const u8, left: ast.Node, right: ast.Node) CodegenError!void {
     try emitConst(self, func);
-    const Ctx = struct { l: ast.Node, r: ast.Node };
-    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try genExpr(s, ctx.l);
-            try emitConst(s, ", ");
-            try genExpr(s, ctx.r);
-        }
-    }.f);
+    // Don't use withParensCtx - func string already has opening paren if needed
+    // Just emit the two arguments and closing paren
+    try genExpr(self, left);
+    try emitConst(self, ", ");
+    try genExpr(self, right);
+    try emitConst(self, ")");
 }
 
 /// Generate power operation
