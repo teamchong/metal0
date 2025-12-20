@@ -69,7 +69,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         // Call setUpClass if exists
         if (class_info.has_setup_class and has_runnable_tests) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("{s}.setUpClass();\n", .{class_info.class_name});
+            try self.output.writer(self.allocator).print("try {s}.setUpClass(__global_allocator);\n", .{class_info.class_name});
         }
     }
     try emitConst(self,"\n");
@@ -264,7 +264,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         }
         if (class_info.has_teardown_class and has_runnable_tests) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("{s}.tearDownClass();\n", .{class_info.class_name});
+            try self.output.writer(self.allocator).print("{s}.tearDownClass(__global_allocator) catch |err| {{ _ = err; }};\n", .{class_info.class_name});
         }
     }
 
