@@ -24,9 +24,9 @@ runs:
       run: |
         # Install packages needed by various CPython tests
         pip install --quiet tzdata
-        # Install system packages for dbm, tkinter, etc.
+        # Install system packages for dbm, etc.
         sudo apt-get update -qq
-        sudo apt-get install -qq -y libgdbm-dev libdb-dev libndbm-compat-dev || true
+        sudo apt-get install -qq -y libgdbm-dev libdb-dev || true
 
     - name: Install test dependencies (macOS)
       if: inputs.os == 'macos'
@@ -41,7 +41,7 @@ runs:
         pip install --quiet tzdata
 
     # =========================================================================
-    # Run tests
+    # Run tests with verbose mode to capture actual errors
     # =========================================================================
     - name: Run CPython tests (Linux)
       if: inputs.os == 'linux'
@@ -49,25 +49,25 @@ runs:
       run: |
         cd tests/cpython
 
-        # Consistent environment for all tests
+        # Minimal environment - only set what's needed for consistency
         export LC_ALL=C.UTF-8
         export LANG=C.UTF-8
         export TZ=UTC
-        export PYTHONDONTWRITEBYTECODE=1
-        export PYTHONHASHSEED=0
 
         PASSED=0; FAILED=0; TOTAL=0
+        FAILED_TESTS=""
         while IFS= read -r test || [ -n "$test" ]; do
           [ -z "$test" ] && continue
           TOTAL=$((TOTAL + 1))
-          # Run with 'script' to provide proper PTY (same env as Metal0 tests)
-          # IMPORTANT: < /dev/null prevents script from consuming the while loop's stdin
-          OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null < /dev/null 2>&1) || true
+          # Run with 'script' to provide proper PTY
+          # Use -v for verbose output to see actual errors
+          OUTPUT=$(script -q -c "python3 -m test -v test_${test}" /dev/null < /dev/null 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
             PASSED=$((PASSED + 1))
           else
             FAILED=$((FAILED + 1))
+            FAILED_TESTS="$FAILED_TESTS $test"
           fi
         done < ../groups/${{ inputs.group }}.txt
 
@@ -79,6 +79,10 @@ runs:
         echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
         echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
         echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+        if [ -n "$FAILED_TESTS" ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed tests:**$FAILED_TESTS" >> $GITHUB_STEP_SUMMARY
+        fi
 
         [ "$FAILED" -gt 0 ] && exit 1 || exit 0
 
@@ -88,12 +92,10 @@ runs:
       run: |
         cd tests/cpython
 
-        # Consistent environment for all tests
+        # Minimal environment - only set what's needed for consistency
         export LC_ALL=C.UTF-8
         export LANG=C.UTF-8
         export TZ=UTC
-        export PYTHONDONTWRITEBYTECODE=1
-        export PYTHONHASHSEED=0
 
         # Fix 1: Resolve /var -> /private/var symlink for test_sysconfig
         export TMPDIR=$(python3 -c "import os; print(os.path.realpath(os.environ.get('TMPDIR', '/tmp')))")
@@ -102,17 +104,19 @@ runs:
         PYTHON_BIN=$(python3 -c "import sys; print(sys.orig_argv[0] if sys.orig_argv else sys.executable)")
 
         PASSED=0; FAILED=0; TOTAL=0
+        FAILED_TESTS=""
         while IFS= read -r test || [ -n "$test" ]; do
           [ -z "$test" ] && continue
           TOTAL=$((TOTAL + 1))
-          # Run with 'script' to provide proper PTY, using actual binary
-          # IMPORTANT: < /dev/null prevents script from consuming the while loop's stdin
-          OUTPUT=$(script -q /dev/null $PYTHON_BIN -m test test_${test} < /dev/null 2>&1) || true
+          # Run with 'script' to provide proper PTY
+          # Use -v for verbose output to see actual errors
+          OUTPUT=$(script -q /dev/null $PYTHON_BIN -m test -v test_${test} < /dev/null 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
             PASSED=$((PASSED + 1))
           else
             FAILED=$((FAILED + 1))
+            FAILED_TESTS="$FAILED_TESTS $test"
           fi
         done < ../groups/${{ inputs.group }}.txt
 
@@ -124,6 +128,10 @@ runs:
         echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
         echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
         echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+        if [ -n "$FAILED_TESTS" ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Failed tests:**$FAILED_TESTS" >> $GITHUB_STEP_SUMMARY
+        fi
 
         [ "$FAILED" -gt 0 ] && exit 1 || exit 0
 
@@ -133,22 +141,23 @@ runs:
       run: |
         Set-Location tests/cpython
 
-        # Consistent environment for all tests
+        # Minimal environment - only set what's needed for consistency
         $env:TZ = "UTC"
-        $env:PYTHONDONTWRITEBYTECODE = "1"
-        $env:PYTHONHASHSEED = "0"
 
         $passed = 0; $failed = 0; $total = 0
+        $failedTests = @()
         Get-Content ../groups/${{ inputs.group }}.txt | ForEach-Object {
           $test = $_.Trim()
           if ($test -eq "") { return }
           $total++
-          $output = python -m test "test_$test" 2>&1 | Out-String
+          # Use -v for verbose output to see actual errors
+          $output = python -m test -v "test_$test" 2>&1 | Out-String
           Write-Host $output
           if ($output -match "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)") {
             $passed++
           } else {
             $failed++
+            $failedTests += $test
           }
         }
 
@@ -160,5 +169,9 @@ runs:
         "| Passed | $passed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "| Failed | $failed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "| Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        if ($failedTests.Count -gt 0) {
+          "" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+          "**Failed tests:** $($failedTests -join ', ')" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        }
 
         if ($failed -gt 0) { exit 1 }
