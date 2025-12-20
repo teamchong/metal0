@@ -1636,9 +1636,25 @@ pub const NativeCodegen = struct {
         const had_content = end_pos > start_pos;
 
         // Add semicolon only if body emitted content and doesn't already end with one
+        // Check by trimming trailing whitespace first to handle "break :label value; " pattern
         if (had_content) {
-            const last_byte = self.output.items[end_pos - 1];
-            if (last_byte != ';') {
+            // Find last non-whitespace character
+            var last_non_ws_pos = end_pos;
+            while (last_non_ws_pos > start_pos) {
+                const ch = self.output.items[last_non_ws_pos - 1];
+                if (ch != ' ' and ch != '\t' and ch != '\n' and ch != '\r') {
+                    break;
+                }
+                last_non_ws_pos -= 1;
+            }
+
+            // Check if last non-whitespace character is a semicolon
+            const needs_semicolon = if (last_non_ws_pos > start_pos)
+                self.output.items[last_non_ws_pos - 1] != ';'
+            else
+                true;
+
+            if (needs_semicolon) {
                 try emitConst(self, "; ");
             }
         }
