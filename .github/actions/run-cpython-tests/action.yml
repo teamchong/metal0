@@ -18,12 +18,28 @@ runs:
     # =========================================================================
     # Setup: Install dependencies for consistent test environment
     # =========================================================================
+    - name: Verify Python version
+      shell: bash
+      if: inputs.os != 'windows'
+      run: |
+        echo "Using Python:"
+        python3 --version
+        which python3
+
+    - name: Verify Python version (Windows)
+      shell: pwsh
+      if: inputs.os == 'windows'
+      run: |
+        Write-Host "Using Python:"
+        python --version
+        Get-Command python
+
     - name: Install test dependencies (Linux)
       if: inputs.os == 'linux'
       shell: bash
       run: |
         # Install packages needed by various CPython tests
-        pip install --quiet tzdata
+        python3 -m pip install --quiet tzdata
         # Install system packages for dbm, etc.
         sudo apt-get update -qq
         sudo apt-get install -qq -y libgdbm-dev libdb-dev || true
@@ -32,13 +48,13 @@ runs:
       if: inputs.os == 'macos'
       shell: bash
       run: |
-        pip install --quiet tzdata
+        python3 -m pip install --quiet tzdata
 
     - name: Install test dependencies (Windows)
       if: inputs.os == 'windows'
       shell: pwsh
       run: |
-        pip install --quiet tzdata
+        python -m pip install --quiet tzdata
 
     # =========================================================================
     # Run tests with verbose mode to capture actual errors

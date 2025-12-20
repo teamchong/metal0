@@ -8,6 +8,7 @@ on:
 
 env:
   ZIG_VERSION: "0.15.2"
+  CPYTHON_VERSION: "v3.13.1"  # Pinned commit: 067145177975eadd61a0c907d0d177f7b6a5a3de
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -197,14 +198,14 @@ jobs:
   test-cpython-core1:
     name: CPython @core1 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core1"
@@ -215,14 +216,14 @@ jobs:
   test-cpython-core2:
     name: CPython @core2 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core2"
@@ -233,14 +234,14 @@ jobs:
   test-cpython-core3:
     name: CPython @core3 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core3"
@@ -251,14 +252,14 @@ jobs:
   test-cpython-core4:
     name: CPython @core4 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core4"
@@ -269,14 +270,14 @@ jobs:
   test-cpython-core5:
     name: CPython @core5 (46 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core5"
@@ -287,14 +288,14 @@ jobs:
   test-cpython-core6:
     name: CPython @core6 (51 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core6"
@@ -305,14 +306,14 @@ jobs:
   test-cpython-linux:
     name: CPython @linux (28 tests)
     runs-on: ubuntu-22.04
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "linux"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "linux"
@@ -323,14 +324,14 @@ jobs:
   test-cpython-macos:
     name: CPython @macos (25 tests)
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "macos"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "macos"
@@ -341,14 +342,14 @@ jobs:
   test-cpython-windows:
     name: CPython @windows (85 tests)
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: ./.github/actions/build-cpython
         with:
-          python-version: "3.12"
+          os: "windows"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "windows"

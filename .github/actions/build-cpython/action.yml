@@ -1,0 +1,166 @@
+name: 'Build CPython from Source'
+description: 'Build CPython from pinned commit for reproducible CI'
+inputs:
+  os:
+    description: 'Operating system (linux, macos, windows)'
+    required: true
+    default: 'linux'
+
+outputs:
+  python-path:
+    description: 'Path to the built Python executable'
+    value: ${{ steps.set-output.outputs.python-path || steps.set-output-win.outputs.python-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    # =========================================================================
+    # Cache CPython build to avoid rebuilding every time
+    # =========================================================================
+    - name: Cache CPython build (Linux/macOS)
+      if: inputs.os != 'windows'
+      uses: actions/cache@v4
+      id: cpython-cache
+      with:
+        path: ~/cpython-install
+        key: cpython-3.13.1-${{ inputs.os }}-${{ runner.arch }}
+
+    - name: Cache CPython build (Windows)
+      if: inputs.os == 'windows'
+      uses: actions/cache@v4
+      id: cpython-cache-win
+      with:
+        path: C:\cpython-install
+        key: cpython-3.13.1-windows-${{ runner.arch }}
+
+    # =========================================================================
+    # Build CPython from source (Linux)
+    # =========================================================================
+    - name: Build CPython (Linux)
+      if: inputs.os == 'linux' && steps.cpython-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -e
+
+        # Install build dependencies
+        sudo apt-get update -qq
+        sudo apt-get install -qq -y \
+          build-essential \
+          libssl-dev \
+          zlib1g-dev \
+          libncurses5-dev \
+          libncursesw5-dev \
+          libreadline-dev \
+          libsqlite3-dev \
+          libgdbm-dev \
+          libdb5.3-dev \
+          libbz2-dev \
+          libexpat1-dev \
+          liblzma-dev \
+          tk-dev \
+          libffi-dev \
+          uuid-dev
+
+        # Clone CPython at pinned commit (v3.13.1)
+        git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git ~/cpython-src
+        cd ~/cpython-src
+
+        # Configure with optimizations
+        ./configure --prefix=$HOME/cpython-install --enable-optimizations --with-lto
+
+        # Build (use all available cores)
+        make -j$(nproc)
+        make install
+
+        # Ensure pip is installed
+        $HOME/cpython-install/bin/python3 -m ensurepip --upgrade
+
+        # Cleanup source to save space
+        rm -rf ~/cpython-src
+
+    # =========================================================================
+    # Build CPython from source (macOS)
+    # =========================================================================
+    - name: Build CPython (macOS)
+      if: inputs.os == 'macos' && steps.cpython-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -e
+
+        # Install build dependencies via Homebrew
+        brew install openssl readline sqlite3 xz zlib tcl-tk
+
+        # Clone CPython at pinned commit (v3.13.1)
+        git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git ~/cpython-src
+        cd ~/cpython-src
+
+        # Configure with Homebrew paths
+        export LDFLAGS="-L$(brew --prefix openssl)/lib -L$(brew --prefix readline)/lib -L$(brew --prefix sqlite3)/lib -L$(brew --prefix zlib)/lib"
+        export CPPFLAGS="-I$(brew --prefix openssl)/include -I$(brew --prefix readline)/include -I$(brew --prefix sqlite3)/include -I$(brew --prefix zlib)/include"
+
+        ./configure --prefix=$HOME/cpython-install --enable-optimizations --with-openssl=$(brew --prefix openssl)
+
+        # Build (use all available cores)
+        make -j$(sysctl -n hw.ncpu)
+        make install
+
+        # Ensure pip is installed
+        $HOME/cpython-install/bin/python3 -m ensurepip --upgrade
+
+        # Cleanup source
+        rm -rf ~/cpython-src
+
+    # =========================================================================
+    # Build CPython from source (Windows)
+    # =========================================================================
+    - name: Build CPython (Windows)
+      if: inputs.os == 'windows' && steps.cpython-cache-win.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        # Clone CPython at pinned commit (v3.13.1)
+        git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git C:\cpython-src
+        Set-Location C:\cpython-src\PCbuild
+
+        # Get external dependencies (for ssl, etc.)
+        .\get_externals.bat
+
+        # Build using the provided script
+        .\build.bat -p x64
+
+        # Create install directory and copy binaries
+        New-Item -ItemType Directory -Force -Path C:\cpython-install
+        Copy-Item C:\cpython-src\PCbuild\amd64\python.exe C:\cpython-install\
+        Copy-Item C:\cpython-src\PCbuild\amd64\python*.dll C:\cpython-install\
+        Copy-Item C:\cpython-src\PCbuild\amd64\*.pyd C:\cpython-install\
+        Copy-Item -Recurse C:\cpython-src\Lib C:\cpython-install\Lib
+
+        # Ensure pip is installed
+        C:\cpython-install\python.exe -m ensurepip --upgrade
+
+        # Cleanup source
+        Remove-Item -Recurse -Force C:\cpython-src
+
+    # =========================================================================
+    # Set up PATH and output
+    # =========================================================================
+    - name: Set Python path (Linux/macOS)
+      if: inputs.os != 'windows'
+      id: set-output
+      shell: bash
+      run: |
+        echo "$HOME/cpython-install/bin" >> $GITHUB_PATH
+        echo "python-path=$HOME/cpython-install/bin/python3" >> $GITHUB_OUTPUT
+
+        # Verify installation
+        $HOME/cpython-install/bin/python3 --version
+
+    - name: Set Python path (Windows)
+      if: inputs.os == 'windows'
+      id: set-output-win
+      shell: pwsh
+      run: |
+        "C:\cpython-install" | Out-File -Append -FilePath $env:GITHUB_PATH
+        "python-path=C:\cpython-install\python.exe" | Out-File -Append -FilePath $env:GITHUB_OUTPUT
+
+        # Verify installation
+        C:\cpython-install\python.exe --version
