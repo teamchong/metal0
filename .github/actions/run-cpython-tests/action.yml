@@ -15,12 +15,47 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    # =========================================================================
+    # Setup: Install dependencies for consistent test environment
+    # =========================================================================
+    - name: Install test dependencies (Linux)
+      if: inputs.os == 'linux'
+      shell: bash
+      run: |
+        # Install packages needed by various CPython tests
+        pip install --quiet tzdata
+        # Install system packages for dbm, tkinter, etc.
+        sudo apt-get update -qq
+        sudo apt-get install -qq -y libgdbm-dev libdb-dev libndbm-compat-dev || true
+
+    - name: Install test dependencies (macOS)
+      if: inputs.os == 'macos'
+      shell: bash
+      run: |
+        pip install --quiet tzdata
+
+    - name: Install test dependencies (Windows)
+      if: inputs.os == 'windows'
+      shell: pwsh
+      run: |
+        pip install --quiet tzdata
+
+    # =========================================================================
+    # Run tests
+    # =========================================================================
     - name: Run CPython tests (Linux)
       if: inputs.os == 'linux'
       shell: bash
       run: |
         cd tests/cpython
-        export LC_ALL=C
+
+        # Consistent environment for all tests
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
+        export TZ=UTC
+        export PYTHONDONTWRITEBYTECODE=1
+        export PYTHONHASHSEED=0
+
         PASSED=0; FAILED=0; TOTAL=0
         while IFS= read -r test || [ -n "$test" ]; do
           [ -z "$test" ] && continue
@@ -52,7 +87,13 @@ runs:
       shell: bash
       run: |
         cd tests/cpython
-        export LC_ALL=C
+
+        # Consistent environment for all tests
+        export LC_ALL=C.UTF-8
+        export LANG=C.UTF-8
+        export TZ=UTC
+        export PYTHONDONTWRITEBYTECODE=1
+        export PYTHONHASHSEED=0
 
         # Fix 1: Resolve /var -> /private/var symlink for test_sysconfig
         export TMPDIR=$(python3 -c "import os; print(os.path.realpath(os.environ.get('TMPDIR', '/tmp')))")
@@ -91,6 +132,12 @@ runs:
       shell: pwsh
       run: |
         Set-Location tests/cpython
+
+        # Consistent environment for all tests
+        $env:TZ = "UTC"
+        $env:PYTHONDONTWRITEBYTECODE = "1"
+        $env:PYTHONHASHSEED = "0"
+
         $passed = 0; $failed = 0; $total = 0
         Get-Content ../groups/${{ inputs.group }}.txt | ForEach-Object {
           $test = $_.Trim()

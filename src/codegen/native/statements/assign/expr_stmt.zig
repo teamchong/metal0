@@ -74,55 +74,63 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
     }
 
-    // Check if this is a complete statement (if/while/for)
-    const is_complete_stmt = switch (expr) {
-        .if_stmt, .while_stmt, .for_stmt => true,
-        else => false,
-    };
-
     // Check if expression needs value discard
     const needs_discard = shouldDiscardValue(self, expr);
 
+    // Pre-generate expression to detect labeled blocks and block statements
+    const start_pos = self.output.items.len;
+    try self.genExpr(expr);
+    const expr_output = self.output.items[start_pos..];
+
+    // Detect if this is a labeled block (pattern: __mN_xxx: { ... })
+    // Labeled blocks at statement level don't need semicolons in Zig
+    const is_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
+        std.mem.startsWith(u8, std.mem.trim(u8, expr_output, " \t"), "__m");
+
+    // Check if expression already has semicolon
+    const has_semicolon = expr_output.len >= 2 and
+        expr_output[expr_output.len - 2] == ';' and
+        expr_output[expr_output.len - 1] == '\n';
+
+    // Check if this is a block statement (ends with } or }\n)
+    // Block statements like if/while/for with braces don't need semicolons
+    const ends_with_brace = (expr_output.len > 0 and expr_output[expr_output.len - 1] == '}') or
+        (expr_output.len >= 2 and expr_output[expr_output.len - 2] == '}' and expr_output[expr_output.len - 1] == '\n');
+    const is_block_stmt = ends_with_brace and !is_labeled_block;
+
+    // Determine if we should skip semicolon
+    const should_skip_semicolon = is_block_stmt or is_labeled_block or has_semicolon;
+
+    // Clear the generated output, we'll re-add it via builder
+    self.output.shrinkRetainingCapacity(start_pos);
+
     // Context for the statement callback
     const StmtCtx = struct {
-        codegen: *NativeCodegen,
-        expr: ast.Node,
-        start_pos: usize,
+        pre_generated: []const u8,
     };
-
-    const start_pos = self.output.items.len;
 
     // Use builder.withStatement for atomic indent + expr + semicolon
     try builder.withStatement(
         struct {
             fn emit(b: *ZigBuilder, ctx: StmtCtx) !void {
-                // Generate the expression
-                try ctx.codegen.genExpr(ctx.expr);
+                var output = ctx.pre_generated;
 
-                // CRITICAL: Capture what genExpr wrote to self.output
-                // and move it into the builder so semicolon order is correct
-                var expr_output = ctx.codegen.output.items[ctx.start_pos..];
-
-                // Strip trailing semicolon+newline if present
-                // (e.g., assertEqual generates complete if statements with semicolons)
-                if (expr_output.len >= 2 and
-                    expr_output[expr_output.len - 2] == ';' and
-                    expr_output[expr_output.len - 1] == '\n')
-                {
-                    expr_output = expr_output[0 .. expr_output.len - 2];
+                // Strip trailing semicolon+newline or just newline
+                if (output.len >= 2 and output[output.len - 2] == ';' and output[output.len - 1] == '\n') {
+                    output = output[0 .. output.len - 2];
+                } else if (output.len > 0 and output[output.len - 1] == '\n') {
+                    output = output[0 .. output.len - 1];
                 }
 
-                // Remove it from self.output temporarily
-                ctx.codegen.output.shrinkRetainingCapacity(ctx.start_pos);
-
-                // Write it to builder (which will add semicolon after)
-                try b.write(expr_output);
+                try b.write(output);
             }
         }.emit,
-        StmtCtx{ .codegen = self, .expr = expr, .start_pos = start_pos },
+        StmtCtx{
+            .pre_generated = expr_output,
+        },
         .{
             .add_discard = needs_discard,
-            .skip_semicolon = is_complete_stmt,
+            .skip_semicolon = should_skip_semicolon,
         }
     );
 
