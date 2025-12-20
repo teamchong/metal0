@@ -66,6 +66,39 @@ pub const stub_modules = std.StaticStringMap(void).initComptime(.{
     .{ "_xxtestfuzz", {} }, // Fuzz testing module
 });
 
+/// Platform-specific modules - automatically skipped on incompatible platforms
+/// These are CPython stdlib modules that only work on specific operating systems
+pub const platform_specific_modules = std.StaticStringMap(enum { windows, posix, linux, macos, cpython_internal }).initComptime(.{
+    // Windows-only modules
+    .{ "_winapi", .windows },
+    .{ "msvcrt", .windows },
+    .{ "winreg", .windows },
+    .{ "_msi", .windows },
+    .{ "_winreg", .windows },
+    .{ "winsound", .windows },
+
+    // Linux-only modules
+    .{ "_posixsubprocess", .posix },
+    .{ "_posixshmem", .posix },
+    .{ "fcntl", .posix },
+    .{ "grp", .posix },
+    .{ "pwd", .posix },
+    .{ "spwd", .posix },
+    .{ "syslog", .posix },
+    .{ "termios", .posix },
+    .{ "resource", .posix },
+
+    // macOS-specific modules
+    .{ "_scproxy", .macos },
+
+    // CPython-internal modules (not available in AOT compilation)
+    .{ "_interpreters", .cpython_internal },
+    .{ "_opcode", .cpython_internal },
+    .{ "_xxsubinterpreters", .cpython_internal },
+    .{ "_xxinterpchannels", .cpython_internal },
+    .{ "libclinic", .cpython_internal },
+});
+
 /// Check if module is a test-to-test import (test.test_* pattern)
 /// These are tests importing from other tests - always stub them
 fn isTestToTestImport(python_name: []const u8) bool {
@@ -115,4 +148,28 @@ pub fn getImplementationPath(python_name: []const u8) ?[]const u8 {
         return python_name;
     }
     return null;
+}
+
+/// Check if a module is platform-specific and incompatible with current platform
+/// Returns true if module should be skipped (incompatible with current OS)
+pub fn isPlatformIncompatible(python_name: []const u8) bool {
+    const builtin = @import("builtin");
+    const platform_tag = platform_specific_modules.get(python_name) orelse return false;
+
+    return switch (platform_tag) {
+        .windows => builtin.os.tag != .windows,
+        .posix => switch (builtin.os.tag) {
+            .linux, .macos, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris => false,
+            else => true,
+        },
+        .linux => builtin.os.tag != .linux,
+        .macos => builtin.os.tag != .macos,
+        .cpython_internal => true, // Always skip CPython-internal modules in AOT
+    };
+}
+
+/// Check if a module is platform-specific (regardless of compatibility)
+/// Useful for informational messages
+pub fn isPlatformSpecific(python_name: []const u8) bool {
+    return platform_specific_modules.has(python_name);
 }

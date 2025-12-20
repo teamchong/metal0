@@ -502,6 +502,12 @@ pub fn collectImports(
                 continue;
             }
 
+            // Check if it's a platform-specific module incompatible with current platform
+            if (module_aliases.isPlatformIncompatible(python_module)) {
+                std.debug.print("  Skipping platform-specific module (not available on this OS): {s}\n", .{python_module});
+                continue;
+            }
+
             // Try to resolve via alias system (handles both aliases and direct matches)
             if (module_aliases.getImplementationPath(python_module)) |impl_path| {
                 // Module found - add the resolved path to imports list
