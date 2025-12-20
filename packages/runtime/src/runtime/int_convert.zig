@@ -34,6 +34,8 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
                 .complex => "'complex' object cannot be interpreted as an integer",
                 .type_obj => "'type' object cannot be interpreted as an integer",
                 .ptr => "'object' object cannot be interpreted as an integer",
+                .object => "'object' object cannot be interpreted as an integer",
+                .not_implemented => "'NotImplementedType' object cannot be interpreted as an integer",
                 .int => "'int' object cannot be interpreted as an integer", // shouldn't happen
                 .bigint => "'int' object cannot be interpreted as an integer", // shouldn't happen - bigint should convert
             };

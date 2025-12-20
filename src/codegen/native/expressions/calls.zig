@@ -1285,8 +1285,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             if (is_user_class) {
                 // User-defined class: nested classes and error init classes need try
-                if (needs_try) {
+                // But if inside a PyValue-returning function, use explicit unwrap instead
+                if (needs_try and !self.current_function_returns_pyvalue) {
                     try emitConst(self, "(try ");
+                } else if (needs_try and self.current_function_returns_pyvalue) {
+                    try emitConst(self, "(");
                 }
                 if (is_self_class_call) {
                     try emitConst(self, "@This()");
@@ -1332,8 +1335,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // it's likely a local class that wasn't tracked in nested_class_names
                 // (e.g., due to scoping issues). User-defined init() returns struct directly.
                 // Need to emit (try ...) wrapper if class has error init
-                if (needs_try) {
+                // But if inside a PyValue-returning function, use explicit unwrap instead
+                if (needs_try and !self.current_function_returns_pyvalue) {
                     try emitConst(self, "(try ");
+                } else if (needs_try and self.current_function_returns_pyvalue) {
+                    try emitConst(self, "(");
                 }
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
@@ -1543,8 +1549,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Runtime exception path with (try ...) already returned earlier at line 588/592/603
             try emitConst(self, ")");
             // Close the (try ...) wrapper for nested class or error-init constructors
-            if (needs_try) {
+            // But if inside a PyValue-returning function, use catch unreachable instead
+            if (needs_try and !self.current_function_returns_pyvalue) {
                 try emitConst(self, ")");
+            } else if (needs_try and self.current_function_returns_pyvalue) {
+                try emitConst(self, " catch unreachable)");
             }
             return;
         }
