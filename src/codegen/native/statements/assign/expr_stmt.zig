@@ -331,10 +331,13 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         }
         // For unknown functions/closures, check the inferred return type
         const func_type = self.type_inferrer.inferExpr(expr) catch .unknown;
-        // If we can determine it returns a value (not void/none), discard it
-        if (func_type != .none and func_type != .unknown) {
-            return true;
+        // If we can determine it's definitely void/none, don't discard
+        if (func_type == .none) {
+            return false;
         }
+        // Otherwise, assume it returns a value and needs discard
+        // This catches closures, PyValue variables, and other callable types
+        return true;
     }
 
     // Labeled block expressions
