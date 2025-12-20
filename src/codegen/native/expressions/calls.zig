@@ -740,17 +740,25 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
 
             // Check if this is calling a PyValue attribute (e.g., self.logger where logger is PyValue)
-            // PyValue attributes cannot be called directly - they need special handling
-            // For now, emit a compile error with helpful message
+            // Generate runtime call() dispatch for PyValue callables
             if (!is_module_call and !is_class_method_call and !is_nested_class_method_call) {
                 // Try to infer the attribute type
                 const attr_type = self.type_inferrer.inferExpr(call.func.*) catch .unknown;
                 if (attr_type == .pyvalue) {
-                    // This is calling a PyValue - emit compile error for now
-                    // TODO: Add runtime support for calling PyValue callables
-                    try emitFmtConst(self, "@compileError(\"Cannot call PyValue attribute '{s}'. ", .{attr.attr});
-                    try emitConst(self, "Callable attributes stored as PyValue are not yet supported. ");
-                    try emitConst(self, "This is a known limitation in test_binop.py with logger callable.\")");
+                    // Generate PyValue.call() dispatch
+                    try emitConst(self, "(try ");
+                    try genExpr(self, call.func.*); // The PyValue attribute
+                    try emitConst(self, ".call(&[_]runtime.PyValue{");
+
+                    // Generate arguments
+                    for (call.args, 0..) |arg, i| {
+                        if (i > 0) try emitConst(self, ", ");
+                        try emitConst(self, "runtime.PyValue.from(");
+                        try genExpr(self, arg);
+                        try emitConst(self, ")");
+                    }
+
+                    try emitConst(self, "}))");
                     return;
                 }
             }

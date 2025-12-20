@@ -40,6 +40,8 @@ pub const PyValue = union(enum) {
         gt: ?*const fn (*anyopaque, PyValue) PyValue = null,
         /// __ge__ method: greater than or equal comparison
         ge: ?*const fn (*anyopaque, PyValue) PyValue = null,
+        /// __call__ method: callable protocol
+        __call__: ?*const fn (*anyopaque, []const PyValue) anyerror!PyValue = null,
     };
 
     /// Class instance with vtable for dynamic method dispatch
@@ -119,6 +121,17 @@ pub const PyValue = union(enum) {
                 }
             };
             vtable.ge = GeWrapper.call;
+        }
+
+        // Generate __call__ wrapper if the type has it
+        if (@hasDecl(T, "__call__")) {
+            const CallWrapper = struct {
+                fn call(ptr: *anyopaque, args: []const PyValue) anyerror!PyValue {
+                    const self: *T = @ptrCast(@alignCast(ptr));
+                    return self.__call__(args);
+                }
+            };
+            vtable.__call__ = CallWrapper.call;
         }
 
         return vtable;
@@ -1046,6 +1059,21 @@ pub const PyValue = union(enum) {
             .bigint => |v| v.isZero(),
             .complex => |v| v.real == 0.0 and v.imag == 0.0,
             .ptr, .type_obj, .object => false, // Objects are truthy by default
+        };
+    }
+
+    /// Call a PyValue (callable protocol via __call__ dunder method)
+    /// Returns error if the value is not callable
+    pub fn call(self: PyValue, args: []const PyValue) !PyValue {
+        return switch (self) {
+            .object => |obj| {
+                if (obj.vtable.__call__) |call_fn| {
+                    return try call_fn(obj.ptr, args);
+                }
+                // Fallback: not callable
+                @panic("PyValue object is not callable (no __call__ method)");
+            },
+            else => @panic("PyValue is not callable"),
         };
     }
 
