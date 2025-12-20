@@ -11,6 +11,7 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 
 const VoidFunctions = std.StaticStringMap(void).initComptime(.{
     .{ "main", {} }, .{ "exit", {} }, .{ "seed", {} },
+    .{ "setattr", {} }, .{ "delattr", {} },
 });
 
 /// Generate expression statement using builder.withStatement() for atomic semicolons
@@ -84,8 +85,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
     // Detect if this is a labeled block (pattern: __mN_xxx: { ... })
     // Labeled blocks at statement level don't need semicolons in Zig
+    // BUT: Assigned labeled blocks (e.g., _ = __mN_xxx: { ... }) DO need semicolons
+    const trimmed_start = std.mem.trim(u8, expr_output, " \t");
     const has_labeled_block_pattern = std.mem.indexOf(u8, expr_output, ": {") != null and
-        std.mem.startsWith(u8, std.mem.trim(u8, expr_output, " \t"), "__m");
+        std.mem.startsWith(u8, trimmed_start, "__m");
+    const is_assigned_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
+        std.mem.startsWith(u8, trimmed_start, "_ = __m");
 
     // Check if this is a block statement (ends with } or }\n or }); or similar)
     // Block statements like if/while/for with braces don't need semicolons
@@ -125,11 +130,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const is_wrapped_labeled_block = has_labeled_block_pattern and
         std.mem.indexOf(u8, expr_output, "((__m") != null;
 
-    const is_labeled_block = has_labeled_block_pattern and ends_with_brace;
+    const is_labeled_block = has_labeled_block_pattern and ends_with_brace and !is_assigned_labeled_block;
     const is_block_stmt = ends_with_brace and !is_labeled_block and !is_wrapped_labeled_block and !is_catch_suffix;
 
     // Determine if we should skip semicolon
-    // Skip for: block statements, labeled blocks, wrapped labeled blocks
+    // Skip for: block statements, statement-level labeled blocks, wrapped labeled blocks
+    // DON'T skip for: assigned labeled blocks (e.g., _ = __mN_xxx: { ... })
     const should_skip_semicolon = is_block_stmt or is_labeled_block or is_wrapped_labeled_block;
 
     // Clear the generated output, we'll re-add it via builder

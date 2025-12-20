@@ -63,7 +63,7 @@ pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try emitConst(self, "} else if (@hasField(@typeInfo(__sa_obj_type).pointer.child, \"__dict__\")) { ");
         try emitConst(self, "try @constCast(&__sa_obj.__dict__).put(__sa_name_str, runtime.PyValue.from(__sa_val)); ");
     }
-    try emitFmtConst(self, "}} break :__m{d}_setattr {{}}; }}", .{id});
+    try emitFmtConst(self, "}} break :__m{d}_setattr; }}", .{id});
 }
 
 pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
