@@ -84,19 +84,26 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
     // Detect if this is a labeled block (pattern: __mN_xxx: { ... })
     // Labeled blocks at statement level don't need semicolons in Zig
-    const is_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
+    const has_labeled_block_pattern = std.mem.indexOf(u8, expr_output, ": {") != null and
         std.mem.startsWith(u8, std.mem.trim(u8, expr_output, " \t"), "__m");
 
-    // Check if this is a block statement (ends with } or }\n)
+    // Check if this is a block statement (ends with } or }\n or }); or similar)
     // Block statements like if/while/for with braces don't need semicolons
-    const ends_with_brace = (expr_output.len > 0 and expr_output[expr_output.len - 1] == '}') or
-        (expr_output.len >= 2 and expr_output[expr_output.len - 2] == '}' and expr_output[expr_output.len - 1] == '\n');
-    const is_block_stmt = ends_with_brace and !is_labeled_block;
+    // Also check for labeled blocks that end with } followed by closing parens/brackets
+    const trimmed_end = std.mem.trimRight(u8, expr_output, " \t\n;");
+    const ends_with_brace = trimmed_end.len > 0 and trimmed_end[trimmed_end.len - 1] == '}';
+
+    // Check if this looks like a labeled block expression wrapped in parens
+    // Pattern: (__mN_xxx: { ... })  or  (__mN_xxx: { ... }))
+    const is_wrapped_labeled_block = has_labeled_block_pattern and
+        std.mem.indexOf(u8, expr_output, "((__m") != null;
+
+    const is_labeled_block = has_labeled_block_pattern and ends_with_brace;
+    const is_block_stmt = ends_with_brace and !is_labeled_block and !is_wrapped_labeled_block;
 
     // Determine if we should skip semicolon
-    // Only skip for block statements and labeled blocks, NOT for expressions that already have semicolons
-    // (we'll strip existing semicolons in the callback, then add them back via withStatement)
-    const should_skip_semicolon = is_block_stmt or is_labeled_block;
+    // Skip for: block statements, labeled blocks, wrapped labeled blocks
+    const should_skip_semicolon = is_block_stmt or is_labeled_block or is_wrapped_labeled_block;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);
@@ -112,11 +119,39 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             fn emit(b: *ZigBuilder, ctx: StmtCtx) !void {
                 var output = ctx.pre_generated;
 
-                // Strip trailing semicolon+newline or just newline
-                if (output.len >= 2 and output[output.len - 2] == ';' and output[output.len - 1] == '\n') {
-                    output = output[0 .. output.len - 2];
-                } else if (output.len > 0 and output[output.len - 1] == '\n') {
-                    output = output[0 .. output.len - 1];
+                // Strip trailing semicolons, newlines, and spaces aggressively
+                // This prevents double semicolons when withStatement adds its own
+                // We iterate until no more changes to handle nested patterns like "; ;" or ";\n;"
+                var changed = true;
+                while (changed and output.len > 0) {
+                    changed = false;
+
+                    // Pattern 1: "; ;" - semicolon, space, semicolon (common in labeled blocks)
+                    if (output.len >= 3 and
+                        output[output.len - 3] == ';' and
+                        output[output.len - 2] == ' ' and
+                        output[output.len - 1] == ';') {
+                        output = output[0 .. output.len - 3]; // Remove all three chars
+                        changed = true;
+                        continue;
+                    }
+
+                    // Pattern 2: ";;" - double semicolon (no space)
+                    if (output.len >= 2 and
+                        output[output.len - 2] == ';' and
+                        output[output.len - 1] == ';') {
+                        output = output[0 .. output.len - 1]; // Remove one semicolon
+                        changed = true;
+                        continue;
+                    }
+
+                    // Pattern 3: Strip single trailing character (semicolon, newline, or space)
+                    const last_char = output[output.len - 1];
+                    if (last_char == ';' or last_char == '\n' or last_char == ' ' or last_char == '\t') {
+                        output = output[0 .. output.len - 1];
+                        changed = true;
+                        continue;
+                    }
                 }
 
                 try b.write(output);
