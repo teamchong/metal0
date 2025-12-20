@@ -204,7 +204,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core1"
@@ -222,7 +222,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core2"
@@ -240,7 +240,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core3"
@@ -258,7 +258,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core4"
@@ -276,7 +276,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core5"
@@ -294,7 +294,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core6"
@@ -312,7 +312,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "linux"
@@ -330,7 +330,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "macos"
@@ -348,7 +348,7 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13.11"
+          python-version: "3.12"
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "windows"
