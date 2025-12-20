@@ -31,23 +31,92 @@ pub fn lt(a: anytype, b: @TypeOf(a)) bool {
 }
 
 /// Less than or equal: a <= b
+/// Implements Python's rich comparison protocol for class instances
 pub fn le(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
+    // Fast paths for common concrete types
     if (T == i64) return comparison_ops.leI64(a, b);
     if (T == f64) return comparison_ops.leF64(a, b);
     if (T == PyValue) return comparison_ops.lePyValue(a, b);
     if (T == []const u8) return comparison_ops.leStr(a, b);
+
+    // Python rich comparison protocol for class instances
+    // Try a.__le__(b), then b.__ge__(a) (reflected), then fall back
+    if (@typeInfo(T) == .pointer) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@typeInfo(Child) == .@"struct") {
+            // Try a.__le__(b)
+            if (@hasDecl(Child, "__le__")) {
+                const a_result = a.__le__(b);
+                const a_result_type = @TypeOf(a_result);
+                if (a_result_type == PyValue) {
+                    if (a_result != .not_implemented) {
+                        return if (a_result == .bool) a_result.bool else !PyValue.isFalsy(a_result);
+                    }
+                }
+            }
+
+            // Try b.__ge__(a) (reflected operation)
+            if (@hasDecl(Child, "__ge__")) {
+                const b_result = b.__ge__(a);
+                const b_result_type = @TypeOf(b_result);
+                if (b_result_type == PyValue) {
+                    if (b_result != .not_implemented) {
+                        return if (b_result == .bool) b_result.bool else !PyValue.isFalsy(b_result);
+                    }
+                }
+            }
+        }
+    }
+
+    // Default: use Zig's <= operator
     return a <= b;
 }
 
 /// Equal: a == b
+/// Implements Python's rich comparison protocol for class instances
 pub fn eq(a: anytype, b: @TypeOf(a)) bool {
     const T = @TypeOf(a);
+    // Fast paths for common concrete types
     if (T == i64) return comparison_ops.eqI64(a, b);
     if (T == f64) return comparison_ops.eqF64(a, b);
     if (T == bool) return comparison_ops.eqBool(a, b);
     if (T == PyValue) return comparison_ops.eqPyValue(a, b);
     if (T == []const u8) return comparison_ops.eqStr(a, b);
+
+    // Python rich comparison protocol for class instances
+    // Try a.__eq__(b), then b.__eq__(a), then fall back to identity
+    if (@typeInfo(T) == .pointer) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@typeInfo(Child) == .@"struct" and @hasDecl(Child, "__eq__")) {
+            // Try a.__eq__(b)
+            const a_result = a.__eq__(b);
+            const a_result_type = @TypeOf(a_result);
+
+            // Check if returned NotImplemented
+            if (a_result_type == PyValue) {
+                if (a_result == .not_implemented) {
+                    // Try b.__eq__(a)
+                    const b_result = b.__eq__(a);
+                    if (b_result == .not_implemented) {
+                        // Both returned NotImplemented, fall back to identity
+                        return a == b;
+                    }
+                    // b.__eq__(a) returned a value, use it
+                    return if (b_result == .bool) b_result.bool else !PyValue.isFalsy(b_result);
+                }
+                // a.__eq__(b) returned a value, use it
+                return if (a_result == .bool) a_result.bool else !PyValue.isFalsy(a_result);
+            }
+
+            // For backward compatibility: bool return type (old code)
+            if (a_result_type == bool) {
+                return a_result;
+            }
+        }
+    }
+
+    // Default: pointer/value equality
     return a == b;
 }
 

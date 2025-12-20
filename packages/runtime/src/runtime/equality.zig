@@ -7,6 +7,8 @@ const object_zig = @import("../Objects/object.zig");
 const PyValue = object_zig.PyValue;
 const pylist = @import("../Objects/listobject.zig");
 const NativeList = pylist.NativeList;
+const cpython = @import("../cpython.zig");
+const CpythonPyObject = cpython.PyObject;
 
 /// Python-style containment check for slices
 /// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
@@ -292,6 +294,44 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     }
 
     // Different types: handle common cases without recursion
+
+    // Class instances with __eq__ - call it for cross-type comparison (e.g., Rat == int)
+    // Handle both PyValue and bool return types for backward compatibility
+    if (a_info == .@"struct" and @hasDecl(A, "__eq__")) {
+        const result = a.__eq__(b);
+        const ResultType = @TypeOf(result);
+        if (ResultType == PyValue) {
+            if (result == .not_implemented) {
+                // Try b.__eq__(a)
+                if (b_info == .@"struct" and @hasDecl(B, "__eq__")) {
+                    const b_result = b.__eq__(a);
+                    if (@TypeOf(b_result) == PyValue) {
+                        if (b_result != .not_implemented) {
+                            return if (b_result == .bool) b_result.bool else !PyValue.isFalsy(b_result);
+                        }
+                    } else if (@TypeOf(b_result) == bool) {
+                        return b_result;
+                    }
+                }
+                return false; // Both returned NotImplemented
+            }
+            return if (result == .bool) result.bool else !PyValue.isFalsy(result);
+        } else if (ResultType == bool) {
+            return result;
+        }
+    }
+    if (b_info == .@"struct" and @hasDecl(B, "__eq__")) {
+        const result = b.__eq__(a);
+        const ResultType = @TypeOf(result);
+        if (ResultType == PyValue) {
+            if (result != .not_implemented) {
+                return if (result == .bool) result.bool else !PyValue.isFalsy(result);
+            }
+        } else if (ResultType == bool) {
+            return result;
+        }
+    }
+
     // ArrayList vs fixed array
     const a_is_arraylist = a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity");
     const b_is_arraylist = b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity");
@@ -349,6 +389,60 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             .string => |v| if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) std.mem.eql(u8, a, v) else false,
             else => false,
         };
+    }
+
+    // CPython PyObject comparisons with primitives
+    if (A == *CpythonPyObject) {
+        if (cpython.PyFloat_Check(a)) {
+            const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
+            const fval = float_obj.ob_fval;
+            if (b_info == .comptime_float or b_info == .float) {
+                return fval == @as(f64, b);
+            }
+        } else if (cpython.PyLong_Check(a)) {
+            const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
+            if (b_info == .comptime_int or b_info == .int) {
+                return int_obj.ob_digit == @as(i64, b);
+            }
+        } else if (cpython.PyBool_Check(a)) {
+            const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
+            if (B == bool) {
+                return (bool_obj.ob_digit != 0) == b;
+            }
+        } else if (cpython.PyUnicode_Check(a)) {
+            const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(a));
+            const len: usize = @intCast(str_obj.length);
+            if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) {
+                return std.mem.eql(u8, str_obj.data[0..len], b);
+            }
+        }
+        return false;
+    }
+    if (B == *CpythonPyObject) {
+        if (cpython.PyFloat_Check(b)) {
+            const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
+            const fval = float_obj.ob_fval;
+            if (a_info == .comptime_float or a_info == .float) {
+                return @as(f64, a) == fval;
+            }
+        } else if (cpython.PyLong_Check(b)) {
+            const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
+            if (a_info == .comptime_int or a_info == .int) {
+                return @as(i64, a) == int_obj.ob_digit;
+            }
+        } else if (cpython.PyBool_Check(b)) {
+            const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));
+            if (A == bool) {
+                return a == (bool_obj.ob_digit != 0);
+            }
+        } else if (cpython.PyUnicode_Check(b)) {
+            const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(b));
+            const len: usize = @intCast(str_obj.length);
+            if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) {
+                return std.mem.eql(u8, a, str_obj.data[0..len]);
+            }
+        }
+        return false;
     }
 
     return false;

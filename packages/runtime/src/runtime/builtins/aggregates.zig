@@ -1,12 +1,24 @@
 /// Aggregate builtins (all, any, sum, min, max, sorted, reversed, filter)
 const std = @import("std");
 const runtime_core = @import("../../runtime.zig");
+const cpython = @import("../../cpython.zig");
 const pyint = @import("../../Objects/intobject.zig");
 const pylist = @import("../../Objects/listobject.zig");
 const pystring = @import("../../Objects/unicodeobject.zig");
 const dict_module = @import("../../Objects/dictobject.zig");
 
 const PyObject = runtime_core.PyObject;
+
+/// Check if a type is a PyObject by looking for CPython struct fields
+fn isPyObjectType(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .pointer or info.pointer.size != .one) return false;
+    const ChildT = info.pointer.child;
+    const child_info = @typeInfo(ChildT);
+    return child_info == .@"struct" and
+        @hasField(ChildT, "ob_refcnt") and
+        @hasField(ChildT, "ob_type");
+}
 const PyInt = pyint.PyInt;
 const PyList = pylist.PyList;
 const PyString = pystring.PyString;
@@ -124,7 +136,7 @@ pub fn maxVarArgs(values: []const i64) i64 {
 /// Minimum value from any iterable (generic)
 pub fn minIterable(iterable: anytype) i64 {
     const T = @TypeOf(iterable);
-    if (T == *PyObject) {
+    if (comptime isPyObjectType(T)) {
         return minList(iterable);
     } else if (comptime std.meta.hasFn(T, "__getitem__")) {
         var min_val: i64 = std.math.maxInt(i64);
@@ -182,7 +194,7 @@ pub fn minIterable(iterable: anytype) i64 {
 /// Maximum value from any iterable (generic)
 pub fn maxIterable(iterable: anytype) i64 {
     const T = @TypeOf(iterable);
-    if (T == *PyObject) {
+    if (comptime isPyObjectType(T)) {
         return maxList(iterable);
     } else if (comptime std.meta.hasFn(T, "__getitem__")) {
         var max_val: i64 = std.math.minInt(i64);

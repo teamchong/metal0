@@ -1,9 +1,21 @@
 /// Introspection builtins (callable, len, id, hash)
 const std = @import("std");
 const runtime_core = @import("../../runtime.zig");
+const cpython = @import("../../cpython.zig");
 
 const PyObject = runtime_core.PyObject;
 const PyValue = @import("../../Objects/object.zig").PyValue;
+
+/// Check if a type is a PyObject by looking for CPython struct fields
+fn isPyObjectType(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .pointer or info.pointer.size != .one) return false;
+    const ChildT = info.pointer.child;
+    const child_info = @typeInfo(ChildT);
+    return child_info == .@"struct" and
+        @hasField(ChildT, "ob_refcnt") and
+        @hasField(ChildT, "ob_type");
+}
 
 /// callable() builtin - returns true if object is callable
 pub fn callable(obj: anytype) bool {
@@ -13,14 +25,10 @@ pub fn callable(obj: anytype) bool {
         const child = @typeInfo(T).pointer.child;
         if (@typeInfo(child) == .@"fn") return true;
     }
-    if (T == *PyObject) {
-        if (obj.ob_type) |type_obj| {
-            const type_id = type_obj.tp_flags & 0xFF;
-            if (type_id == 0x10 or type_id == 0x11) return true;
-            if (@hasField(@TypeOf(type_obj.*), "tp_call")) {
-                if (type_obj.tp_call != null) return true;
-            }
-        }
+    if (comptime isPyObjectType(T)) {
+        const pyobj: *cpython.PyObject = @ptrCast(@alignCast(obj));
+        if (pyobj.ob_type.tp_flags & 0xFF == 0x10 or pyobj.ob_type.tp_flags & 0xFF == 0x11) return true;
+        if (pyobj.ob_type.tp_call != null) return true;
         return false;
     }
     return false;
@@ -41,8 +49,9 @@ pub fn len(obj: anytype) usize {
     // Two-Flow: Handle PyValue (uncertain type wrapper)
     if (T == PyValue) {
         return obj.pyLen();
-    } else if (T == *PyObject) {
-        return runtime_core.pyLen(obj);
+    } else if (comptime isPyObjectType(T)) {
+        const pyobj: *cpython.PyObject = @ptrCast(@alignCast(obj));
+        return runtime_core.pyLen(pyobj);
     } else if (comptime isSlice(T)) {
         return obj.len;
     } else if (@typeInfo(T) == .pointer) {
@@ -81,8 +90,9 @@ pub fn hash(obj: anytype) i64 {
     // Two-Flow: Handle PyValue (uncertain type wrapper)
     if (T == PyValue) {
         return obj.pyHash();
-    } else if (T == *PyObject) {
-        return @intCast(runtime_core.pyHash(obj));
+    } else if (comptime isPyObjectType(T)) {
+        const pyobj: *cpython.PyObject = @ptrCast(@alignCast(obj));
+        return @intCast(runtime_core.pyHash(pyobj));
     } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
         return @intCast(obj);
     } else if (T == []const u8 or T == []u8) {

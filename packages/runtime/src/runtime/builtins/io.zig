@@ -1,6 +1,7 @@
 /// I/O builtins (print, input, breakpoint)
 const std = @import("std");
 const runtime_core = @import("../../runtime.zig");
+const cpython = @import("../../cpython.zig");
 const pyint = @import("../../Objects/intobject.zig");
 const pystring = @import("../../Objects/unicodeobject.zig");
 const repr = @import("repr.zig");
@@ -107,18 +108,6 @@ fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocat
 
     if (T == []const u8 or T == []u8) {
         output.appendSlice(allocator, value) catch unreachable;
-    } else if (info == .pointer and info.pointer.size == .one) {
-        // Handle string literals (*const [N:0]u8) and other pointers-to-arrays
-        const child_info = @typeInfo(info.pointer.child);
-        if (child_info == .array and child_info.array.child == u8) {
-            output.appendSlice(allocator, value) catch unreachable;
-            return;
-        }
-        // For other pointers, use {any} formatting
-        var buf: [256]u8 = undefined;
-        const formatted = std.fmt.bufPrint(&buf, "{any}", .{value}) catch return;
-        output.appendSlice(allocator, formatted) catch unreachable;
-        return;
     } else if (T == PyBytes) {
         output.appendSlice(allocator, repr.bytesRepr(allocator, value.data) catch "b''") catch unreachable;
     } else if (info == .int or info == .comptime_int) {
@@ -137,18 +126,64 @@ fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocat
         }
     } else if (info == .bool) {
         output.appendSlice(allocator, if (value) "True" else "False") catch unreachable;
-    } else if (T == *PyObject) {
-        if (value.type_id == .string) {
-            const str_obj: *PyString = @ptrCast(@alignCast(value.data));
-            output.appendSlice(allocator, str_obj.data) catch unreachable;
-        } else if (value.type_id == .int) {
-            const int_obj: *PyInt = @ptrCast(@alignCast(value.data));
-            var buf: [32]u8 = undefined;
-            const formatted = std.fmt.bufPrint(&buf, "{d}", .{int_obj.value}) catch return;
-            output.appendSlice(allocator, formatted) catch unreachable;
-        } else {
-            output.appendSlice(allocator, "<object>") catch unreachable;
+    } else if (info == .pointer and info.pointer.size == .one) {
+        // Check if this is a pointer to a struct with ob_refcnt and ob_type fields (CPython PyObject)
+        const ChildT = info.pointer.child;
+        const child_info = @typeInfo(ChildT);
+        const is_pyobject = child_info == .@"struct" and
+            @hasField(ChildT, "ob_refcnt") and
+            @hasField(ChildT, "ob_type");
+
+        if (is_pyobject) {
+            // This is a *PyObject - use cpython type check functions
+            const obj: *cpython.PyObject = @ptrCast(@alignCast(value));
+
+            if (cpython.PyFloat_Check(obj)) {
+                const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(obj));
+                const fval = float_obj.ob_fval;
+                if (std.math.isNan(fval)) {
+                    output.appendSlice(allocator, "nan") catch unreachable;
+                } else if (std.math.isInf(fval)) {
+                    output.appendSlice(allocator, if (fval < 0) "-inf" else "inf") catch unreachable;
+                } else {
+                    var buf: [64]u8 = undefined;
+                    const formatted = std.fmt.bufPrint(&buf, "{d}", .{fval}) catch return;
+                    output.appendSlice(allocator, formatted) catch unreachable;
+                }
+            } else if (cpython.PyLong_Check(obj)) {
+                const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(obj));
+                var buf: [32]u8 = undefined;
+                const formatted = std.fmt.bufPrint(&buf, "{d}", .{int_obj.ob_digit}) catch return;
+                output.appendSlice(allocator, formatted) catch unreachable;
+            } else if (cpython.PyUnicode_Check(obj)) {
+                const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(obj));
+                const len: usize = @intCast(str_obj.length);
+                output.appendSlice(allocator, str_obj.data[0..len]) catch unreachable;
+            } else if (cpython.PyBool_Check(obj)) {
+                const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
+                output.appendSlice(allocator, if (bool_obj.ob_digit != 0) "True" else "False") catch unreachable;
+            } else {
+                output.appendSlice(allocator, "<unknown pyobject type>") catch unreachable;
+            }
+            return;
         }
+
+        // Not a PyObject pointer - handle string literals and other pointers-to-arrays
+        const child_is_array = child_info == .array and child_info.array.child == u8;
+        if (child_is_array) {
+            output.appendSlice(allocator, value) catch unreachable;
+            return;
+        }
+
+        // For other pointers, use {any} formatting
+        var buf: [256]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, "{any}", .{value}) catch return;
+        output.appendSlice(allocator, formatted) catch unreachable;
+    } else if (info == .pointer and info.pointer.size == .slice) {
+        // Already handled by T == []const u8 check above, but include for completeness
+        var buf: [256]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, "{any}", .{value}) catch return;
+        output.appendSlice(allocator, formatted) catch unreachable;
     } else {
         var buf: [256]u8 = undefined;
         const formatted = std.fmt.bufPrint(&buf, "{any}", .{value}) catch return;

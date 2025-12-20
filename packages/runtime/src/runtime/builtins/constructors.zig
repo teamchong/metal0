@@ -1,6 +1,7 @@
 /// Type constructor callables (list, tuple, dict, set, frozenset, deque, defaultdict)
 const std = @import("std");
 const runtime_core = @import("../../runtime.zig");
+const cpython = @import("../../cpython.zig");
 const pylist = @import("../../Objects/listobject.zig");
 const pytuple = @import("../../Objects/tupleobject.zig");
 const pyset = @import("../../Objects/setobject.zig");
@@ -15,16 +16,30 @@ const PyDeque = pydeque.PyDeque;
 const PyDict = pydict.PyDict;
 const incref = runtime_core.incref;
 
+/// Check if a type is a PyObject by looking for CPython struct fields
+fn isPyObjectType(comptime T: type) bool {
+    const info = @typeInfo(T);
+    if (info != .pointer or info.pointer.size != .one) return false;
+    const ChildT = info.pointer.child;
+    const child_info = @typeInfo(ChildT);
+    return child_info == .@"struct" and
+        @hasField(ChildT, "ob_refcnt") and
+        @hasField(ChildT, "ob_type");
+}
+
 /// list() type constructor
 pub const list = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
         const T = @TypeOf(arg);
         if (T == void) return try PyList.create(allocator);
-        if (T == *PyObject) {
-            if (arg.type_id == .list) {
-                const source: *PyList = @ptrCast(@alignCast(arg.data));
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(arg));
+            if (runtime_core.PyList_Check(pyobj)) {
+                const source: *runtime_core.PyListObject = @ptrCast(@alignCast(pyobj));
                 const result = try PyList.create(allocator);
-                for (source.items.items) |item| {
+                const size: usize = @intCast(source.ob_base.ob_size);
+                for (0..size) |i| {
+                    const item = source.ob_item[i];
                     incref(item);
                     try PyList.append(result, item);
                 }
@@ -40,11 +55,14 @@ pub const tuple = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
         const T = @TypeOf(arg);
         if (T == void) return try PyTuple.create(allocator, 0);
-        if (T == *PyObject) {
-            if (arg.type_id == .list) {
-                const source: *PyList = @ptrCast(@alignCast(arg.data));
-                const result = try PyTuple.create(allocator, source.items.items.len);
-                for (source.items.items, 0..) |item, i| {
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(arg));
+            if (runtime_core.PyList_Check(pyobj)) {
+                const source: *runtime_core.PyListObject = @ptrCast(@alignCast(pyobj));
+                const size: usize = @intCast(source.ob_base.ob_size);
+                const result = try PyTuple.create(allocator, size);
+                for (0..size) |i| {
+                    const item = source.ob_item[i];
                     incref(item);
                     PyTuple.setItem(result, i, item);
                 }
@@ -60,9 +78,10 @@ pub const set = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
         const T = @TypeOf(arg);
         if (T == void) return try PySet.create(allocator);
-        if (T == *PyObject) {
-            if (runtime_core.PyList_Check(arg)) {
-                return try PySet.fromList(allocator, arg);
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(arg));
+            if (runtime_core.PyList_Check(pyobj)) {
+                return try PySet.fromList(allocator, pyobj);
             }
         }
         return try PySet.create(allocator);
@@ -74,9 +93,10 @@ pub const frozenset = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
         const T = @TypeOf(arg);
         if (T == void) return try PySet.createFrozenset(allocator);
-        if (T == *PyObject) {
-            if (runtime_core.PyList_Check(arg)) {
-                return try PySet.frozensetFromList(allocator, arg);
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(arg));
+            if (runtime_core.PyList_Check(pyobj)) {
+                return try PySet.frozensetFromList(allocator, pyobj);
             }
         }
         return try PySet.createFrozenset(allocator);
@@ -88,9 +108,10 @@ pub const deque = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
         const T = @TypeOf(arg);
         if (T == void) return try PyDeque.create(allocator, null);
-        if (T == *PyObject) {
-            if (runtime_core.PyList_Check(arg)) {
-                return try PyDeque.fromList(allocator, arg, null);
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(arg));
+            if (runtime_core.PyList_Check(pyobj)) {
+                return try PyDeque.fromList(allocator, pyobj, null);
             }
         }
         return try PyDeque.create(allocator, null);
@@ -103,16 +124,20 @@ pub const dict = struct {
     pub fn fromkeys(_: @This(), allocator: std.mem.Allocator, key_seq: anytype, value: anytype) !*PyObject {
         const result = try PyDict.create(allocator);
         const T = @TypeOf(key_seq);
-        if (T == *PyObject) {
-            if (key_seq.type_id == .list) {
-                const key_list: *PyList = @ptrCast(@alignCast(key_seq.data));
-                for (key_list.items.items) |key| {
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(key_seq));
+            if (runtime_core.PyList_Check(pyobj)) {
+                const key_list: *runtime_core.PyListObject = @ptrCast(@alignCast(pyobj));
+                const size: usize = @intCast(key_list.ob_base.ob_size);
+                for (0..size) |i| {
+                    const key = key_list.ob_item[i];
                     // Get string representation of key
-                    if (key.type_id == .str) {
-                        const str_data: *runtime_core.PyStringObject = @ptrCast(@alignCast(key.data));
-                        const key_str = str_data.value;
+                    if (runtime_core.PyUnicode_Check(key)) {
+                        const str_data: *runtime_core.PyUnicodeObject = @ptrCast(@alignCast(key));
+                        const key_len: usize = @intCast(str_data.length);
+                        const key_str = str_data.data[0..key_len];
                         const V = @TypeOf(value);
-                        if (V == *PyObject) {
+                        if (comptime isPyObjectType(V)) {
                             try PyDict.set(result, key_str, value);
                         }
                     }
@@ -125,12 +150,12 @@ pub const dict = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {
         const T = @TypeOf(arg);
         if (T == void) return try PyDict.create(allocator);
-        if (T == *PyObject) {
-            if (runtime_core.PyDict_Check(arg)) {
+        if (comptime isPyObjectType(T)) {
+            const pyobj: *cpython.PyObject = @ptrCast(@alignCast(arg));
+            if (runtime_core.PyDict_Check(pyobj)) {
                 // Copy dict
                 const result = try PyDict.create(allocator);
-                const source = arg;
-                var it = PyDict.iterator(source);
+                var it = PyDict.iterator(pyobj);
                 while (it.next()) |entry| {
                     try PyDict.set(result, entry.key_ptr.*, entry.value_ptr.*);
                 }

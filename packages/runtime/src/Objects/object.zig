@@ -14,14 +14,22 @@ pub const PyValue = union(enum) {
     bytes: @import("../runtime/builtins.zig").PyBytes, // Python bytes type
     bool: bool,
     none: void,
+    not_implemented: void, // Python's NotImplemented singleton
     list: *std.ArrayListUnmanaged(PyValue), // Mutable list (Two-Flow Phase 11)
     tuple: []const PyValue,
     bigint: bigint.BigInt, // For integers that don't fit in i64
     complex: Complex, // Python complex number
     type_obj: *pytype.PyType, // Python type/class object (for metaclasses)
-    ptr: *anyopaque, // For types that can't be represented
+    ptr: *anyopaque, // For types that can't be represented (no type info)
+    object: ObjectInstance, // Class instance with type information for method dispatch
 
     pub const Complex = struct { real: f64, imag: f64 };
+
+    /// Class instance with type information for runtime method dispatch
+    pub const ObjectInstance = struct {
+        ptr: *anyopaque,
+        type_info: ?*pytype.PyType, // Optional type for method lookup via MRO
+    };
 
     /// Create a PyValue list from a slice (allocates ArrayList on heap)
     pub fn listFromSlice(allocator: std.mem.Allocator, items: []const PyValue) !PyValue {
@@ -146,12 +154,14 @@ pub const PyValue = union(enum) {
             .string => |v| v.len > 0,
             .bytes => |v| v.data.len > 0,
             .none => false,
+            .not_implemented => true, // NotImplemented is truthy
             .list => |list| list.items.len > 0,
             .tuple => |v| v.len > 0,
             .bigint => |v| !v.isZero(),
             .complex => |v| v.real != 0.0 or v.imag != 0.0, // 0j is falsy
             .type_obj => true, // Type objects are always truthy
-            .ptr => true,
+            .ptr => true, // Objects are truthy by default
+            .object => true, // Class instances are truthy by default
         };
     }
 
@@ -174,12 +184,14 @@ pub const PyValue = union(enum) {
             .bytes => "bytes",
             .bool => "bool",
             .none => "NoneType",
+            .not_implemented => "NotImplementedType",
             .list => "list",
             .tuple => "tuple",
             .bigint => "int",
             .complex => "complex",
             .type_obj => "type",
             .ptr => "object",
+            .object => "object",
         };
     }
 
@@ -254,6 +266,37 @@ pub const PyValue = union(enum) {
     /// For tuples/structs, use fromAlloc() which properly allocates
     pub fn from(value: anytype) PyValue {
         const T = @TypeOf(value);
+        const info = @typeInfo(T);
+
+        // Handle error unions - unwrap and convert the payload
+        if (info == .error_union) {
+            if (value) |payload| {
+                return from(payload);
+            } else |_| {
+                return .{ .none = {} }; // Error becomes None
+            }
+        }
+
+        // Handle unions generically (IntResult, UnifiedInt, FloorCeilResult, etc.)
+        // This automatically converts the active variant to PyValue
+        if (info == .@"union") {
+            return switch (value) {
+                inline else => |v| {
+                    const VT = @TypeOf(v);
+                    // Skip types that would cause compile errors
+                    if (VT == []const PyValue or VT == []PyValue) {
+                        return .{ .none = {} };
+                    }
+                    return from(v);
+                },
+            };
+        }
+
+        // Handle BigInt explicitly (before general struct handling)
+        if (T == bigint.BigInt) {
+            return .{ .bigint = value };
+        }
+
         if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
             return .{ .int = @intCast(value) };
         } else if (T == f64 or T == f32 or T == comptime_float) {
@@ -266,7 +309,7 @@ pub const PyValue = union(enum) {
             return value;
         } else if (T == []const PyValue or T == []PyValue) {
             @compileError("Cannot convert []PyValue to PyValue.list without allocator. Use PyValue.listFromSlice(allocator, slice) instead.");
-        } else if (@typeInfo(T) == .pointer) {
+        } else if (info == .pointer) {
             const ptr_info = @typeInfo(T).pointer;
             // Check for sentinel-terminated pointer to u8 (C strings)
             if (ptr_info.child == u8 and ptr_info.sentinel() != null) {
@@ -777,6 +820,43 @@ pub const PyValue = union(enum) {
         return other.lt(self) or self.eql(other);
     }
 
+    /// Check if a PyValue is falsy (for truthiness testing)
+    pub fn isFalsy(value: PyValue) bool {
+        return switch (value) {
+            .bool => |v| !v,
+            .int => |v| v == 0,
+            .float => |v| v == 0.0,
+            .none => true,
+            .not_implemented => false, // NotImplemented is truthy
+            .string => |v| v.len == 0,
+            .bytes => |v| v.data.len == 0,
+            .list => |v| v.items.len == 0,
+            .tuple => |v| v.len == 0,
+            .bigint => |v| v.eqlZero(),
+            .complex => |v| v.real == 0.0 and v.imag == 0.0,
+            .ptr, .type_obj => false, // Objects are truthy by default
+        };
+    }
+
+    /// Try to call a dunder method on an object instance
+    /// Returns null if the method doesn't exist, or the PyValue result if it does
+    /// Uses PyType MRO for method resolution
+    fn callDunderMethod(obj: ObjectInstance, comptime method_name: []const u8, arg: PyValue) ?PyValue {
+        // Need type info to look up methods
+        const type_info = obj.type_info orelse return null;
+
+        // Look up method via MRO
+        const method = type_info.getattr(method_name) orelse return null;
+
+        // TODO: Call the method with (self, other) arguments
+        // For now, this requires reflection or code generation
+        // The method is a PyValue, but we need to invoke it dynamically
+        _ = obj.ptr;
+        _ = method;
+        _ = arg;
+        return null;
+    }
+
     /// Check equality with another PyValue (single concrete function - no anytype)
     /// Implements Python's rich comparison semantics:
     /// - bool is subtype of int (True=1, False=0)
@@ -795,6 +875,7 @@ pub const PyValue = union(enum) {
                 .bytes => |v| std.mem.eql(u8, v.data, other.bytes.data),
                 .bool => |v| v == other.bool,
                 .none => true,
+                .not_implemented => false, // NotImplemented is never equal to anything
                 .list => |list| blk: {
                     const other_list = other.list;
                     if (list.items.len != other_list.items.len) break :blk false;
@@ -814,7 +895,37 @@ pub const PyValue = union(enum) {
                 .bigint => |v| v.eql(&other.bigint),
                 .complex => |v| v.real == other.complex.real and v.imag == other.complex.imag,
                 .type_obj => |v| v == other.type_obj,
-                .ptr => |v| v == other.ptr,
+                .ptr => |self_ptr| blk: {
+                    const other_ptr = other.ptr;
+                    // Python rich comparison protocol:
+                    // 1. Try self.__eq__(other)
+                    // 2. If NotImplemented, try other.__eq__(self)
+                    // 3. If both NotImplemented, fall back to identity (is)
+
+                    // Try to call __eq__ on self
+                    const self_result = callDunderMethod(self_ptr, "__eq__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            // Got a concrete result from self.__eq__(other)
+                            if (result == .bool) break :blk result.bool;
+                            // Truthy check for other types
+                            break :blk !isFalsy(result);
+                        }
+                    }
+
+                    // self.__eq__(other) returned NotImplemented or doesn't exist
+                    // Try other.__eq__(self)
+                    const other_result = callDunderMethod(other_ptr, "__eq__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) break :blk result.bool;
+                            break :blk !isFalsy(result);
+                        }
+                    }
+
+                    // Both returned NotImplemented, fall back to identity
+                    break :blk self_ptr == other_ptr;
+                },
             };
         }
 

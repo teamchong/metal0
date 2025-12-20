@@ -93,9 +93,9 @@ const KnownZigTypes = std.StaticStringMap(void).initComptime(.{
 
 /// Magic method return types - these have fixed return types in Python
 /// regardless of what the method body might suggest
-/// NOTE: __eq__/__ne__ return bool, but __lt__/__le__/__gt__/__ge__ can return
-/// any type (e.g., SymbolicBool) that gets converted to bool in boolean context.
-/// `return NotImplemented` is converted to `return false` during code generation.
+/// NOTE: __eq__/__ne__ return runtime.PyValue to support NotImplemented returns.
+/// __lt__/__le__/__gt__/__ge__ can return any type (e.g., SymbolicBool, NotImplemented).
+/// `return NotImplemented` is converted to `return runtime.PyValue{ .not_implemented = {} }`.
 const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__bool__", "runtime.PythonError!bool" }, // Must return bool or error
     .{ "__len__", "runtime.PythonError!i64" }, // Must return non-negative int or error
@@ -109,11 +109,12 @@ const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__index__", "runtime.PythonError!i64" }, // Can error
     .{ "__sizeof__", "i64" },
     .{ "__contains__", "bool" },
-    .{ "__eq__", "bool" },
-    .{ "__ne__", "bool" },
-    // NOTE: __lt__/__le__/__gt__/__ge__ are NOT in this map because they can
-    // return non-bool values (e.g., SymbolicBool, NotImplemented sentinel).
-    // The return type is inferred from the method body.
+    .{ "__eq__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
+    .{ "__ne__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
+    .{ "__lt__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
+    .{ "__le__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
+    .{ "__gt__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
+    .{ "__ge__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
     // __new__ should return the class instance type, but in Zig we can't determine
     // the type at compile time, especially for metaclasses. Default to i64.
     .{ "__new__", "i64" },

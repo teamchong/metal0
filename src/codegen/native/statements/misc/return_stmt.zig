@@ -59,6 +59,22 @@ const ComparisonMagicMethods = std.StaticStringMap(void).initComptime(.{
     .{ "__ge__", {} },
 });
 
+/// Check if an expression is already a PyValue (doesn't need wrapping)
+fn isAlreadyPyValue(expr: ast.Node) bool {
+    switch (expr) {
+        // Call expressions might return PyValue (we can't tell for sure, so assume yes)
+        .call => return true,
+        // Names could be PyValue variables (assume yes to be safe)
+        .name => return true,
+        // Attribute access could be PyValue (assume yes)
+        .attribute => return true,
+        // Subscript access could be PyValue (assume yes)
+        .subscript => return true,
+        // Everything else (boolean operators, comparisons, literals) are primitives
+        else => return false,
+    }
+}
+
 /// Generate return statement with tail-call optimization
 pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     // Emit pending discards BEFORE the return statement
@@ -132,11 +148,28 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     if (ret.value) |value| {
         // Check if returning NotImplemented from a comparison method
         // In Python, comparison methods can return NotImplemented to signal fallback
-        // But in our compiled code, these methods return bool, so convert to false
+        // Generate runtime.PyValue{ .not_implemented = {} } for proper protocol support
         if (value.* == .name and std.mem.eql(u8, value.name.id, "NotImplemented")) {
             if (self.current_function_name) |fn_name| {
                 if (ComparisonMagicMethods.has(fn_name)) {
-                    try b.write("return false;\n");
+                    try b.write("return runtime.PyValue{ .not_implemented = {} };\n");
+                    const output = b.getBodyAndClear();
+                    try self.output.appendSlice(self.allocator, output);
+                    return;
+                }
+            }
+        }
+
+        // For comparison methods that return PyValue, wrap boolean expressions
+        if (self.current_function_name) |fn_name| {
+            if (ComparisonMagicMethods.has(fn_name)) {
+                // Check if we're returning a boolean expression that needs wrapping
+                // Detect patterns like: (a == b) and (c == d), which are boolean
+                const needs_wrapping = !isAlreadyPyValue(value.*);
+                if (needs_wrapping) {
+                    try b.write("return runtime.PyValue{ .bool = ");
+                    try self.genExpr(value.*);
+                    try b.write(" };\n");
                     const output = b.getBodyAndClear();
                     try self.output.appendSlice(self.allocator, output);
                     return;
