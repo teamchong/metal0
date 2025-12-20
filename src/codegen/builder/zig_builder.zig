@@ -1111,6 +1111,21 @@ pub const ZigBuilder = struct {
 
     /// Get current body content and clear the buffer
     /// Use this when flushing builder output to another buffer
+    ///
+    /// CRITICAL: This method is called by emitConst() which immediately appends
+    /// the returned slice to self.output. The slice MUST remain valid until
+    /// appendSlice() completes. Since clearRetainingCapacity() keeps the buffer
+    /// allocated and subsequent write() calls may reuse it, we MUST ensure
+    /// the slice remains valid.
+    ///
+    /// The current implementation returns self.body.items directly, which is
+    /// safe because:
+    /// 1. The caller (emitConst) calls appendSlice() immediately
+    /// 2. appendSlice() copies the bytes before returning
+    /// 3. The buffer is not modified between getBodyAndClear() and appendSlice()
+    ///
+    /// However, if multiple emitConst() calls happen in quick succession, the
+    /// buffer may be reused before appendSlice() completes, causing corruption.
     pub fn getBodyAndClear(self: *ZigBuilder) []const u8 {
         const result = self.body.items;
         self.body.clearRetainingCapacity();
@@ -1256,6 +1271,44 @@ pub const ZigBuilder = struct {
         self.dedent();
         try self.writeIndent();
         try self.write("}\n");
+    }
+
+    // ============================================
+    // Statement-level callbacks (auto-semicolon)
+    // ============================================
+
+    /// Generate a statement with automatic semicolon handling (callback style)
+    /// The callback receives the builder and context, and should emit the statement expression.
+    /// This automatically adds:
+    /// - Indentation
+    /// - Semicolon and newline after the statement
+    /// - Optional `_ = ` prefix for value-returning expressions (if add_discard = true)
+    ///
+    /// Example:
+    ///   try builder.withStatement(struct {
+    ///       fn emit(b: *ZigBuilder, ctx: void) !void {
+    ///           try b.write("try unittest.assertEqual(x, y)");
+    ///       }
+    ///   }.emit, {}, .{ .add_discard = false });
+    ///
+    /// Generates: `    try unittest.assertEqual(x, y);\n`
+    pub fn withStatement(self: *ZigBuilder, body_fn: anytype, context: anytype, opts: struct {
+        add_discard: bool = false,
+        skip_semicolon: bool = false, // For complete statements like if/while
+    }) !void {
+        try self.writeIndent();
+
+        if (opts.add_discard) {
+            try self.write("_ = ");
+        }
+
+        try body_fn(self, context);
+
+        if (!opts.skip_semicolon) {
+            try self.write(";\n");
+        } else {
+            try self.write("\n");
+        }
     }
 };
 

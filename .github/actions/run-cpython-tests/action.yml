@@ -26,7 +26,8 @@ runs:
           [ -z "$test" ] && continue
           TOTAL=$((TOTAL + 1))
           # Run with 'script' to provide proper PTY (same env as Metal0 tests)
-          OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null 2>&1) || true
+          # IMPORTANT: < /dev/null prevents script from consuming the while loop's stdin
+          OUTPUT=$(script -q -c "python3 -m test test_${test}" /dev/null < /dev/null 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
             PASSED=$((PASSED + 1))
@@ -39,6 +40,7 @@ runs:
         echo "## CPython Test Results - @${{ inputs.label }}" >> $GITHUB_STEP_SUMMARY
         echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
         echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
         echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
         echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
@@ -63,7 +65,8 @@ runs:
           [ -z "$test" ] && continue
           TOTAL=$((TOTAL + 1))
           # Run with 'script' to provide proper PTY, using actual binary
-          OUTPUT=$(script -q /dev/null $PYTHON_BIN -m test test_${test} 2>&1) || true
+          # IMPORTANT: < /dev/null prevents script from consuming the while loop's stdin
+          OUTPUT=$(script -q /dev/null $PYTHON_BIN -m test test_${test} < /dev/null 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -qE "(Tests result: SUCCESS|Result: SUCCESS|Result: NO TESTS RAN)"; then
             PASSED=$((PASSED + 1))
@@ -76,6 +79,7 @@ runs:
         echo "## CPython Test Results - @${{ inputs.label }}" >> $GITHUB_STEP_SUMMARY
         echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
         echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
         echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
         echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
@@ -105,6 +109,7 @@ runs:
         "## CPython Test Results - @${{ inputs.label }}" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "| Metric | Value |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "|--------|-------|" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        "| Total | $total |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "| Passed | $passed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "| Failed | $failed |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY
         "| Pass Rate | ${rate}% |" | Out-File -Append -FilePath $env:GITHUB_STEP_SUMMARY

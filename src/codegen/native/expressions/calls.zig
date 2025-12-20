@@ -742,23 +742,63 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Check if this is calling a PyValue attribute (e.g., self.logger where logger is PyValue)
             // Generate runtime call() dispatch for PyValue callables
             if (!is_module_call and !is_class_method_call and !is_nested_class_method_call) {
+                // Check if this attribute will be generated as PyValue
+                var should_use_pyvalue_call = false;
+
                 // Try to infer the attribute type
                 const attr_type = self.type_inferrer.inferExpr(call.func.*) catch .unknown;
                 if (attr_type == .pyvalue) {
+                    should_use_pyvalue_call = true;
+                } else if (attr_type == .unknown) {
+                    // For .unknown types on class instance fields, check if the field
+                    // would be generated as PyValue (which is the codegen fallback)
+                    // Check if attr.value is a class instance with this field
+                    const obj_type = self.type_inferrer.inferExpr(attr.value.*) catch .unknown;
+                    if (obj_type == .class_instance) {
+                        const class_name = obj_type.class_instance;
+                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                            if (class_info.fields.get(attr.attr)) |field_type| {
+                                // Field exists; if type is .unknown or .pyvalue, it becomes runtime.PyValue
+                                if (field_type == .unknown or field_type == .pyvalue) {
+                                    should_use_pyvalue_call = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (should_use_pyvalue_call) {
                     // Generate PyValue.call() dispatch
+                    // Return the call result directly (caller will handle discarding if needed)
                     try emitConst(self, "(try ");
                     try genExpr(self, call.func.*); // The PyValue attribute
-                    try emitConst(self, ".call(&[_]runtime.PyValue{");
+                    try emitConst(self, ".call(");
 
-                    // Generate arguments
-                    for (call.args, 0..) |arg, i| {
-                        if (i > 0) try emitConst(self, ", ");
-                        try emitConst(self, "runtime.PyValue.from(");
-                        try genExpr(self, arg);
-                        try emitConst(self, ")");
+                    // Check if we have a single starred arg (e.g., *args)
+                    // In this case, pass the slice directly instead of wrapping in array literal
+                    if (call.args.len == 1 and call.args[0] == .starred) {
+                        // Single starred arg: pass slice directly
+                        try genExpr(self, call.args[0].starred.value.*);
+                    } else {
+                        // Regular args or mixed: wrap in array literal
+                        try emitConst(self, "&[_]runtime.PyValue{");
+                        for (call.args, 0..) |arg, i| {
+                            if (i > 0) try emitConst(self, ", ");
+
+                            if (arg == .starred) {
+                                // Starred arg in mixed context - need to handle separately
+                                // For now, emit error - this case is complex
+                                try emitConst(self, "@compileError(\"Mixed starred args not yet supported in PyValue.call()\")");
+                            } else {
+                                try emitConst(self, "runtime.PyValue.from(");
+                                try genExpr(self, arg);
+                                try emitConst(self, ")");
+                            }
+                        }
+                        try emitConst(self, "}");
                     }
 
-                    try emitConst(self, "}))");
+                    try emitConst(self, "))");
                     return;
                 }
             }
