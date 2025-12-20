@@ -90,8 +90,15 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Check if this is a block statement (ends with } or }\n or }); or similar)
     // Block statements like if/while/for with braces don't need semicolons
     // Also check for labeled blocks that end with } followed by closing parens/brackets
+    // EXCEPTION: `catch {}` and `catch |err| {}` are expression suffixes, NOT block statements - they need semicolons!
     const trimmed_end = std.mem.trimRight(u8, expr_output, " \t\n;");
     const ends_with_brace = trimmed_end.len > 0 and trimmed_end[trimmed_end.len - 1] == '}';
+
+    // Check if this is a catch block suffix (pattern: "catch {}" or "catch |err| {}")
+    const is_catch_suffix = ends_with_brace and (
+        std.mem.endsWith(u8, trimmed_end, "catch {}") or
+        std.mem.indexOf(u8, trimmed_end, "catch |") != null
+    );
 
     // Check if this looks like a labeled block expression wrapped in parens
     // Pattern: (__mN_xxx: { ... })  or  (__mN_xxx: { ... }))
@@ -99,7 +106,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         std.mem.indexOf(u8, expr_output, "((__m") != null;
 
     const is_labeled_block = has_labeled_block_pattern and ends_with_brace;
-    const is_block_stmt = ends_with_brace and !is_labeled_block and !is_wrapped_labeled_block;
+    const is_block_stmt = ends_with_brace and !is_labeled_block and !is_wrapped_labeled_block and !is_catch_suffix;
 
     // Determine if we should skip semicolon
     // Skip for: block statements, labeled blocks, wrapped labeled blocks
