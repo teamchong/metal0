@@ -81,10 +81,15 @@ pub fn eq(a: anytype, b: @TypeOf(a)) bool {
     if (T == i64) return comparison_ops.eqI64(a, b);
     if (T == f64) return comparison_ops.eqF64(a, b);
     if (T == bool) return comparison_ops.eqBool(a, b);
-    if (T == PyValue) return comparison_ops.eqPyValue(a, b);
     if (T == []const u8) return comparison_ops.eqStr(a, b);
 
-    // Python rich comparison protocol for class instances
+    // Special handling for PyValue - delegate to PyValue.eql()
+    // TODO: PyValue.object dynamic dispatch not yet implemented
+    if (T == PyValue) {
+        return comparison_ops.eqPyValue(a, b);
+    }
+
+    // Python rich comparison protocol for class instances (direct struct/pointer types)
     // Try a.__eq__(b), then b.__eq__(a), then fall back to identity
     if (@typeInfo(T) == .pointer) {
         const Child = @typeInfo(T).pointer.child;
