@@ -321,6 +321,22 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         }
     }
 
+    // General function/closure calls that return non-void values
+    // Check if this is a simple name call (could be closure, function variable, etc.)
+    if (expr == .call and expr.call.func.* == .name) {
+        const func_name = expr.call.func.name.id;
+        // Check if it's a known function that returns void
+        if (VoidFunctions.has(func_name)) {
+            return false;
+        }
+        // For unknown functions/closures, check the inferred return type
+        const func_type = self.type_inferrer.inferExpr(expr) catch .unknown;
+        // If we can determine it returns a value (not void/none), discard it
+        if (func_type != .none and func_type != .unknown) {
+            return true;
+        }
+    }
+
     // Labeled block expressions
     // (These will be in self.output after genExpr, we'll check them there)
     // For now, conservatively return false and let the callback check

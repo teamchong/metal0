@@ -1587,12 +1587,16 @@ pub const NativeCodegen = struct {
     /// NOTE: The builder shares the same NameGen as NativeCodegen for unified ID generation
     pub fn getBuilder(self: *NativeCodegen) CodegenError!*builder_mod.ZigBuilder {
         if (self.builder) |b| {
+            // Sync builder's indent level with codegen's indent level
+            b.indent_level = self.indent_level;
             return b;
         }
 
         // Lazy initialization - create builder on first use with shared NameGen
         const b = try self.allocator.create(builder_mod.ZigBuilder);
         b.* = try builder_mod.ZigBuilder.initWithNameGen(self.allocator, &self.name_gen);
+        // Initialize builder's indent level to match codegen's current indent level
+        b.indent_level = self.indent_level;
         self.builder = b;
         return b;
     }
