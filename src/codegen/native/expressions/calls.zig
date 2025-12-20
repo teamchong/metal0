@@ -739,6 +739,22 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try emitConst(self, "try ");
             }
 
+            // Check if this is calling a PyValue attribute (e.g., self.logger where logger is PyValue)
+            // PyValue attributes cannot be called directly - they need special handling
+            // For now, emit a compile error with helpful message
+            if (!is_module_call and !is_class_method_call and !is_nested_class_method_call) {
+                // Try to infer the attribute type
+                const attr_type = self.type_inferrer.inferExpr(call.func.*) catch .unknown;
+                if (attr_type == .pyvalue) {
+                    // This is calling a PyValue - emit compile error for now
+                    // TODO: Add runtime support for calling PyValue callables
+                    try emitFmtConst(self, "@compileError(\"Cannot call PyValue attribute '{s}'. ", .{attr.attr});
+                    try emitConst(self, "Callable attributes stored as PyValue are not yet supported. ");
+                    try emitConst(self, "This is a known limitation in test_binop.py with logger callable.\")");
+                    return;
+                }
+            }
+
             // Generic method call: obj.method(args)
             // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
             // IMPORTANT: Numeric literals need parentheses: 1.__round__() -> (1).__round__()
