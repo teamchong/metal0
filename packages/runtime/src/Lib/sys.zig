@@ -138,8 +138,8 @@ pub fn set_int_max_str_digits(_: std.mem.Allocator, n: i64) !i64 {
 // Path / Modules (Stubs - static compilation)
 // ============================================================================
 
-/// Module search path (stub for compatibility)
-pub var path: [][]const u8 = &.{};
+/// Module search path (mutable list supporting insert/remove operations)
+pub var path: std.ArrayList([]const u8) = .{};
 
 /// Loaded modules (stub for compatibility)
 pub var modules: ?*anyopaque = null;

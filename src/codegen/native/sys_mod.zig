@@ -8,7 +8,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "argv", h.c("__sys_argv") },
     // sys.exit uses noreturn so doesn't need block label
     .{ "exit", h.wrap("{ const _code: u8 = @intCast(", "); std.process.exit(_code); }", "std.process.exit(0)") },
-    .{ "path", h.c("&[_][]const u8{\".\" }") },
+    // sys.path references mutable runtime variable (supports .insert(), .pop(), etc.)
+    .{ "path", h.c("&sys.path") },
     // sys.platform references pre-computed global (avoids block label collision)
     .{ "platform", h.c("__sys_platform") },
     .{ "version", h.c("\"3.12.0 (metal0 compiled)\"") },
