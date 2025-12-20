@@ -3,8 +3,13 @@
 /// IMPORTANT: This file uses PyValue-First Architecture to prevent monomorphization explosion.
 /// All complex type handling is delegated to PyValue.eql() which compiles ONCE.
 /// See CLAUDE.md "anytype Guidelines" for rules.
+///
+/// Architecture:
+/// - Same-type comparisons: Delegate to unified comparison utility (comparison.zig)
+/// - Cross-type comparisons: Convert to PyValue and compare
 const std = @import("std");
 const PyValue = @import("../../Objects/object.zig").PyValue;
+const comparison = @import("../comparison.zig");
 
 // =============================================================================
 // CONCRETE PyValue COMPARISONS (compile ONCE, not per call site)
@@ -45,30 +50,12 @@ pub fn operatorEq(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Fast path: PyValue (already converted)
-    if (TypeA == PyValue and TypeB == PyValue) {
-        return pyEqualPyValue(a, b);
-    }
-
-    // Fast path: same primitive types (no conversion needed)
+    // Same-type comparison: Delegate to unified comparison utility
     if (TypeA == TypeB) {
-        if (TypeA == i64) return a == b;
-        if (TypeA == f64) return a == b;
-        if (TypeA == bool) return a == b;
-        if (TypeA == []const u8) return std.mem.eql(u8, a, b);
+        return comparison.equal(a, b);
     }
 
-    // Fast path: primitives (different but compatible types)
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
-    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
-        return a == b;
-    }
-    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
-        return a == b;
-    }
-
-    // Fallback: convert to PyValue (compiles once via pyEqualPyValue)
+    // Cross-type comparison: Convert to PyValue
     const a_pv = PyValue.from(a);
     const b_pv = PyValue.from(b);
     return pyEqualPyValue(a_pv, b_pv);
@@ -84,28 +71,12 @@ pub fn operatorLt(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Fast path: PyValue (already converted)
-    if (TypeA == PyValue and TypeB == PyValue) {
-        return pyLtPyValue(a, b);
-    }
-
-    // Fast path: same primitive types
+    // Same-type comparison: Delegate to unified comparison utility
     if (TypeA == TypeB) {
-        if (TypeA == i64) return a < b;
-        if (TypeA == f64) return a < b;
+        return comparison.lessThan(a, b);
     }
 
-    // Fast path: primitives (different but compatible types)
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
-    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
-        return a < b;
-    }
-    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
-        return a < b;
-    }
-
-    // Fallback: convert to PyValue
+    // Cross-type comparison: Convert to PyValue
     const a_pv = PyValue.from(a);
     const b_pv = PyValue.from(b);
     return pyLtPyValue(a_pv, b_pv);
@@ -116,28 +87,12 @@ pub fn operatorLe(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Fast path: PyValue
-    if (TypeA == PyValue and TypeB == PyValue) {
-        return pyLePyValue(a, b);
-    }
-
-    // Fast path: same primitive types
+    // Same-type comparison: Delegate to unified comparison utility
     if (TypeA == TypeB) {
-        if (TypeA == i64) return a <= b;
-        if (TypeA == f64) return a <= b;
+        return comparison.lessThanOrEqual(a, b);
     }
 
-    // Fast path: primitives
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
-    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
-        return a <= b;
-    }
-    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
-        return a <= b;
-    }
-
-    // Fallback: convert to PyValue
+    // Cross-type comparison: Convert to PyValue
     const a_pv = PyValue.from(a);
     const b_pv = PyValue.from(b);
     return pyLePyValue(a_pv, b_pv);
@@ -148,28 +103,12 @@ pub fn operatorGt(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Fast path: PyValue
-    if (TypeA == PyValue and TypeB == PyValue) {
-        return pyGtPyValue(a, b);
-    }
-
-    // Fast path: same primitive types
+    // Same-type comparison: Delegate to unified comparison utility
     if (TypeA == TypeB) {
-        if (TypeA == i64) return a > b;
-        if (TypeA == f64) return a > b;
+        return comparison.greaterThan(a, b);
     }
 
-    // Fast path: primitives
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
-    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
-        return a > b;
-    }
-    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
-        return a > b;
-    }
-
-    // Fallback: convert to PyValue
+    // Cross-type comparison: Convert to PyValue
     const a_pv = PyValue.from(a);
     const b_pv = PyValue.from(b);
     return pyGtPyValue(a_pv, b_pv);
@@ -180,28 +119,12 @@ pub fn operatorGe(a: anytype, b: anytype) bool {
     const TypeA = @TypeOf(a);
     const TypeB = @TypeOf(b);
 
-    // Fast path: PyValue
-    if (TypeA == PyValue and TypeB == PyValue) {
-        return pyGePyValue(a, b);
-    }
-
-    // Fast path: same primitive types
+    // Same-type comparison: Delegate to unified comparison utility
     if (TypeA == TypeB) {
-        if (TypeA == i64) return a >= b;
-        if (TypeA == f64) return a >= b;
+        return comparison.greaterThanOrEqual(a, b);
     }
 
-    // Fast path: primitives
-    const info_a = @typeInfo(TypeA);
-    const info_b = @typeInfo(TypeB);
-    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
-        return a >= b;
-    }
-    if ((info_a == .float or info_a == .comptime_float) and (info_b == .float or info_b == .comptime_float)) {
-        return a >= b;
-    }
-
-    // Fallback: convert to PyValue
+    // Cross-type comparison: Convert to PyValue
     const a_pv = PyValue.from(a);
     const b_pv = PyValue.from(b);
     return pyGePyValue(a_pv, b_pv);
