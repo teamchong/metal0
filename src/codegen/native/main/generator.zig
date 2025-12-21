@@ -13,6 +13,7 @@ const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 const build_dirs = @import("../../../build_dirs.zig");
+const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
 // MIGRATED TO ZIGBUILDER
 
@@ -184,6 +185,21 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 }
             }
         }
+    }
+
+    // PHASE 2.2: Collect conditional assignments that need hoisting
+    // Variables assigned in BOTH if and else branches at module level need pre-declaration
+    var conditional_assignments = try collectConditionalAssignments(module.body, self.allocator);
+    defer {
+        for (conditional_assignments.items) |var_name| {
+            self.allocator.free(var_name);
+        }
+        conditional_assignments.deinit(self.allocator);
+    }
+
+    // Register conditional variables in module_level_vars
+    for (conditional_assignments.items) |var_name| {
+        try self.module_level_vars.put(var_name, {});
     }
 
     // PHASE 2.5: Analyze mutations for list ArrayList vs fixed array decision
@@ -443,6 +459,29 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.module_level_vars.put(var_name, {});
     }
     std.debug.print("generate(): Phase 4.7 complete.\n", .{});
+
+    // PHASE 4.8: Generate conditional global variable declarations
+    // Variables assigned in both if/else branches need pre-declaration as var (mutable)
+    if (conditional_assignments.items.len > 0) {
+        try emitConst(self, "\n// Module-level conditional variables (assigned in if/else branches)\n");
+        for (conditional_assignments.items) |var_name| {
+            // Skip if already declared (e.g., via 'global' keyword)
+            if (self.isDeclared(var_name)) {
+                continue;
+            }
+
+            // Use var (mutable) since these are assigned conditionally
+            // Use PyValue for maximum safety (handles any type at runtime)
+            try emitConst(self, "var ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try emitConst(self, ": runtime.PyValue = undefined;\n");
+
+            // Mark as declared so main() doesn't re-declare
+            try self.declareVar(var_name);
+            try self.markGlobalVar(var_name);
+        }
+        try emitConst(self, "\n");
+    }
 
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
@@ -2099,4 +2138,89 @@ fn emitModuleLevelTypeAliases(self: *NativeCodegen, body: []const ast.Node) !voi
             }
         }
     }
+}
+
+/// Extract all variables assigned in a list of statements (recursively)
+fn extractAssignedVars(stmts: []const ast.Node, vars: *FnvVoidMap, allocator: std.mem.Allocator) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => {
+                for (stmt.assign.targets) |target| {
+                    if (target == .name) {
+                        try vars.put(try allocator.dupe(u8, target.name.id), {});
+                    } else if (target == .tuple) {
+                        for (target.tuple.elts) |elt| {
+                            if (elt == .name) {
+                                try vars.put(try allocator.dupe(u8, elt.name.id), {});
+                            }
+                        }
+                    }
+                }
+            },
+            .if_stmt => |if_node| {
+                try extractAssignedVars(if_node.body, vars, allocator);
+                try extractAssignedVars(if_node.else_body, vars, allocator);
+            },
+            .for_stmt => |for_node| {
+                try extractAssignedVars(for_node.body, vars, allocator);
+                if (for_node.orelse_body) |orelse_body| {
+                    try extractAssignedVars(orelse_body, vars, allocator);
+                }
+            },
+            .while_stmt => |while_node| {
+                try extractAssignedVars(while_node.body, vars, allocator);
+                if (while_node.orelse_body) |orelse_body| {
+                    try extractAssignedVars(orelse_body, vars, allocator);
+                }
+            },
+            .with_stmt => |with_node| {
+                try extractAssignedVars(with_node.body, vars, allocator);
+            },
+            .try_stmt => |try_node| {
+                try extractAssignedVars(try_node.body, vars, allocator);
+                for (try_node.handlers) |handler| {
+                    try extractAssignedVars(handler.body, vars, allocator);
+                }
+                try extractAssignedVars(try_node.else_body, vars, allocator);
+                try extractAssignedVars(try_node.finalbody, vars, allocator);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Collect module-level conditional assignments that need hoisting
+/// Returns a list of variable names that are assigned in if/else blocks at module level
+fn collectConditionalAssignments(module_body: []const ast.Node, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
+    var conditional_vars = std.ArrayList([]const u8){};
+
+    for (module_body) |stmt| {
+        if (stmt == .if_stmt) {
+            const if_node = stmt.if_stmt;
+
+            // Collect variables assigned in if branch
+            var if_vars = FnvVoidMap.init(allocator);
+            defer if_vars.deinit();
+            try extractAssignedVars(if_node.body, &if_vars, allocator);
+
+            // Collect variables assigned in else branch
+            var else_vars = FnvVoidMap.init(allocator);
+            defer else_vars.deinit();
+            try extractAssignedVars(if_node.else_body, &else_vars, allocator);
+
+            // Variables assigned in BOTH branches need hoisting
+            // (They're guaranteed to be defined after the if/else)
+            var if_iter = if_vars.iterator();
+            while (if_iter.next()) |entry| {
+                const var_name = entry.key_ptr.*;
+                if (else_vars.contains(var_name)) {
+                    // Found a variable assigned in both branches - needs hoisting
+                    const name_copy = try allocator.dupe(u8, var_name);
+                    try conditional_vars.append(allocator, name_copy);
+                }
+            }
+        }
+    }
+
+    return conditional_vars;
 }
