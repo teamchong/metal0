@@ -432,6 +432,10 @@ pub const PyValue = union(enum) {
             // Store as ptr for unknown pointer types
             return .{ .ptr = @ptrCast(@constCast(value)) };
         } else if (@typeInfo(T) == .@"struct") {
+            // Handle Complex numbers (PyComplex has .real and .imag fields)
+            if (@hasField(T, "real") and @hasField(T, "imag")) {
+                return .{ .complex = .{ .real = value.real, .imag = value.imag } };
+            }
             // Handle float/int/str subclasses with __base_value__ field
             if (@hasField(T, "__base_value__")) {
                 const base = value.__base_value__;

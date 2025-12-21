@@ -143,19 +143,58 @@ pub fn boolEql(a: bool, b: bool) bool {
 
 /// PyValue-only equality - compiles ONCE, handles all types at runtime
 /// Use this for uncertain types to avoid monomorphization explosion
+/// Handles Python cross-type numeric equality: complex(0) == 0 == 0.0 == False
 pub fn pyValueEql(a: PyValue, b: PyValue) bool {
-    // Different tags = not equal (fast path)
-    if (@as(std.meta.Tag(PyValue), a) != @as(std.meta.Tag(PyValue), b)) return false;
+    const a_tag = @as(std.meta.Tag(PyValue), a);
+    const b_tag = @as(std.meta.Tag(PyValue), b);
 
+    // Same type: direct comparison
+    if (a_tag == b_tag) {
+        return switch (a) {
+            .int => |ai| ai == b.int,
+            .float => |af| @as(u64, @bitCast(af)) == @as(u64, @bitCast(b.float)),
+            .string => |as| std.mem.eql(u8, as, b.string),
+            .bool => |ab| ab == b.bool,
+            .none => true,
+            .tuple => |at| pyValueTupleEql(at, b.tuple),
+            .list => |al| pyValueListEql(al.items, b.list.items),
+            .complex => |ac| ac.real == b.complex.real and ac.imag == b.complex.imag,
+            .bigint => |ab| ab.eql(&b.bigint),
+            else => false, // Other types (ptr, object, etc.) not yet supported
+        };
+    }
+
+    // Different types: handle Python numeric cross-type equality
+    // In Python: complex(0) == 0 == 0.0 == False (all True)
     return switch (a) {
-        .int => |ai| ai == b.int,
-        .float => |af| @as(u64, @bitCast(af)) == @as(u64, @bitCast(b.float)),
-        .string => |as| std.mem.eql(u8, as, b.string),
-        .bool => |ab| ab == b.bool,
-        .none => true,
-        .tuple => |at| pyValueTupleEql(at, b.tuple),
-        .list => |al| pyValueListEql(al.items, b.list.items),
-        else => false, // Other types not yet supported
+        .complex => |ac| switch (b) {
+            // complex(0j) == 0 (int)
+            .int => |bi| ac.imag == 0.0 and ac.real == @as(f64, @floatFromInt(bi)),
+            // complex(0j) == 0.0 (float)
+            .float => |bf| ac.imag == 0.0 and ac.real == bf,
+            // complex(0j) == False (bool)
+            .bool => |bb| ac.imag == 0.0 and ac.real == @as(f64, if (bb) 1.0 else 0.0),
+            else => false,
+        },
+        .int => |ai| switch (b) {
+            .complex => |bc| bc.imag == 0.0 and @as(f64, @floatFromInt(ai)) == bc.real,
+            .float => |bf| @as(f64, @floatFromInt(ai)) == bf,
+            .bool => |bb| ai == @as(i64, if (bb) 1 else 0),
+            else => false,
+        },
+        .float => |af| switch (b) {
+            .complex => |bc| bc.imag == 0.0 and af == bc.real,
+            .int => |bi| af == @as(f64, @floatFromInt(bi)),
+            .bool => |bb| af == @as(f64, if (bb) 1.0 else 0.0),
+            else => false,
+        },
+        .bool => |ab| switch (b) {
+            .complex => |bc| bc.imag == 0.0 and bc.real == @as(f64, if (ab) 1.0 else 0.0),
+            .int => |bi| @as(i64, if (ab) 1 else 0) == bi,
+            .float => |bf| @as(f64, if (ab) 1.0 else 0.0) == bf,
+            else => false,
+        },
+        else => false,
     };
 }
 
@@ -453,6 +492,20 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             }
         }
         return false;
+    }
+
+    // Fallback: convert structs to PyValue for cross-type comparison
+    // This handles cases like PyComplex (struct) vs bool/int/float
+    // where the struct doesn't have __eq__ but can be converted to PyValue
+    if (a_info == .@"struct") {
+        const a_pv = PyValue.from(a);
+        const b_pv = PyValue.from(b);
+        return pyValueEql(a_pv, b_pv);
+    }
+    if (b_info == .@"struct") {
+        const a_pv = PyValue.from(a);
+        const b_pv = PyValue.from(b);
+        return pyValueEql(a_pv, b_pv);
     }
 
     return false;
