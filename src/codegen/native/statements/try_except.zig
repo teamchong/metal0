@@ -1265,15 +1265,22 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         const saved_in_assert_raises = self.in_assert_raises_context;
         self.in_assert_raises_context = false;
 
+        // CRITICAL: Reset current_function_returns_pyvalue inside TryHelper function body.
+        // The TryHelper function returns !void (not PyValue), so constructor calls
+        // must use (try ...) to propagate errors, not (... catch unreachable).
+        const saved_returns_pyvalue = self.current_function_returns_pyvalue;
+        self.current_function_returns_pyvalue = false;
+
         // Generate try block body with renamed variables
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
 
-        // Restore inside_try_body, in_assert_raises_context, and control_flow_terminated
+        // Restore inside_try_body, in_assert_raises_context, current_function_returns_pyvalue, and control_flow_terminated
         // IMMEDIATELY after try body. Must do this before generating else/finally/handlers.
         self.inside_try_body = saved_inside_try_body;
         self.in_assert_raises_context = saved_in_assert_raises;
+        self.current_function_returns_pyvalue = saved_returns_pyvalue;
         self.control_flow_terminated = saved_control_flow_terminated;
 
         // Clear rename map after generating body and free allocated strings

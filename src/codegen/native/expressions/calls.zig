@@ -1614,8 +1614,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Runtime exception path with (try ...) already returned earlier at line 588/592/603
             try emitConst(self, ")");
             // Close the (try ...) wrapper for nested class or error-init constructors
-            // But if inside a PyValue-returning function, use catch unreachable instead
-            if (needs_try and !self.current_function_returns_pyvalue) {
+            // When inside_try_body, errors must propagate to the except handler
+            // Only use catch unreachable for PyValue-returning functions NOT in a try body
+            if (needs_try and self.inside_try_body) {
+                // Inside try body: propagate errors to except handler
+                try emitConst(self, ")");
+            } else if (needs_try and !self.current_function_returns_pyvalue) {
                 try emitConst(self, ")");
             } else if (needs_try and self.current_function_returns_pyvalue) {
                 try emitConst(self, " catch unreachable)");
