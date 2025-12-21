@@ -461,6 +461,10 @@ pub const NativeCodegen = struct {
     // These are available at function-start for hoisted var type derivation
     module_level_vars: FnvVoidMap,
 
+    // Track conditionally hoisted variable types (for generating correct empty containers)
+    // Maps variable name -> Zig type string (e.g., "SKIP_MODULES" -> "hashmap_helper.StringHashMap(void)")
+    conditional_var_types: hashmap_helper.StringHashMap([]const u8),
+
     // Track variables defined in current function scope (for nested class closure detection)
     // Maps variable name -> void (e.g., "calls" -> {})
     // Populated at start of function generation, used to detect outer scope references
@@ -878,6 +882,7 @@ pub const NativeCodegen = struct {
             .global_vars = FnvVoidMap.init(aa),
             .module_level_funcs = FnvVoidMap.init(aa),
             .module_level_vars = FnvVoidMap.init(aa),
+            .conditional_var_types = hashmap_helper.StringHashMap([]const u8).init(aa),
             .func_local_vars = FnvVoidMap.init(aa),
             .nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(aa),
             .mutated_captures = FnvVoidMap.init(aa),

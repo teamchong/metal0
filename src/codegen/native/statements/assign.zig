@@ -170,6 +170,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
     // This ensures dict codegen context doesn't leak to subsequent statements
     defer self.target_dict_value_type = null;
 
+    // Track current assignment target for genTuple to check if empty tuple should be empty set
+    // Set when we have a single name target that's a conditionally hoisted set variable
+    defer self.current_assign_target = null;
+    if (assign.targets.len == 1 and assign.targets[0] == .name) {
+        const target_name = assign.targets[0].name.id;
+        if (self.conditional_var_types.contains(target_name)) {
+            self.current_assign_target = target_name;
+        }
+    }
+
     // Skip typing module assignments (TypeVar, etc.)
     // T = TypeVar('T') should be a no-op at runtime
     if (isTypingNoOp(assign.value.*)) {

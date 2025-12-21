@@ -189,17 +189,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 2.2: Collect conditional assignments that need hoisting
     // Variables assigned in BOTH if and else branches at module level need pre-declaration
-    var conditional_assignments = try collectConditionalAssignments(module.body, self.allocator);
+    var conditional_assignments = try collectConditionalAssignments(module.body, self.type_inferrer, self.allocator);
     defer {
-        for (conditional_assignments.items) |var_name| {
-            self.allocator.free(var_name);
+        for (conditional_assignments.items) |cond_var| {
+            self.allocator.free(cond_var.name);
         }
         conditional_assignments.deinit(self.allocator);
     }
 
     // Register conditional variables in module_level_vars
-    for (conditional_assignments.items) |var_name| {
-        try self.module_level_vars.put(var_name, {});
+    for (conditional_assignments.items) |cond_var| {
+        try self.module_level_vars.put(cond_var.name, {});
     }
 
     // PHASE 2.5: Analyze mutations for list ArrayList vs fixed array decision
@@ -464,21 +464,26 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // Variables assigned in both if/else branches need pre-declaration as var (mutable)
     if (conditional_assignments.items.len > 0) {
         try emitConst(self, "\n// Module-level conditional variables (assigned in if/else branches)\n");
-        for (conditional_assignments.items) |var_name| {
+        for (conditional_assignments.items) |cond_var| {
             // Skip if already declared (e.g., via 'global' keyword)
-            if (self.isDeclared(var_name)) {
+            if (self.isDeclared(cond_var.name)) {
                 continue;
             }
 
             // Use var (mutable) since these are assigned conditionally
-            // Use PyValue for maximum safety (handles any type at runtime)
+            // Use the inferred type from both branches (or PyValue as fallback)
             try emitConst(self, "var ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try emitConst(self, ": runtime.PyValue = undefined;\n");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), cond_var.name);
+            try emitConst(self, ": ");
+            try emitConst(self, cond_var.zig_type);
+            try emitConst(self, " = undefined;\n");
 
             // Mark as declared so main() doesn't re-declare
-            try self.declareVar(var_name);
-            try self.markGlobalVar(var_name);
+            try self.declareVar(cond_var.name);
+            try self.markGlobalVar(cond_var.name);
+
+            // Track the type so assignment codegen can generate correct empty containers
+            try self.conditional_var_types.put(cond_var.name, cond_var.zig_type);
         }
         try emitConst(self, "\n");
     }
@@ -2189,10 +2194,99 @@ fn extractAssignedVars(stmts: []const ast.Node, vars: *FnvVoidMap, allocator: st
     }
 }
 
+/// Conditional variable info with inferred type
+const ConditionalVar = struct {
+    name: []const u8,
+    zig_type: []const u8, // Zig type string (e.g., "i64", "hashmap_helper.StringHashMap(void)")
+};
+
+/// Helper to emit Zig type from NativeType
+fn emitZigTypeFromNative(native_type: @import("../../../analysis/native_types/core.zig").NativeType, allocator: std.mem.Allocator) ![]const u8 {
+    return switch (native_type) {
+        .int => |kind| switch (kind) {
+            .bounded => "i64",
+            .unbounded => "runtime.BigInt",
+        },
+        .bigint => "runtime.BigInt",
+        .unified_int => "runtime.UnifiedInt",
+        .usize => "usize",
+        .float => "f64",
+        .bool => "bool",
+        .string => "[]const u8",
+        .bytes => "runtime.builtins.PyBytes",
+        .complex => "runtime.PyComplex",
+        .none => "void",
+        .pyvalue => "runtime.PyValue",
+        .list => |elem_type| blk: {
+            const elem_zig = try emitZigTypeFromNative(elem_type.*, allocator);
+            break :blk try std.fmt.allocPrint(allocator, "std.ArrayListUnmanaged({s})", .{elem_zig});
+        },
+        .dict => |kv| blk: {
+            const val_zig = try emitZigTypeFromNative(kv.value.*, allocator);
+            // Most dicts use StringHashMap
+            break :blk try std.fmt.allocPrint(allocator, "hashmap_helper.StringHashMap({s})", .{val_zig});
+        },
+        .set => |elem_type| blk: {
+            // Sets are StringHashMap(void) for string keys
+            // For other key types, use std.AutoArrayHashMap (not hashmap_helper which doesn't have AutoHashMap)
+            if (elem_type.* == .string) {
+                break :blk "hashmap_helper.StringHashMap(void)";
+            }
+            // For non-string keys (e.g., PyValue), use StringHashMap(void) as fallback
+            // since frozenset with string literals should still use StringHashMap
+            break :blk "hashmap_helper.StringHashMap(void)";
+        },
+        .tuple => "runtime.PyValue", // Tuples use PyValue for heterogeneous elements
+        .class_instance => |name| name,
+        .optional => |inner| blk: {
+            const inner_zig = try emitZigTypeFromNative(inner.*, allocator);
+            break :blk try std.fmt.allocPrint(allocator, "?{s}", .{inner_zig});
+        },
+        else => "runtime.PyValue", // Fallback to PyValue for complex types
+    };
+}
+
+/// Infer type from a single branch of assignments
+/// Returns PyValue if unable to infer or multiple assignments found
+fn inferBranchVarType(stmts: []const ast.Node, var_name: []const u8, type_inferrer: anytype, allocator: std.mem.Allocator) ![]const u8 {
+    _ = allocator;
+
+    // Find the assignment to this variable
+    for (stmts) |stmt| {
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                    // Infer type from the value expression
+                    const inferred_type = type_inferrer.inferExpr(stmt.assign.value.*) catch {
+                        return "runtime.PyValue"; // Fallback on inference error
+                    };
+
+                    // Convert NativeType to Zig type string
+                    return emitZigTypeFromNative(inferred_type, type_inferrer.allocator) catch {
+                        return "runtime.PyValue"; // Fallback on conversion error
+                    };
+                }
+            }
+        } else if (stmt == .if_stmt) {
+            // Recursively check nested if statements
+            const if_type = inferBranchVarType(stmt.if_stmt.body, var_name, type_inferrer, type_inferrer.allocator) catch "runtime.PyValue";
+            if (!std.mem.eql(u8, if_type, "runtime.PyValue")) {
+                return if_type;
+            }
+            const else_type = inferBranchVarType(stmt.if_stmt.else_body, var_name, type_inferrer, type_inferrer.allocator) catch "runtime.PyValue";
+            if (!std.mem.eql(u8, else_type, "runtime.PyValue")) {
+                return else_type;
+            }
+        }
+    }
+
+    return "runtime.PyValue"; // Variable not found in this branch
+}
+
 /// Collect module-level conditional assignments that need hoisting
-/// Returns a list of variable names that are assigned in if/else blocks at module level
-fn collectConditionalAssignments(module_body: []const ast.Node, allocator: std.mem.Allocator) !std.ArrayList([]const u8) {
-    var conditional_vars = std.ArrayList([]const u8){};
+/// Returns a list of ConditionalVar structs with names and inferred types
+fn collectConditionalAssignments(module_body: []const ast.Node, type_inferrer: anytype, allocator: std.mem.Allocator) !std.ArrayList(ConditionalVar) {
+    var conditional_vars = std.ArrayList(ConditionalVar){};
 
     for (module_body) |stmt| {
         if (stmt == .if_stmt) {
@@ -2214,9 +2308,39 @@ fn collectConditionalAssignments(module_body: []const ast.Node, allocator: std.m
             while (if_iter.next()) |entry| {
                 const var_name = entry.key_ptr.*;
                 if (else_vars.contains(var_name)) {
-                    // Found a variable assigned in both branches - needs hoisting
+                    // Infer types from both branches
+                    const if_type = try inferBranchVarType(if_node.body, var_name, type_inferrer, allocator);
+                    const else_type = try inferBranchVarType(if_node.else_body, var_name, type_inferrer, allocator);
+
+                    // Use the common type, or PyValue if they differ
+                    // Special case: if one branch is a set and the other is an empty tuple/PyValue,
+                    // use the set type (Python idiom: () as empty container)
+                    const final_type = blk: {
+                        if (std.mem.eql(u8, if_type, else_type)) {
+                            break :blk if_type;
+                        }
+                        // Check if either type is a set (StringHashMap or AutoHashMap with void value)
+                        const if_is_set = std.mem.indexOf(u8, if_type, "HashMap") != null and
+                            std.mem.indexOf(u8, if_type, "void)") != null;
+                        const else_is_set = std.mem.indexOf(u8, else_type, "HashMap") != null and
+                            std.mem.indexOf(u8, else_type, "void)") != null;
+
+                        // If one branch is a set and other is PyValue (from empty tuple),
+                        // prefer the set type - empty tuple will be converted to empty set
+                        if (if_is_set and std.mem.eql(u8, else_type, "runtime.PyValue")) {
+                            break :blk if_type;
+                        }
+                        if (else_is_set and std.mem.eql(u8, if_type, "runtime.PyValue")) {
+                            break :blk else_type;
+                        }
+                        break :blk "runtime.PyValue"; // Different types → use PyValue wrapper
+                    };
+
                     const name_copy = try allocator.dupe(u8, var_name);
-                    try conditional_vars.append(allocator, name_copy);
+                    try conditional_vars.append(allocator, ConditionalVar{
+                        .name = name_copy,
+                        .zig_type = final_type,
+                    });
                 }
             }
         }

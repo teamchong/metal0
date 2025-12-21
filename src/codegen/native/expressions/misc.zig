@@ -93,7 +93,21 @@ fn isVoidAssertionCall(elem: ast.Node) bool {
 
 pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
     // Empty tuples become empty struct
+    // BUT: if assigning to a conditionally hoisted set variable, generate empty set instead
     if (tuple.elts.len == 0) {
+        if (self.current_assign_target) |target| {
+            if (self.conditional_var_types.get(target)) |zig_type| {
+                // Check if target is a set type (StringHashMap or AutoHashMap with void value)
+                const is_set_type = std.mem.indexOf(u8, zig_type, "HashMap") != null and
+                    std.mem.indexOf(u8, zig_type, "void)") != null;
+                if (is_set_type) {
+                    // Generate empty set init with the exact type
+                    try emitConst(self, zig_type);
+                    try emitConst(self, ".init(__global_allocator)");
+                    return;
+                }
+            }
+        }
         try emitConst(self, ".{}");
         return;
     }
