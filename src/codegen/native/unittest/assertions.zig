@@ -734,6 +734,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         // 1. Evaluates both expressions
         // 2. Extracts slices with explicit type annotation (forces coercion)
         // 3. Compares with std.mem.eql using concrete type (no monomorphization)
+        try emitConst(self, "if (");
         const label = try self.emitInlineBlockStart("ae");
         try emitConst(self,"const __ae_raw_a = ");
         try parent.genExpr(self, args[0]);

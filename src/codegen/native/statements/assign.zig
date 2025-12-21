@@ -1826,7 +1826,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emitInlineBlockEnd();
-                        try emitConst(self,"\n");
+                        // Labeled block used as statement needs semicolon
+                        try emitConst(self,";\n");
                     } else {
                         if (is_nested) {
                             try self.genSubscriptLHS(subscript.value.subscript);

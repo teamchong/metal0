@@ -157,7 +157,8 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Determine if we should skip semicolon
     // Skip for: block statements, statement-level labeled blocks, wrapped labeled blocks
     // DON'T skip for: assigned labeled blocks (e.g., _ = __mN_xxx: { ... })
-    const should_skip_semicolon = is_block_stmt or is_labeled_block or is_wrapped_labeled_block;
+    // NOTE: If needs_discard is true, we're adding `_ = ` prefix, so labeled blocks become assignments and need semicolons
+    const should_skip_semicolon = (is_block_stmt or is_labeled_block or is_wrapped_labeled_block) and !needs_discard;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);
