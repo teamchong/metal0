@@ -101,14 +101,17 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         return;
     }
 
-    // Detect if this is a labeled block (pattern: __mN_xxx: { ... })
+    // Detect if this is a labeled block (pattern: __mN_xxx: { ... } or set_pyval_N: { ... })
     // Labeled blocks at statement level don't need semicolons in Zig
-    // BUT: Assigned labeled blocks (e.g., _ = __mN_xxx: { ... }) DO need semicolons
+    // BUT: Assigned labeled blocks (e.g., _ = set_pyval_39: { ... }) DO need semicolons
     const trimmed_start = std.mem.trim(u8, expr_output, " \t");
     const has_labeled_block_pattern = std.mem.indexOf(u8, expr_output, ": {") != null and
-        std.mem.startsWith(u8, trimmed_start, "__m");
+        (std.mem.startsWith(u8, trimmed_start, "__m") or
+         std.mem.startsWith(u8, trimmed_start, "set_") or
+         std.mem.startsWith(u8, trimmed_start, "dict_") or
+         std.mem.startsWith(u8, trimmed_start, "list_"));
     const is_assigned_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
-        std.mem.startsWith(u8, trimmed_start, "_ = __m");
+        std.mem.startsWith(u8, trimmed_start, "_ = ");
 
     // Check if this is a block statement (ends with } or }\n or }); or similar)
     // Block statements like if/while/for with braces don't need semicolons
