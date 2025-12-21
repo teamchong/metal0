@@ -83,15 +83,10 @@ pub const FileIO = struct {
     pub fn seek(self: *Self, offset: i64, whence: types.SeekWhence) !u64 {
         if (!self.base.isSeekable()) return error.NotSeekable;
         if (self.file) |f| {
-            const std_whence: std.fs.File.SeekableStream.SeekFrom = switch (whence) {
-                .set => .start,
-                .cur => .{ .relative = offset },
-                .end => .{ .end_offset = offset },
-            };
-            if (whence == .set) {
-                f.seekTo(@intCast(offset)) catch return error.NotSeekable;
-            } else {
-                f.seekableStream().seekTo(@intCast(offset)) catch return error.NotSeekable;
+            switch (whence) {
+                .set => f.seekTo(@intCast(offset)) catch return error.NotSeekable,
+                .cur => f.seekableStream().seekBy(offset) catch return error.NotSeekable,
+                .end => f.seekFromEnd(offset) catch return error.NotSeekable,
             }
             return f.getPos() catch return error.NotSeekable;
         }

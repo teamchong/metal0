@@ -195,7 +195,7 @@ pub fn digitsToDecimal(allocator: Allocator, digits: []const u64) ![]u8 {
     }
 
     // Make a copy to modify
-    var work = try allocator.alloc(u64, digits.len);
+    const work = try allocator.alloc(u64, digits.len);
     defer allocator.free(work);
     @memcpy(work, digits);
 

@@ -303,14 +303,14 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerDirect("calendar", .zig_runtime, "runtime.calendar", "runtime.Lib.calendar", null);
     // itertools uses inline codegen for product() due to complex type handling
     // Other functions fall back to runtime.Lib.itertools
-    try registry.register("itertools", .zig_runtime, null, null);
+    try registry.register("itertools", .zig_runtime, "runtime.Lib.itertools", null);
 
     // Modules that use inline codegen only (no direct_import needed)
     try registry.register("struct", .zig_runtime, "runtime.Lib.struct", null);
     try registry.register("base64", .zig_runtime, "runtime.Lib.base64", null);
     try registry.register("hmac", .zig_runtime, "runtime.Lib.hmac", null);
     try registry.register("socket", .zig_runtime, "runtime.Lib.socket", null);
-    try registry.register("random", .zig_runtime, null, null);
+    try registry.register("random", .zig_runtime, "runtime.Lib.random", null);
     // collections module with UserString, UserList, Counter, etc.
     try registry.registerDirect("collections", .zig_runtime, "runtime.Lib.collections", "runtime.Lib.collections", null);
     // collections.abc - ABC marker types for isinstance() checks
@@ -320,7 +320,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("threading", .zig_runtime, "runtime.Lib.threading", null);
     try registry.register("queue", .zig_runtime, "runtime.Lib.queue", null);
     try registry.register("copy", .zig_runtime, "runtime.Lib.copy", null);
-    try registry.register("operator", .zig_runtime, null, null);
+    try registry.register("operator", .zig_runtime, "runtime.Lib.operator", null);
     try registry.register("builtins", .zig_runtime, null, null);
     try registry.register("_io", .zig_runtime, null, null);
     try registry.register("_signal", .zig_runtime, null, null);
@@ -347,9 +347,9 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("_imp", .zig_runtime, null, null);
     try registry.register("_lzma", .zig_runtime, null, null);
     try registry.register("_pickle", .zig_runtime, null, null);
-    try registry.register("_pydecimal", .zig_runtime, null, null);
-    try registry.register("_pyio", .zig_runtime, null, null);
-    try registry.register("_pylong", .zig_runtime, null, null);
+    try registry.register("_pydecimal", .zig_runtime, "runtime.Lib._pydecimal", null);
+    try registry.register("_pyio", .zig_runtime, "runtime.Lib._pyio", null);
+    try registry.register("_pylong", .zig_runtime, "runtime.Lib._pylong", null);
     try registry.register("_sre", .zig_runtime, null, null);
     try registry.register("_sqlite3", .zig_runtime, null, null);
     try registry.register("_stat", .zig_runtime, null, null);
@@ -391,8 +391,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("heapq", .zig_runtime, "runtime.Lib.heapq", null);
     try registry.register("bisect", .zig_runtime, "runtime.Lib.bisect", null);
     try registry.register("statistics", .zig_runtime, "runtime.Lib.statistics", null);
-    try registry.register("decimal", .zig_runtime, null, null);
-    try registry.register("fractions", .zig_runtime, null, null);
+    try registry.register("decimal", .zig_runtime, "runtime.Lib.decimal", null);
+    try registry.register("fractions", .zig_runtime, "runtime.Lib.fractions", null);
     try registry.register("cmath", .zig_runtime, null, null); // No Lib implementation yet
     try registry.register("html", .zig_runtime, "runtime.Lib.html", null);
     try registry.register("xml", .zig_runtime, "runtime.Lib.xml", null);
@@ -400,7 +400,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("email", .zig_runtime, "runtime.Lib.email", null);
     try registry.register("signal", .zig_runtime, "runtime.Lib.signal", null);
     try registry.register("multiprocessing", .zig_runtime, null, null); // No Lib implementation yet
-    try registry.register("array", .zig_runtime, null, null);
+    // array is already registered above with registerDirect
     try registry.registerDirect("weakref", .zig_runtime, "runtime.Lib.weakref", "runtime.Lib.weakref", null);
     try registry.register("types", .zig_runtime, "runtime.Lib.types", null);
     try registry.registerDirect("abc", .zig_runtime, "runtime.Lib.abc", "runtime.Lib.abc", null);
@@ -427,7 +427,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("urllib", .compile_python, null, null);
 
     // importlib module - static resolution at compile time
-    try registry.register("importlib", .zig_runtime, null, null);
+    try registry.register("importlib", .zig_runtime, "runtime.Lib.importlib", null);
     try registry.register("importlib.abc", .zig_runtime, null, null);
     try registry.register("importlib.resources", .zig_runtime, null, null);
     try registry.register("importlib.metadata", .zig_runtime, null, null);

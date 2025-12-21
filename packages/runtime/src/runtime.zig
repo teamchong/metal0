@@ -1020,6 +1020,9 @@ pub const Lib = struct {
     pub const statistics = @import("Lib/statistics.zig");
     pub const gzip = @import("Lib/gzip.zig");
     pub const logging = @import("Lib/logging.zig");
+    pub const _pylong = @import("Lib/_pylong.zig");
+    pub const _pydecimal = @import("Lib/_pydecimal.zig");
+    pub const _pyio = @import("Lib/_pyio.zig");
 };
 
 /// Modules/ directory - C extension module implementations
