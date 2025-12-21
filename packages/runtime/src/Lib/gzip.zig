@@ -150,10 +150,10 @@ pub const GzipFile = struct {
 
         // Use zlib decompressor
         var fbs = std.io.fixedBufferStream(deflate_data);
-        var decompress = std.compress.zlib.decompressor(fbs.reader());
+        var decompressor = std.compress.zlib.decompressor(fbs.reader());
 
         const max_size = size orelse 1024 * 1024 * 10; // 10MB default max
-        const decompressed = try decompress.reader().readAllAlloc(self.allocator, max_size);
+        const decompressed = try decompressor.reader().readAllAlloc(self.allocator, max_size);
 
         return decompressed;
     }

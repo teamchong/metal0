@@ -16,9 +16,20 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
 
     // Special handling for 'builtins' module
     // Python's builtins module provides access to built-in functions (len, str, int, etc.)
-    // These are already available globally - dispatch handles builtins.func() calls directly
+    // These are available via runtime.builtins - generate const binding for value access
+    // Dispatch handles builtins.func() calls directly, but code may also access builtins.__dict__ etc.
+    // Module-level builtins import is handled in generator.zig Phase 3
     if (std.mem.eql(u8, module_name, "builtins")) {
-        return; // No import needed - dispatch handles this
+        // Skip module-level imports (handled in Phase 3)
+        if (self.indent_level == 0) return;
+        if (self.mode == .module and self.indent_level == 1) return;
+        // For local imports inside functions, generate the const binding
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        try b.writeFmt("const {s} = runtime.builtins;\n", .{alias});
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+        return;
     }
 
     // Check if module was marked as unavailable (e.g., winreg on Mac)

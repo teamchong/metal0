@@ -347,7 +347,7 @@ pub fn pause() void {
         // Use sigsuspend with empty mask for proper signal waiting
         // This is more portable than pause() which may not exist on all systems
         const posix = std.posix;
-        var empty_mask = posix.empty_sigset;
+        const empty_mask = posix.empty_sigset;
         _ = posix.sigtimedwait(empty_mask, null, .{ .sec = 1, .nsec = 0 });
     } else {
         // On Windows, use SleepEx with alertable=true to allow APC delivery

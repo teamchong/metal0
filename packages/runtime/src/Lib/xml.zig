@@ -177,6 +177,21 @@ pub const sax = struct {
 // ============================================================================
 
 pub const dom = struct {
+    pub const NodeType = enum(u16) {
+        ELEMENT_NODE = 1,
+        ATTRIBUTE_NODE = 2,
+        TEXT_NODE = 3,
+        CDATA_SECTION_NODE = 4,
+        ENTITY_REFERENCE_NODE = 5,
+        ENTITY_NODE = 6,
+        PROCESSING_INSTRUCTION_NODE = 7,
+        COMMENT_NODE = 8,
+        DOCUMENT_NODE = 9,
+        DOCUMENT_TYPE_NODE = 10,
+        DOCUMENT_FRAGMENT_NODE = 11,
+        NOTATION_NODE = 12,
+    };
+
     pub const Node = struct {
         node_type: NodeType,
         node_name: []const u8,
@@ -184,22 +199,6 @@ pub const dom = struct {
         parent_node: ?*Node,
         child_nodes: std.ArrayList(*Node),
         attributes: ?hashmap_helper.StringHashMap([]const u8),
-
-        pub const NodeType = enum(u16) {
-            ELEMENT_NODE = 1,
-            ATTRIBUTE_NODE = 2,
-            TEXT_NODE = 3,
-            CDATA_SECTION_NODE = 4,
-            ENTITY_REFERENCE_NODE = 5,
-            ENTITY_NODE = 6,
-            PROCESSING_INSTRUCTION_NODE = 7,
-            COMMENT_NODE = 8,
-            DOCUMENT_NODE = 9,
-            DOCUMENT_TYPE_NODE = 10,
-            DOCUMENT_FRAGMENT_NODE = 11,
-            NOTATION_NODE = 12,
-        };
-
         allocator: std.mem.Allocator,
 
         pub fn appendChild(self: *Node, child: *Node) !void {

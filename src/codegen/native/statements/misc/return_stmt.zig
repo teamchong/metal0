@@ -167,8 +167,10 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
                 // Detect patterns like: (a == b) and (c == d), which are boolean
                 const needs_wrapping = !isAlreadyPyValue(value.*);
                 if (needs_wrapping) {
+                    // Capture the expression value first, then emit to builder
+                    const val = try self.captureExpr(value.*);
                     try b.write("return runtime.PyValue{ .bool = ");
-                    try self.genExpr(value.*);
+                    try b.emitValue(val, .{});
                     try b.write(" };\n");
                     const output = b.getBodyAndClear();
                     try self.output.appendSlice(self.allocator, output);

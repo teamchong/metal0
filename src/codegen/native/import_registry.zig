@@ -306,20 +306,20 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("itertools", .zig_runtime, null, null);
 
     // Modules that use inline codegen only (no direct_import needed)
-    try registry.register("struct", .zig_runtime, "std", null);
-    try registry.register("base64", .zig_runtime, "std", null);
-    try registry.register("hmac", .zig_runtime, "std", null);
-    try registry.register("socket", .zig_runtime, "std", null);
+    try registry.register("struct", .zig_runtime, "runtime.Lib.struct", null);
+    try registry.register("base64", .zig_runtime, "runtime.Lib.base64", null);
+    try registry.register("hmac", .zig_runtime, "runtime.Lib.hmac", null);
+    try registry.register("socket", .zig_runtime, "runtime.Lib.socket", null);
     try registry.register("random", .zig_runtime, null, null);
     // collections module with UserString, UserList, Counter, etc.
     try registry.registerDirect("collections", .zig_runtime, "runtime.Lib.collections", "runtime.Lib.collections", null);
     // collections.abc - ABC marker types for isinstance() checks
     try registry.registerDirect("collections.abc", .zig_runtime, "runtime.Lib.collections.abc", "runtime.Lib.collections.abc", null);
-    try registry.register("functools", .zig_runtime, "std", null);
-    try registry.register("logging", .zig_runtime, "std", null);
-    try registry.register("threading", .zig_runtime, "std", null);
-    try registry.register("queue", .zig_runtime, "std", null);
-    try registry.register("copy", .zig_runtime, "std", null);
+    try registry.register("functools", .zig_runtime, "runtime.Lib.functools", null);
+    try registry.register("logging", .zig_runtime, "runtime.Lib.logging", null);
+    try registry.register("threading", .zig_runtime, "runtime.Lib.threading", null);
+    try registry.register("queue", .zig_runtime, "runtime.Lib.queue", null);
+    try registry.register("copy", .zig_runtime, "runtime.Lib.copy", null);
     try registry.register("operator", .zig_runtime, null, null);
     try registry.register("builtins", .zig_runtime, null, null);
     try registry.register("_io", .zig_runtime, null, null);
@@ -354,9 +354,9 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("_sqlite3", .zig_runtime, null, null);
     try registry.register("_stat", .zig_runtime, null, null);
     try registry.register("ast", .zig_runtime, "runtime.ast_executor", null);
-    try registry.register("contextlib", .zig_runtime, "std", null);
-    try registry.register("string", .zig_runtime, "std", null);
-    try registry.register("_string", .zig_runtime, "std", null);
+    try registry.register("contextlib", .zig_runtime, "runtime.Lib.contextlib", null);
+    try registry.register("string", .zig_runtime, "runtime.Lib.string", null);
+    try registry.register("_string", .zig_runtime, null, null); // Uses string module
     // CPython test infrastructure modules
     // _testcapi: Provides constants and functions to test our Python C API implementation (415 Zig files)
     try registry.register("_testcapi", .zig_runtime, "runtime.Lib._testcapi", "runtime.Lib._testcapi");
@@ -375,52 +375,52 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     // msvcrt: Microsoft Visual C Runtime (stubs on non-Windows, raises error at runtime)
     try registry.register("msvcrt", .zig_runtime, "runtime.Lib.msvcrt", "runtime.Lib.msvcrt");
     try registry.register("_remote_debugging", .zig_runtime, null, null);
-    try registry.register("shutil", .zig_runtime, "std", null);
-    try registry.register("glob", .zig_runtime, "std", null);
-    try registry.register("fnmatch", .zig_runtime, "std", null);
-    try registry.register("secrets", .zig_runtime, "std", null);
-    try registry.register("csv", .zig_runtime, "std", null);
-    try registry.register("configparser", .zig_runtime, "std", null);
-    try registry.register("argparse", .zig_runtime, "std", null);
-    try registry.register("zipfile", .zig_runtime, "std", null);
+    try registry.register("shutil", .zig_runtime, "runtime.Lib.shutil", null);
+    try registry.register("glob", .zig_runtime, "runtime.Lib.glob", null);
+    try registry.register("fnmatch", .zig_runtime, "runtime.Lib.fnmatch", null);
+    try registry.register("secrets", .zig_runtime, "runtime.Lib.secrets", null);
+    try registry.register("csv", .zig_runtime, "runtime.Lib.csv", null);
+    try registry.register("configparser", .zig_runtime, "runtime.Lib.configparser", null);
+    try registry.register("argparse", .zig_runtime, "runtime.Lib.argparse", null);
+    try registry.register("zipfile", .zig_runtime, "runtime.Lib.zipfile", null);
     try registry.register("gzip", .zig_runtime, "std", "z");
-    try registry.register("textwrap", .zig_runtime, "std", null);
-    try registry.register("uuid", .zig_runtime, "std", null);
-    try registry.register("tempfile", .zig_runtime, "std", null);
-    try registry.register("subprocess", .zig_runtime, "std", null);
-    try registry.register("heapq", .zig_runtime, "std", null);
-    try registry.register("bisect", .zig_runtime, "std", null);
-    try registry.register("statistics", .zig_runtime, "std", null);
+    try registry.register("textwrap", .zig_runtime, "runtime.Lib.textwrap", null);
+    try registry.register("uuid", .zig_runtime, "runtime.Lib.uuid", null);
+    try registry.register("tempfile", .zig_runtime, "runtime.Lib.tempfile", null);
+    try registry.register("subprocess", .zig_runtime, "runtime.Lib.subprocess", null);
+    try registry.register("heapq", .zig_runtime, "runtime.Lib.heapq", null);
+    try registry.register("bisect", .zig_runtime, "runtime.Lib.bisect", null);
+    try registry.register("statistics", .zig_runtime, "runtime.Lib.statistics", null);
     try registry.register("decimal", .zig_runtime, null, null);
     try registry.register("fractions", .zig_runtime, null, null);
-    try registry.register("cmath", .zig_runtime, "std", null);
-    try registry.register("html", .zig_runtime, "std", null);
-    try registry.register("xml", .zig_runtime, "std", null);
+    try registry.register("cmath", .zig_runtime, null, null); // No Lib implementation yet
+    try registry.register("html", .zig_runtime, "runtime.Lib.html", null);
+    try registry.register("xml", .zig_runtime, "runtime.Lib.xml", null);
     try registry.register("pyexpat", .zig_runtime, "runtime.Lib.pyexpat", "runtime.Lib.pyexpat");
-    try registry.register("email", .zig_runtime, "std", null);
-    try registry.register("signal", .zig_runtime, "std", null);
-    try registry.register("multiprocessing", .zig_runtime, "std", null);
+    try registry.register("email", .zig_runtime, "runtime.Lib.email", null);
+    try registry.register("signal", .zig_runtime, "runtime.Lib.signal", null);
+    try registry.register("multiprocessing", .zig_runtime, null, null); // No Lib implementation yet
     try registry.register("array", .zig_runtime, null, null);
     try registry.registerDirect("weakref", .zig_runtime, "runtime.Lib.weakref", "runtime.Lib.weakref", null);
-    try registry.register("types", .zig_runtime, "std", null);
+    try registry.register("types", .zig_runtime, "runtime.Lib.types", null);
     try registry.registerDirect("abc", .zig_runtime, "runtime.Lib.abc", "runtime.Lib.abc", null);
     try registry.registerDirect("_py_abc", .zig_runtime, "runtime.Lib._py_abc", "runtime.Lib._py_abc", null);
     try registry.registerDirect("inspect", .zig_runtime, "runtime.Lib.inspect", "runtime.Lib.inspect", null);
-    try registry.register("dataclasses", .zig_runtime, "std", null);
-    try registry.register("enum", .zig_runtime, "std", null);
-    try registry.register("atexit", .zig_runtime, "std", null);
-    try registry.register("warnings", .zig_runtime, "std", null);
-    try registry.register("traceback", .zig_runtime, "std", null);
-    try registry.register("pprint", .zig_runtime, "std", null);
-    try registry.register("platform", .zig_runtime, "std", null);
-    try registry.register("locale", .zig_runtime, "std", null);
-    try registry.register("codecs", .zig_runtime, "std", null);
-    try registry.register("binascii", .zig_runtime, "std", null);
-    try registry.register("errno", .zig_runtime, "std", null);
-    try registry.register("gc", .zig_runtime, "std", null);
-    try registry.register("select", .zig_runtime, "std", null);
-    try registry.register("mmap", .zig_runtime, "std", null);
-    try registry.register("fcntl", .zig_runtime, "std", null);
+    try registry.register("dataclasses", .zig_runtime, "runtime.Lib.dataclasses", null);
+    try registry.register("enum", .zig_runtime, "runtime.Lib.enum", null);
+    try registry.register("atexit", .zig_runtime, null, null); // No Lib implementation yet
+    try registry.register("warnings", .zig_runtime, "runtime.Lib.warnings", null);
+    try registry.register("traceback", .zig_runtime, "runtime.Lib.traceback", null);
+    try registry.register("pprint", .zig_runtime, "runtime.Lib.pprint", null);
+    try registry.register("platform", .zig_runtime, "runtime.Lib.platform", null);
+    try registry.register("locale", .zig_runtime, "runtime.Lib.locale", null);
+    try registry.register("codecs", .zig_runtime, "runtime.Lib.codecs", null);
+    try registry.register("binascii", .zig_runtime, null, null); // No Lib implementation yet
+    try registry.register("errno", .zig_runtime, null, null); // Uses inline dispatch
+    try registry.register("gc", .zig_runtime, null, null); // Uses inline dispatch
+    try registry.register("select", .zig_runtime, null, null); // No Lib implementation yet
+    try registry.register("mmap", .zig_runtime, null, null); // No Lib implementation yet
+    try registry.register("fcntl", .zig_runtime, null, null); // No Lib implementation yet
     try registry.register("unicodedata", .zig_runtime, null, null);
 
     // Tier 3: Mark as compile_python (will be handled later)

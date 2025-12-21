@@ -29,7 +29,7 @@ pub fn token_bytes(nbytes: ?usize) []const u8 {
 /// Return a random byte string containing nbytes bytes, allocated
 pub fn token_bytes_alloc(allocator: std.mem.Allocator, nbytes: ?usize) ![]u8 {
     const n = nbytes orelse DEFAULT_ENTROPY;
-    var buffer = try allocator.alloc(u8, n);
+    const buffer = try allocator.alloc(u8, n);
     SecureRandom.bytes(buffer);
     return buffer;
 }
@@ -37,12 +37,12 @@ pub fn token_bytes_alloc(allocator: std.mem.Allocator, nbytes: ?usize) ![]u8 {
 /// Return a random text string, in hexadecimal
 pub fn token_hex(allocator: std.mem.Allocator, nbytes: ?usize) ![]u8 {
     const n = nbytes orelse DEFAULT_ENTROPY;
-    var rand_bytes = try allocator.alloc(u8, n);
+    const rand_bytes = try allocator.alloc(u8, n);
     defer allocator.free(rand_bytes);
 
     SecureRandom.bytes(rand_bytes);
 
-    var result = try allocator.alloc(u8, n * 2);
+    const result = try allocator.alloc(u8, n * 2);
     errdefer allocator.free(result);
 
     const hex_chars = "0123456789abcdef";
@@ -57,7 +57,7 @@ pub fn token_hex(allocator: std.mem.Allocator, nbytes: ?usize) ![]u8 {
 /// Return a random URL-safe text string containing nbytes random bytes
 pub fn token_urlsafe(allocator: std.mem.Allocator, nbytes: ?usize) ![]u8 {
     const n = nbytes orelse DEFAULT_ENTROPY;
-    var rand_bytes = try allocator.alloc(u8, n);
+    const rand_bytes = try allocator.alloc(u8, n);
     defer allocator.free(rand_bytes);
 
     SecureRandom.bytes(rand_bytes);
@@ -163,7 +163,7 @@ pub fn generate_password(allocator: std.mem.Allocator, length: usize, options: P
         return error.EmptyCharset;
     }
 
-    var result = try allocator.alloc(u8, length);
+    const result = try allocator.alloc(u8, length);
     errdefer allocator.free(result);
 
     for (result) |*c| {

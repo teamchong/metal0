@@ -36,8 +36,8 @@ pub const Element = struct {
         if (self.text) |t| self.allocator.free(t);
         if (self.tail) |t| self.allocator.free(t);
 
-        var iter = self.attrib.iterator();
-        while (iter.next()) |entry| {
+        var attrib_iter = self.attrib.iterator();
+        while (attrib_iter.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
             self.allocator.free(entry.value_ptr.*);
         }
@@ -74,8 +74,8 @@ pub const Element = struct {
     /// Get all attribute items
     pub fn items(self: *Self) ![]struct { key: []const u8, value: []const u8 } {
         var result: std.ArrayList(struct { key: []const u8, value: []const u8 }) = .{};
-        var iter = self.attrib.iterator();
-        while (iter.next()) |entry| {
+        var attrib_iter = self.attrib.iterator();
+        while (attrib_iter.next()) |entry| {
             try result.append(self.allocator, .{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
         }
         return result.toOwnedSlice(self.allocator);

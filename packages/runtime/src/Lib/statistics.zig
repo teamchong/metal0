@@ -270,7 +270,8 @@ pub fn correlation(comptime T: type, x: []const T, y: []const T) !f64 {
     if (x.len != y.len) return error.LengthMismatch;
     if (x.len < 2) return StatisticsError.NotEnoughData;
 
-    const n = x.len;
+    // n is used for documentation purposes - correlation uses all elements
+    _ = x.len;
     const mean_x = try mean(T, x);
     const mean_y = try mean(T, y);
 

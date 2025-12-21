@@ -7,7 +7,7 @@ const std = @import("std");
 /// Encode as base64
 pub fn encodeBase64(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
     const encoded_len = std.base64.standard.Encoder.calcSize(data.len);
-    var encoded = try allocator.alloc(u8, encoded_len);
+    const encoded = try allocator.alloc(u8, encoded_len);
     _ = std.base64.standard.Encoder.encode(encoded, data);
     return encoded;
 }

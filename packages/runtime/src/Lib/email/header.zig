@@ -31,7 +31,7 @@ pub fn decodeHeader(allocator: std.mem.Allocator, value: []const u8) ![]u8 {
                             i = i + 2 + end + 2;
                             continue;
                         };
-                        var buf = try allocator.alloc(u8, decoded);
+                        const buf = try allocator.alloc(u8, decoded);
                         defer allocator.free(buf);
                         std.base64.standard.Decoder.decode(buf, text.?) catch {
                             try result.appendSlice(allocator, value[i .. i + 2 + end + 2]);
@@ -103,7 +103,7 @@ pub fn makeHeader(allocator: std.mem.Allocator, decoded_value: []const u8, chars
     try result.appendSlice(allocator, "?B?");
 
     const encoded_len = std.base64.standard.Encoder.calcSize(decoded_value.len);
-    var encoded = try allocator.alloc(u8, encoded_len);
+    const encoded = try allocator.alloc(u8, encoded_len);
     defer allocator.free(encoded);
     _ = std.base64.standard.Encoder.encode(encoded, decoded_value);
     try result.appendSlice(allocator, encoded);

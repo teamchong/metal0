@@ -1005,6 +1005,16 @@ pub const Lib = struct {
     pub const winreg = @import("Lib/winreg.zig"); // Windows registry (stubs on non-Windows)
     pub const msvcrt = @import("Lib/msvcrt.zig"); // MSVC runtime (stubs on non-Windows)
     pub const test_ = @import("Lib/test/support.zig"); // test is reserved, use test_
+    pub const platform = @import("Lib/platform.zig");
+    pub const secrets = @import("Lib/secrets.zig");
+    pub const configparser = @import("Lib/configparser.zig");
+    pub const argparse = @import("Lib/argparse.zig");
+    pub const html = @import("Lib/html.zig");
+    pub const xml = @import("Lib/xml.zig");
+    pub const email = @import("Lib/email.zig");
+    pub const signal = @import("Lib/signal.zig");
+    pub const statistics = @import("Lib/statistics.zig");
+    pub const gzip = @import("Lib/gzip.zig");
 };
 
 /// Modules/ directory - C extension module implementations

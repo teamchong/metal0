@@ -266,16 +266,20 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     defer emitted_module_consts.deinit();
 
     for (imported_modules.items) |mod_name| {
-        // Skip 'builtins' module - it's handled specially in dispatch
-        // builtins.func() calls are dispatched to built-in function handlers directly
-        if (std.mem.eql(u8, mod_name, "builtins")) {
-            continue;
-        }
-
         // Skip if we've already emitted this module const
         if (emitted_module_consts.contains(mod_name)) {
             continue;
         }
+
+        // Special handling for 'builtins' module
+        // builtins.func() calls are dispatched to builtin handlers, but code may access builtins.__dict__ etc.
+        if (std.mem.eql(u8, mod_name, "builtins")) {
+            // Generate: const builtins = runtime.builtins;
+            try emitConst(self, "const builtins = runtime.builtins;\n");
+            try emitted_module_consts.put(mod_name, {});
+            continue;
+        }
+
         try emitted_module_consts.put(mod_name, {});
 
         // Track this module name for call site handling
