@@ -81,16 +81,16 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Pre-generate expression to detect labeled blocks and block statements
     const start_pos = self.output.items.len;
     try self.genExpr(expr);
-    const expr_output = self.output.items[start_pos..];
 
-    // Detect if this is a labeled block (pattern: __mN_xxx: { ... })
-    // Labeled blocks at statement level don't need semicolons in Zig
-    // BUT: Assigned labeled blocks (e.g., _ = __mN_xxx: { ... }) DO need semicolons
-    const trimmed_start = std.mem.trim(u8, expr_output, " \t");
-    const has_labeled_block_pattern = std.mem.indexOf(u8, expr_output, ": {") != null and
-        std.mem.startsWith(u8, trimmed_start, "__m");
-    const is_assigned_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
-        std.mem.startsWith(u8, trimmed_start, "_ = __m");
+    // Flush builder to output if there's pending content
+    if (self.builder) |b| {
+        const builder_content = b.getBodyAndClear();
+        if (builder_content.len > 0) {
+            try self.output.appendSlice(self.allocator, builder_content);
+        }
+    }
+
+    const expr_output = self.output.items[start_pos..];
 
     // Check for empty block expressions {} from stub implementations
     // These are invalid Zig and should be skipped entirely
@@ -100,6 +100,15 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         self.output.shrinkRetainingCapacity(start_pos);
         return;
     }
+
+    // Detect if this is a labeled block (pattern: __mN_xxx: { ... })
+    // Labeled blocks at statement level don't need semicolons in Zig
+    // BUT: Assigned labeled blocks (e.g., _ = __mN_xxx: { ... }) DO need semicolons
+    const trimmed_start = std.mem.trim(u8, expr_output, " \t");
+    const has_labeled_block_pattern = std.mem.indexOf(u8, expr_output, ": {") != null and
+        std.mem.startsWith(u8, trimmed_start, "__m");
+    const is_assigned_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
+        std.mem.startsWith(u8, trimmed_start, "_ = __m");
 
     // Check if this is a block statement (ends with } or }\n or }); or similar)
     // Block statements like if/while/for with braces don't need semicolons
