@@ -543,6 +543,12 @@ pub fn genZeroCaptureClosure(
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
 
+        // If we renamed the function, also add a var_rename so calls use the prefixed name
+        if (shadows_import or is_redefinition) {
+            const alias_copy = try self.arena.allocator().dupe(u8, alias_name);
+            try self.var_renames.put(func.name, alias_copy);
+        }
+
         // Declare the alias name (using unique name if redefinition)
         try self.declareVar(alias_name);
 
@@ -551,29 +557,6 @@ pub fn genZeroCaptureClosure(
         try emitConst(self,"_ = &");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try emitConst(self,";\n");
-
-        // If we renamed the function, emit a second assignment with the original name
-        // This ensures the original name can be used as a value (e.g., [f, C.m])
-        if (shadows_import or is_redefinition) {
-            // Emit: const f = __m7_c_f;
-            try self.emitIndent();
-            try emitConst(self,if (is_func_mutated) "var " else "const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-            try self.output.writer(self.allocator).print(" = {s};\n", .{alias_name});
-
-            // Declare the original name
-            try self.declareVar(func.name);
-
-            // Suppress unused warning for original name
-            try self.emitIndent();
-            try emitConst(self,"_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-            try emitConst(self,";\n");
-
-            // Also add a var_rename so calls use the unique name for consistency
-            const alias_copy = try self.arena.allocator().dupe(u8, alias_name);
-            try self.var_renames.put(func.name, alias_copy);
-        }
 
         // Mark as closure so calls use .call() syntax
         const func_name_copy = try self.arena.allocator().dupe(u8, func.name);

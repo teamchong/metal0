@@ -864,37 +864,14 @@ pub fn genStandardClosure(
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
 
-        // Declare the alias name (using unique name if redefinition)
-        try self.declareVar(alias_name);
-
-        // Suppress unused local constant warning for the alias
-        try self.emitIndent();
-        try emitConst(self,"_ = &");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
-        try emitConst(self,";\n");
-
-        // If we renamed the function, emit a second assignment with the original name
-        // This ensures the original name can be used as a value (e.g., [f, C.m])
+        // If we renamed the function, also add a var_rename so calls use the prefixed name
         if (shadows_import or is_redefinition) {
-            // Emit: const f = __m7_c_f;
-            try self.emitIndent();
-            try emitConst(self,if (is_func_mutated) "var " else "const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-            try self.output.writer(self.allocator).print(" = {s};\n", .{alias_name});
-
-            // Declare the original name
-            try self.declareVar(func.name);
-
-            // Suppress unused warning for original name
-            try self.emitIndent();
-            try emitConst(self,"_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-            try emitConst(self,";\n");
-
-            // Also add a var_rename so calls use the unique name for consistency
             const alias_copy = try self.arena.allocator().dupe(u8, alias_name);
             try self.var_renames.put(func.name, alias_copy);
         }
+
+        // Declare the alias name (using unique name if redefinition)
+        try self.declareVar(alias_name);
 
         // Mark this variable as a closure so calls use .call() syntax
         const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
@@ -1403,37 +1380,14 @@ pub fn genNestedFunctionWithOuterCapture(
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name2);
     try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
 
-    // Declare the alias name (using unique name if redefinition)
-    try self.declareVar(alias_name2);
-
-    // Suppress unused local constant warning for the alias
-    try self.emitIndent();
-    try emitConst(self,"_ = &");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name2);
-    try emitConst(self,";\n");
-
-    // If we renamed the function, emit a second assignment with the original name
-    // This ensures the original name can be used as a value (e.g., [f, C.m])
+    // If we renamed the function, also add a var_rename so calls use the prefixed name
     if (shadows_import2 or is_redefinition2) {
-        // Emit: const f = __m7_c_f;
-        try self.emitIndent();
-        try emitConst(self,"const ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-        try self.output.writer(self.allocator).print(" = {s};\n", .{alias_name2});
-
-        // Declare the original name
-        try self.declareVar(func.name);
-
-        // Suppress unused warning for original name
-        try self.emitIndent();
-        try emitConst(self,"_ = &");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func.name);
-        try emitConst(self,";\n");
-
-        // Also add a var_rename so calls use the unique name for consistency
         const alias_copy2 = try self.arena.allocator().dupe(u8, alias_name2);
         try self.var_renames.put(func.name, alias_copy2);
     }
+
+    // Declare the alias name (using unique name if redefinition)
+    try self.declareVar(alias_name2);
 
     // Mark this variable as a closure so calls use .call() syntax
     const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
