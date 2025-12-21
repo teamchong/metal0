@@ -1019,6 +1019,7 @@ pub const Lib = struct {
     pub const signal = @import("Lib/signal.zig");
     pub const statistics = @import("Lib/statistics.zig");
     pub const gzip = @import("Lib/gzip.zig");
+    pub const logging = @import("Lib/logging.zig");
 };
 
 /// Modules/ directory - C extension module implementations
