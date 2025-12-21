@@ -92,6 +92,15 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const is_assigned_labeled_block = std.mem.indexOf(u8, expr_output, ": {") != null and
         std.mem.startsWith(u8, trimmed_start, "_ = __m");
 
+    // Check for empty block expressions {} from stub implementations
+    // These are invalid Zig and should be skipped entirely
+    const trimmed_expr = std.mem.trim(u8, expr_output, " \t\n");
+    if (std.mem.eql(u8, trimmed_expr, "{}")) {
+        // Skip empty block stub - don't generate any statement
+        self.output.shrinkRetainingCapacity(start_pos);
+        return;
+    }
+
     // Check if this is a block statement (ends with } or }\n or }); or similar)
     // Block statements like if/while/for with braces don't need semicolons
     // Also check for labeled blocks that end with } followed by closing parens/brackets
