@@ -17,6 +17,8 @@
 6. **Use `./zig-out/bin/metal0 test` for running CPython tests** - zero config, fast by default
 7. **READ ERROR MESSAGES** - Don't skip errors. FileNotFound = wrong path. Read the error, fix the cause.
 8. **DCE-friendly imports** - New modules must use `runtime.Lib.xxx` or `c_interop.modules.xxx` namespaces (not direct `runtime.xxx`) to enable dead code elimination.
+   - When adding a new stdlib module: 1) Create .zig in `packages/runtime/src/Lib/`, 2) Run `zig build gen-stdlib`, 3) Add export to `runtime.zig` Lib struct
+   - See `packages/runtime/src/Lib_exports.zig` for reference list of all available modules
 9. **NEVER skip complex tests** - When a test fails, FIX IT. Don't look for "simpler" tests. Complex features are required. Skipping is not acceptable.
 10. **Use batch test runner** - Run tests with `./zig-out/bin/metal0 test tests/cpython <pattern>`. The batch runner shares module analysis for faster compilation.
 11. **NEVER modify/rename/delete tests/cpython/*.py files** - These are the 389 CPython test files. They are READ-ONLY. If a test takes too long, fix the compiler - don't skip the test.
