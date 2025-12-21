@@ -103,6 +103,9 @@ pub const stdlib_module_names = [_][]const u8{
     "_string",
     "_strptime",
     "_struct",
+    "_testcapi",
+    "_testconsole",
+    "_testexternalinspection",
     "_threading_local",
     "_weakrefset",
     "abc",
@@ -116,6 +119,7 @@ pub const stdlib_module_names = [_][]const u8{
     "argparse.subparsers",
     "argparse.types",
     "argparse.utils",
+    "array",
     "ast.ast",
     "ast.dump",
     "ast.nodes",
@@ -664,6 +668,7 @@ pub const stdlib_module_names = [_][]const u8{
     "math",
     "mimetypes",
     "modulefinder",
+    "msvcrt",
     "multiprocessing.connection",
     "multiprocessing.context",
     "multiprocessing.dummy",
@@ -795,6 +800,7 @@ pub const stdlib_module_names = [_][]const u8{
     "pydoc",
     "pydoc_data",
     "pydoc_data.topics",
+    "pyexpat",
     "queue",
     "quopri",
     "random",
@@ -974,6 +980,7 @@ pub const stdlib_module_names = [_][]const u8{
     "test.support.hypothesis_helper",
     "test.support.i18n_helper",
     "test.support.import_helper",
+    "test.support.interpreters",
     "test.support.interpreters._crossinterp",
     "test.support.interpreters.channels",
     "test.support.interpreters.queues",
@@ -1139,6 +1146,7 @@ pub const stdlib_module_names = [_][]const u8{
     "weakref.weakset",
     "webbrowser",
     "websocket",
+    "winreg",
     "wsgiref",
     "wsgiref.handlers",
     "wsgiref.headers",
@@ -1195,11 +1203,13 @@ pub const stdlib_module_names = [_][]const u8{
     "_objects.dictobject",
     "_objects.fileobject",
     "_objects.floatobject",
+    "_objects.fraction",
     "_objects.intobject",
     "_objects.listobject",
     "_objects.longobject",
     "_objects.object",
     "_objects.pyint",
+    "_objects.pytype",
     "_objects.setobject",
     "_objects.stringlib.core",
     "_objects.stringlib.manipulate",
@@ -1962,7 +1972,7 @@ pub const stdlib_module_names = [_][]const u8{
 };
 
 /// Number of discovered stdlib modules
-pub const stdlib_module_count: usize = 1942;
+pub const stdlib_module_count: usize = 1952;
 
 /// Check if a module name exists in stdlib
 pub fn hasModule(name: []const u8) bool {
@@ -2345,11 +2355,13 @@ pub const auto_registrable_modules = [_][]const u8{
     "_objects.dictobject",
     "_objects.fileobject",
     "_objects.floatobject",
+    "_objects.fraction",
     "_objects.intobject",
     "_objects.listobject",
     "_objects.longobject",
     "_objects.object",
     "_objects.pyint",
+    "_objects.pytype",
     "_objects.setobject",
     "_objects.stringlib.core",
     "_objects.stringlib.manipulate",
@@ -2829,6 +2841,8 @@ pub const auto_registrable_modules = [_][]const u8{
     "_sitebuiltins",
     "_strptime",
     "_struct",
+    "_testconsole",
+    "_testexternalinspection",
     "_threading_local",
     "_weakrefset",
     "annotationlib",
@@ -3355,6 +3369,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "mailbox.mmdf",
     "mimetypes",
     "modulefinder",
+    "msvcrt",
     "multiprocessing.connection",
     "multiprocessing.context",
     "multiprocessing.dummy",
@@ -3482,6 +3497,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "pydoc",
     "pydoc_data",
     "pydoc_data.topics",
+    "pyexpat",
     "quopri",
     "re._casefix",
     "re._compiler",
@@ -3646,6 +3662,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "test.support.hypothesis_helper",
     "test.support.i18n_helper",
     "test.support.import_helper",
+    "test.support.interpreters",
     "test.support.interpreters._crossinterp",
     "test.support.interpreters.channels",
     "test.support.interpreters.queues",
@@ -3801,6 +3818,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "weakref.weakset",
     "webbrowser",
     "websocket",
+    "winreg",
     "wsgiref",
     "wsgiref.handlers",
     "wsgiref.headers",
@@ -3850,4 +3868,4 @@ pub const auto_registrable_modules = [_][]const u8{
     "zoneinfo._zoneinfo",
 };
 
-pub const auto_registrable_count: usize = 1874;
+pub const auto_registrable_count: usize = 1882;

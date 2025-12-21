@@ -902,6 +902,8 @@ pub const time = @import("Lib/time.zig");
 // The direct pub const exports above are kept for backwards compatibility.
 
 /// Lib/ directory modules - Python standard library implementations
+/// This is a CURATED list of modules that are known to compile correctly.
+/// For a full list of available modules, see Lib_exports.zig (run: zig build gen-stdlib)
 pub const Lib = struct {
     // Python stdlib modules (alphabetical, underscores first)
     pub const __future__ = @import("Lib/__future__.zig");
@@ -1005,6 +1007,8 @@ pub const Lib = struct {
     pub const winreg = @import("Lib/winreg.zig"); // Windows registry (stubs on non-Windows)
     pub const msvcrt = @import("Lib/msvcrt.zig"); // MSVC runtime (stubs on non-Windows)
     pub const test_ = @import("Lib/test/support.zig"); // test is reserved, use test_
+
+    // Modules added for CPython test compatibility
     pub const platform = @import("Lib/platform.zig");
     pub const secrets = @import("Lib/secrets.zig");
     pub const configparser = @import("Lib/configparser.zig");
