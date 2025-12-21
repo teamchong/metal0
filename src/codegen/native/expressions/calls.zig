@@ -1199,7 +1199,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Don't add try for class-body-level nested classes - they return @This()
             const needs_try_for_nested = if (is_class_body_nested) false else (in_nested_names or (is_self_class_call and current_class_is_nested));
             const has_error_init = self.error_init_classes.contains(raw_func_name);
-            const needs_try = needs_try_for_nested or has_error_init;
+            // User-defined classes in class_registry have init() returning !@This() due to __dict__ allocation
+            const needs_try = needs_try_for_nested or has_error_init or in_class_registry;
 
             // Special handling for external class types (ndarray, staticarray) that take options struct
             if (is_external_class) {
