@@ -306,7 +306,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("itertools", .zig_runtime, "runtime.Lib.itertools", null);
 
     // Modules that use inline codegen only (no direct_import needed)
-    try registry.register("struct", .zig_runtime, "runtime.Lib.struct", null);
+    try registry.register("struct", .zig_runtime, "runtime.Lib.@\"struct\"", null);
     try registry.register("base64", .zig_runtime, "runtime.Lib.base64", null);
     try registry.register("hmac", .zig_runtime, "runtime.Lib.hmac", null);
     try registry.register("socket", .zig_runtime, "runtime.Lib.socket", null);
