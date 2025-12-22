@@ -674,17 +674,26 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     } else false;
 
     if (is_self_obj) {
-        // Special handling for subTest which needs keyword arguments
-        if (std.mem.eql(u8, method_name, "subTest")) {
-            try unittest_mod.genSubTest(self, obj, call.args, call.keyword_args);
-            return true;
-        }
-        if (UnittestMethods.get(method_name)) |handler| {
-            handler(self, obj, call.args) catch |err| {
-                if (err == error.UnsupportedSyntax) return false;
-                return err;
-            };
-            return true;
+        // Only apply unittest method dispatch if we're inside a unittest TestCase subclass
+        // This prevents treating any self.addCleanup() call as a unittest no-op
+        const is_unittest_class = if (self.current_class_name) |class_name|
+            self.isTestCaseSubclass(class_name)
+        else
+            false;
+
+        if (is_unittest_class) {
+            // Special handling for subTest which needs keyword arguments
+            if (std.mem.eql(u8, method_name, "subTest")) {
+                try unittest_mod.genSubTest(self, obj, call.args, call.keyword_args);
+                return true;
+            }
+            if (UnittestMethods.get(method_name)) |handler| {
+                handler(self, obj, call.args) catch |err| {
+                    if (err == error.UnsupportedSyntax) return false;
+                    return err;
+                };
+                return true;
+            }
         }
     }
 
