@@ -39,6 +39,14 @@ pub fn analyzeNestedClassCaptures(self: *NativeCodegen, func: ast.Node.FunctionD
     for (func.args) |arg| {
         try self.func_local_vars.put(arg.name, {});
     }
+    // Also include vararg (*args) parameter
+    if (func.vararg) |vararg_name| {
+        try self.func_local_vars.put(vararg_name, {});
+    }
+    // Also include kwarg (**kwargs) parameter
+    if (func.kwarg) |kwarg_name| {
+        try self.func_local_vars.put(kwarg_name, {});
+    }
     try collectLocalVarsInStmts(self, func.body);
 
     // Then, for each nested class, find which local variables it references

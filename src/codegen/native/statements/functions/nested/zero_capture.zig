@@ -172,6 +172,26 @@ pub fn genZeroCaptureClosure(
         self.func_local_vars = saved_func_local_vars;
     }
 
+    // Save and clear nested_class_captures for this nested function
+    // Each nested function needs its own capture analysis
+    const saved_nested_class_captures = self.nested_class_captures;
+    self.nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(self.allocator);
+    defer {
+        // Free any allocated capture slices
+        var cap_iter = self.nested_class_captures.iterator();
+        while (cap_iter.next()) |entry| {
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.nested_class_captures.deinit();
+        self.nested_class_captures = saved_nested_class_captures;
+    }
+
+    // Analyze nested class captures BEFORE generating body
+    // This populates func_local_vars with parameters and local variables,
+    // then finds which outer variables are referenced by nested classes
+    const nested_captures = @import("../generators/body/nested_captures.zig");
+    try nested_captures.analyzeNestedClassCaptures(self, func);
+
     // Save and clear mutation tracking for this nested function body
     // Nested functions need their own mutation analysis to determine var vs const
     const saved_func_local_mutations = self.func_local_mutations;
@@ -313,6 +333,51 @@ pub fn genZeroCaptureClosure(
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             }
             try emitConst(self,";\n");
+        }
+    }
+
+    // Emit param discards for parameters captured by nested classes
+    // These params are used inside nested class methods but the class may not be
+    // instantiated in a way that Zig can see (e.g., passed to type.__new__)
+    // Without this, Zig complains about unused parameters
+    {
+        var captured_params = hashmap_helper.StringHashMap(void).init(self.allocator);
+        defer captured_params.deinit();
+
+        // Collect all captured variable names from nested classes
+        var ncc_iter = self.nested_class_captures.iterator();
+        while (ncc_iter.next()) |entry| {
+            for (entry.value_ptr.*) |cap_name| {
+                try captured_params.put(cap_name, {});
+            }
+        }
+
+        // Emit discards for params that are captured but not otherwise used directly
+        for (func.args) |arg| {
+            if (captured_params.contains(arg.name)) {
+                if (param_renames.get(arg.name)) |renamed| {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = &{s};\n", .{renamed});
+                }
+            }
+        }
+        // Also check vararg
+        if (func.vararg) |vararg_name| {
+            if (captured_params.contains(vararg_name)) {
+                if (param_renames.get(vararg_name)) |renamed| {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = &{s};\n", .{renamed});
+                }
+            }
+        }
+        // Also check kwarg
+        if (func.kwarg) |kwarg_name| {
+            if (captured_params.contains(kwarg_name)) {
+                if (param_renames.get(kwarg_name)) |renamed| {
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = &{s};\n", .{renamed});
+                }
+            }
         }
     }
 
