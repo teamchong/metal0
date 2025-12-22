@@ -314,8 +314,10 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try emitConst(self,", @intCast(");
             if (base_is_indexable_class) {
                 // For class with __index__, create instance and call __index__()
+                // __index__() returns !i64, so we need try to unwrap
+                try emitConst(self,"(try ");
                 try self.genExpr(args[1]);
-                try emitConst(self,".__index__()");
+                try emitConst(self,".__index__())");
             } else {
                 try self.genExpr(args[1]);
             }

@@ -134,10 +134,10 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // setUp
             if (class_info.has_setUp) {
                 try self.emitIndent();
-                try emitConst(self,"ctx.instance.setUp(ctx.allocator) catch |err| {\n");
+                try emitConst(self,"ctx.instance.setUp(ctx.allocator) catch {\n");
                 self.indent();
                 try self.emitIndent();
-                try emitConst(self,"_ = err; ctx.result.store(2, .release); return;\n"); // Fail test on setUp error
+                try emitConst(self,"ctx.result.store(2, .release); return;\n"); // Fail test on setUp error
                 self.dedent();
                 try self.emitIndent();
                 try emitConst(self,"};\n");
@@ -174,7 +174,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 // tearDown on failure
                 if (class_info.has_tearDown) {
                     try self.emitIndent();
-                    try emitConst(self,"ctx.instance.tearDown(ctx.allocator) catch |err| { _ = err; };\n");
+                    try emitConst(self,"ctx.instance.tearDown(ctx.allocator) catch {};\n");
                 }
                 try self.emitIndent();
                 try emitConst(self,"ctx.result.store(2, .release);\n"); // 2 = failed
@@ -193,10 +193,10 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
             // tearDown on success
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try emitConst(self,"ctx.instance.tearDown(ctx.allocator) catch |err| {\n");
+                try emitConst(self,"ctx.instance.tearDown(ctx.allocator) catch {\n");
                 self.indent();
                 try self.emitIndent();
-                try emitConst(self,"_ = err; ctx.result.store(2, .release); return;\n"); // Fail test on tearDown error
+                try emitConst(self,"ctx.result.store(2, .release); return;\n"); // Fail test on tearDown error
                 self.dedent();
                 try self.emitIndent();
                 try emitConst(self,"};\n");
@@ -264,7 +264,7 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         }
         if (class_info.has_teardown_class and has_runnable_tests) {
             try self.emitIndent();
-            try self.output.writer(self.allocator).print("{s}.tearDownClass(__global_allocator) catch |err| {{ _ = err; }};\n", .{class_info.class_name});
+            try self.output.writer(self.allocator).print("{s}.tearDownClass(__global_allocator) catch {{}};\n", .{class_info.class_name});
         }
     }
 

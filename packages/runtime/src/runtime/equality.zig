@@ -308,6 +308,10 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         if (A == f32) {
             return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
         }
+        // Special case: UnifiedInt - use eqlSimple which doesn't need allocator
+        if (A == @import("../Objects/pyint.zig").UnifiedInt) {
+            return a.eqlSimple(b);
+        }
         // Special case: slices need std.mem.eql
         if (a_info == .pointer and a_info.pointer.size == .slice) {
             return std.mem.eql(a_info.pointer.child, a, b);

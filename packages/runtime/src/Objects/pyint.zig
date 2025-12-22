@@ -76,8 +76,31 @@ pub const UnifiedInt = union(enum) {
 
     /// Parse a string (with Unicode digit support) into UnifiedInt
     /// Returns .small if value fits in i64, .big otherwise
-    pub fn parseUnicode(allocator: Allocator, str: []const u8, base: u8) !Self {
-        var big = try bigint_mod.parseBigIntUnicode(allocator, str, base);
+    /// Accepts both []const u8 and PyBytes (or any type with .data field)
+    pub fn parseUnicode(allocator: Allocator, str: anytype, base: u8) !Self {
+        // Extract the actual string data
+        const str_data: []const u8 = blk: {
+            const T = @TypeOf(str);
+            const info = @typeInfo(T);
+            // Direct []const u8
+            if (T == []const u8) {
+                break :blk str;
+            }
+            // Pointer to array (e.g., *const [8:0]u8) - coerce to slice
+            if (info == .pointer) {
+                const child = info.pointer.child;
+                const child_info = @typeInfo(child);
+                if (child_info == .array and child_info.array.child == u8) {
+                    break :blk str;
+                }
+            }
+            // Struct with .data field (e.g., PyBytes)
+            if (info == .@"struct" and @hasField(T, "data")) {
+                break :blk str.data;
+            }
+            @compileError("parseUnicode: expected []const u8, *const [N]u8, or type with .data field, got " ++ @typeName(T));
+        };
+        var big = try bigint_mod.parseBigIntUnicode(allocator, str_data, base);
         // Try to demote to i64 if it fits
         if (big.toInt64()) |small_val| {
             big.deinit();
@@ -488,6 +511,38 @@ pub const UnifiedInt = union(enum) {
     /// Equality check
     pub fn eql(self: Self, other: Self, allocator: Allocator) !bool {
         return (try self.compare(other, allocator)) == 0;
+    }
+
+    /// Simple equality check that doesn't require allocator
+    /// Used by pyAnyEql for UnifiedInt comparison
+    pub fn eqlSimple(self: Self, other: Self) bool {
+        switch (self) {
+            .small => |a| switch (other) {
+                .small => |b| return a == b,
+                .big => |b_big| {
+                    // If big can fit in i64, compare values
+                    if (b_big.toInt64()) |b_val| {
+                        return a == b_val;
+                    }
+                    // Big value doesn't fit in i64, can't be equal to small
+                    return false;
+                },
+            },
+            .big => |a_big| switch (other) {
+                .small => |b| {
+                    // If big can fit in i64, compare values
+                    if (a_big.toInt64()) |a_val| {
+                        return a_val == b;
+                    }
+                    // Big value doesn't fit in i64, can't be equal to small
+                    return false;
+                },
+                .big => |b_big| {
+                    // Both are BigInt - use BigInt's compare (doesn't need allocator for read-only comparison)
+                    return a_big.compare(b_big) == 0;
+                },
+            },
+        }
     }
 
     // ============================================================================
