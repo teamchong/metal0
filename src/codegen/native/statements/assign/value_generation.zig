@@ -44,7 +44,7 @@ const PyValueMethods = std.StaticStringMap(void).initComptime(.{
 
 /// Check if a binop expression will produce PyValue output
 /// (i.e., uses genPyValueBinOp because operands are uncertain)
-fn binopProducesPyValue(self: *NativeCodegen, expr: ast.Node) bool {
+pub fn binopProducesPyValue(self: *NativeCodegen, expr: ast.Node) bool {
     if (expr != .binop) return false;
     const binop = expr.binop;
 

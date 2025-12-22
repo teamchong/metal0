@@ -887,6 +887,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Track if PyValue.from() wrapper was opened and needs closing
             // Declared at higher scope so early return paths can access it
             var wrapper_opened: bool = false;
+            // TWO-FLOW TYPE SYSTEM: Track if PyValue.from() wrapper needed for reassignment
+            var reassign_pyvalue_wrap: bool = false;
 
             if (is_first_assignment) {
                 // Special handling for y = x where x is ArrayList
@@ -1157,6 +1159,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Use renamed version if in var_renames map (for exception handling)
                     const actual_name = self.var_renames.get(var_name) orelse var_name;
 
+                    // TWO-FLOW TYPE SYSTEM: Check if reassigning a PyValue variable
+                    // If so, we need to wrap the RHS in runtime.PyValue.from()
+                    // EXCEPTION: If the expression already produces PyValue (e.g., binop with uncertain operands),
+                    // don't double-wrap
+                    const is_pyvalue_reassign = (declared_type == .pyvalue);
+                    const expr_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
+                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue;
+
                     // Skip type-changing assignments for anytype parameters
                     // Pattern: other = Rat(other) where other is anytype and RHS is constructor
                     // This is incompatible with Zig's type system - will be handled by comptime branching
@@ -1182,6 +1192,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
                     try emitConst(self," = ");
+                    // TWO-FLOW TYPE SYSTEM: Open PyValue.from() wrapper for reassignment if needed
+                    if (reassign_pyvalue_wrap) {
+                        try emitConst(self,"runtime.PyValue.from(");
+                    }
                     // No type annotation on reassignment
                 }
             }
@@ -1397,6 +1411,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Also update scoped_var_types so getScopedVar returns .pyvalue (not the original type)
                     // This is critical for aug_assign detection inside functions where scope is set
                     try self.type_inferrer.putScopedVar(var_name, .pyvalue);
+                    // Also update symbol_table so getLocalVarType() returns .pyvalue for reassignment detection
+                    try self.symbol_table.declare(var_name, .pyvalue, true);
+                }
+                // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper for reassignment if opened
+                if (reassign_pyvalue_wrap) {
+                    try emitConst(self,")");
                 }
                 try emitConst(self,";\n");
             }
