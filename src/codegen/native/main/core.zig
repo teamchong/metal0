@@ -691,6 +691,11 @@ pub const NativeCodegen = struct {
     // When assigning to a forward-declared var, don't emit "var" again
     forward_declared_vars: FnvVoidMap,
 
+    // Track variables that are returned from the current function
+    // Maps variable name -> void (e.g., "log" -> {})
+    // Defer deinit is SKIPPED for these variables because caller takes ownership
+    returned_vars: FnvVoidMap,
+
     // Track callable global variables (function references like float.fromhex)
     // These need to be emitted at module level, not inside main()
     // Maps variable name -> void (e.g., "fromHex" -> {})
@@ -939,6 +944,7 @@ pub const NativeCodegen = struct {
             .type_alias_vars = FnvVoidMap.init(aa),
             .hoisted_branch_funcs = FnvVoidMap.init(aa),
             .forward_declared_vars = FnvVoidMap.init(aa),
+            .returned_vars = FnvVoidMap.init(aa),
             .call_graph = null,
             .generic_type_params = FnvVoidMap.init(aa),
             .generic_classes = hashmap_helper.StringHashMap(usize).init(aa),

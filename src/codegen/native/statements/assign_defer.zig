@@ -184,6 +184,14 @@ pub fn emitDeferCleanups(
     is_allocated_string: bool,
     assign_value: ast.Node,
 ) CodegenError!void {
+    // CRITICAL: Skip defer deinit for variables that are returned from the function
+    // When a variable is returned, ownership transfers to the caller.
+    // Running defer deinit would corrupt the returned data.
+    // Example: log = []; ...; return log -> caller takes ownership of log
+    if (self.returned_vars.contains(var_name)) {
+        return;
+    }
+
     // Resolve the actual variable name (may be renamed due to shadowing)
     const actual_name = self.var_renames.get(var_name) orelse var_name;
 

@@ -11,6 +11,7 @@ const mutation_analysis = @import("body/mutation_analysis.zig");
 const usage_analysis = @import("body/usage_analysis.zig");
 const nested_captures = @import("body/nested_captures.zig");
 const function_gen = @import("body/function_gen.zig");
+const returned_vars_analysis = @import("body/returned_vars_analysis.zig");
 
 // Re-export class field functions
 pub const genClassFields = class_fields.genClassFields;
@@ -58,3 +59,7 @@ pub const genMethodBody = function_gen.genMethodBody;
 pub const genMethodBodyWithAllocatorInfo = function_gen.genMethodBodyWithAllocatorInfo;
 pub const genMethodBodyWithContext = function_gen.genMethodBodyWithContext;
 pub const hasSuperCall = function_gen.hasSuperCall;
+
+// Re-export returned vars analysis functions
+pub const analyzeReturnedVars = returned_vars_analysis.analyzeReturnedVars;
+pub const analyzeModuleLevelReturnedVars = returned_vars_analysis.analyzeModuleLevelReturnedVars;

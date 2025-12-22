@@ -39,6 +39,7 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const mutation_analysis = @import("mutation_analysis.zig");
 const usage_analysis = @import("usage_analysis.zig");
 const nested_captures = @import("nested_captures.zig");
+const returned_vars_analysis = @import("returned_vars_analysis.zig");
 const scope_analyzer = @import("../../scope_analyzer.zig");
 const var_hoisting = @import("../../var_hoisting.zig");
 const self_analyzer = @import("../../self_analyzer.zig");
@@ -526,6 +527,9 @@ pub fn genFunctionBody(
 
     // Analyze function body for used variables (prevents false "unused" detection)
     try usage_analysis.analyzeFunctionLocalUses(self, func);
+
+    // Analyze function body for returned variables (skip defer deinit for these)
+    try returned_vars_analysis.analyzeReturnedVars(self, func);
 
     // Analyze scope-escaping variables that need hoisting
     // Variables first assigned in for/if/while/try blocks but used outside need hoisting
@@ -1382,6 +1386,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Analyze method body for used variables (prevents false "unused" detection)
     try usage_analysis.analyzeFunctionLocalUses(self, method);
+
+    // Analyze method body for returned variables (skip defer deinit for these)
+    try returned_vars_analysis.analyzeReturnedVars(self, method);
 
     // Track local variables and analyze nested class captures for closure support
     // Clear all maps for each method to avoid pollution from sibling methods
