@@ -68,6 +68,29 @@ pub fn BoundListMethod(comptime T: type) type {
             const cast_val = castToListElement(T, @TypeOf(value), value, self.allocator) catch @panic("OOM");
             self.list.append(self.allocator, cast_val) catch @panic("OOM");
         }
+
+        /// Python __call__ protocol - called by PyValue.call()
+        /// Takes []const PyValue args and appends each to the list
+        pub fn __call__(self: *const Self, args: []const PyValue) PyValue {
+            for (args) |arg| {
+                // Convert PyValue to T and append
+                const val: T = if (T == PyValue)
+                    arg
+                else if (T == i64 and arg == .int)
+                    arg.int
+                else if (T == f64 and arg == .float)
+                    arg.float
+                else if (T == bool and arg == .bool)
+                    arg.bool
+                else if (T == []const u8 and arg == .string)
+                    arg.string
+                else
+                    // For PyValue list, just store the PyValue directly
+                    if (T == PyValue) arg else continue;
+                self.list.append(self.allocator, val) catch @panic("OOM");
+            }
+            return .{ .none = {} };
+        }
     };
 }
 

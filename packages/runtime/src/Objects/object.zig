@@ -137,6 +137,96 @@ pub const PyValue = union(enum) {
         return vtable;
     }
 
+    /// Wrapper for storing callable functions as PyValue.object
+    /// This enables first-class functions to be stored and called dynamically
+    pub fn CallableWrapper(comptime FnType: type) type {
+        const fn_info = @typeInfo(FnType).@"fn";
+        const ReturnType = fn_info.return_type orelse void;
+        const params = fn_info.params;
+
+        return struct {
+            const Self = @This();
+
+            fn_ptr: *const FnType,
+
+            /// VTable with __call__ for this callable
+            pub const vtable: PyObjectVTable = .{
+                .__call__ = callImpl,
+            };
+
+            fn callImpl(ptr: *anyopaque, args: []const PyValue) anyerror!PyValue {
+                const self: *const Self = @ptrCast(@alignCast(ptr));
+                const func = self.fn_ptr.*;
+
+                // Handle different arities
+                if (params.len == 0) {
+                    const result = @call(.auto, func, .{});
+                    return resultToPyValue(ReturnType, result);
+                } else if (params.len == 1) {
+                    const arg0 = if (args.len > 0) args[0] else PyValue{ .none = {} };
+                    const converted0 = convertArg(params[0].type.?, arg0);
+                    const result = @call(.auto, func, .{converted0});
+                    return resultToPyValue(ReturnType, result);
+                } else if (params.len == 2) {
+                    const arg0 = if (args.len > 0) args[0] else PyValue{ .none = {} };
+                    const arg1 = if (args.len > 1) args[1] else PyValue{ .none = {} };
+                    const converted0 = convertArg(params[0].type.?, arg0);
+                    const converted1 = convertArg(params[1].type.?, arg1);
+                    const result = @call(.auto, func, .{ converted0, converted1 });
+                    return resultToPyValue(ReturnType, result);
+                } else if (params.len == 3) {
+                    const arg0 = if (args.len > 0) args[0] else PyValue{ .none = {} };
+                    const arg1 = if (args.len > 1) args[1] else PyValue{ .none = {} };
+                    const arg2 = if (args.len > 2) args[2] else PyValue{ .none = {} };
+                    const converted0 = convertArg(params[0].type.?, arg0);
+                    const converted1 = convertArg(params[1].type.?, arg1);
+                    const converted2 = convertArg(params[2].type.?, arg2);
+                    const result = @call(.auto, func, .{ converted0, converted1, converted2 });
+                    return resultToPyValue(ReturnType, result);
+                } else {
+                    // For functions with more args, just pass the PyValue slice
+                    // The callee must handle PyValue args directly
+                    @compileError("CallableWrapper only supports functions with 0-3 parameters");
+                }
+            }
+
+            fn convertArg(comptime T: type, pv: PyValue) T {
+                if (T == PyValue) return pv;
+                if (T == i64) return if (pv == .int) pv.int else 0;
+                if (T == f64) return if (pv == .float) pv.float else 0.0;
+                if (T == bool) return if (pv == .bool) pv.bool else false;
+                if (T == []const u8) return if (pv == .string) pv.string else "";
+                // For other types, return default/zero value
+                return std.mem.zeroes(T);
+            }
+
+            fn resultToPyValue(comptime T: type, result: anytype) PyValue {
+                if (T == void) return .{ .none = {} };
+                if (T == PyValue) return result;
+                return PyValue.from(result);
+            }
+        };
+    }
+
+    /// Create a PyValue.object wrapping a callable function
+    /// Uses thread-local storage for the wrapper to avoid allocation
+    pub fn fromCallable(comptime FnType: type, func: *const FnType) PyValue {
+        const Wrapper = CallableWrapper(FnType);
+        const S = struct {
+            threadlocal var wrapper: Wrapper = undefined;
+            threadlocal var initialized: bool = false;
+        };
+        S.wrapper = .{ .fn_ptr = func };
+        S.initialized = true;
+        return .{
+            .object = .{
+                .ptr = @ptrCast(@constCast(&S.wrapper)),
+                .type_info = null,
+                .vtable = &Wrapper.vtable,
+            },
+        };
+    }
+
     /// Create a PyValue list from a slice (allocates ArrayList on heap)
     pub fn listFromSlice(allocator: std.mem.Allocator, items: []const PyValue) !PyValue {
         const al = try allocator.create(std.ArrayListUnmanaged(PyValue));
@@ -447,7 +537,32 @@ pub const PyValue = union(enum) {
                     return .{ .int = @intCast(base) };
                 }
             }
+            // Handle callable structs (have __call__ method)
+            if (@hasDecl(T, "__call__")) {
+                // Use thread-local storage to store the struct value
+                // This avoids allocation but limits to one callable per type at a time
+                const Storage = struct {
+                    threadlocal var stored: T = undefined;
+                };
+                Storage.stored = value;
+                const vtable = comptime generateVTable(T);
+                return .{
+                    .object = .{
+                        .ptr = @ptrCast(&Storage.stored),
+                        .type_info = null,
+                        .vtable = &vtable,
+                    },
+                };
+            }
             return .{ .none = {} };
+        } else if (info == .@"fn") {
+            // Function type - wrap as callable object
+            // Note: This requires the function to be passed as a pointer
+            // Use PyValue.fromCallable(&func) for direct function values
+            return .{ .none = {} }; // Can't wrap bare function - need pointer
+        } else if (info == .pointer and @typeInfo(@typeInfo(T).pointer.child) == .@"fn") {
+            // Pointer to function - wrap as callable
+            return fromCallable(@typeInfo(T).pointer.child, value);
         } else {
             return .{ .none = {} };
         }
