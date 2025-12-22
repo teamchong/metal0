@@ -109,6 +109,11 @@ pub const unified_int_ops = @import("runtime/unified_int_ops.zig");
 /// Builtins module - Python built-in functions
 pub const builtins = @import("runtime/builtins.zig");
 
+/// Integer operations module (int() builtin, parsing, etc.)
+pub const int_ops = @import("runtime/int_ops.zig");
+/// Direct export for assertRaises(ValueError, int, ...) pattern
+pub const intBuiltinCall = int_ops.intBuiltinCall;
+
 /// Boolean operations module
 pub const bool_ops = @import("runtime/bool_ops.zig");
 

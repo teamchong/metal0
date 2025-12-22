@@ -233,7 +233,17 @@ pub fn bitNot(value: UnifiedInt, allocator: Allocator) UnifiedInt {
     return plus_one.neg(allocator) catch @panic("OOM");
 }
 
-// TODO: Add when UnifiedInt is extended with proper bitwise operations
-// pub fn bitAnd(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt
-// pub fn bitOr(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt
-// pub fn bitXor(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt
+/// Bitwise AND: left & right (panics on OOM)
+pub fn bitAnd(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt {
+    return left.bitAnd(right, allocator) catch @panic("OOM");
+}
+
+/// Bitwise OR: left | right (panics on OOM)
+pub fn bitOr(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt {
+    return left.bitOr(right, allocator) catch @panic("OOM");
+}
+
+/// Bitwise XOR: left ^ right (panics on OOM)
+pub fn bitXor(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt {
+    return left.bitXor(right, allocator) catch @panic("OOM");
+}

@@ -116,7 +116,9 @@ pub const UnifiedIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
     .{ "LShift", "shl" },
     .{ "RShift", "shr" },
     .{ "Pow", "pow" },
-    // Note: Bitwise ops (BitAnd, BitOr, BitXor) are TODO in UnifiedInt
+    .{ "BitAnd", "bitAnd" },
+    .{ "BitOr", "bitOr" },
+    .{ "BitXor", "bitXor" },
 });
 
 /// Emit an operand as UnifiedInt value

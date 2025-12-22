@@ -322,6 +322,97 @@ pub const UnifiedInt = union(enum) {
     }
 
     // ============================================================================
+    // Bitwise Operations
+    // ============================================================================
+
+    /// Bitwise AND: self & other
+    pub fn bitAnd(self: Self, other: Self, allocator: Allocator) !Self {
+        switch (self) {
+            .small => |a| switch (other) {
+                .small => |b| {
+                    return .{ .small = a & b };
+                },
+                .big => |b_big| {
+                    var a_big = try BigInt.fromInt(allocator, a);
+                    defer a_big.deinit();
+                    var result_big = try a_big.bitAnd(b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+            },
+            .big => |a_big| switch (other) {
+                .small => |b| {
+                    var b_big = try BigInt.fromInt(allocator, b);
+                    defer b_big.deinit();
+                    var result_big = try a_big.bitAnd(&b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+                .big => |b_big| {
+                    var result_big = try a_big.bitAnd(b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+            },
+        }
+    }
+
+    /// Bitwise OR: self | other
+    pub fn bitOr(self: Self, other: Self, allocator: Allocator) !Self {
+        switch (self) {
+            .small => |a| switch (other) {
+                .small => |b| {
+                    return .{ .small = a | b };
+                },
+                .big => |b_big| {
+                    var a_big = try BigInt.fromInt(allocator, a);
+                    defer a_big.deinit();
+                    var result_big = try a_big.bitOr(b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+            },
+            .big => |a_big| switch (other) {
+                .small => |b| {
+                    var b_big = try BigInt.fromInt(allocator, b);
+                    defer b_big.deinit();
+                    var result_big = try a_big.bitOr(&b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+                .big => |b_big| {
+                    var result_big = try a_big.bitOr(b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+            },
+        }
+    }
+
+    /// Bitwise XOR: self ^ other
+    pub fn bitXor(self: Self, other: Self, allocator: Allocator) !Self {
+        switch (self) {
+            .small => |a| switch (other) {
+                .small => |b| {
+                    return .{ .small = a ^ b };
+                },
+                .big => |b_big| {
+                    var a_big = try BigInt.fromInt(allocator, a);
+                    defer a_big.deinit();
+                    var result_big = try a_big.bitXor(b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+            },
+            .big => |a_big| switch (other) {
+                .small => |b| {
+                    var b_big = try BigInt.fromInt(allocator, b);
+                    defer b_big.deinit();
+                    var result_big = try a_big.bitXor(&b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+                .big => |b_big| {
+                    var result_big = try a_big.bitXor(b_big, allocator);
+                    return demoteOrWrap(&result_big, allocator);
+                },
+            },
+        }
+    }
+
+    // ============================================================================
     // Comparison
     // ============================================================================
 

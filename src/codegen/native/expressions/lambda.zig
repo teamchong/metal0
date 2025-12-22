@@ -233,6 +233,23 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         }
     }
 
+    // Emit parameter discards for all named parameters
+    // This prevents "unused function parameter" errors since the body generation
+    // may not reference all parameters even if isParamUsedInBody says they're used
+    for (lambda.args) |arg| {
+        const is_used = isParamUsedInBody(arg.name, lambda.body.*);
+        if (is_used) {
+            // Get the actual parameter name (may be renamed)
+            const actual_name = if (param_renames.get(arg.name)) |renamed| renamed else blk: {
+                // Use writeParamName's escaping logic to get the escaped name
+                var buf = std.ArrayList(u8){};
+                zig_keywords.writeParamName(buf.writer(self.allocator), arg.name) catch break :blk arg.name;
+                break :blk buf.toOwnedSlice(self.allocator) catch arg.name;
+            };
+            try lambda_func.writer(self.allocator).print("    _ = &{s};\n", .{actual_name});
+        }
+    }
+
     // Generate body - single return expression
     try lambda_func.writer(self.allocator).writeAll("    return ");
 
@@ -980,45 +997,33 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
     const use_inferred_return = std.mem.eql(u8, return_type, "*runtime.PyObject") and
                                 self.callable_context_param_type != null;
 
-    if (use_inferred_return) {
-        // For unknown return types in callable context (like lambda b: array('B', b)),
-        // we can't predict the return type because array() generates an inline struct.
-        //
-        // Solution: Use Zig's type inference by having the function return @TypeOf(comptime_expr)
-        // where comptime_expr is a zero-initialized value of the result type.
-        //
-        // Actually the cleanest solution is: don't generate an explicit return type annotation.
-        // Just emit: @TypeOf(result_blk: { const r = body; break :result_blk r; })
-        // where body is generated ONCE and stored in const r.
-        //
-        // Pattern:
-        // (struct { fn call(p: T) @TypeOf(r_blk: { const r = body_expr; break :r_blk r; }) {
-        //     return r_blk2: { const r = body_expr; break :r_blk2 r; };
-        // } }).call
-        //
-        // But this STILL generates body_expr twice with different struct types!
-        // The only solution is to NOT use the @TypeOf pattern at all.
-        //
-        // FINAL SOLUTION: Skip the return type annotation entirely by using a helper that
-        // wraps the body. Zig doesn't allow omitting return types, but we can use
-        // `@as(anyopaque, ...)` pattern... no that doesn't work either.
-        //
-        // Actually, let's just use a void return and call tobytes() at the call site.
-        // NO - PyCallable.fromAny needs to extract bytes from the return value.
-        //
-        // PRAGMATIC FIX: Since this pattern is only for array.array() which returns a struct
-        // with tobytes(), let's add a specific check for that in inferReturnType.
-        // We'll return "[]const u8" and call .tobytes() on the result.
+    // Helper to emit parameter discards for inline lambdas
+    const emitParamDiscards = struct {
+        fn emit(s: *NativeCodegen, args: []ast.Arg, body: ast.Node) CodegenError!void {
+            for (args) |arg| {
+                const is_used = isParamUsedInBody(arg.name, body);
+                if (is_used) {
+                    try emitConst(s, "_ = &");
+                    try zig_keywords.writeEscapedIdent(s.output.writer(s.allocator), arg.name);
+                    try emitConst(s, "; ");
+                }
+            }
+        }
+    }.emit;
 
-        // Generate: []const u8 { return (body).tobytes(); }
-        try emitConst(self, "[]const u8 { var __temp = ");
+    if (use_inferred_return) {
+        // Generate: []const u8 { _ = &params; var __temp = (body); return __temp.tobytes(); }
+        try emitConst(self, "[]const u8 { ");
+        try emitParamDiscards(self, lambda.args, lambda.body.*);
+        try emitConst(self, "var __temp = ");
         const expressions = @import("../expressions.zig");
         try expressions.genExpr(self, lambda.body.*);
         try emitConst(self, "; return __temp.tobytes(); } })");
     } else if (isAssertRaisesCall(lambda.body.*)) {
         // assertRaises calls generate their own return statement, so don't wrap with return
-        // Pattern: (struct { fn call(o: T) !void { assertRaises_body } })
+        // Pattern: (struct { fn call(o: T) !void { _ = &params; assertRaises_body } })
         try emitConst(self, "!void { ");
+        try emitParamDiscards(self, lambda.args, lambda.body.*);
 
         // Generate body expression (assertRaises generates: if (...) return error.X;)
         const expressions = @import("../expressions.zig");
@@ -1030,7 +1035,9 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
             try emitConst(self, "!*");
         }
         try emitConst(self, return_type);
-        try emitConst(self, " { return ");
+        try emitConst(self, " { ");
+        try emitParamDiscards(self, lambda.args, lambda.body.*);
+        try emitConst(self, "return ");
 
         // Generate body expression
         const expressions = @import("../expressions.zig");
