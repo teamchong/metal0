@@ -285,11 +285,11 @@ pub fn inferMethodCall(
         // is_integer returns bool
         if (method_hash == IS_INTEGER_HASH) return .bool;
         // __floor__, __ceil__, __trunc__, __round__ return IntResult (union of i64/BigInt)
-        // Return .unknown so assertEqual uses assertEqualGeneric which handles unions via toPyValue
+        // Use dedicated .int_result type so codegen emits correct Zig type
         if (method_hash == FLOOR_HASH or method_hash == CEIL_HASH or
             method_hash == TRUNC_HASH or method_hash == ROUND_HASH)
         {
-            return .unknown;
+            return .int_result;
         }
         // hex returns string
         if (method_hash == HEX_HASH) return .{ .string = .runtime };

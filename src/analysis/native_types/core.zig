@@ -195,6 +195,7 @@ pub const NativeType = union(enum) {
     string: StringKind, // []const u8 - tracks allocation/optimization hint
     bytes: void, // runtime.builtins.PyBytes - Python bytes type (preserves type info for repr)
     complex: void, // runtime.PyComplex - complex number
+    int_result: void, // runtime.IntResult - tagged union (i64 small, BigInt big) from float rounding
 
     // Composites
     array: struct {
@@ -280,7 +281,7 @@ pub const NativeType = union(enum) {
     pub fn isSimpleType(self: NativeType) bool {
         return switch (self) {
             .int => true,
-            .bigint, .unified_int, .usize, .float, .bool, .string, .class_instance, .optional, .none => true,
+            .bigint, .unified_int, .usize, .float, .bool, .string, .class_instance, .optional, .none, .int_result => true,
             else => false,
         };
     }
@@ -323,7 +324,7 @@ pub const NativeType = union(enum) {
     pub fn getPrintFormat(self: NativeType) []const u8 {
         return switch (self) {
             .int => "{d}",
-            .bigint, .unified_int, .usize => "{d}",
+            .bigint, .unified_int, .usize, .int_result => "{d}",
             .float => "{d}",
             .bool => "{}",
             .string => "{s}",
@@ -337,6 +338,7 @@ pub const NativeType = union(enum) {
             .int => |kind| if (kind.needsBigInt()) "runtime.BigInt" else "i64",
             .bigint => "runtime.BigInt",
             .unified_int => "runtime.UnifiedInt",
+            .int_result => "runtime.IntResult",
             .float => "f64",
             .bool => "bool",
             .string => "[]const u8",
@@ -364,6 +366,7 @@ pub const NativeType = union(enum) {
             },
             .bigint => try buf.appendSlice(allocator, "runtime.BigInt"),
             .unified_int => try buf.appendSlice(allocator, "runtime.UnifiedInt"),
+            .int_result => try buf.appendSlice(allocator, "runtime.IntResult"),
             .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
@@ -685,6 +688,7 @@ pub fn zigTypeStringToNative(zig_type: []const u8) NativeType {
     if (std.mem.eql(u8, zig_type, "usize")) return .usize;
     if (std.mem.eql(u8, zig_type, "runtime.BigInt")) return .bigint;
     if (std.mem.eql(u8, zig_type, "runtime.UnifiedInt")) return .unified_int;
+    if (std.mem.eql(u8, zig_type, "runtime.IntResult")) return .int_result;
     if (std.mem.eql(u8, zig_type, "runtime.PyValue")) return .pyvalue;
     // For types we can't reverse-map, return unknown
     return .unknown;

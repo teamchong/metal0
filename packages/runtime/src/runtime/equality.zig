@@ -9,6 +9,8 @@ const pylist = @import("../Objects/listobject.zig");
 const NativeList = pylist.NativeList;
 const cpython = @import("../cpython.zig");
 const CpythonPyObject = cpython.PyObject;
+const bigint = @import("bigint");
+const BigInt = bigint.BigInt;
 
 /// Python-style containment check for slices
 /// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
@@ -180,18 +182,49 @@ pub fn pyValueEql(a: PyValue, b: PyValue) bool {
             .complex => |bc| bc.imag == 0.0 and @as(f64, @floatFromInt(ai)) == bc.real,
             .float => |bf| @as(f64, @floatFromInt(ai)) == bf,
             .bool => |bb| ai == @as(i64, if (bb) 1 else 0),
+            .bigint => |bb| blk: {
+                // Compare i64 with BigInt: use BigInt's comparison
+                const ai_big = BigInt.fromInt(std.heap.page_allocator, ai) catch return false;
+                break :blk ai_big.eql(&bb);
+            },
             else => false,
         },
         .float => |af| switch (b) {
             .complex => |bc| bc.imag == 0.0 and af == bc.real,
             .int => |bi| af == @as(f64, @floatFromInt(bi)),
             .bool => |bb| af == @as(f64, if (bb) 1.0 else 0.0),
+            .bigint => |bb| blk: {
+                // Compare float with BigInt: convert BigInt to float (may lose precision)
+                // This matches Python semantics where large ints compare with floats
+                const bf = bb.toFloat();
+                break :blk af == bf;
+            },
             else => false,
         },
         .bool => |ab| switch (b) {
             .complex => |bc| bc.imag == 0.0 and bc.real == @as(f64, if (ab) 1.0 else 0.0),
             .int => |bi| @as(i64, if (ab) 1 else 0) == bi,
             .float => |bf| @as(f64, if (ab) 1.0 else 0.0) == bf,
+            else => false,
+        },
+        .bigint => |ab| switch (b) {
+            .float => |bf| blk: {
+                // Compare BigInt with float: convert BigInt to float (may lose precision)
+                // This matches Python semantics where large ints compare with floats
+                const af = ab.toFloat();
+                break :blk af == bf;
+            },
+            .int => |bi| blk: {
+                // Compare BigInt with i64: use BigInt's comparison
+                const bi_big = BigInt.fromInt(std.heap.page_allocator, bi) catch return false;
+                break :blk ab.eql(&bi_big);
+            },
+            .bool => |bb| blk: {
+                // Compare BigInt with bool: 0 == False, 1 == True
+                const bi = if (bb) @as(i64, 1) else @as(i64, 0);
+                const bi_big = BigInt.fromInt(std.heap.page_allocator, bi) catch return false;
+                break :blk ab.eql(&bi_big);
+            },
             else => false,
         },
         else => false,
@@ -522,15 +555,15 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         return false;
     }
 
-    // Fallback: convert structs to PyValue for cross-type comparison
-    // This handles cases like PyComplex (struct) vs bool/int/float
-    // where the struct doesn't have __eq__ but can be converted to PyValue
-    if (a_info == .@"struct") {
+    // Fallback: convert structs/unions to PyValue for cross-type comparison
+    // This handles cases like PyComplex (struct), IntResult/UnifiedInt (union) vs bool/int/float
+    // where the type doesn't have __eq__ but can be converted to PyValue
+    if (a_info == .@"struct" or a_info == .@"union") {
         const a_pv = PyValue.from(a);
         const b_pv = PyValue.from(b);
         return pyValueEql(a_pv, b_pv);
     }
-    if (b_info == .@"struct") {
+    if (b_info == .@"struct" or b_info == .@"union") {
         const a_pv = PyValue.from(a);
         const b_pv = PyValue.from(b);
         return pyValueEql(a_pv, b_pv);
