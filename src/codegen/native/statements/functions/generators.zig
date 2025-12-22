@@ -953,6 +953,62 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     } else {
         try emitConst(self,"pub const __doc__: ?[]const u8 = null;\n");
     }
+
+    // Generate __bases_vtables__ for Python rich comparison protocol subclass priority
+    // This is used by PyValue.eql/lt/le/gt/ge to check if right operand is a subclass
+    // and call its method first (Python's comparison protocol)
+    try self.emitIndent();
+    if (class.bases.len > 0) {
+        // Filter out builtin types and generate vtable references for user-defined classes
+        var valid_base_count: usize = 0;
+        for (class.bases) |base_name| {
+            // Skip builtin types that don't have vtables (int, float, str, etc.)
+            if (getBuiltinBaseInfo(base_name) != null) continue;
+            if (getComplexParentInfo(base_name) != null) continue;
+            // Skip ABCMeta and type metaclasses
+            if (std.mem.eql(u8, base_name, "ABCMeta")) continue;
+            if (std.mem.eql(u8, base_name, "type")) continue;
+            // Skip Python's base object type (implicit base for all classes)
+            if (std.mem.eql(u8, base_name, "object")) continue;
+            // Skip module-qualified names that contain dots for now (e.g., abc.ABCMeta)
+            if (std.mem.indexOf(u8, base_name, ".") != null) continue;
+            valid_base_count += 1;
+        }
+
+        if (valid_base_count > 0) {
+            // Generate: pub const __bases_vtables__: []const *const runtime.PyValue.PyObjectVTable = &.{ &Parent1.__vtable__, &Parent2.__vtable__ };
+            // But we need a static array, not a slice, so we generate a comptime block
+            try emitConst(self, "pub const __bases_vtables__: []const *const runtime.PyValue.PyObjectVTable = &.{");
+            var first = true;
+            for (class.bases) |base_name| {
+                // Skip builtin types
+                if (getBuiltinBaseInfo(base_name) != null) continue;
+                if (getComplexParentInfo(base_name) != null) continue;
+                if (std.mem.eql(u8, base_name, "ABCMeta")) continue;
+                if (std.mem.eql(u8, base_name, "type")) continue;
+                if (std.mem.eql(u8, base_name, "object")) continue;
+                if (std.mem.indexOf(u8, base_name, ".") != null) continue;
+                if (!first) try emitConst(self, ", ");
+                first = false;
+                try self.output.writer(self.allocator).print("&{s}.__vtable__", .{base_name});
+            }
+            try emitConst(self, "};\n");
+            try self.emitIndent();
+            // Also generate the static vtable for this class
+            try emitConst(self, "pub const __vtable__: runtime.PyValue.PyObjectVTable = runtime.PyValue.generateVTableForType(@This());\n");
+        } else {
+            // No valid base classes, just generate a static vtable
+            try emitConst(self, "pub const __bases_vtables__: ?[]const *const runtime.PyValue.PyObjectVTable = null;\n");
+            try self.emitIndent();
+            try emitConst(self, "pub const __vtable__: runtime.PyValue.PyObjectVTable = runtime.PyValue.generateVTableForType(@This());\n");
+        }
+    } else {
+        // No base classes
+        try emitConst(self, "pub const __bases_vtables__: ?[]const *const runtime.PyValue.PyObjectVTable = null;\n");
+        try self.emitIndent();
+        try emitConst(self, "pub const __vtable__: runtime.PyValue.PyObjectVTable = runtime.PyValue.generateVTableForType(@This());\n");
+    }
+
     // __module__ is the module where the class is defined (global __name__)
     // We use @This().__name__ to avoid ambiguity with global __name__
     try emitConst(self,"\n");

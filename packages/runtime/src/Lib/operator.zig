@@ -19,33 +19,87 @@ const PyValue = @import("../Objects/object.zig").PyValue;
 // ============================================================================
 
 /// Less than: a < b
-pub fn lt(a: anytype, b: @TypeOf(a)) bool {
-    return comparison.lessThan(a, b);
+/// Supports cross-type comparison by converting to PyValue when types differ
+pub fn lt(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A == B) {
+        return comparison.lessThan(a, b);
+    }
+    // Cross-type: convert both to PyValue and use vtable-based comparison
+    const pv_a = PyValue.from(a);
+    const pv_b = PyValue.from(b);
+    return pv_a.lt(pv_b);
 }
 
 /// Less than or equal: a <= b
-pub fn le(a: anytype, b: @TypeOf(a)) bool {
-    return comparison.lessThanOrEqual(a, b);
+/// Supports cross-type comparison by converting to PyValue when types differ
+pub fn le(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A == B) {
+        return comparison.lessThanOrEqual(a, b);
+    }
+    // Cross-type: convert both to PyValue and use vtable-based comparison
+    const pv_a = PyValue.from(a);
+    const pv_b = PyValue.from(b);
+    return pv_a.le(pv_b);
 }
 
 /// Equal: a == b
-pub fn eq(a: anytype, b: @TypeOf(a)) bool {
-    return comparison.equal(a, b);
+/// Supports cross-type comparison by converting to PyValue when types differ
+pub fn eq(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A == B) {
+        return comparison.equal(a, b);
+    }
+    // Cross-type: convert both to PyValue and use vtable-based comparison
+    const pv_a = PyValue.from(a);
+    const pv_b = PyValue.from(b);
+    return pv_a.eql(pv_b);
 }
 
 /// Not equal: a != b
-pub fn ne(a: anytype, b: @TypeOf(a)) bool {
-    return comparison.notEqual(a, b);
+/// Supports cross-type comparison by converting to PyValue when types differ
+pub fn ne(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A == B) {
+        return comparison.notEqual(a, b);
+    }
+    // Cross-type: convert both to PyValue and use vtable-based comparison
+    const pv_a = PyValue.from(a);
+    const pv_b = PyValue.from(b);
+    return !pv_a.eql(pv_b);
 }
 
 /// Greater than or equal: a >= b
-pub fn ge(a: anytype, b: @TypeOf(a)) bool {
-    return comparison.greaterThanOrEqual(a, b);
+/// Supports cross-type comparison by converting to PyValue when types differ
+pub fn ge(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A == B) {
+        return comparison.greaterThanOrEqual(a, b);
+    }
+    // Cross-type: convert both to PyValue and use vtable-based comparison
+    const pv_a = PyValue.from(a);
+    const pv_b = PyValue.from(b);
+    return pv_a.ge(pv_b);
 }
 
 /// Greater than: a > b
-pub fn gt(a: anytype, b: @TypeOf(a)) bool {
-    return comparison.greaterThan(a, b);
+/// Supports cross-type comparison by converting to PyValue when types differ
+pub fn gt(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    if (A == B) {
+        return comparison.greaterThan(a, b);
+    }
+    // Cross-type: convert both to PyValue and use vtable-based comparison
+    const pv_a = PyValue.from(a);
+    const pv_b = PyValue.from(b);
+    return pv_a.gt(pv_b);
 }
 
 // ============================================================================

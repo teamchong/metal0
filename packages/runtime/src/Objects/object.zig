@@ -42,6 +42,12 @@ pub const PyValue = union(enum) {
         ge: ?*const fn (*anyopaque, PyValue) PyValue = null,
         /// __call__ method: callable protocol
         __call__: ?*const fn (*anyopaque, []const PyValue) anyerror!PyValue = null,
+        /// Class name for type identification (Python's __name__)
+        class_name: ?[]const u8 = null,
+        /// Base class vtables for subclass checking (Python's __bases__)
+        /// Used to implement Python's rich comparison protocol where subclass methods
+        /// take priority over base class methods
+        bases: ?[]const *const PyObjectVTable = null,
     };
 
     /// Class instance with vtable for dynamic method dispatch
@@ -50,6 +56,29 @@ pub const PyValue = union(enum) {
         ptr: *anyopaque,
         type_info: ?*pytype.PyType, // Optional type for method lookup via MRO
         vtable: *const PyObjectVTable, // Function pointers for dunder methods
+
+        /// Check if this object's class is a proper subclass of the other object's class
+        /// Used to implement Python's rich comparison protocol where subclass methods
+        /// take priority over base class methods
+        /// Returns true if self's class inherits from other's class (but is not the same class)
+        pub fn isProperSubclassOf(self: ObjectInstance, other: ObjectInstance) bool {
+            // Same vtable = same class, not a proper subclass
+            if (self.vtable == other.vtable) return false;
+
+            // Check if other's vtable is in our bases chain (recursively)
+            return isVtableInBases(self.vtable, other.vtable);
+        }
+
+        /// Helper: recursively check if target vtable is in the bases chain of source
+        fn isVtableInBases(source: *const PyObjectVTable, target: *const PyObjectVTable) bool {
+            const bases = source.bases orelse return false;
+            for (bases) |base| {
+                if (base == target) return true;
+                // Recursively check base's bases
+                if (isVtableInBases(base, target)) return true;
+            }
+            return false;
+        }
     };
 
     /// Generate a vtable for a given type T at comptime
@@ -134,7 +163,24 @@ pub const PyValue = union(enum) {
             vtable.__call__ = CallWrapper.call;
         }
 
+        // Set class name if available
+        if (@hasDecl(T, "__name__")) {
+            vtable.class_name = @field(T, "__name__");
+        }
+
+        // Set bases for subclass checking
+        // Classes define __bases_vtables__ as a static array of parent vtable pointers
+        if (@hasDecl(T, "__bases_vtables__")) {
+            vtable.bases = @field(T, "__bases_vtables__");
+        }
+
         return vtable;
+    }
+
+    /// Public wrapper for generateVTable for use from generated code
+    /// This allows classes to pre-generate their vtable as a static const
+    pub fn generateVTableForType(comptime T: type) PyObjectVTable {
+        return generateVTable(T);
     }
 
     /// Wrapper for storing callable functions as PyValue.object
@@ -519,6 +565,31 @@ pub const PyValue = union(enum) {
                     return .{ .string = value[0..arr_info.len] };
                 }
             }
+            // Handle pointer to class instance (struct with __vtable__ or dunder methods)
+            if (@typeInfo(ptr_info.child) == .@"struct") {
+                const ChildT = ptr_info.child;
+                const child_has_vtable = @hasDecl(ChildT, "__vtable__");
+                const child_has_dunders = @hasDecl(ChildT, "__call__") or @hasDecl(ChildT, "__eq__") or
+                    @hasDecl(ChildT, "__ne__") or @hasDecl(ChildT, "__lt__") or @hasDecl(ChildT, "__le__") or
+                    @hasDecl(ChildT, "__gt__") or @hasDecl(ChildT, "__ge__");
+                if (child_has_vtable or child_has_dunders) {
+                    const vtable_ptr: *const PyObjectVTable = if (@hasDecl(ChildT, "__vtable__"))
+                        &@field(ChildT, "__vtable__")
+                    else blk: {
+                        const VTableForT = struct {
+                            const vtable: PyObjectVTable = generateVTable(ChildT);
+                        };
+                        break :blk &VTableForT.vtable;
+                    };
+                    return .{
+                        .object = .{
+                            .ptr = @ptrCast(@constCast(value)),
+                            .type_info = null,
+                            .vtable = vtable_ptr,
+                        },
+                    };
+                }
+            }
             // Store as ptr for unknown pointer types
             return .{ .ptr = @ptrCast(@constCast(value)) };
         } else if (@typeInfo(T) == .@"struct") {
@@ -537,20 +608,33 @@ pub const PyValue = union(enum) {
                     return .{ .int = @intCast(base) };
                 }
             }
-            // Handle callable structs (have __call__ method)
-            if (@hasDecl(T, "__call__")) {
+            // Handle class instances with dunder methods (__call__, __eq__, __lt__, etc.)
+            const has_vtable = @hasDecl(T, "__vtable__");
+            const has_dunders = @hasDecl(T, "__call__") or @hasDecl(T, "__eq__") or
+                @hasDecl(T, "__ne__") or @hasDecl(T, "__lt__") or @hasDecl(T, "__le__") or
+                @hasDecl(T, "__gt__") or @hasDecl(T, "__ge__");
+            if (has_vtable or has_dunders) {
                 // Use thread-local storage to store the struct value
                 // This avoids allocation but limits to one callable per type at a time
                 const Storage = struct {
                     threadlocal var stored: T = undefined;
                 };
                 Storage.stored = value;
-                const vtable = comptime generateVTable(T);
+                // Use the class's pre-generated __vtable__ if available (includes bases info),
+                // otherwise generate a new vtable at comptime
+                const vtable_ptr: *const PyObjectVTable = if (@hasDecl(T, "__vtable__"))
+                    &@field(T, "__vtable__")
+                else blk: {
+                    const VTableForT = struct {
+                        const vtable: PyObjectVTable = generateVTable(T);
+                    };
+                    break :blk &VTableForT.vtable;
+                };
                 return .{
                     .object = .{
                         .ptr = @ptrCast(&Storage.stored),
                         .type_info = null,
-                        .vtable = &vtable,
+                        .vtable = vtable_ptr,
                     },
                 };
             }
@@ -671,9 +755,16 @@ pub const PyValue = union(enum) {
                                       @hasDecl(T, "__repr__");
 
             if (is_class_instance) {
-                // Generate vtable at comptime for this type
-                const VTableForT = struct {
-                    const vtable: PyObjectVTable = generateVTable(T);
+                // Use the class's pre-generated __vtable__ if available (includes bases info),
+                // otherwise generate a new vtable at comptime
+                const vtable_ptr: *const PyObjectVTable = if (@hasDecl(T, "__vtable__"))
+                    &@field(T, "__vtable__")
+                else blk: {
+                    // Fallback: generate vtable at comptime for this type
+                    const VTableForT = struct {
+                        const vtable: PyObjectVTable = generateVTable(T);
+                    };
+                    break :blk &VTableForT.vtable;
                 };
 
                 // Allocate class instance on heap and store as .object with vtable
@@ -686,7 +777,7 @@ pub const PyValue = union(enum) {
                 return .{ .object = .{
                     .ptr = @ptrCast(ptr),
                     .type_info = type_info,
-                    .vtable = &VTableForT.vtable,
+                    .vtable = vtable_ptr,
                 } };
             }
 
@@ -1057,18 +1148,51 @@ pub const PyValue = union(enum) {
                 else => false,
             },
             .object => |self_obj| blk: {
-                // Python rich comparison protocol: try self.__lt__(other), then other.__gt__(self)
-                const self_result = callDunderMethod(self_obj, "__lt__", other);
-                if (self_result) |result| {
-                    if (result != .not_implemented) {
-                        if (result == .bool) break :blk result.bool;
-                        break :blk !isFalsy(result);
-                    }
-                }
-                // Try reflected operation: other.__gt__(self)
+                // Python rich comparison protocol with subclass priority
+                // For lt, the reflected operation is __gt__
                 if (other == .object) {
-                    const other_result = callDunderMethod(other.object, "__gt__", self);
-                    if (other_result) |result| {
+                    const other_obj = other.object;
+                    const other_is_subclass = other_obj.isProperSubclassOf(self_obj);
+
+                    if (other_is_subclass) {
+                        // Other is a subclass - try other.__gt__(self) first (reflected)
+                        const other_result = callDunderMethod(other_obj, "__gt__", self);
+                        if (other_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                        // Fallback to self.__lt__(other)
+                        const self_result = callDunderMethod(self_obj, "__lt__", other);
+                        if (self_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                    } else {
+                        // Normal case - try self.__lt__(other) first
+                        const self_result = callDunderMethod(self_obj, "__lt__", other);
+                        if (self_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                        // Fallback to other.__gt__(self)
+                        const other_result = callDunderMethod(other_obj, "__gt__", self);
+                        if (other_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                    }
+                } else {
+                    // Other is not an object, just try self.__lt__(other)
+                    const self_result = callDunderMethod(self_obj, "__lt__", other);
+                    if (self_result) |result| {
                         if (result != .not_implemented) {
                             if (result == .bool) break :blk result.bool;
                             break :blk !isFalsy(result);
@@ -1084,46 +1208,114 @@ pub const PyValue = union(enum) {
 
     /// Compare two PyValues (less than or equal)
     pub fn le(self: PyValue, other: PyValue) bool {
-        // For .object instances, try __le__ first via vtable
+        // For .object instances, try __le__ first via vtable with subclass priority
         if (self == .object) {
-            const self_result = callDunderMethod(self.object, "__le__", other);
-            if (self_result) |result| {
-                if (result != .not_implemented) {
-                    if (result == .bool) return result.bool;
-                    return !isFalsy(result);
-                }
-            }
-            // Try reflected operation: other.__ge__(self)
+            const self_obj = self.object;
             if (other == .object) {
-                const other_result = callDunderMethod(other.object, "__ge__", self);
-                if (other_result) |result| {
+                const other_obj = other.object;
+                const other_is_subclass = other_obj.isProperSubclassOf(self_obj);
+
+                if (other_is_subclass) {
+                    // Other is a subclass - try other.__ge__(self) first (reflected)
+                    const other_result = callDunderMethod(other_obj, "__ge__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                    // Fallback to self.__le__(other)
+                    const self_result = callDunderMethod(self_obj, "__le__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                } else {
+                    // Normal case - try self.__le__(other) first
+                    const self_result = callDunderMethod(self_obj, "__le__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                    // Fallback to other.__ge__(self)
+                    const other_result = callDunderMethod(other_obj, "__ge__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                }
+            } else {
+                // Other is not an object, just try self.__le__(other)
+                const self_result = callDunderMethod(self_obj, "__le__", other);
+                if (self_result) |result| {
                     if (result != .not_implemented) {
                         if (result == .bool) return result.bool;
                         return !isFalsy(result);
                     }
                 }
             }
-            // Fallback: __lt__ or __eq__
-            return self.lt(other) or self.eql(other);
+            // Both returned NotImplemented - Python would raise TypeError
+            // For comparison purposes, return false (no ordering)
+            return false;
         }
+        // Fallback for non-object: __lt__ or __eq__
         return self.lt(other) or self.eql(other);
     }
 
     /// Compare two PyValues (greater than)
     pub fn gt(self: PyValue, other: PyValue) bool {
-        // For .object instances, try __gt__ first via vtable
+        // For .object instances, try __gt__ first via vtable with subclass priority
         if (self == .object) {
-            const self_result = callDunderMethod(self.object, "__gt__", other);
-            if (self_result) |result| {
-                if (result != .not_implemented) {
-                    if (result == .bool) return result.bool;
-                    return !isFalsy(result);
-                }
-            }
-            // Try reflected operation: other.__lt__(self)
+            const self_obj = self.object;
             if (other == .object) {
-                const other_result = callDunderMethod(other.object, "__lt__", self);
-                if (other_result) |result| {
+                const other_obj = other.object;
+                const other_is_subclass = other_obj.isProperSubclassOf(self_obj);
+
+                if (other_is_subclass) {
+                    // Other is a subclass - try other.__lt__(self) first (reflected)
+                    const other_result = callDunderMethod(other_obj, "__lt__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                    // Fallback to self.__gt__(other)
+                    const self_result = callDunderMethod(self_obj, "__gt__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                } else {
+                    // Normal case - try self.__gt__(other) first
+                    const self_result = callDunderMethod(self_obj, "__gt__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                    // Fallback to other.__lt__(self)
+                    const other_result = callDunderMethod(other_obj, "__lt__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                }
+            } else {
+                // Other is not an object, just try self.__gt__(other)
+                const self_result = callDunderMethod(self_obj, "__gt__", other);
+                if (self_result) |result| {
                     if (result != .not_implemented) {
                         if (result == .bool) return result.bool;
                         return !isFalsy(result);
@@ -1138,27 +1330,61 @@ pub const PyValue = union(enum) {
 
     /// Compare two PyValues (greater than or equal)
     pub fn ge(self: PyValue, other: PyValue) bool {
-        // For .object instances, try __ge__ first via vtable
+        // For .object instances, try __ge__ first via vtable with subclass priority
         if (self == .object) {
-            const self_result = callDunderMethod(self.object, "__ge__", other);
-            if (self_result) |result| {
-                if (result != .not_implemented) {
-                    if (result == .bool) return result.bool;
-                    return !isFalsy(result);
-                }
-            }
-            // Try reflected operation: other.__le__(self)
+            const self_obj = self.object;
             if (other == .object) {
-                const other_result = callDunderMethod(other.object, "__le__", self);
-                if (other_result) |result| {
+                const other_obj = other.object;
+                const other_is_subclass = other_obj.isProperSubclassOf(self_obj);
+
+                if (other_is_subclass) {
+                    // Other is a subclass - try other.__le__(self) first (reflected)
+                    const other_result = callDunderMethod(other_obj, "__le__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                    // Fallback to self.__ge__(other)
+                    const self_result = callDunderMethod(self_obj, "__ge__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                } else {
+                    // Normal case - try self.__ge__(other) first
+                    const self_result = callDunderMethod(self_obj, "__ge__", other);
+                    if (self_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                    // Fallback to other.__le__(self)
+                    const other_result = callDunderMethod(other_obj, "__le__", self);
+                    if (other_result) |result| {
+                        if (result != .not_implemented) {
+                            if (result == .bool) return result.bool;
+                            return !isFalsy(result);
+                        }
+                    }
+                }
+            } else {
+                // Other is not an object, just try self.__ge__(other)
+                const self_result = callDunderMethod(self_obj, "__ge__", other);
+                if (self_result) |result| {
                     if (result != .not_implemented) {
                         if (result == .bool) return result.bool;
                         return !isFalsy(result);
                     }
                 }
             }
-            // Fallback: __gt__ or __eq__
-            return self.gt(other) or self.eql(other);
+            // Both returned NotImplemented - Python would raise TypeError
+            // For comparison purposes, return false (no ordering)
+            return false;
         }
         return other.lt(self) or self.eql(other);
     }
@@ -1289,22 +1515,44 @@ pub const PyValue = union(enum) {
                 },
                 .object => |self_obj| blk: {
                     const other_obj = other.object;
-                    // Python rich comparison protocol with type information
-                    // Try self.__eq__(other) using PyType method lookup
-                    const self_result = callDunderMethod(self_obj, "__eq__", other);
-                    if (self_result) |result| {
-                        if (result != .not_implemented) {
-                            if (result == .bool) break :blk result.bool;
-                            break :blk !isFalsy(result);
-                        }
-                    }
+                    // Python rich comparison protocol with subclass priority
+                    // If other is a proper subclass of self, try other's method FIRST
+                    // This implements Python's rule: subclass __eq__ takes priority
+                    const other_is_subclass = other_obj.isProperSubclassOf(self_obj);
 
-                    // Try other.__eq__(self)
-                    const other_result = callDunderMethod(other_obj, "__eq__", self);
-                    if (other_result) |result| {
-                        if (result != .not_implemented) {
-                            if (result == .bool) break :blk result.bool;
-                            break :blk !isFalsy(result);
+                    if (other_is_subclass) {
+                        // Other is a subclass - try other.__eq__(self) first
+                        const other_result = callDunderMethod(other_obj, "__eq__", self);
+                        if (other_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                        // Fallback to self.__eq__(other)
+                        const self_result = callDunderMethod(self_obj, "__eq__", other);
+                        if (self_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                    } else {
+                        // Normal case - try self.__eq__(other) first
+                        const self_result = callDunderMethod(self_obj, "__eq__", other);
+                        if (self_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
+                        }
+                        // Fallback to other.__eq__(self)
+                        const other_result = callDunderMethod(other_obj, "__eq__", self);
+                        if (other_result) |result| {
+                            if (result != .not_implemented) {
+                                if (result == .bool) break :blk result.bool;
+                                break :blk !isFalsy(result);
+                            }
                         }
                     }
 
