@@ -252,9 +252,54 @@ fn varUsedInStatements(body: []const ast.Node, var_name: []const u8) bool {
     return false;
 }
 
-/// Recursively check if a list of statements contains a raise_stmt or expr_stmt
-/// This is needed because assertRaises blocks need labeled blocks when they contain
-/// statements that might raise, even if those are nested inside other blocks (if, with, for, etc.)
+/// Check if assertRaises body can use a labeled block for error catching.
+/// Returns true only when ALL statements at the top level (and in nested unittest with_stmt)
+/// are expr_stmt or raise_stmt. This ensures the labeled block will have `break` calls.
+/// If there are if_stmt, for_stmt, while_stmt etc., we can't use labeled blocks because
+/// we can't easily wrap all their nested expressions.
+fn canUseLabeledBlock(stmts: []const ast.Node) bool {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .raise_stmt, .expr_stmt => {
+                // These can be wrapped with break
+            },
+            .with_stmt => |with_node| {
+                // Nested with statement - check if it's a unittest context manager
+                if (isUnittestContextManager(with_node.context_expr.*)) {
+                    // Unittest context manager (like assertWarns) - recurse into its body
+                    if (!canUseLabeledBlock(with_node.body)) return false;
+                } else {
+                    // Non-unittest with - can't use labeled block
+                    return false;
+                }
+            },
+            // For compound statements (if, for, while, try, match), we can't easily
+            // wrap all their nested expressions with break, so don't use labeled blocks
+            .if_stmt, .for_stmt, .while_stmt, .try_stmt, .match_stmt => {
+                return false;
+            },
+            // Other statements (assign, return, etc.) don't need error catching
+            // but they don't prevent us from using labeled blocks
+            else => {},
+        }
+    }
+    // Only return true if we have at least one stmt that needs catching
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .raise_stmt, .expr_stmt => return true,
+            .with_stmt => |with_node| {
+                if (isUnittestContextManager(with_node.context_expr.*)) {
+                    if (canUseLabeledBlock(with_node.body)) return true;
+                }
+            },
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// Legacy function for compatibility - returns true if body contains any expr_stmt or raise_stmt
+/// even if nested in compound statements. Used for `inside_try_body` context.
 fn containsRaiseOrExprStmt(stmts: []const ast.Node) bool {
     for (stmts) |stmt| {
         switch (stmt) {
@@ -766,7 +811,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
             // Check recursively if body contains raise or expr statements
             // Must be recursive because the statement might be nested inside other blocks (if, with, for, etc.)
-            const needs_labeled_block = containsRaiseOrExprStmt(with_node.body);
+            const needs_labeled_block = canUseLabeledBlock(with_node.body);
 
             // Generate a labeled block only if we have expression statements that might error
             const block_id = self.assert_raises_block_id;
@@ -786,6 +831,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             self.control_flow_terminated = false;
 
             // Generate body statements - for expression statements, catch any errors
+            // NOTE: Multiple with items (e.g., `with a(), b(): ...`) are parsed as nested with_stmt
+            // So we need to handle both expr_stmt and nested with_stmt (which may contain expr_stmt)
             for (with_node.body) |stmt| {
                 // Skip if control flow already terminated (e.g., after raise)
                 if (self.control_flow_terminated) break;
@@ -808,6 +855,51 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     b.dedent();
                     try b.writeIndent();
                     try b.write("}\n");
+                } else if (stmt == .with_stmt) {
+                    // Nested with statement (e.g., `with assertRaises(), assertWarns(): ...`)
+                    // Multiple with items are parsed as nested with_stmt
+                    // If nested with is also a unittest context manager (like assertWarns), skip it
+                    // and process its body directly, since we're already in assertRaises context
+                    const nested_with = stmt.with_stmt;
+                    if (isUnittestContextManager(nested_with.context_expr.*)) {
+                        // Skip this context manager (e.g., assertWarns) and process its body
+                        // recursively - it may contain more nested with statements or expr_stmt
+                        for (nested_with.body) |nested_stmt| {
+                            if (self.control_flow_terminated) break;
+
+                            if (nested_stmt == .expr_stmt) {
+                                // Wrap expression in error-catching code
+                                try b.writeIndent();
+                                try b.write("{\n");
+                                b.indent();
+                                try b.writeIndent();
+                                try b.write("const __ar_val = ");
+                                const expr_val = try self.captureExpr(nested_stmt.expr_stmt.value.*);
+                                try b.emitValue(expr_val, .{});
+                                try b.write(";\n");
+                                try b.writeIndent();
+                                try b.writeFmt("if (!unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
+                                b.dedent();
+                                try b.writeIndent();
+                                try b.write("}\n");
+                            } else if (nested_stmt == .with_stmt) {
+                                // Another level of nesting - process recursively
+                                // For now, just generate the with statement normally
+                                // TODO: Handle deeper nesting if needed
+                                const pending = b.getBodyAndClear();
+                                try self.output.appendSlice(self.allocator, pending);
+                                try genWith(self, nested_stmt.with_stmt);
+                            } else {
+                                const stmt_code = try self.captureStmt(nested_stmt);
+                                try b.write(stmt_code);
+                            }
+                        }
+                    } else {
+                        // Non-unittest nested with - generate it normally
+                        const pending = b.getBodyAndClear();
+                        try self.output.appendSlice(self.allocator, pending);
+                        try genWith(self, nested_with);
+                    }
                 } else {
                     const stmt_code = try self.captureStmt(stmt);
                     try b.write(stmt_code);
