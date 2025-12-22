@@ -273,6 +273,25 @@ pub const MutableMapping = struct {
 };
 
 // ============================================================================
+// Cache Token (ABC registry version tracking)
+// ============================================================================
+
+/// Global cache token - increments when ABC registry changes
+/// This allows implementations to cache isinstance() results and invalidate on changes
+var _abc_cache_token: i64 = 0;
+
+/// Get the current ABC cache token
+/// The token is incremented whenever a virtual subclass is registered
+pub fn get_cache_token() i64 {
+    return _abc_cache_token;
+}
+
+/// Increment the cache token (called when registry changes)
+pub fn invalidate_caches() void {
+    _abc_cache_token +%= 1;
+}
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 

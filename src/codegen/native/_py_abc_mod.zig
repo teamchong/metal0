@@ -15,7 +15,10 @@ fn genAbcMeta(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     try b.emitValue(builder_mod.ZigValue.raw(".{ ._abc_registry = .{}, ._abc_cache = .{}, ._abc_negative_cache = .{} }"), builder_mod.EmitConfig.forExpression());
 }
 
-fn genGetCacheToken(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+fn genGetCacheToken(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    // If no args, this is a reference (_py_abc.get_cache_token passed as value), not a call
+    // Return UnsupportedSyntax to let the fallback emit &_py_abc.get_cache_token
+    if (args.len == 0) return error.UnsupportedSyntax;
     const b = try self.getBuilder();
     try b.emitValue(builder_mod.ZigValue.int(0), builder_mod.EmitConfig.forExpression());
 }

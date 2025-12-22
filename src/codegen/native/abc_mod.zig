@@ -21,7 +21,10 @@ fn genABC(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     try b.emitValue(builder_mod.ZigValue.raw("struct { _is_abc: bool = true }{}"), builder_mod.EmitConfig.forExpression());
 }
 
-fn genABCMeta(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+fn genABCMeta(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    // If no args, this is a reference (abc.ABCMeta passed as value), not a call
+    // Return UnsupportedSyntax to let the fallback emit &abc.ABCMeta
+    if (args.len == 0) return error.UnsupportedSyntax;
     const b = try self.getBuilder();
     try b.emitValue(builder_mod.ZigValue.string("ABCMeta"), builder_mod.EmitConfig.forExpression());
 }
@@ -35,7 +38,10 @@ fn genAbstractmethod(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
     }
 }
 
-fn genGetCacheToken(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
+fn genGetCacheToken(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
+    // If no args, this is a reference (abc.get_cache_token passed as value), not a call
+    // Return UnsupportedSyntax to let the fallback emit &abc.get_cache_token
+    if (args.len == 0) return error.UnsupportedSyntax;
     const b = try self.getBuilder();
     try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
 }
