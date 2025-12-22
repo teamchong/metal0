@@ -746,7 +746,9 @@ pub fn emitVarDeclaration(
 }
 
 /// Generate ArrayList initialization from list literal
-pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.Node.List) CodegenError!void {
+/// If wrapper_opened is true, the caller has opened a PyValue.from() wrapper and will close it
+/// so we should NOT emit the trailing semicolon on the initial assignment
+pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.Node.List, wrapper_opened: bool) CodegenError!void {
     const native_types = @import("../../../../analysis/native_types.zig");
     const NativeType = native_types.NativeType;
     const genExpr = @import("../../expressions.zig").genExpr;
@@ -821,7 +823,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
 
     if (has_predeclared_type) {
         // Variable already has a type - use .{} to inherit the declared type instead of creating a new struct type
-        try emitConst(self,".{};\n");
+        if (wrapper_opened) {
+            try emitConst(self,".{}");  // No semicolon - caller will close wrapper and add semicolon
+        } else {
+            try emitConst(self,".{};\n");
+        }
     } else {
         try emitConst(self,"std.ArrayListUnmanaged(");
         // Generate element type
@@ -835,7 +841,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         else
             type_buf.items;
         try emitConst(self,type_str);
-        try emitConst(self,"){};\n");
+        if (wrapper_opened) {
+            try emitConst(self,"){}");  // No semicolon - caller will close wrapper and add semicolon
+        } else {
+            try emitConst(self,"){};\n");
+        }
     }
 
     // Check if this is a list of callables (needs wrapping)

@@ -1163,11 +1163,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                     // TWO-FLOW TYPE SYSTEM: Check if reassigning a PyValue variable
                     // If so, we need to wrap the RHS in runtime.PyValue.from()
-                    // EXCEPTION: If the expression already produces PyValue (e.g., binop with uncertain operands),
+                    // EXCEPTION 1: If the expression already produces PyValue (e.g., binop with uncertain operands),
                     // don't double-wrap
+                    // EXCEPTION 2: List literals use the ArrayList expansion pattern (init + appends),
+                    // which is incompatible with PyValue.from() wrapping
                     const is_pyvalue_reassign = (declared_type == .pyvalue);
                     const expr_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
-                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue;
+                    const is_list_literal = assign.value.* == .list;
+                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue and !is_list_literal;
 
                     // UNIFIED INT: Check if reassigning a UnifiedInt variable with an expression
                     // that might produce i128 (e.g., -1 - sys.maxsize) but target is UnifiedInt
@@ -1255,7 +1258,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Generate ArrayList initialization directly instead of fixed array
             if (is_arraylist and assign.value.* == .list) {
                 const list = assign.value.list;
-                try valueGen.genArrayListInit(self, var_name, list);
+                // Pass wrapper_opened for first assignment (reassignment never has wrapper for lists
+                // because we disabled it above to avoid conflict with ArrayList expansion pattern)
+                try valueGen.genArrayListInit(self, var_name, list, wrapper_opened);
 
                 // Add defer cleanup
                 try deferCleanup.emitDeferCleanups(
@@ -1268,7 +1273,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_allocated_string,
                     assign.value.*,
                 );
-                // Close PyValue wrapper if it was opened (ArrayList init doesn't need it)
+                // Close PyValue wrapper if it was opened (first assignment only)
                 if (is_first_assignment and wrapper_opened) {
                     try emitConst(self,");\n");
                 }
