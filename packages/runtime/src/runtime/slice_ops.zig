@@ -203,3 +203,18 @@ test "sliceWithStep zero step error" {
     const result = sliceWithStep(i64, allocator, &arr, 0, 3, 0);
     try std.testing.expectError(SliceError.ZeroStep, result);
 }
+
+/// Normalize a Python index to a valid usize for array access
+/// Python semantics: negative index means from end, e.g., a[-1] is last element
+/// If index is out of bounds, returns null (caller should handle IndexError)
+pub fn normalizeIndex(index: i64, len: usize) ?usize {
+    const len_i: i64 = @intCast(len);
+    const actual_index: i64 = if (index < 0) len_i + index else index;
+    if (actual_index < 0 or actual_index >= len_i) return null;
+    return @intCast(actual_index);
+}
+
+/// Normalize index or panic with IndexError message
+pub fn normalizeIndexOrError(index: i64, len: usize) usize {
+    return normalizeIndex(index, len) orelse @panic("list index out of range");
+}

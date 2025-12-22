@@ -1668,6 +1668,71 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                 try self.emitIndent();
 
+                // Check if subscript.value is a dynamic attribute (stored in __dict__)
+                // These need special handling with pyListSetPy for Python index semantics
+                const is_dynamic_attr = blk: {
+                    if (subscript.value.* == .attribute) {
+                        const attr = subscript.value.attribute;
+                        if (attr.value.* == .name) {
+                            const obj_name = attr.value.name.id;
+                            // Check if it's a self attribute
+                            if (std.mem.eql(u8, obj_name, "self") or std.mem.eql(u8, obj_name, "__self")) {
+                                // Check if attribute is in class_fields (static) or not (dynamic)
+                                if (self.current_class_name) |class_name| {
+                                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                        if (class_info.fields.contains(attr.attr)) {
+                                            break :blk false; // Static field
+                                        }
+                                    }
+                                }
+                                break :blk true; // Dynamic attribute
+                            }
+                        }
+                    }
+                    break :blk false;
+                };
+
+                // Dynamic attribute subscript assignment: self.a[-12] = val
+                // Uses pyListSetPy for Python index semantics
+                if (is_dynamic_attr and subscript.value.* == .attribute) {
+                    const attr = subscript.value.attribute;
+                    const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
+                    // Generate: self.__dict__.get("a").?.pyListSetPy(idx, runtime.PyValue.from(val))
+                    try emitConst(self, self_name);
+                    try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?.pyListSetPy(", .{attr.attr});
+                    try self.genExpr(subscript.slice.index.*);
+                    try emitConst(self, ", runtime.PyValue.from(");
+                    // Get the RHS - also need to check if it's a dynamic attr
+                    if (assign.value.* == .attribute) {
+                        const rhs_attr = assign.value.attribute;
+                        if (rhs_attr.value.* == .name) {
+                            const rhs_obj = rhs_attr.value.name.id;
+                            if (std.mem.eql(u8, rhs_obj, "self") or std.mem.eql(u8, rhs_obj, "__self")) {
+                                // RHS is also a dynamic attribute - need to get from __dict__
+                                const rhs_is_dynamic = blk2: {
+                                    if (self.current_class_name) |class_name| {
+                                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                            if (class_info.fields.contains(rhs_attr.attr)) {
+                                                break :blk2 false;
+                                            }
+                                        }
+                                    }
+                                    break :blk2 true;
+                                };
+                                if (rhs_is_dynamic) {
+                                    try emitConst(self, self_name);
+                                    try self.output.writer(self.allocator).print(".__dict__.get(\"{s}\").?", .{rhs_attr.attr});
+                                    try emitConst(self, "));\n");
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    try self.genExpr(assign.value.*);
+                    try emitConst(self, "));\n");
+                    return;
+                }
+
                 if (container_traits.isDict(container_type)) {
                     // Dict assignment: dict.put(key, value)
                     // Check if dict has PyValue values - if so, wrap the value

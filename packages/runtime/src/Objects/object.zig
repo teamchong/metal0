@@ -305,6 +305,31 @@ pub const PyValue = union(enum) {
         }
     }
 
+    /// Set element at index with Python semantics (negative indices from end)
+    /// Used for dynamic attribute subscript assignment like self.a[-12] = val
+    pub fn pyListSetPy(self: PyValue, idx: i64, value: PyValue) void {
+        if (self == .list) {
+            const len: i64 = @intCast(self.list.items.len);
+            const actual_idx: i64 = if (idx < 0) len + idx else idx;
+            if (actual_idx >= 0 and actual_idx < len) {
+                self.list.items[@intCast(actual_idx)] = value;
+            }
+        }
+    }
+
+    /// Get element at index with Python semantics (negative indices from end)
+    /// Used for dynamic attribute subscript access like self.a[-12]
+    pub fn pyListGetPy(self: PyValue, idx: i64) PyValue {
+        if (self == .list) {
+            const len: i64 = @intCast(self.list.items.len);
+            const actual_idx: i64 = if (idx < 0) len + idx else idx;
+            if (actual_idx >= 0 and actual_idx < len) {
+                return self.list.items[@intCast(actual_idx)];
+            }
+        }
+        return .{ .none = {} };
+    }
+
     /// Append element to list
     pub fn pyListAppend(self: PyValue, allocator: std.mem.Allocator, value: PyValue) !void {
         if (self == .list) {
