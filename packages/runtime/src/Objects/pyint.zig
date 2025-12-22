@@ -61,6 +61,36 @@ pub const UnifiedInt = union(enum) {
         @compileError("Use fromBigInt for values that may exceed i64");
     }
 
+    /// Parse a string (with Unicode digit support) into UnifiedInt
+    /// Returns .small if value fits in i64, .big otherwise
+    pub fn parseUnicode(allocator: Allocator, str: []const u8, base: u8) !Self {
+        var big = try bigint_mod.parseBigIntUnicode(allocator, str, base);
+        // Try to demote to i64 if it fits
+        if (big.toInt64()) |small_val| {
+            big.deinit();
+            return .{ .small = small_val };
+        }
+        // Stays as BigInt
+        const heap_big = try allocator.create(BigInt);
+        heap_big.* = big;
+        return .{ .big = heap_big };
+    }
+
+    /// Create UnifiedInt from a float value
+    /// Truncates to integer (Python's int(float) behavior)
+    pub fn fromFloat(allocator: Allocator, value: f64) !Self {
+        var big = try BigInt.fromFloat(allocator, value);
+        // Try to demote to i64 if it fits
+        if (big.toInt64()) |small_val| {
+            big.deinit();
+            return .{ .small = small_val };
+        }
+        // Stays as BigInt
+        const heap_big = try allocator.create(BigInt);
+        heap_big.* = big;
+        return .{ .big = heap_big };
+    }
+
     // ============================================================================
     // Arithmetic with overflow detection
     // ============================================================================

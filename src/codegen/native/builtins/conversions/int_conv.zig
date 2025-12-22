@@ -362,8 +362,8 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const needs_bigint = str_val.len >= 19;
 
             if (needs_bigint) {
-                // Use BigInt for large numbers
-                try emitFmtConst(self, "(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
+                // Use UnifiedInt for large numbers - auto-demotes to i64 if it fits
+                try emitFmtConst(self, "(try runtime.UnifiedInt.parseUnicode({s}, ", .{alloc_name});
                 try self.genExpr(args[0]);
                 try emitConst(self,", 10))");
                 return;
@@ -381,10 +381,11 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             return;
         }
 
-        // Runtime string (variable, subscript, etc.) - use BigInt for Python compatibility
+        // Runtime string (variable, subscript, etc.) - use UnifiedInt for Python compatibility
         // since we can't know at compile time if the value will overflow i64
+        // UnifiedInt.parseUnicode auto-demotes to i64 if value fits
         // Always use 'try' to allow error propagation for try/except blocks
-        try emitFmtConst(self, "(try runtime.bigint.parseBigIntUnicode({s}, ", .{alloc_name});
+        try emitFmtConst(self, "(try runtime.UnifiedInt.parseUnicode({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
         try emitConst(self,", 10))");
         return;
@@ -411,11 +412,11 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const max_i128: f64 = 170141183460469231731687303715884105727.0; // 2^127 - 1
             const min_i128: f64 = -170141183460469231731687303715884105728.0; // -2^127
             if (float_val > max_i128 or float_val < min_i128) {
-                // Value exceeds i128 range - use BigInt
+                // Value exceeds i128 range - use UnifiedInt.fromFloat (auto-demotes to i64 if fits)
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-                try emitFmtConst(self, "(runtime.BigInt.fromFloat({s}, ", .{alloc_name});
+                try emitFmtConst(self, "(try runtime.UnifiedInt.fromFloat({s}, ", .{alloc_name});
                 try self.genExpr(args[0]);
-                try emitConst(self,") catch unreachable)");
+                try emitConst(self,"))");
                 return;
             }
             const max_i64: f64 = 9223372036854775807.0; // 2^63 - 1

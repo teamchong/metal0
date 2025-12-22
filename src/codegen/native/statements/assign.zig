@@ -1282,10 +1282,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             // Check the type of the argument to int()
                             const arg_type = try self.inferExprScoped(int_call.args[0]);
                             if (type_traits.isFloating(arg_type)) {
-                                // int(float) -> use BigInt.fromFloat
-                                try emitConst(self,"(runtime.BigInt.fromFloat(__global_allocator, ");
+                                // int(float) -> use UnifiedInt.fromFloat (auto-demotes to i64 if fits)
+                                try emitConst(self,"(try runtime.UnifiedInt.fromFloat(__global_allocator, ");
                                 try self.genExpr(int_call.args[0]);
-                                try emitConst(self,") catch unreachable)");
+                                try emitConst(self,"))");
                             } else {
                                 // int(string) or int(string, base) -> use parseIntToBigInt
                                 try emitConst(self,"(try runtime.parseIntToBigInt(__global_allocator, ");
