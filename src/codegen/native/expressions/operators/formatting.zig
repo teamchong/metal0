@@ -241,6 +241,18 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                             try emitFormatInt(self, tuple.elts[elem_idx], fspec2.spec_char);
                         } else if (fspec2.spec_char == 'r') {
                             try emitPyRepr(self, tuple.elts[elem_idx], alloc_name);
+                        } else if (fspec2.spec_char == 's') {
+                            // For %s, check if argument is a string type
+                            // If not, use pyRepr to convert to string (Python's str() behavior)
+                            const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
+                            const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+                            const elem_type = self.inferExprScoped(tuple.elts[elem_idx]) catch NativeType.unknown;
+                            if (string_traits.isString(elem_type)) {
+                                try genExpr(self, tuple.elts[elem_idx]);
+                            } else {
+                                // Non-string: use pyRepr for str() conversion
+                                try emitPyRepr(self, tuple.elts[elem_idx], alloc_name);
+                            }
                         } else {
                             try genExpr(self, tuple.elts[elem_idx]);
                         }
@@ -296,6 +308,18 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 }
             } else if (main_fspec.spec_char == 'r') {
                 try emitPyRepr(self, binop.right.*, alloc_name);
+            } else if (main_fspec.spec_char == 's') {
+                // For %s, check if argument is a string type
+                // If not, use pyRepr to convert to string (Python's str() behavior)
+                const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
+                const string_traits = @import("../../../../analysis/traits/string_traits.zig");
+                const right_type = self.inferExprScoped(binop.right.*) catch NativeType.unknown;
+                if (string_traits.isString(right_type)) {
+                    try genExpr(self, binop.right.*);
+                } else {
+                    // Non-string: use pyRepr for str() conversion
+                    try emitPyRepr(self, binop.right.*, alloc_name);
+                }
             } else {
                 try genExpr(self, binop.right.*);
             }
