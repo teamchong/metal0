@@ -972,6 +972,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (std.mem.eql(u8, base_name, "object")) continue;
             // Skip module-qualified names that contain dots for now (e.g., abc.ABCMeta)
             if (std.mem.indexOf(u8, base_name, ".") != null) continue;
+            // Skip exception base classes (they're runtime types, not user classes)
+            if (std.mem.eql(u8, base_name, "Exception")) continue;
+            if (std.mem.eql(u8, base_name, "BaseException")) continue;
+            if (std.mem.endsWith(u8, base_name, "Error")) continue;
             valid_base_count += 1;
         }
 
@@ -988,6 +992,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (std.mem.eql(u8, base_name, "type")) continue;
                 if (std.mem.eql(u8, base_name, "object")) continue;
                 if (std.mem.indexOf(u8, base_name, ".") != null) continue;
+                // Skip exception base classes (they're runtime types, not user classes)
+                if (std.mem.eql(u8, base_name, "Exception")) continue;
+                if (std.mem.eql(u8, base_name, "BaseException")) continue;
+                if (std.mem.endsWith(u8, base_name, "Error")) continue;
                 if (!first) try emitConst(self, ", ");
                 first = false;
                 try self.output.writer(self.allocator).print("&{s}.__vtable__", .{base_name});
