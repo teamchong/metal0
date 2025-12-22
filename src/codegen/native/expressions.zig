@@ -203,8 +203,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     try self.output.writer(self.allocator).print("__cap_{s}.*", .{name_to_use});
                 } else if (self.inside_classmethod) {
                     // In classmethod (e.g., __init_subclass__), there's no self/__self instance.
-                    // Access the outer scope variable directly - this works for module-level vars.
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                    // Access via static var that holds the captured pointer: @This().__static_xxx
+                    // Cast the *anyopaque back to the proper type and dereference
+                    try self.output.writer(self.allocator).print("@as(*hashmap_helper.StringHashMap(runtime.PyValue), @ptrCast(@alignCast(@This().__static_{s})))", .{name_to_use});
                 } else {
                     // In regular method, access via self.__captured_* field (pointer dereference)
                     // Use __self for regular nested methods, __cls for __new__ methods

@@ -1113,8 +1113,37 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Check if any classmethod (like __init_subclass__) uses captured vars
+    // If so, we need static vars in addition to instance fields
+    const has_classmethod_captures = blk: {
+        if (captured_vars == null) break :blk false;
+        for (class.body) |stmt| {
+            if (stmt == .function_def) {
+                const method = stmt.function_def;
+                const is_implicit_cm = std.mem.eql(u8, method.name, "__init_subclass__") or
+                    std.mem.eql(u8, method.name, "__class_getitem__");
+                const is_classmethod = signature.hasClassmethodDecorator(method.decorators) or is_implicit_cm;
+                if (is_classmethod) break :blk true;
+            }
+        }
+        break :blk false;
+    };
+
     // Add pointer fields for captured outer variables
     if (captured_vars) |vars| {
+        // For classmethods that need captured vars, add static vars
+        // These are accessible without an instance (unlike instance fields)
+        if (has_classmethod_captures) {
+            try self.emitIndent();
+            try emitConst(self, "// Static captured variables (for classmethod access)\n");
+            for (vars) |var_name| {
+                try self.emitIndent();
+                // Static vars are initialized after struct definition
+                try self.output.writer(self.allocator).print("var __static_{s}: *anyopaque = undefined;\n", .{var_name});
+            }
+            try emitConst(self, "\n");
+        }
+
         try self.emitIndent();
         try emitConst(self,"// Captured outer scope variables (pointers)\n");
         for (vars) |var_name| {
@@ -1809,6 +1838,18 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.dedent();
     try self.emitIndent();
     try emitConst(self,"};\n");
+
+    // Initialize static captured vars for classmethod access
+    // This MUST be done after the struct definition but before the class is used
+    if (has_classmethod_captures) {
+        if (captured_vars) |vars| {
+            for (vars) |var_name| {
+                try self.emitIndent();
+                // Use @ptrCast to convert the typed pointer to *anyopaque
+                try self.output.writer(self.allocator).print("{s}.__static_{s} = @ptrCast(&{s});\n", .{ effective_class_name, var_name, var_name });
+            }
+        }
+    }
 
     // For nested classes (inside functions/methods), emit _ = &ClassName; immediately
     // to suppress "unused local constant" errors. We use & (address-of) to avoid
