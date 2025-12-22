@@ -959,8 +959,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
-        // Check if this is a closure variable
-        if (self.closure_vars.contains(raw_func_name)) {
+        // Check if this is a closure variable (but NOT a nested class)
+        // Nested classes with captures should use .init(), not .call()
+        if (self.closure_vars.contains(raw_func_name) and !self.nested_class_names.contains(raw_func_name)) {
             // Closure call: add_five(3) -> (try add_five.call(3))
             // Closures return error unions (!T) so we need to unwrap with try
             // EXCEPTION: void-returning closures don't need try wrapping
