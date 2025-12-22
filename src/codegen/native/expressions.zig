@@ -115,8 +115,12 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             const name_to_use = blk: {
                 if (self.hoisted_local_classes.get(n.id)) |hoisted| break :blk hoisted;
                 // Comprehension loop variables (__comp_*) MUST shadow local vars (Python 3 scope isolation)
+                // Parameter renames (__m*_p_*) MUST apply even for func_local_vars (zero-capture closure params)
                 if (self.var_renames.get(n.id)) |renamed| {
                     if (std.mem.startsWith(u8, renamed, "__comp_")) break :blk renamed;
+                    if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_p_") != null) break :blk renamed;
+                    // Also check for mutable param copies (__m*_v_*)
+                    if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_v_") != null) break :blk renamed;
                 }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
                 if (self.func_local_vars.contains(n.id)) break :blk n.id;
