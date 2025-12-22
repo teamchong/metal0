@@ -21,7 +21,7 @@ const FnvConfidenceMap = hashmap_helper.StringHashMap(core.TypeConfidence);
 const CommonBuiltins = std.StaticStringMap(void).initComptime(.{
     // Core builtins that look like function calls
     .{ "print", {} }, .{ "len", {} }, .{ "range", {} }, .{ "str", {} },
-    .{ "int", {} }, .{ "float", {} }, .{ "bool", {} }, .{ "list", {} },
+    .{ "int", {} }, .{ "float", {} }, .{ "bool", {} }, .{ "complex", {} }, .{ "list", {} },
     .{ "dict", {} }, .{ "set", {} }, .{ "tuple", {} }, .{ "type", {} },
     .{ "abs", {} }, .{ "min", {} }, .{ "max", {} }, .{ "sum", {} },
     .{ "any", {} }, .{ "all", {} }, .{ "zip", {} }, .{ "map", {} },

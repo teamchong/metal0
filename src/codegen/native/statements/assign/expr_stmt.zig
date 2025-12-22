@@ -14,6 +14,113 @@ const VoidFunctions = std.StaticStringMap(void).initComptime(.{
     .{ "setattr", {} }, .{ "delattr", {} },
 });
 
+/// Module functions that return values (need `_ = ` prefix when used as statements)
+/// These modules are dispatched via ModuleDispatch, not import_registry
+/// Format: "module.function" -> void
+const ModuleFuncsReturningValues = std.StaticStringMap(void).initComptime(.{
+    // struct module
+    .{ "struct.pack", {} },
+    .{ "struct.unpack", {} },
+    .{ "struct.calcsize", {} },
+    .{ "struct.pack_into", {} },
+    .{ "struct.unpack_from", {} },
+    .{ "struct.iter_unpack", {} },
+    // _struct module (internal)
+    .{ "_struct.pack", {} },
+    .{ "_struct.unpack", {} },
+    .{ "_struct.calcsize", {} },
+    // pickle module
+    .{ "pickle.dumps", {} },
+    .{ "pickle.loads", {} },
+    // json module
+    .{ "json.dumps", {} },
+    .{ "json.loads", {} },
+    // base64 module
+    .{ "base64.b64encode", {} },
+    .{ "base64.b64decode", {} },
+    .{ "base64.urlsafe_b64encode", {} },
+    .{ "base64.urlsafe_b64decode", {} },
+    // hashlib module
+    .{ "hashlib.md5", {} },
+    .{ "hashlib.sha1", {} },
+    .{ "hashlib.sha256", {} },
+    .{ "hashlib.sha512", {} },
+    // random module
+    .{ "random.randint", {} },
+    .{ "random.randrange", {} },
+    .{ "random.choice", {} },
+    .{ "random.random", {} },
+    // math module
+    .{ "math.sqrt", {} },
+    .{ "math.sin", {} },
+    .{ "math.cos", {} },
+    .{ "math.tan", {} },
+    .{ "math.floor", {} },
+    .{ "math.ceil", {} },
+    .{ "math.fabs", {} },
+    .{ "math.log", {} },
+    .{ "math.log10", {} },
+    .{ "math.exp", {} },
+    .{ "math.pow", {} },
+    // os module
+    .{ "os.getcwd", {} },
+    .{ "os.listdir", {} },
+    .{ "os.getenv", {} },
+    // os.path module
+    .{ "os.path.join", {} },
+    .{ "os.path.dirname", {} },
+    .{ "os.path.basename", {} },
+    .{ "os.path.exists", {} },
+    .{ "os.path.isfile", {} },
+    .{ "os.path.isdir", {} },
+    .{ "os.path.abspath", {} },
+    .{ "os.path.splitext", {} },
+    // re module
+    .{ "re.match", {} },
+    .{ "re.search", {} },
+    .{ "re.findall", {} },
+    .{ "re.sub", {} },
+    .{ "re.split", {} },
+    .{ "re.compile", {} },
+    // datetime module
+    .{ "datetime.now", {} },
+    .{ "datetime.today", {} },
+    .{ "datetime.fromtimestamp", {} },
+    .{ "datetime.strptime", {} },
+    // time module
+    .{ "time.time", {} },
+    .{ "time.monotonic", {} },
+    .{ "time.perf_counter", {} },
+    .{ "time.localtime", {} },
+    .{ "time.gmtime", {} },
+    .{ "time.strftime", {} },
+    // copy module
+    .{ "copy.copy", {} },
+    .{ "copy.deepcopy", {} },
+    // functools module
+    .{ "functools.partial", {} },
+    .{ "functools.reduce", {} },
+    // itertools module
+    .{ "itertools.chain", {} },
+    .{ "itertools.repeat", {} },
+    .{ "itertools.count", {} },
+    .{ "itertools.islice", {} },
+    .{ "itertools.zip_longest", {} },
+    // collections module
+    .{ "collections.namedtuple", {} },
+    .{ "collections.defaultdict", {} },
+    .{ "collections.Counter", {} },
+    .{ "collections.deque", {} },
+    .{ "collections.OrderedDict", {} },
+});
+
+/// Check if a module.function combination returns a value
+fn isModuleFuncReturningValue(module: []const u8, func: []const u8) bool {
+    var buf: [128]u8 = undefined;
+    const key = std.fmt.bufPrint(&buf, "{s}.{s}", .{ module, func }) catch return false;
+    return ModuleFuncsReturningValues.has(key);
+}
+
 /// Generate expression statement using builder.withStatement() for atomic semicolons
 pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const builder = try self.getBuilder();
@@ -343,6 +450,11 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
                 if (self.import_registry.getFunctionMeta(full_module, func_name)) |_| {
                     return true;
                 } else if (self.local_from_imports.contains(module_alias)) {
+                    return true;
+                }
+                // Check for known stdlib module functions that return values
+                // These modules are handled via ModuleDispatch, not import_registry
+                if (isModuleFuncReturningValue(full_module, func_name)) {
                     return true;
                 }
             }

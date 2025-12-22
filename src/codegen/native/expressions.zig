@@ -27,16 +27,24 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 
 
 /// Python type/constant names to Zig code
+/// IMPORTANT: These are TYPE references, not constructor calls.
+/// Constructor calls like `complex(1, 2)` are handled by genCall -> builtins.genComplex
+/// This map handles bare name references like `for T in (int, float, complex):`
 const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
+    // Numeric types - used in isinstance checks and type tuples
     .{ "int", "i64" },
     .{ "float", "f64" },
     .{ "bool", "bool" },
+    .{ "complex", "runtime.PyComplex" }, // Type, not constructor
+    // Boolean constants
     .{ "True", "true" },
     .{ "False", "false" },
+    // Factories for mutable types (create empty instances)
     .{ "str", "runtime.builtins.str_factory" },
     .{ "bytes", "runtime.builtins.bytes_factory" },
     .{ "bytearray", "runtime.builtins.bytearray_factory" },
     .{ "memoryview", "runtime.builtins.memoryview_factory" },
+    // Special values
     .{ "None", "null" },
     .{ "NoneType", "null" },
     .{ "NotImplemented", "runtime.NotImplemented" },
