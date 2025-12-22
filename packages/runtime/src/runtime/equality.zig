@@ -388,16 +388,40 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     if (a_is_arraylist and b_info == .array) {
         const AElem = std.meta.Elem(@TypeOf(a.items));
         const BElem = b_info.array.child;
-        if (AElem != BElem) return false;
-        if (a.items.len != b.len) return false;
-        return std.mem.eql(AElem, a.items, &b);
+        // Same element type: use std.mem.eql
+        if (AElem == BElem) {
+            if (a.items.len != b.len) return false;
+            return std.mem.eql(AElem, a.items, &b);
+        }
+        // ArrayList(PyValue) vs [N]string: compare PyValue.string to string
+        if (AElem == PyValue and BElem == []const u8) {
+            if (a.items.len != b.len) return false;
+            for (a.items, b) |pv, str| {
+                if (pv != .string) return false;
+                if (!std.mem.eql(u8, pv.string, str)) return false;
+            }
+            return true;
+        }
+        return false;
     }
     if (a_info == .array and b_is_arraylist) {
         const AElem = a_info.array.child;
         const BElem = std.meta.Elem(@TypeOf(b.items));
-        if (AElem != BElem) return false;
-        if (a.len != b.items.len) return false;
-        return std.mem.eql(AElem, &a, b.items);
+        // Same element type: use std.mem.eql
+        if (AElem == BElem) {
+            if (a.len != b.items.len) return false;
+            return std.mem.eql(AElem, &a, b.items);
+        }
+        // [N]string vs ArrayList(PyValue): compare string to PyValue.string
+        if (AElem == []const u8 and BElem == PyValue) {
+            if (a.len != b.items.len) return false;
+            for (a, b.items) |str, pv| {
+                if (pv != .string) return false;
+                if (!std.mem.eql(u8, str, pv.string)) return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     // Numeric coercion: int vs comptime_int, float vs comptime_float
