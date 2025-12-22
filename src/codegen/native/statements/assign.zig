@@ -889,6 +889,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             var wrapper_opened: bool = false;
             // TWO-FLOW TYPE SYSTEM: Track if PyValue.from() wrapper needed for reassignment
             var reassign_pyvalue_wrap: bool = false;
+            // UNIFIED INT: Track if UnifiedInt.fromI128() wrapper needed for reassignment
+            var reassign_unified_int_wrap: bool = false;
 
             if (is_first_assignment) {
                 // Special handling for y = x where x is ArrayList
@@ -1167,6 +1169,36 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     const expr_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
                     reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue;
 
+                    // UNIFIED INT: Check if reassigning a UnifiedInt variable with an expression
+                    // that might produce i128 (e.g., -1 - sys.maxsize) but target is UnifiedInt
+                    // In this case, wrap with runtime.UnifiedInt.fromI128()
+                    const is_unified_int_reassign = (declared_type == .unified_int);
+                    // Check if RHS expression could produce i128:
+                    // 1. Binop involving attribute (sys.maxsize generates i128)
+                    // 2. Type inference says it needs BigInt
+                    const rhs_type = self.inferExprScoped(assign.value.*) catch .unknown;
+                    const rhs_needs_conversion = blk: {
+                        // Check if type is large integer
+                        if (rhs_type == .int and rhs_type.int.needsBigInt()) break :blk true;
+                        // Check if binop involves attribute access (like sys.maxsize)
+                        if (assign.value.* == .binop) {
+                            const binop = assign.value.binop;
+                            // sys.maxsize or similar attribute produces i128
+                            if (binop.left.* == .attribute or binop.right.* == .attribute) {
+                                break :blk true;
+                            }
+                            // Also check if either operand is unary minus with attribute
+                            if (binop.left.* == .unaryop and binop.left.unaryop.operand.* == .attribute) {
+                                break :blk true;
+                            }
+                            if (binop.right.* == .unaryop and binop.right.unaryop.operand.* == .attribute) {
+                                break :blk true;
+                            }
+                        }
+                        break :blk false;
+                    };
+                    reassign_unified_int_wrap = is_unified_int_reassign and rhs_needs_conversion;
+
                     // Skip type-changing assignments for anytype parameters
                     // Pattern: other = Rat(other) where other is anytype and RHS is constructor
                     // This is incompatible with Zig's type system - will be handled by comptime branching
@@ -1195,6 +1227,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // TWO-FLOW TYPE SYSTEM: Open PyValue.from() wrapper for reassignment if needed
                     if (reassign_pyvalue_wrap) {
                         try emitConst(self,"runtime.PyValue.from(");
+                    }
+                    // UNIFIED INT: Open UnifiedInt.fromI128() wrapper for reassignment if needed
+                    if (reassign_unified_int_wrap) {
+                        try emitConst(self,"(try runtime.UnifiedInt.fromI128(__global_allocator, ");
                     }
                     // No type annotation on reassignment
                 }
@@ -1417,6 +1453,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper for reassignment if opened
                 if (reassign_pyvalue_wrap) {
                     try emitConst(self,")");
+                }
+                // UNIFIED INT: Close UnifiedInt.fromI128() wrapper for reassignment if opened
+                if (reassign_unified_int_wrap) {
+                    try emitConst(self,"))");
                 }
                 try emitConst(self,";\n");
             }

@@ -37,6 +37,19 @@ pub const UnifiedInt = union(enum) {
         return .{ .big = big };
     }
 
+    /// Create from i128 (promotes to BigInt if needed)
+    pub fn fromI128(allocator: Allocator, value: i128) !Self {
+        // Check if fits in i64
+        if (value >= std.math.minInt(i64) and value <= std.math.maxInt(i64)) {
+            return .{ .small = @intCast(value) };
+        }
+        // Promote to BigInt
+        const big = try BigInt.fromInt128(allocator, value);
+        const heap_big = try allocator.create(BigInt);
+        heap_big.* = big;
+        return .{ .big = heap_big };
+    }
+
     /// Create from BigInt value (allocates)
     pub fn fromBigIntValue(allocator: Allocator, big: *const BigInt) !Self {
         // Try to demote to i64 if it fits
