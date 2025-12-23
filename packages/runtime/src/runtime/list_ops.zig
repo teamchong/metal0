@@ -7,12 +7,32 @@ const PyValue = @import("../Objects/object.zig").PyValue;
 /// Compiled ONCE per (SrcType, DstType) pair, not per list literal
 /// This eliminates the O(n²) monomorphization from inline type checks
 pub fn castToListElement(comptime DstType: type, comptime SrcType: type, value: SrcType, allocator: std.mem.Allocator) !DstType {
+    const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
+    const BigInt = @import("../Objects/pyint.zig").BigInt;
+
     // Same type - no cast needed
     if (SrcType == DstType) return value;
 
     // PyValue conversion
     if (DstType == PyValue) {
         return try PyValue.fromAlloc(allocator, value);
+    }
+
+    // UnifiedInt conversion - int types to UnifiedInt
+    if (DstType == UnifiedInt) {
+        if (SrcType == i64 or SrcType == i32 or SrcType == comptime_int) {
+            return UnifiedInt.fromI64(@as(i64, value));
+        } else if (SrcType == BigInt or SrcType == *BigInt or SrcType == *const BigInt) {
+            // BigInt to UnifiedInt
+            const big_ptr = if (SrcType == BigInt) blk: {
+                const ptr = try allocator.create(BigInt);
+                ptr.* = value;
+                break :blk ptr;
+            } else value;
+            return UnifiedInt{ .big = big_ptr };
+        } else if (SrcType == UnifiedInt) {
+            return value;
+        }
     }
 
     // Int to float

@@ -606,11 +606,12 @@ pub const NativeType = union(enum) {
             return .pyvalue;
         }
 
-        // BigInt can hold any int, so bigint "wins" over int/usize
+        // BigInt + int/usize -> unified_int (to handle both small and large values)
+        // This ensures lists like [324, 2**100] use UnifiedInt instead of raw BigInt
         if ((self_tag == .bigint and other_tag == .int) or
-            (self_tag == .int and other_tag == .bigint)) return .bigint;
+            (self_tag == .int and other_tag == .bigint)) return .unified_int;
         if ((self_tag == .bigint and other_tag == .usize) or
-            (self_tag == .usize and other_tag == .bigint)) return .bigint;
+            (self_tag == .usize and other_tag == .bigint)) return .unified_int;
 
         // UnifiedInt widening: unified_int + int/bigint/usize = unified_int (it can hold both)
         if (self_tag == .unified_int or other_tag == .unified_int) {

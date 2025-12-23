@@ -194,6 +194,8 @@ pub fn InferListType(comptime TupleType: type) type {
     comptime var has_int = false;
     comptime var has_float = false;
     comptime var has_string = false;
+    comptime var has_bigint = false; // BigInt type (arbitrary precision)
+    comptime var has_unified_int = false; // UnifiedInt type (small + big)
     comptime var has_other = false; // ArrayList, PyValue, etc.
     comptime var other_type: ?type = null; // Track the "other" type if all are same
     comptime var all_other_same = true; // Are all "other" types identical?
@@ -202,11 +204,24 @@ pub fn InferListType(comptime TupleType: type) type {
     comptime var array_child_type: ?type = null;
     comptime var array_child_same = true;
 
+    const BigInt = @import("../Objects/pyint.zig").BigInt;
+    const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
+
     inline for (fields) |field| {
         const T = field.type;
 
+        // Check for UnifiedInt first (tagged union of small i64 and BigInt)
+        if (T == UnifiedInt) {
+            has_unified_int = true;
+            all_arrays = false;
+        }
+        // Check for BigInt (arbitrary precision integer)
+        else if (T == BigInt or T == *BigInt or T == *const BigInt) {
+            has_bigint = true;
+            all_arrays = false;
+        }
         // Check for int types
-        if (T == i64 or T == i32 or T == comptime_int or T == usize or T == isize) {
+        else if (T == i64 or T == i32 or T == comptime_int or T == usize or T == isize) {
             has_int = true;
             all_arrays = false;
         }
@@ -298,7 +313,8 @@ pub fn InferListType(comptime TupleType: type) type {
     }
 
     // Type promotion hierarchy - if mixed incompatible types, use PyValue
-    const num_categories = @as(u8, if (has_int or has_float) 1 else 0) +
+    const has_any_int = has_int or has_bigint or has_unified_int;
+    const num_categories = @as(u8, if (has_any_int or has_float) 1 else 0) +
         @as(u8, if (has_string) 1 else 0) +
         @as(u8, if (has_other) 1 else 0);
 
@@ -321,6 +337,16 @@ pub fn InferListType(comptime TupleType: type) type {
         return []const u8;
     } else if (has_float) {
         return f64;
+    } else if (has_unified_int) {
+        // UnifiedInt + anything else = UnifiedInt
+        return UnifiedInt;
+    } else if (has_bigint) {
+        // BigInt + int = UnifiedInt (to handle both small and large values efficiently)
+        if (has_int) {
+            return UnifiedInt;
+        }
+        // BigInt only = BigInt (but prefer UnifiedInt for flexibility)
+        return UnifiedInt;
     } else {
         return i64;
     }

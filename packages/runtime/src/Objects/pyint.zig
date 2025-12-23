@@ -8,7 +8,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const bigint_mod = @import("bigint");
-const BigInt = bigint_mod.BigInt;
+pub const BigInt = bigint_mod.BigInt;
 
 /// UnifiedInt: Tagged union for Python integers
 /// Fast path uses i64, auto-promotes to BigInt on overflow.

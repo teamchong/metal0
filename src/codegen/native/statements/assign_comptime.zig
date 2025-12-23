@@ -90,8 +90,21 @@ pub fn emitComptimeAssignment(
                 if (items.len == 0) {
                     try b.write("[0]i64"); // Empty list default type
                 } else {
+                    // Check if any element exceeds i32 range - if so, use UnifiedInt
+                    var has_large_int = false;
+                    for (items) |item| {
+                        if (item == .int) {
+                            const v = item.int;
+                            if (v > std.math.maxInt(i32) or v < std.math.minInt(i32)) {
+                                has_large_int = true;
+                                break;
+                            }
+                        }
+                    }
                     // Infer element type from first element
-                    const elem_type = switch (items[0]) {
+                    const elem_type: []const u8 = if (has_large_int and items[0] == .int)
+                        "runtime.UnifiedInt"
+                    else switch (items[0]) {
                         .int => "i64",
                         .float => "f64",
                         .bool => "bool",
@@ -173,6 +186,34 @@ pub fn emitComptimeAssignment(
             try b.write("\")");
         },
         .list, .owned_list => |items| {
+            // Check if list elements should be wrapped as UnifiedInt
+            // This happens when the list contains mixed integer sizes (e.g., [324, 2**31])
+            const list_elem_is_unified_int = blk: {
+                // Check if the target variable's list element type is unified_int
+                if (self.symbol_table.getType(var_name)) |declared_type| {
+                    if (declared_type == .list) {
+                        break :blk (declared_type.list.* == .unified_int);
+                    }
+                }
+                if (self.type_inferrer.var_types.get(var_name)) |inferred_type| {
+                    if (inferred_type == .list) {
+                        break :blk (inferred_type.list.* == .unified_int);
+                    }
+                }
+                // Check if any item is a large int (e.g., 2**31 produces bigint comptime)
+                // If so, treat the whole list as UnifiedInt
+                for (items) |item| {
+                    if (item == .int) {
+                        const v = item.int;
+                        // If value exceeds i32 range, it's likely from a large computation
+                        if (v > std.math.maxInt(i32) or v < std.math.minInt(i32)) {
+                            break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            };
+
             if (items.len == 0) {
                 try b.write(".{}");
             } else {
@@ -181,7 +222,13 @@ pub fn emitComptimeAssignment(
                     if (i > 0) try b.write(", ");
 
                     switch (item) {
-                        .int => |v| try b.writeFmt("{d}", .{v}),
+                        .int => |v| {
+                            if (list_elem_is_unified_int) {
+                                try b.writeFmt("runtime.UnifiedInt.fromI64({d})", .{v});
+                            } else {
+                                try b.writeFmt("{d}", .{v});
+                            }
+                        },
                         .float => |v| {
                             // Use Python-style float formatting (always show .0 for whole numbers)
                             if (@mod(v, 1.0) == 0.0) {
