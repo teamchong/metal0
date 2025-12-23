@@ -249,6 +249,8 @@ fn stmtNeedsAlloc(stmt: ast.Node) bool {
         },
         .aug_assign => |a| exprNeedsAlloc(a.value.*),
         .return_stmt => |r| if (r.value) |v| exprNeedsAlloc(v.*) else false,
+        // Raise statements mean the function can error - needs error union
+        .raise_stmt => true,
         .if_stmt => |i| exprNeedsAlloc(i.condition.*) or blk: {
             for (i.body) |s| if (stmtNeedsAlloc(s)) break :blk true;
             for (i.else_body) |s| if (stmtNeedsAlloc(s)) break :blk true;
