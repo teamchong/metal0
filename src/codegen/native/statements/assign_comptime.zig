@@ -51,6 +51,20 @@ pub fn emitComptimeAssignment(
     const b = try self.getBuilder();
     try b.writeIndent();
 
+    // Check if target variable is a UnifiedInt that needs wrapping
+    // For reassignments (not first assignment), check symbol_table or type_inferrer
+    const is_unified_int_target = if (!is_first_assignment) blk: {
+        // Check symbol_table first
+        if (self.symbol_table.getType(var_name)) |declared_type| {
+            break :blk (declared_type == .unified_int);
+        }
+        // Fall back to type_inferrer.var_types for module-level vars
+        if (self.type_inferrer.var_types.get(var_name)) |inferred_type| {
+            break :blk (inferred_type == .unified_int);
+        }
+        break :blk false;
+    } else false;
+
     if (is_first_assignment) {
         // Use var for mutable variables, const for immutable
         if (is_mutable) {
@@ -96,7 +110,14 @@ pub fn emitComptimeAssignment(
     // Emit value
     const writer = b.body.writer(b.allocator);
     switch (value) {
-        .int => |v| try b.writeFmt("{d}", .{v}),
+        .int => |v| {
+            // Wrap in UnifiedInt.fromI64() if target is UnifiedInt
+            if (is_unified_int_target) {
+                try b.writeFmt("runtime.UnifiedInt.fromI64({d})", .{v});
+            } else {
+                try b.writeFmt("{d}", .{v});
+            }
+        },
         .float => |v| {
             // Handle special values first to avoid printing just "inf" or "nan"
             if (std.math.isInf(v)) {
