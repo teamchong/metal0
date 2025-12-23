@@ -234,6 +234,42 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
                     }
                 }
             }
+
+            // Handle UnifiedInt: .small (i64) and .big (*BigInt)
+            if (@hasField(FirstT, "small")) {
+                const small_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "small"));
+                if (active_tag == small_idx) {
+                    const val = first.small;
+                    // Check if value fits in i32, otherwise use extreme value
+                    if (val >= std.math.minInt(i32) and val <= std.math.maxInt(i32)) {
+                        break :blk @intCast(val);
+                    } else if (val < 0) {
+                        break :blk -1000; // Will trigger early return for 0.0
+                    } else {
+                        break :blk 1000; // Will trigger early return for original value
+                    }
+                }
+            }
+
+            if (@hasField(FirstT, "big")) {
+                const big_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "big"));
+                if (active_tag == big_idx) {
+                    // .big is *BigInt - dereference the pointer
+                    const bi_ptr = first.big;
+                    // For BigInt, try to convert to i32 if it fits
+                    if (bi_ptr.toInt(i32)) |val| {
+                        break :blk val;
+                    } else |_| {
+                        // BigInt is too large for ndigits, use extreme value
+                        // Check if negative (very small n) or positive (very large n)
+                        if (bi_ptr.isNegative()) {
+                            break :blk -1000; // Will trigger early return for 0.0
+                        } else {
+                            break :blk 1000; // Will trigger early return for original value
+                        }
+                    }
+                }
+            }
         }
         // ndigits must be an integer type - if not, raise TypeError
         // (e.g., round(x, 0.5) or round(x, "string"))
