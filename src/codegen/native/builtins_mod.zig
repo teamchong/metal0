@@ -9,6 +9,8 @@ const collections = @import("builtins/collections.zig");
 const builtins = @import("builtins.zig");
 const expressions = @import("expressions.zig");
 const expr_emitter = @import("expr_emitter.zig");
+const type_checks = @import("builtins/conversions/type_checks.zig");
+const dynamic_attrs = @import("builtins/dynamic_attrs.zig");
 
 // Helper for simple constant output
 fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
@@ -65,8 +67,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "open", h.c("@as(?*anyopaque, null)") }, .{ "print", h.c("{}") },
     .{ "len", h.wrap("@as(i64, ", ".len)", "@as(i64, 0)") },
     .{ "abs", h.wrap("@abs(", ")", "@as(i64, 0)") },
-    .{ "isinstance", genIsinstance }, .{ "issubclass", genTrue }, .{ "hasattr", genTrue },
-    .{ "getattr", genNull }, .{ "setattr", genVoid }, .{ "delattr", genVoid }, .{ "callable", genTrue },
+    .{ "isinstance", type_checks.genIsinstance }, .{ "issubclass", type_checks.genIssubclass }, .{ "hasattr", dynamic_attrs.genHasattr },
+    .{ "getattr", dynamic_attrs.genGetattr }, .{ "setattr", dynamic_attrs.genSetattr }, .{ "delattr", type_checks.genDelattr }, .{ "callable", type_checks.genCallable },
     .{ "repr", h.c("\"\"") }, .{ "ascii", h.c("\"\"") },
     .{ "hex", genFmt("0x", "x", "0x0") }, .{ "oct", genFmt("0o", "o", "0o0") }, .{ "bin", genFmt("0b", "b", "0b0") },
     .{ "id", h.I64(0) }, .{ "type", h.c("type") },
@@ -106,29 +108,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "True", h.c("true") }, .{ "False", h.c("false") }, .{ "None", h.c("null") },
     .{ "Ellipsis", h.c(".{}") }, .{ "NotImplemented", h.c(".{}") },
 });
-
-fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len >= 2 and (args[0] == .call or args[1] == .call)) {
-        try self.withInlineBlock("isinstance", args, struct {
-            fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                if (a[0] == .call) {
-                    try emitConst(c, "_ = ");
-                    try c.genExpr(a[0]);
-                    try emitConst(c, "; ");
-                }
-                if (a[1] == .call) {
-                    try emitConst(c, "_ = ");
-                    try c.genExpr(a[1]);
-                    try emitConst(c, "; ");
-                }
-                try emitFmtConst(c, "break :{s} true", .{label});
-            }
-        }.emit);
-    } else try sideEffect(self, args, "true");
-}
-fn genTrue(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "true"); }
-fn genNull(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "@as(?*anyopaque, null)"); }
-fn genVoid(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try sideEffect(self, args, "{{}}"); }
 
 pub fn genSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // slice(stop) or slice(start, stop) or slice(start, stop, step)
