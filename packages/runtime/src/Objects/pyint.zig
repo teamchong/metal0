@@ -557,6 +557,32 @@ pub const UnifiedInt = union(enum) {
         };
     }
 
+    /// Try to get as i32 (returns null if too large)
+    pub fn toI32(self: Self) ?i32 {
+        return switch (self) {
+            .small => |v| if (v >= std.math.minInt(i32) and v <= std.math.maxInt(i32)) @intCast(v) else null,
+            .big => |b| b.toInt(i32) catch null,
+        };
+    }
+
+    /// Get as i32, clamped to extreme values if out of range
+    /// Useful for round(x, ndigits) where extreme ndigits just means "return original value"
+    /// Returns: i32 value, or clamp_min/clamp_max if out of range
+    pub fn toI32Clamped(self: Self, clamp_min: i32, clamp_max: i32) i32 {
+        return switch (self) {
+            .small => |v| {
+                if (v < std.math.minInt(i32)) return clamp_min;
+                if (v > std.math.maxInt(i32)) return clamp_max;
+                return @intCast(v);
+            },
+            .big => |b| {
+                if (b.toInt(i32)) |val| return val else |_| {
+                    return if (b.isNegative()) clamp_min else clamp_max;
+                }
+            },
+        };
+    }
+
     /// Convert to f64
     pub fn toFloat(self: Self) f64 {
         return switch (self) {

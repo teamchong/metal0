@@ -128,6 +128,9 @@ pub const bankersRound = conv_mod.bankersRound;
 pub const pyRound = conv_mod.pyRound;
 pub const ord = conv_mod.ord;
 pub const chr = conv_mod.chr;
+// Centralized integer extraction helpers - use these instead of scattered type checks
+pub const extractI32Clamped = conv_mod.extractI32Clamped;
+pub const extractI64 = conv_mod.extractI64;
 
 /// I/O functions (print, input, breakpoint)
 pub const io_mod = @import("builtins/io.zig");

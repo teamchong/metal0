@@ -884,6 +884,23 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
             try emitConst(self,"try runtime.PyValue.fromAlloc(__global_allocator, ");
             try self.genExpr(elem);
             try emitConst(self,")");
+        } else if (elem_type == .unified_int) {
+            // Wrap elements in UnifiedInt for lists that contain mixed int sizes
+            // e.g., [324, 2**31] - 324 is i64 but list type is UnifiedInt
+            const this_type = try self.type_inferrer.inferExpr(elem);
+            const this_tag = @as(std.meta.Tag(@TypeOf(this_type)), this_type);
+            if (this_tag == .unified_int) {
+                // Already UnifiedInt, emit directly
+                try self.genExpr(elem);
+            } else if (this_tag == .int) {
+                // Wrap i64 literal/expression in UnifiedInt
+                try emitConst(self,"runtime.UnifiedInt.fromI64(");
+                try self.genExpr(elem);
+                try emitConst(self,")");
+            } else {
+                // Other types - emit directly and let Zig handle coercion
+                try self.genExpr(elem);
+            }
         } else {
             try self.genExpr(elem);
         }

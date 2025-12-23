@@ -4,6 +4,153 @@ const runtime = @import("../../runtime.zig");
 const PythonError = runtime.PythonError;
 const PyValue = runtime.PyValue;
 
+// ============================================================================
+// Centralized Integer Extraction Helpers
+// ============================================================================
+// These helpers extract integer values from various types (i64, UnifiedInt,
+// BigInt, PyValue) in a consistent way. Use these instead of scattered
+// type-specific checks to avoid maintenance burden.
+
+/// Extract an i32 from any integer-like type, clamping to min/max if out of range.
+/// Returns null if the type is not integer-like (e.g., float, string).
+///
+/// Supported types:
+/// - Native integers (i32, i64, comptime_int, etc.)
+/// - BigInt (struct with toInt method)
+/// - UnifiedInt (union with .small/.big fields)
+/// - PyValue (union with .int/.bigint fields)
+///
+/// Usage: extractI32Clamped(value, -1000, 1000) orelse return error.TypeError
+pub fn extractI32Clamped(value: anytype, clamp_min: i32, clamp_max: i32) ?i32 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Case 1: Native integer types
+    if (info == .int or info == .comptime_int) {
+        const v: i64 = @intCast(value);
+        if (v < std.math.minInt(i32)) return clamp_min;
+        if (v > std.math.maxInt(i32)) return clamp_max;
+        return @intCast(v);
+    }
+
+    // Case 2: Struct with toI32Clamped method (UnifiedInt)
+    if (info == .@"struct" and @hasDecl(T, "toI32Clamped")) {
+        return value.toI32Clamped(clamp_min, clamp_max);
+    }
+
+    // Case 3: Struct with toInt method (BigInt)
+    if (info == .@"struct" and @hasDecl(T, "toInt")) {
+        if (value.toInt(i32)) |val| return val else |_| {
+            return if (value.isNegative()) clamp_min else clamp_max;
+        }
+    }
+
+    // Case 4: Tagged union (UnifiedInt, PyValue, etc.)
+    if (info == .@"union" and info.@"union".tag_type != null) {
+        const active_tag = @intFromEnum(value);
+
+        // UnifiedInt: .small (i64)
+        if (@hasField(T, "small")) {
+            const small_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "small"));
+            if (active_tag == small_idx) {
+                const v = value.small;
+                if (v < std.math.minInt(i32)) return clamp_min;
+                if (v > std.math.maxInt(i32)) return clamp_max;
+                return @intCast(v);
+            }
+        }
+
+        // UnifiedInt: .big (*BigInt)
+        if (@hasField(T, "big")) {
+            const big_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "big"));
+            if (active_tag == big_idx) {
+                const bi_ptr = value.big;
+                if (bi_ptr.toInt(i32)) |val| return val else |_| {
+                    return if (bi_ptr.isNegative()) clamp_min else clamp_max;
+                }
+            }
+        }
+
+        // PyValue: .int (i64)
+        if (@hasField(T, "int")) {
+            const int_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "int"));
+            if (active_tag == int_idx) {
+                const v = value.int;
+                if (v < std.math.minInt(i32)) return clamp_min;
+                if (v > std.math.maxInt(i32)) return clamp_max;
+                return @intCast(v);
+            }
+        }
+
+        // PyValue: .bigint (BigInt value, not pointer)
+        if (@hasField(T, "bigint")) {
+            const bigint_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "bigint"));
+            if (active_tag == bigint_idx) {
+                const bi_ptr = &value.bigint;
+                if (bi_ptr.toInt(i32)) |val| return val else |_| {
+                    return if (bi_ptr.isNegative()) clamp_min else clamp_max;
+                }
+            }
+        }
+    }
+
+    // Not an integer-like type
+    return null;
+}
+
+/// Extract an i64 from any integer-like type.
+/// Returns null if the type is not integer-like or value doesn't fit in i64.
+pub fn extractI64(value: anytype) ?i64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    // Case 1: Native integer types
+    if (info == .int or info == .comptime_int) {
+        return @intCast(value);
+    }
+
+    // Case 2: Struct with toI64 method (UnifiedInt)
+    if (info == .@"struct" and @hasDecl(T, "toI64")) {
+        return value.toI64();
+    }
+
+    // Case 3: Struct with toInt64 method (BigInt)
+    if (info == .@"struct" and @hasDecl(T, "toInt64")) {
+        return value.toInt64();
+    }
+
+    // Case 4: Tagged union (UnifiedInt, PyValue, etc.)
+    if (info == .@"union" and info.@"union".tag_type != null) {
+        const active_tag = @intFromEnum(value);
+
+        // UnifiedInt: .small (i64)
+        if (@hasField(T, "small")) {
+            const small_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "small"));
+            if (active_tag == small_idx) return value.small;
+        }
+
+        // UnifiedInt: .big (*BigInt)
+        if (@hasField(T, "big")) {
+            const big_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "big"));
+            if (active_tag == big_idx) return value.big.toInt64();
+        }
+
+        // PyValue: .int (i64)
+        if (@hasField(T, "int")) {
+            const int_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "int"));
+            if (active_tag == int_idx) return value.int;
+        }
+
+        // PyValue: .bigint (BigInt value)
+        if (@hasField(T, "bigint")) {
+            const bigint_idx = @intFromEnum(@field(std.meta.FieldEnum(T), "bigint"));
+            if (active_tag == bigint_idx) return value.bigint.toInt64();
+        }
+    }
+
+    return null;
+}
+
 /// hex(x) - convert integer to hexadecimal string with "0x" prefix
 pub fn hex(allocator: std.mem.Allocator, value: anytype) []const u8 {
     const T = @TypeOf(value);
@@ -176,104 +323,10 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
         return bankersRound(float_val);
     }
 
-    // Get ndigits from args tuple
+    // Get ndigits from args tuple using centralized extraction
     const ndigits: i32 = blk: {
         const first = @field(args, @typeInfo(ArgsType).@"struct".fields[0].name);
-        const FirstT = @TypeOf(first);
-        if (@typeInfo(FirstT) == .int or @typeInfo(FirstT) == .comptime_int) {
-            break :blk @intCast(first);
-        }
-        // Handle direct BigInt struct type
-        // Check for struct with toInt method (BigInt signature)
-        if (@typeInfo(FirstT) == .@"struct" and @hasDecl(FirstT, "toInt")) {
-            // This is a BigInt - try to convert to i32 if it fits
-            if (first.toInt(i32)) |val| {
-                break :blk val;
-            } else |_| {
-                // BigInt is too large for ndigits, use extreme value
-                // Check if negative (very small n) or positive (very large n)
-                if (first.isNegative()) {
-                    break :blk -1000; // Will trigger early return for 0.0
-                } else {
-                    break :blk 1000; // Will trigger early return for original value
-                }
-            }
-        }
-        // Handle PyValue or similar tagged union containing int or bigint
-        // Use duck-typing: check if it's a tagged union with int/bigint fields
-        const first_info = @typeInfo(FirstT);
-        if (first_info == .@"union" and first_info.@"union".tag_type != null) {
-            // Get the active tag at runtime
-            const active_tag = @intFromEnum(first);
-
-            // Find the int field index and check if active
-            if (@hasField(FirstT, "int")) {
-                const int_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "int"));
-                if (active_tag == int_idx) {
-                    break :blk @intCast(first.int);
-                }
-            }
-
-            // Find the bigint field index and check if active
-            if (@hasField(FirstT, "bigint")) {
-                const bigint_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "bigint"));
-                if (active_tag == bigint_idx) {
-                    // Use pointer to avoid copying BigInt (contains allocator ref)
-                    const bi_ptr = &first.bigint;
-                    // For BigInt, try to convert to i32 if it fits
-                    if (bi_ptr.toInt(i32)) |val| {
-                        break :blk val;
-                    } else |_| {
-                        // BigInt is too large for ndigits, use extreme value
-                        // Check if negative (very small n) or positive (very large n)
-                        if (bi_ptr.isNegative()) {
-                            break :blk -1000; // Will trigger early return for 0.0
-                        } else {
-                            break :blk 1000; // Will trigger early return for original value
-                        }
-                    }
-                }
-            }
-
-            // Handle UnifiedInt: .small (i64) and .big (*BigInt)
-            if (@hasField(FirstT, "small")) {
-                const small_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "small"));
-                if (active_tag == small_idx) {
-                    const val = first.small;
-                    // Check if value fits in i32, otherwise use extreme value
-                    if (val >= std.math.minInt(i32) and val <= std.math.maxInt(i32)) {
-                        break :blk @intCast(val);
-                    } else if (val < 0) {
-                        break :blk -1000; // Will trigger early return for 0.0
-                    } else {
-                        break :blk 1000; // Will trigger early return for original value
-                    }
-                }
-            }
-
-            if (@hasField(FirstT, "big")) {
-                const big_idx = @intFromEnum(@field(std.meta.FieldEnum(FirstT), "big"));
-                if (active_tag == big_idx) {
-                    // .big is *BigInt - dereference the pointer
-                    const bi_ptr = first.big;
-                    // For BigInt, try to convert to i32 if it fits
-                    if (bi_ptr.toInt(i32)) |val| {
-                        break :blk val;
-                    } else |_| {
-                        // BigInt is too large for ndigits, use extreme value
-                        // Check if negative (very small n) or positive (very large n)
-                        if (bi_ptr.isNegative()) {
-                            break :blk -1000; // Will trigger early return for 0.0
-                        } else {
-                            break :blk 1000; // Will trigger early return for original value
-                        }
-                    }
-                }
-            }
-        }
-        // ndigits must be an integer type - if not, raise TypeError
-        // (e.g., round(x, 0.5) or round(x, "string"))
-        return PythonError.TypeError;
+        break :blk extractI32Clamped(first, -1000, 1000) orelse return PythonError.TypeError;
     };
 
     if (ndigits == 0) {
