@@ -80,27 +80,14 @@ fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try emitConst(self, "@as(f64, 1.0)");
         return;
     }
-    // Always use float pow for consistency with type inference (which returns float)
-    // This handles both int and float arguments correctly
-    const t1 = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const t2 = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    try emitConst(self, "std.math.pow(f64, ");
-    if (t1 == .int) {
-        try emitConst(self, "@as(f64, @floatFromInt(");
-        try self.genExpr(args[0]);
-        try emitConst(self, "))");
-    } else {
-        try self.genExpr(args[0]);
-    }
+    // Use runtime.Lib.operator.pow for complex number support
+    // This returns PyPowResult which PyValue.from() can convert to PyValue
+    // Python: pow(-2.0, 0.5) returns complex, not float
+    try emitConst(self, "(try runtime.Lib.operator.pow(");
+    try self.genExpr(args[0]);
     try emitConst(self, ", ");
-    if (t2 == .int) {
-        try emitConst(self, "@as(f64, @floatFromInt(");
-        try self.genExpr(args[1]);
-        try emitConst(self, "))");
-    } else {
-        try self.genExpr(args[1]);
-    }
-    try emitConst(self, ")");
+    try self.genExpr(args[1]);
+    try emitConst(self, "))");
 }
 fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, comptime default: []const u8) CodegenError!void {
     if (args.len < 2) { try emitConst(self, default); return; }

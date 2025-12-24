@@ -47,6 +47,7 @@ pub fn int_with_base(value: []const u8, base: u8) !i64 {
 /// Mirrors: builtin float()
 pub fn float_builtin(value: anytype) !f64 {
     const T = @TypeOf(value);
+    const exceptions = @import("../../runtime/exceptions.zig");
 
     return switch (@typeInfo(T)) {
         .int, .comptime_int => @floatFromInt(value),
@@ -55,7 +56,9 @@ pub fn float_builtin(value: anytype) !f64 {
         .pointer => |ptr_info| {
             if (ptr_info.child == u8) {
                 return std.fmt.parseFloat(f64, value) catch {
-                    errors.setString("ValueError", "could not convert string to float");
+                    // Set error with repr of the actual value (Python format)
+                    exceptions.setFloatConversionErrorStr(value);
+                    exceptions.setExceptionType("ValueError");
                     return error.ValueError;
                 };
             }

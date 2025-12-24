@@ -331,10 +331,21 @@ pub fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, i
     return result.toOwnedSlice(allocator);
 }
 
+/// Format with significant figures - for empty format spec ('.4')
+/// Uses threshold exp >= precision - 1 for switching to scientific
 pub fn formatSignificantFigures(allocator: std.mem.Allocator, value: f64, sig_figs: usize) ![]const u8 {
-    if (sig_figs == 0) {
-        return allocator.dupe(u8, "0");
-    }
+    return formatSignificantFiguresImpl(allocator, value, sig_figs, -1);
+}
+
+/// Format with significant figures - for explicit 'g' format ('.4g')
+/// Uses threshold exp >= precision for switching to scientific
+pub fn formatSignificantFiguresG(allocator: std.mem.Allocator, value: f64, sig_figs: usize) ![]const u8 {
+    return formatSignificantFiguresImpl(allocator, value, sig_figs, 0);
+}
+
+fn formatSignificantFiguresImpl(allocator: std.mem.Allocator, value: f64, sig_figs_in: usize, exp_threshold_offset: i32) ![]const u8 {
+    // Python treats precision 0 as precision 1 for g format
+    const sig_figs = if (sig_figs_in == 0) 1 else sig_figs_in;
 
     if (value == 0.0) {
         var result = std.ArrayListUnmanaged(u8){};
@@ -349,9 +360,11 @@ pub fn formatSignificantFigures(allocator: std.mem.Allocator, value: f64, sig_fi
 
     var result = std.ArrayListUnmanaged(u8){};
 
-    // Python 'g' format: use exponential when exp < -4 or exp >= precision
-    // For empty format with precision, threshold is exp >= precision - 1
-    const use_exponential = exp < -4 or exp >= @as(i32, @intCast(sig_figs)) - 1;
+    // Python's format behavior:
+    // - Empty format with precision ('.4'): use exponential when exp >= precision - 1 (offset = -1)
+    // - Explicit 'g' format ('.4g'): use exponential when exp >= precision (offset = 0)
+    const threshold = @as(i32, @intCast(sig_figs)) + exp_threshold_offset;
+    const use_exponential = exp < -4 or exp >= threshold;
 
     if (use_exponential) {
         // Exponential notation: X.XXXe+YY with (sig_figs - 1) decimal places in mantissa

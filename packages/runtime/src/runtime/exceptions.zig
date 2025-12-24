@@ -19,6 +19,10 @@ pub const PythonError = error{
 threadlocal var last_exception_message: ?[]const u8 = null;
 threadlocal var last_exception_type: ?[]const u8 = null;
 
+/// Thread-local storage for exception args (for cm.exception.args[0] access)
+threadlocal var last_exception_args: [8][]const u8 = .{""} ** 8;
+threadlocal var last_exception_args_len: usize = 0;
+
 /// Thread-local buffer for formatted exception messages (e.g., with repr values)
 threadlocal var exception_message_buffer: [512]u8 = undefined;
 
@@ -36,6 +40,23 @@ pub fn setExceptionType(type_name: []const u8) void {
 pub fn setException(type_name: []const u8, msg: []const u8) void {
     last_exception_type = type_name;
     last_exception_message = msg;
+    // Store message as first arg (Python exception args[0] is typically the message)
+    last_exception_args[0] = msg;
+    last_exception_args_len = if (msg.len > 0) 1 else 0;
+}
+
+/// Get exception args slice
+pub fn getExceptionArgs() []const []const u8 {
+    return last_exception_args[0..last_exception_args_len];
+}
+
+/// Set multiple exception args
+pub fn setExceptionArgs(args: []const []const u8) void {
+    const copy_len = @min(args.len, last_exception_args.len);
+    for (0..copy_len) |i| {
+        last_exception_args[i] = args[i];
+    }
+    last_exception_args_len = copy_len;
 }
 
 /// Get the last exception message (returns empty string if none)
@@ -58,6 +79,7 @@ pub fn clearException() void {
     last_exception_message = null;
     last_exception_type = null;
     last_exception_full = null;
+    last_exception_args_len = 0;
 }
 
 /// Python traceback object - represents a stack frame in the exception traceback

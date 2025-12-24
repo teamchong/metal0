@@ -112,14 +112,21 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Two-Flow: Extracts float from PyValue if uncertain
 /// Returns IntResult which handles both small (i64) and large (BigInt) values
 /// assertEqual and comparison codegen handle IntResult appropriately
-/// In assertRaises context (inside_try_body), propagates errors for expectError to catch
-/// Zig: runtime.floatFloorBig(allocator, f) catch unreachable (or try in assertRaises context)
+/// In assertRaises context, returns error union for expectError to catch
+/// Zig: runtime.floatFloorBig(allocator, f) catch unreachable (or raw in assertRaises context)
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    if (self.inside_try_body) {
+    if (self.in_assert_raises_context) {
         // In assertRaises context - return error union for expectError to catch
         try emitConst(self,"(runtime.floatFloorBig(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
+        try emitFloatExpr(self, obj);
+        try emitConst(self,"))");
+    } else if (self.inside_try_body) {
+        // In try block - propagate errors with try
+        try emitConst(self,"(try runtime.floatFloorBig(");
         try emitConst(self,alloc_name);
         try emitConst(self,", ");
         try emitFloatExpr(self, obj);
@@ -138,14 +145,21 @@ pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Two-Flow: Extracts float from PyValue if uncertain
 /// Returns IntResult which handles both small (i64) and large (BigInt) values
 /// assertEqual and comparison codegen handle IntResult appropriately
-/// In assertRaises context (inside_try_body), propagates errors for expectError to catch
-/// Zig: runtime.floatCeilBig(allocator, f) catch unreachable (or try in assertRaises context)
+/// In assertRaises context, returns error union for expectError to catch
+/// Zig: runtime.floatCeilBig(allocator, f) catch unreachable (or raw in assertRaises context)
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
     const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-    if (self.inside_try_body) {
+    if (self.in_assert_raises_context) {
         // In assertRaises context - return error union for expectError to catch
         try emitConst(self,"(runtime.floatCeilBig(");
+        try emitConst(self,alloc_name);
+        try emitConst(self,", ");
+        try emitFloatExpr(self, obj);
+        try emitConst(self,"))");
+    } else if (self.inside_try_body) {
+        // In try block - propagate errors with try
+        try emitConst(self,"(try runtime.floatCeilBig(");
         try emitConst(self,alloc_name);
         try emitConst(self,", ");
         try emitFloatExpr(self, obj);
@@ -187,11 +201,12 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try emitConst(self,"))");
     } else {
         // Round to ndigits decimal places - returns float, not int
+        // Use banker's rounding (round half to even) for Python semantics
         const label = try self.emitInlineBlockStart("round");
         try emitConst(self,"const __ndigits = ");
         try self.genExpr(args[0]);
         try emitConst(self,"; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
-        try emitFmtConst(self, "break :{s} @round(", .{label});
+        try emitFmtConst(self, "break :{s} runtime.builtins.bankersRound(", .{label});
         try emitFloatExpr(self, obj);
         try emitConst(self," * __mult) / __mult; ");
         try self.emitInlineBlockEnd();

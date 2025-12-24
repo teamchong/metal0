@@ -19,7 +19,9 @@ pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
     } else if (info == .pointer and info.pointer.size == .slice) {
         return container;
     } else if (info == .array) {
-        return &container;
+        // Return array by value (not pointer) - avoids dangling pointer issue
+        // when container is passed by value (parameter copy becomes invalid after return)
+        return container;
     } else if (info == .@"struct" and info.@"struct".is_tuple) {
         // Tuple struct - return as-is (caller should use inline for with getAt)
         // Note: tuples can't be converted to slices directly, but getAt handles indexed access
@@ -135,7 +137,9 @@ fn GetSliceType(comptime T: type) type {
     } else if (info == .pointer and info.pointer.size == .slice) {
         return T;
     } else if (info == .array) {
-        return []const info.array.child;
+        // Return array type as-is (not slice) - allows iteration by value
+        // This avoids dangling pointer issue when array is passed by value to getSlice
+        return T;
     } else if (info == .@"struct" and info.@"struct".is_tuple) {
         // Tuple struct - return the tuple type itself (used with inline for iteration)
         return T;

@@ -254,7 +254,8 @@ const CallableTypeNames = std.StaticStringMap(core.CallableReturnKind).initCompt
     .{ "type", .unknown },
     .{ "object", .unknown },
     // Numeric functions that return same type as input
-    .{ "pow", .same_as_input },
+    // Note: pow can return float OR complex (PyPowResult), so use unknown
+    .{ "pow", .unknown },
     .{ "abs", .same_as_input },
     .{ "min", .same_as_input },
     .{ "max", .same_as_input },
@@ -1541,6 +1542,27 @@ fn inferBinOpWithInferrer(
     if (binop.op == .Pow) {
         if (binop.right.* == .constant and binop.right.constant.value == .int) {
             hints.exponent = binop.right.constant.value.int;
+        }
+        // Extract float exponent and base for complex number check
+        // If both are comptime known and base >= 0, result is definitely float (not complex)
+        if (binop.right.* == .constant and binop.right.constant.value == .float) {
+            hints.pow_exp = binop.right.constant.value.float;
+        }
+        // Check if base is a comptime float or negated float
+        if (binop.left.* == .constant and binop.left.constant.value == .float) {
+            hints.pow_base = binop.left.constant.value.float;
+        } else if (binop.left.* == .unaryop and binop.left.unaryop.op == .USub) {
+            // Handle (-2.0) - the unary minus on a float constant
+            if (binop.left.unaryop.operand.* == .constant) {
+                const operand = binop.left.unaryop.operand.constant;
+                if (operand.value == .float) {
+                    hints.pow_base = -operand.value.float;
+                } else if (operand.value == .int) {
+                    hints.pow_base = -@as(f64, @floatFromInt(operand.value.int));
+                }
+            }
+        } else if (binop.left.* == .constant and binop.left.constant.value == .int) {
+            hints.pow_base = @as(f64, @floatFromInt(binop.left.constant.value.int));
         }
     }
 

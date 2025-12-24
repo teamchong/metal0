@@ -11,6 +11,7 @@ const cpython = @import("../cpython.zig");
 const CpythonPyObject = cpython.PyObject;
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
+const PyPowResult = @import("builtins/pow.zig").PyPowResult;
 
 /// Python-style containment check for slices
 /// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
@@ -341,6 +342,49 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         if (A == f32) {
             return @as(u32, @bitCast(a)) == @as(u32, @bitCast(b));
         }
+        // Special case: *CpythonPyObject - compare actual values, not pointer addresses
+        if (A == *CpythonPyObject) {
+            // Both are floats
+            if (cpython.PyFloat_Check(a) and cpython.PyFloat_Check(b)) {
+                const a_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
+                const b_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
+                // Use bit-level comparison for NaN identity semantics
+                return @as(u64, @bitCast(a_obj.ob_fval)) == @as(u64, @bitCast(b_obj.ob_fval));
+            }
+            // Both are ints
+            if (cpython.PyLong_Check(a) and cpython.PyLong_Check(b)) {
+                const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
+                const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
+                return a_obj.ob_digit == b_obj.ob_digit;
+            }
+            // Both are bools
+            if (cpython.PyBool_Check(a) and cpython.PyBool_Check(b)) {
+                const a_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
+                const b_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));
+                return (a_obj.ob_digit != 0) == (b_obj.ob_digit != 0);
+            }
+            // Both are strings
+            if (cpython.PyUnicode_Check(a) and cpython.PyUnicode_Check(b)) {
+                const a_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(a));
+                const b_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(b));
+                const a_len: usize = @intCast(a_obj.length);
+                const b_len: usize = @intCast(b_obj.length);
+                return std.mem.eql(u8, a_obj.data[0..a_len], b_obj.data[0..b_len]);
+            }
+            // Cross-type: float vs int
+            if (cpython.PyFloat_Check(a) and cpython.PyLong_Check(b)) {
+                const a_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
+                const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
+                return a_obj.ob_fval == @as(f64, @floatFromInt(b_obj.ob_digit));
+            }
+            if (cpython.PyLong_Check(a) and cpython.PyFloat_Check(b)) {
+                const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
+                const b_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
+                return @as(f64, @floatFromInt(a_obj.ob_digit)) == b_obj.ob_fval;
+            }
+            // Different types or unsupported - not equal
+            return false;
+        }
         // Special case: UnifiedInt - use eqlSimple which doesn't need allocator
         if (A == @import("../Objects/pyint.zig").UnifiedInt) {
             return a.eqlSimple(b);
@@ -380,6 +424,36 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     }
 
     // Different types: handle common cases without recursion
+
+    // Handle type name comparison: pyTypeName(x) == SomeType
+    // When comparing a string (type name) with a type,
+    // compare the string with the type's name
+    const a_is_string = a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8;
+    const b_is_type = b_info == .type;
+    if (a_is_string and b_is_type) {
+        // a is a string, b is a type - compare with type name
+        // The type is passed as a value, so we use b directly
+        const TypeT = b;
+        // Check for PyComplex (complex type) - compare with "complex"
+        if (@hasDecl(TypeT, "real") and @hasDecl(TypeT, "imag")) {
+            return std.mem.eql(u8, a, "complex");
+        }
+        // Check common type patterns in type name
+        const type_name = @typeName(TypeT);
+        if (std.mem.indexOf(u8, type_name, "PyComplex") != null) {
+            return std.mem.eql(u8, a, "complex");
+        }
+        if (std.mem.indexOf(u8, type_name, "float") != null or std.mem.eql(u8, type_name, "f64") or std.mem.eql(u8, type_name, "f32")) {
+            return std.mem.eql(u8, a, "float");
+        }
+        if (std.mem.indexOf(u8, type_name, "int") != null or std.mem.eql(u8, type_name, "i64") or std.mem.eql(u8, type_name, "i32")) {
+            return std.mem.eql(u8, a, "int");
+        }
+        if (std.mem.indexOf(u8, type_name, "bool") != null) {
+            return std.mem.eql(u8, a, "bool");
+        }
+        return false;
+    }
 
     // Class instances with __eq__ - call it for cross-type comparison (e.g., Rat == int)
     // Handle both PyValue and bool return types for backward compatibility
@@ -474,10 +548,52 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         return @as(f64, a) == @as(f64, b);
     }
 
-    // String slices
+    // PyPowResult vs float comparison
+    // Extract float value from PyPowResult and compare
+    const a_is_pow_result = A == PyPowResult;
+    const b_is_pow_result = B == PyPowResult;
+    if (a_is_pow_result and b_is_float) {
+        const a_float = a.toFloat();
+        return @as(u64, @bitCast(a_float)) == @as(u64, @bitCast(@as(f64, b)));
+    }
+    if (b_is_pow_result and a_is_float) {
+        const b_float = b.toFloat();
+        return @as(u64, @bitCast(@as(f64, a))) == @as(u64, @bitCast(b_float));
+    }
+    if (a_is_pow_result and b_is_pow_result) {
+        // Both are PyPowResult - compare float values or both complex
+        if (a.isFloat() and b.isFloat()) {
+            return @as(u64, @bitCast(a.toFloat())) == @as(u64, @bitCast(b.toFloat()));
+        }
+        if (a.isComplex() and b.isComplex()) {
+            const ac = a.asComplex();
+            const bc = b.asComplex();
+            return ac.real == bc.real and ac.imag == bc.imag;
+        }
+        return false; // Different types
+    }
+
+    // String slices (handles []const u8 vs []const u8 and []const u8 vs *const [N]u8)
     if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) {
+        // []const u8 vs []const u8
         if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) {
             return std.mem.eql(u8, a, b);
+        }
+        // []const u8 vs *const [N]u8 (string literal)
+        if (b_info == .pointer and b_info.pointer.size == .one) {
+            const child_info = @typeInfo(b_info.pointer.child);
+            if (child_info == .array and child_info.array.child == u8) {
+                return std.mem.eql(u8, a, b[0..child_info.array.len]);
+            }
+        }
+    }
+    // *const [N]u8 (string literal) vs []const u8
+    if (a_info == .pointer and a_info.pointer.size == .one) {
+        const a_child_info = @typeInfo(a_info.pointer.child);
+        if (a_child_info == .array and a_child_info.array.child == u8) {
+            if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) {
+                return std.mem.eql(u8, a[0..a_child_info.array.len], b);
+            }
         }
     }
 
@@ -485,23 +601,96 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     if (A == PyValue) {
         return switch (a) {
             .int => |v| if (b_info == .comptime_int or b_info == .int) v == @as(i64, b) else false,
-            .float => |v| if (b_info == .comptime_float or b_info == .float) v == @as(f64, b) else false,
+            // Use bit-level comparison for floats to preserve signed zero and NaN identity
+            .float => |v| if (b_info == .comptime_float or b_info == .float) @as(u64, @bitCast(v)) == @as(u64, @bitCast(@as(f64, b))) else false,
             .bool => |v| if (B == bool) v == b else false,
-            .string => |v| if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) std.mem.eql(u8, v, b) else false,
+            .string => |v| blk: {
+                // Handle []const u8 (slice)
+                if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) {
+                    break :blk std.mem.eql(u8, v, b);
+                }
+                // Handle *const [N:0]u8 (string literal / pointer to array)
+                if (b_info == .pointer and b_info.pointer.size == .one) {
+                    const child_info = @typeInfo(b_info.pointer.child);
+                    if (child_info == .array and child_info.array.child == u8) {
+                        break :blk std.mem.eql(u8, v, b[0..child_info.array.len]);
+                    }
+                }
+                break :blk false;
+            },
             else => false,
         };
     }
     if (B == PyValue) {
         return switch (b) {
             .int => |v| if (a_info == .comptime_int or a_info == .int) @as(i64, a) == v else false,
-            .float => |v| if (a_info == .comptime_float or a_info == .float) @as(f64, a) == v else false,
+            // Use bit-level comparison for floats to preserve signed zero and NaN identity
+            .float => |v| if (a_info == .comptime_float or a_info == .float) @as(u64, @bitCast(@as(f64, a))) == @as(u64, @bitCast(v)) else false,
             .bool => |v| if (A == bool) a == v else false,
-            .string => |v| if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) std.mem.eql(u8, a, v) else false,
+            .string => |v| blk: {
+                // Handle []const u8 (slice)
+                if (a_info == .pointer and a_info.pointer.size == .slice and a_info.pointer.child == u8) {
+                    break :blk std.mem.eql(u8, a, v);
+                }
+                // Handle *const [N:0]u8 (string literal / pointer to array)
+                if (a_info == .pointer and a_info.pointer.size == .one) {
+                    const child_info = @typeInfo(a_info.pointer.child);
+                    if (child_info == .array and child_info.array.child == u8) {
+                        break :blk std.mem.eql(u8, a[0..child_info.array.len], v);
+                    }
+                }
+                break :blk false;
+            },
             else => false,
         };
     }
 
-    // CPython PyObject comparisons with primitives
+    // CPython PyObject comparisons
+    // Case 1: Both are *CpythonPyObject - compare actual values
+    if (A == *CpythonPyObject and B == *CpythonPyObject) {
+        // Both are floats
+        if (cpython.PyFloat_Check(a) and cpython.PyFloat_Check(b)) {
+            const a_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
+            const b_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
+            // Use bit-level comparison for NaN identity semantics
+            return @as(u64, @bitCast(a_obj.ob_fval)) == @as(u64, @bitCast(b_obj.ob_fval));
+        }
+        // Both are ints
+        if (cpython.PyLong_Check(a) and cpython.PyLong_Check(b)) {
+            const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
+            const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
+            return a_obj.ob_digit == b_obj.ob_digit;
+        }
+        // Both are bools
+        if (cpython.PyBool_Check(a) and cpython.PyBool_Check(b)) {
+            const a_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
+            const b_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));
+            return (a_obj.ob_digit != 0) == (b_obj.ob_digit != 0);
+        }
+        // Both are strings
+        if (cpython.PyUnicode_Check(a) and cpython.PyUnicode_Check(b)) {
+            const a_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(a));
+            const b_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(b));
+            const a_len: usize = @intCast(a_obj.length);
+            const b_len: usize = @intCast(b_obj.length);
+            return std.mem.eql(u8, a_obj.data[0..a_len], b_obj.data[0..b_len]);
+        }
+        // Cross-type: float vs int
+        if (cpython.PyFloat_Check(a) and cpython.PyLong_Check(b)) {
+            const a_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
+            const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
+            return a_obj.ob_fval == @as(f64, @floatFromInt(b_obj.ob_digit));
+        }
+        if (cpython.PyLong_Check(a) and cpython.PyFloat_Check(b)) {
+            const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
+            const b_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
+            return @as(f64, @floatFromInt(a_obj.ob_digit)) == b_obj.ob_fval;
+        }
+        // Different types or unsupported - not equal
+        return false;
+    }
+
+    // Case 2: *CpythonPyObject vs primitive
     if (A == *CpythonPyObject) {
         if (cpython.PyFloat_Check(a)) {
             const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));

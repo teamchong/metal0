@@ -174,6 +174,14 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 if (ExceptionTypes.has(exc_name)) {
                     // Print Python-style error message if we have a message argument
                     if (call.args.len > 0) {
+                        // Store exception info for assertRaises context manager
+                        try b.writeIndent();
+                        try b.write("runtime.exceptions.setException(\"");
+                        try b.write(exc_name);
+                        try b.write("\", ");
+                        try genRaiseMessage(self, b, call.args[0]);
+                        try b.write(");\n");
+                        // Print Python-style error for display
                         try b.writeIndent();
                         try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"");
                         try b.write(exc_name);
@@ -181,6 +189,12 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                         // Generate the message argument
                         try genRaiseMessage(self, b, call.args[0]);
                         try b.write(", @src().line);\n");
+                    } else {
+                        // Store exception info even without message
+                        try b.writeIndent();
+                        try b.write("runtime.exceptions.setException(\"");
+                        try b.write(exc_name);
+                        try b.write("\", \"\");\n");
                     }
                     // Generate: return error.ValueError
                     try b.writeIndent();
@@ -198,6 +212,11 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         if (exc.* == .name) {
             const exc_name = exc.name.id;
             if (ExceptionTypes.has(exc_name)) {
+                // Store exception info for assertRaises context manager
+                try b.writeIndent();
+                try b.write("runtime.exceptions.setException(\"");
+                try b.write(exc_name);
+                try b.write("\", \"\");\n");
                 // Print Python-style error without message
                 try b.writeIndent();
                 try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"");
@@ -216,11 +235,13 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         }
         // Fallback for other raise expressions - use generic error
         try b.writeIndent();
+        try b.write("runtime.exceptions.setException(\"Exception\", \"\");\n");
+        try b.writeIndent();
         try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
         try b.writeIndent();
         try b.write("return error.Exception;\n");
     } else {
-        // bare raise - use generic error
+        // bare raise - use generic error (re-raise preserves existing exception info)
         try b.writeIndent();
         try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
         try b.writeIndent();

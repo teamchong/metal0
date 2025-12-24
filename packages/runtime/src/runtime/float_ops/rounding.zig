@@ -3,6 +3,7 @@ const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
+const pyint = @import("../../Objects/pyint.zig");
 
 /// Python error types
 pub const PythonError = error{
@@ -43,6 +44,20 @@ pub const IntResult = union(enum) {
         return switch (self) {
             .small => |v| v,
             .big => PythonError.OverflowError,
+        };
+    }
+
+    /// Convert to UnifiedInt (i64 or *BigInt)
+    /// Unlike asI64(), this never throws - big values stay as BigInt pointers
+    pub fn asUnifiedInt(self: *const IntResult, allocator: std.mem.Allocator) !pyint.UnifiedInt {
+        return switch (self.*) {
+            .small => |v| pyint.UnifiedInt{ .small = v },
+            .big => |b| blk: {
+                // Need to allocate BigInt on heap for UnifiedInt
+                const heap_big = try allocator.create(BigInt);
+                heap_big.* = b;
+                break :blk pyint.UnifiedInt{ .big = heap_big };
+            },
         };
     }
 

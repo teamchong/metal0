@@ -166,12 +166,22 @@ pub fn evalPow(_: std.mem.Allocator, left: ComptimeValue, right: ComptimeValue) 
                 }
                 break :blk ComptimeValue{ .int = result };
             },
-            .float => |r| ComptimeValue{ .float = std.math.pow(f64, @as(f64, @floatFromInt(l)), r) },
+            .float => |r| blk: {
+                // Negative base with non-integer exponent produces complex number
+                // Don't fold - let runtime handle it with pyPow
+                if (l < 0 and r != @trunc(r)) break :blk null;
+                break :blk ComptimeValue{ .float = std.math.pow(f64, @as(f64, @floatFromInt(l)), r) };
+            },
             else => null,
         },
         .float => |l| switch (right) {
             .int => |r| ComptimeValue{ .float = std.math.pow(f64, l, @as(f64, @floatFromInt(r))) },
-            .float => |r| ComptimeValue{ .float = std.math.pow(f64, l, r) },
+            .float => |r| blk: {
+                // Negative base with non-integer exponent produces complex number
+                // Don't fold - let runtime handle it with pyPow
+                if (l < 0.0 and r != @trunc(r)) break :blk null;
+                break :blk ComptimeValue{ .float = std.math.pow(f64, l, r) };
+            },
             else => null,
         },
         else => null,

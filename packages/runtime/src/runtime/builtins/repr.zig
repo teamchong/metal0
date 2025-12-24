@@ -1,5 +1,6 @@
 /// String representation functions (repr, str, etc.)
 const std = @import("std");
+const cpython = @import("../../cpython.zig");
 
 /// PyBytes - Wrapper for Python bytes type
 /// Preserves type information for repr() to correctly output b'...' format
@@ -298,6 +299,25 @@ pub fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     // Slice - format as tuple
     if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice) {
         return sliceAsTupleRepr(allocator, value);
+    }
+
+    // CPython PyObject pointer - extract value and format appropriately
+    if (T == *cpython.PyObject) {
+        if (cpython.PyFloat_Check(value)) {
+            const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(value));
+            return pythonFloatRepr(allocator, float_obj.ob_fval);
+        } else if (cpython.PyLong_Check(value)) {
+            const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(value));
+            return std.fmt.allocPrint(allocator, "{d}", .{int_obj.ob_digit});
+        } else if (cpython.PyBool_Check(value)) {
+            const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(value));
+            return if (bool_obj.ob_digit != 0) "True" else "False";
+        } else if (cpython.PyUnicode_Check(value)) {
+            const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(value));
+            const len: usize = @intCast(str_obj.length);
+            return stringRepr(allocator, str_obj.data[0..len]);
+        }
+        return std.fmt.allocPrint(allocator, "<PyObject@{*}>", .{value});
     }
 
     // Fallback

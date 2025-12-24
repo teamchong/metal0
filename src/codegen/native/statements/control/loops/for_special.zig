@@ -68,7 +68,7 @@ fn emitIndentWithIdentFmt(self: *NativeCodegen, prefix: []const u8, ident: []con
 }
 
 /// Generate enumerate loop
-pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
+pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node, orelse_body: ?[]ast.Node) CodegenError!void {
     // Handle single variable target: for item in enumerate(...) - item gets (idx, val) tuples
     // Valid Python: for x in enumerate(items): print(x)  # x is (0, first), (1, second), etc.
     if (target == .name) {
@@ -92,6 +92,12 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         try emitIndent(self, "__enum_idx += 1;\n");
         self.dedent();
         try emitIndent(self, "}\n");
+        // Handle optional else clause
+        if (orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         self.dedent();
         try emitIndent(self, "}\n");
         return;
@@ -261,6 +267,13 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     self.dedent();
     try emitIndent(self, "}\n");
 
+    // Handle optional else clause (runs if loop completes without break)
+    if (orelse_body) |else_body| {
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
+
     // Close block scope
     self.dedent();
     try emitIndent(self, "}\n");
@@ -279,7 +292,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 ///         // body
 ///     }
 /// }
-pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node) CodegenError!void {
+pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body: []ast.Node, orelse_body: ?[]ast.Node) CodegenError!void {
     // Validate target is a list or tuple (parser uses list/tuple node for tuple unpacking in for-loops)
     const target_elts = switch (target) {
         .list => |l| l.elts,
@@ -416,6 +429,13 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     // Close while loop
     self.dedent();
     try emitIndent(self, "}\n");
+
+    // Handle optional else clause (runs if loop completes without break)
+    if (orelse_body) |else_body| {
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
 
     // Close block scope
     self.dedent();

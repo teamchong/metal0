@@ -197,6 +197,10 @@ pub fn inferCallWithInferrer(
                 if (std.mem.eql(u8, func_name, "hex")) {
                     return .{ .string = .runtime };
                 }
+                // float.__getformat__('double'/'float') returns format string
+                if (std.mem.eql(u8, func_name, "__getformat__")) {
+                    return .{ .string = .runtime };
+                }
             }
             if (std.mem.eql(u8, module_name, "str")) {
                 if (std.mem.eql(u8, func_name, "maketrans")) {

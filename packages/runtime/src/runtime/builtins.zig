@@ -1,6 +1,7 @@
 /// Built-in Python functions implemented in Zig
 /// This module re-exports from specialized submodules for better organization.
 const std = @import("std");
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 // =============================================================================
 // PyCallable - Generic callable wrapper for heterogeneous callable lists
@@ -46,6 +47,7 @@ pub const PyCallable = struct {
 pub const pow_mod = @import("builtins/pow.zig");
 pub const PyPowResult = pow_mod.PyPowResult;
 pub const pyPow = pow_mod.pyPow;
+pub const pyPowAsPyValue = pow_mod.pyPowAsPyValue; // Returns PyValue directly for O(1) type compat
 
 /// Python pow() builtin as a callable struct (for `for pow_op in pow, operator.pow:`)
 /// This allows pow to be used identically to operator.pow with .call() syntax
@@ -54,7 +56,29 @@ pub const pyPow = pow_mod.pyPow;
 pub const pow = struct {
     const op_ops = @import("operator_ops.zig");
 
-    pub fn call(base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
+    /// Call with complex support - returns PyValue (float or complex)
+    /// Python: (-2.0) ** 0.5 returns complex, 4.0 ** 0.5 returns float
+    /// NOTE: Returns PyValue (not PyPowResult) for O(1) type compatibility
+    pub fn call(base: anytype, exp: @TypeOf(base)) !PyValue {
+        const T = @TypeOf(base);
+
+        // Convert to f64 for complex-capable pow
+        const base_f: f64 = switch (@typeInfo(T)) {
+            .int, .comptime_int => @floatFromInt(base),
+            .float, .comptime_float => @floatCast(base),
+            else => @compileError("pow requires numeric types"),
+        };
+        const exp_f: f64 = switch (@typeInfo(T)) {
+            .int, .comptime_int => @floatFromInt(exp),
+            .float, .comptime_float => @floatCast(exp),
+            else => @compileError("pow requires numeric types"),
+        };
+
+        return pyPowAsPyValue(base_f, exp_f);
+    }
+
+    /// Legacy call returning same type as input (for int**int cases)
+    pub fn callTyped(base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
         const T = @TypeOf(base);
         // Dispatch to concrete functions to reduce monomorphization
         if (T == i64) return op_ops.powI64(base, exp);
@@ -69,6 +93,9 @@ pub const pow = struct {
         const result = std.math.pow(f64, base_f, exp_f);
         return @intFromFloat(result);
     }
+
+    /// Alias for backwards compatibility
+    pub const callComplex = call;
 };
 
 /// String representation (repr, str)
@@ -191,7 +218,7 @@ pub const OperatorMod = struct {
 pub const OperatorPow = struct {
     const op_ops = @import("operator_ops.zig");
 
-    /// Returns error union for compatibility with `pow` in tuple iteration
+    /// Legacy call returning same type as input (for backwards compat)
     pub fn call(_: @This(), base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
         const T = @TypeOf(base);
         // Dispatch to concrete functions to reduce monomorphization
@@ -206,6 +233,27 @@ pub const OperatorPow = struct {
         const exp_f: f64 = @floatFromInt(exp);
         const result = std.math.pow(f64, base_f, exp_f);
         return @intFromFloat(result);
+    }
+
+    /// Call with complex support - returns PyValue (float or complex)
+    /// NOTE: Returns PyValue (not PyPowResult) for O(1) type compatibility
+    pub fn callComplex(_: @This(), base: anytype, exp: anytype) !PyValue {
+        const BT = @TypeOf(base);
+        const ET = @TypeOf(exp);
+
+        const base_f: f64 = switch (@typeInfo(BT)) {
+            .int, .comptime_int => @floatFromInt(base),
+            .float, .comptime_float => @floatCast(base),
+            else => @compileError("pow requires numeric types for base"),
+        };
+
+        const exp_f: f64 = switch (@typeInfo(ET)) {
+            .int, .comptime_int => @floatFromInt(exp),
+            .float, .comptime_float => @floatCast(exp),
+            else => @compileError("pow requires numeric types for exp"),
+        };
+
+        return pyPowAsPyValue(base_f, exp_f);
     }
 };
 
@@ -368,7 +416,6 @@ pub const classmethod = struct {
 // =============================================================================
 // Two-Flow List Operations (for uncertain list types)
 // =============================================================================
-const PyValue = @import("../Objects/object.zig").PyValue;
 
 /// Append item to a list (handles both ArrayList and PyValue.list)
 /// Two-Flow: runtime helper for uncertain list types

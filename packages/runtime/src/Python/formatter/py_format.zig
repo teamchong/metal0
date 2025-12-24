@@ -8,6 +8,7 @@ const applyPadding = format_spec.applyPadding;
 const applyZeroPaddingWithGrouping = format_spec.applyZeroPaddingWithGrouping;
 const addThousandsGrouping = format_spec.addThousandsGrouping;
 const formatSignificantFigures = format_spec.formatSignificantFigures;
+const formatSignificantFiguresG = format_spec.formatSignificantFiguresG;
 const FloatSignOption = float_format.FloatSignOption;
 const FloatFormatType = float_format.FloatFormatType;
 const formatPythonFloat = float_format.formatPythonFloat;
@@ -36,6 +37,15 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
         try buf.appendSlice(allocator, if (value) "True" else "False");
     } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
         const int_val: i64 = @intCast(value);
+
+        // Float format types on integers - convert to float and use float formatting
+        switch (spec.fmt_type) {
+            'e', 'E', 'f', 'F', 'g', 'G', '%' => {
+                return pyFormat(allocator, @as(f64, @floatFromInt(int_val)), spec_str);
+            },
+            else => {},
+        }
+
         const abs_val: u64 = if (int_val < 0) @intCast(-int_val) else @intCast(int_val);
         const is_neg = int_val < 0;
 
@@ -219,30 +229,92 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
                 },
                 'g', 'G' => {
                     // 'g' format: significant figures with trailing zeros stripped
+                    // Unless alternate form (#) is used - then always include decimal point
+                    // Uses exp >= precision threshold (different from empty format which uses exp >= precision - 1)
                     const sig_figs = spec.precision orelse 6;
-                    const formatted_str = try formatSignificantFigures(allocator, abs_val, sig_figs);
+                    const formatted_str = try formatSignificantFiguresG(allocator, abs_val, sig_figs);
                     defer allocator.free(formatted_str);
-                    // Strip trailing zeros and decimal point
-                    var end: usize = formatted_str.len;
-                    // Check if has 'e' notation - don't strip those
-                    var has_exp = false;
-                    for (formatted_str) |c| {
-                        if (c == 'e' or c == 'E') {
-                            has_exp = true;
-                            break;
+
+                    if (spec.alternate) {
+                        // Alternate form (#): don't strip trailing zeros, always include decimal point
+                        // Find if there's a decimal point
+                        var has_dot = false;
+                        var e_pos: ?usize = null;
+                        for (formatted_str, 0..) |c, idx| {
+                            if (c == '.') has_dot = true;
+                            if (c == 'e' or c == 'E') {
+                                e_pos = idx;
+                                break;
+                            }
+                        }
+
+                        if (e_pos) |pos| {
+                            // Scientific notation - insert '.' before 'e' if not present
+                            if (!has_dot) {
+                                try buf.appendSlice(allocator, formatted_str[0..pos]);
+                                try buf.append(allocator, '.');
+                                try buf.appendSlice(allocator, formatted_str[pos..]);
+                            } else {
+                                try buf.appendSlice(allocator, formatted_str);
+                            }
+                        } else {
+                            // Fixed notation - append '.' if not present
+                            if (!has_dot) {
+                                try buf.appendSlice(allocator, formatted_str);
+                                try buf.append(allocator, '.');
+                            } else {
+                                try buf.appendSlice(allocator, formatted_str);
+                            }
+                        }
+                    } else {
+                        // Normal form: strip trailing zeros and decimal point
+                        var e_pos: ?usize = null;
+                        for (formatted_str, 0..) |c, idx| {
+                            if (c == 'e' or c == 'E') {
+                                e_pos = idx;
+                                break;
+                            }
+                        }
+
+                        if (e_pos) |pos| {
+                            // Has exponent - strip zeros from mantissa part only
+                            var mantissa_end = pos;
+                            while (mantissa_end > 1 and formatted_str[mantissa_end - 1] == '0') {
+                                mantissa_end -= 1;
+                            }
+                            if (mantissa_end > 0 and formatted_str[mantissa_end - 1] == '.') {
+                                mantissa_end -= 1;
+                            }
+                            // Append mantissa + exponent
+                            try buf.appendSlice(allocator, formatted_str[0..mantissa_end]);
+                            try buf.appendSlice(allocator, formatted_str[pos..]);
+                        } else {
+                            // No exponent - strip trailing zeros only after decimal point
+                            // Find decimal point first
+                            var dot_pos: ?usize = null;
+                            for (formatted_str, 0..) |c, i| {
+                                if (c == '.') {
+                                    dot_pos = i;
+                                    break;
+                                }
+                            }
+
+                            if (dot_pos != null) {
+                                // Has decimal point - strip trailing zeros after it
+                                var end: usize = formatted_str.len;
+                                while (end > dot_pos.? + 1 and formatted_str[end - 1] == '0') {
+                                    end -= 1;
+                                }
+                                if (end > 0 and formatted_str[end - 1] == '.') {
+                                    end -= 1;
+                                }
+                                try buf.appendSlice(allocator, formatted_str[0..end]);
+                            } else {
+                                // No decimal point - don't strip anything (these are significant digits)
+                                try buf.appendSlice(allocator, formatted_str);
+                            }
                         }
                     }
-                    if (!has_exp) {
-                        // Strip trailing zeros
-                        while (end > 1 and formatted_str[end - 1] == '0') {
-                            end -= 1;
-                        }
-                        // Strip trailing decimal point
-                        if (end > 0 and formatted_str[end - 1] == '.') {
-                            end -= 1;
-                        }
-                    }
-                    try buf.appendSlice(allocator, formatted_str[0..end]);
                 },
                 else => {
                     if (spec.precision != null) {
@@ -312,13 +384,17 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
         if (format_str[i] == '%' and i + 1 < format_str.len) {
             var j = i + 1;
             var sign_flag: u8 = 0;
+            var alt_form: bool = false;
 
             while (j < format_str.len) {
                 const c = format_str[j];
                 if (c == '+' or c == ' ') {
                     sign_flag = c;
                     j += 1;
-                } else if (c == '-' or c == '#' or c == '0') {
+                } else if (c == '#') {
+                    alt_form = true;
+                    j += 1;
+                } else if (c == '-' or c == '0') {
                     j += 1;
                 } else {
                     break;
@@ -368,25 +444,37 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
                     try result.writer(allocator).print("{any}", .{value});
                 }
                 i = j + 1;
-            } else if (spec == 'f' or spec == 'e' or spec == 'g') {
+            } else if (spec == 'f' or spec == 'e' or spec == 'g' or spec == 'G') {
                 if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
                     const sign_opt: FloatSignOption = if (sign_flag == '+') .plus else if (sign_flag == ' ') .space else .none;
                     const format_opt: FloatFormatType = if (spec == 'e') .scientific else if (spec == 'f') .fixed else .general;
-                    const val_str = try formatPythonFloat(allocator, value, .{ .sign = sign_opt, .format_type = format_opt, .precision = precision });
+                    const val_str = try formatPythonFloat(allocator, value, .{ .sign = sign_opt, .format_type = format_opt, .precision = precision, .alt_form = alt_form });
                     defer allocator.free(val_str);
                     try result.appendSlice(allocator, val_str);
                 } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
-                    if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
-                    if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
-                    if (precision) |p| {
-                        if (p == 0) {
-                            try result.writer(allocator).print("{d}", .{value});
-                        } else {
-                            try result.writer(allocator).print("{d}.0", .{value});
-                        }
-                    } else {
-                        try result.writer(allocator).print("{d}.0", .{value});
-                    }
+                    // For %f/%e/%g formats, convert int to float and use float formatting
+                    const float_val: f64 = @floatFromInt(value);
+                    const sign_opt: FloatSignOption = if (sign_flag == '+') .plus else if (sign_flag == ' ') .space else .none;
+                    const format_opt: FloatFormatType = if (spec == 'e') .scientific else if (spec == 'f') .fixed else .general;
+                    const val_str = try formatPythonFloat(allocator, float_val, .{ .sign = sign_opt, .format_type = format_opt, .precision = precision, .alt_form = alt_form });
+                    defer allocator.free(val_str);
+                    try result.appendSlice(allocator, val_str);
+                } else {
+                    try result.writer(allocator).print("{any}", .{value});
+                }
+                i = j + 1;
+            } else if (spec == 'r') {
+                // %r format - repr() of value
+                if (@typeInfo(V) == .float or @typeInfo(V) == .comptime_float) {
+                    const val_str = try formatPythonFloat(allocator, value, .{ .format_type = .repr });
+                    defer allocator.free(val_str);
+                    try result.appendSlice(allocator, val_str);
+                } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
+                    try result.writer(allocator).print("{d}", .{value});
+                } else if (V == []const u8 or V == [:0]const u8) {
+                    try result.append(allocator, '\'');
+                    try result.appendSlice(allocator, value);
+                    try result.append(allocator, '\'');
                 } else {
                     try result.writer(allocator).print("{any}", .{value});
                 }

@@ -268,11 +268,13 @@ pub const Fraction = struct {
         return f;
     }
 
-    /// Round to nearest integer
+    /// Round to nearest integer (banker's rounding)
     pub fn round(self: Fraction) i64 {
         const f = self.toFloat();
-        return @intFromFloat(@round(f));
+        return @intFromFloat(bankersRound(f));
     }
+
+    const bankersRound = @import("../runtime/builtins/conversion.zig").bankersRound;
 
     // ========================================================================
     // Utility

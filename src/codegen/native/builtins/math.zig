@@ -229,7 +229,8 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for pow(base, exp) or pow(base, exp, mod)
 /// Returns base^exp or base^exp % mod (modular exponentiation)
-/// Uses runtime.builtins.pow which raises ZeroDivisionError for 0 ** negative
+/// Python semantics: pow(-2, 0.5) returns complex number
+/// Uses pyPow/pyPowAsPyValue for complex/error cases, std.math.pow for simple float cases
 pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try emitConst(self, "(error.TypeError)");
@@ -238,6 +239,7 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (args.len == 3) {
         // pow(base, exp, mod) - modular exponentiation
+        // Result is always integer, no complex support needed
         // Generate: @rem(@as(i64, @intFromFloat(std.math.pow(f64, base, exp))), mod)
         try emitConst(self, "@rem(@as(i64, @intFromFloat(std.math.pow(f64, @as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
@@ -248,12 +250,87 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try emitConst(self, ")");
     } else {
         // pow(base, exp) - standard power
-        // Use runtime.builtins.pow which raises ZeroDivisionError for 0 ** negative
-        try emitConst(self, "(try runtime.builtins.pow.call(");
-        try self.genExpr(args[0]);
+        // Get types to determine which codepath to use
+        const base_type = self.inferExprScoped(args[0]) catch .unknown;
+        const exp_type = self.inferExprScoped(args[1]) catch .unknown;
+        const base_is_int = type_traits.isIntegral(base_type) or type_traits.isBoolean(base_type);
+        const exp_is_int = type_traits.isIntegral(exp_type) or type_traits.isBoolean(exp_type);
+
+        // Check if we need pyPowAsPyValue (returns PyValue) or can use std.math.pow (returns f64)
+        // pyPowAsPyValue is needed for:
+        // 1. Negative exponents (ZeroDivisionError for base=0)
+        // 2. Negative base with non-integer exponent (complex result)
+        // 3. Non-constant exponent (type inference returns pow_result for safety)
+        // 4. When result type inference says .pyvalue or .pow_result
+        const needs_pyvalue = blk: {
+            // Check for explicitly negative exponent
+            if (args[1] == .unaryop and args[1].unaryop.op == .USub) {
+                break :blk true;
+            }
+            if (args[1] == .constant and args[1].constant.value == .int) {
+                if (args[1].constant.value.int < 0) break :blk true;
+            }
+            if (args[1] == .constant and args[1].constant.value == .float) {
+                if (args[1].constant.value.float < 0) break :blk true;
+            }
+            // Check if base is negative with non-integer exponent (could produce complex)
+            if (!exp_is_int) {
+                if (args[0] == .unaryop and args[0].unaryop.op == .USub) {
+                    // Negative base with float exp - only safe if exp is integer value
+                    if (args[1] == .constant and args[1].constant.value == .float) {
+                        const exp = args[1].constant.value.float;
+                        if (exp != @trunc(exp)) break :blk true;
+                    }
+                }
+            }
+            // If exponent is a variable (not constant), use pyPowAsPyValue for consistency
+            // with type inference which returns pow_result for non-constant exponents
+            // This handles cases like pow(1.0, NAN) where NAN is a float variable
+            if (args[1] != .constant and !exp_is_int) {
+                // Exponent is a variable with float type - need PyValue for type consistency
+                break :blk true;
+            }
+            break :blk false;
+        };
+
+        if (needs_pyvalue) {
+            // Use pyPowAsPyValue which returns PyValue directly
+            // This handles complex results, ZeroDivisionError, and IEEE 754 edge cases
+            try emitConst(self, "(try runtime.builtins.pyPowAsPyValue(");
+        } else {
+            // Simple float pow - use std.math.pow directly for f64 return type
+            try emitConst(self, "std.math.pow(f64, ");
+        }
+
+        // Convert base to f64
+        if (base_is_int) {
+            try emitConst(self, "@as(f64, @floatFromInt(");
+            try self.genExpr(args[0]);
+            try emitConst(self, "))");
+        } else {
+            try emitConst(self, "@as(f64, ");
+            try self.genExpr(args[0]);
+            try emitConst(self, ")");
+        }
+
         try emitConst(self, ", ");
-        try self.genExpr(args[1]);
-        try emitConst(self, "))");
+
+        // Convert exp to f64
+        if (exp_is_int) {
+            try emitConst(self, "@as(f64, @floatFromInt(");
+            try self.genExpr(args[1]);
+            try emitConst(self, "))");
+        } else {
+            try emitConst(self, "@as(f64, ");
+            try self.genExpr(args[1]);
+            try emitConst(self, ")");
+        }
+
+        if (needs_pyvalue) {
+            try emitConst(self, "))");
+        } else {
+            try emitConst(self, ")");
+        }
     }
 }
 

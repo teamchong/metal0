@@ -68,14 +68,16 @@ pub fn pow_builtin(base: anytype, exp: anytype, mod: anytype) !i64 {
     }
 }
 
-/// Round to nearest integer
+/// Round to nearest integer (banker's rounding - round half to even)
 /// Mirrors: builtin round()
+/// Python uses IEEE 754 round-half-to-even semantics
 pub fn round_builtin(value: f64, ndigits: ?i32) f64 {
+    const bankersRound = @import("../../runtime/builtins/conversion.zig").bankersRound;
     if (ndigits) |n| {
         const factor = std.math.pow(f64, 10, @floatFromInt(n));
-        return @round(value * factor) / factor;
+        return bankersRound(value * factor) / factor;
     }
-    return @round(value);
+    return bankersRound(value);
 }
 
 /// Integer division and modulo

@@ -431,11 +431,11 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
         }
         // For runtime float values, use toIntBig which handles overflow to BigInt
-        // Call .asI64() to extract i64, throws OverflowError for BigInt values
+        // Return as UnifiedInt to preserve BigInt values (Python ints have unlimited precision)
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
         try emitFmtConst(self, "(try (try runtime.toIntBig({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try emitConst(self,")).asI64())");
+        try emitFmtConst(self, ")).asUnifiedInt({s}))", .{alloc_name});
         return;
     }
 
@@ -652,7 +652,12 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // If class has __bool__, generate direct method call
     if (dunder_info.has_bool and args[0] == .name) {
         // __bool__ must return bool, may raise TypeError
-        if (self.inside_try_body) {
+        if (self.in_assert_raises_context) {
+            // Return error union as-is for expectError() to check
+            try emitConst(self,"(");
+            try self.genExpr(args[0]);
+            try emitConst(self,".__bool__())");
+        } else if (self.inside_try_body) {
             try emitConst(self,"(try ");
             try self.genExpr(args[0]);
             try emitConst(self,".__bool__())");
@@ -666,7 +671,12 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // If class has __len__ but not __bool__, use len != 0
     if (dunder_info.has_len and args[0] == .name) {
-        if (self.inside_try_body) {
+        if (self.in_assert_raises_context) {
+            // Return error union as-is for expectError() to check
+            try emitConst(self,"((");
+            try self.genExpr(args[0]);
+            try emitConst(self,".__len__()) != 0)");
+        } else if (self.inside_try_body) {
             try emitConst(self,"((try ");
             try self.genExpr(args[0]);
             try emitConst(self,".__len__()) != 0)");

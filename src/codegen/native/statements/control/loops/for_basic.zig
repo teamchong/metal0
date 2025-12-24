@@ -406,7 +406,7 @@ fn varIsReassignedInStmt(stmt: ast.Node, var_name: []const u8) bool {
 }
 
 /// Generate tuple unpacking for loop (e.g., for k, v in items)
-fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, body: []ast.Node) CodegenError!void {
+fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, body: []ast.Node, orelse_body: ?[]ast.Node) CodegenError!void {
     // Get target elements from either list or tuple
     const target_elts = switch (target) {
         .list => |l| l.elts,
@@ -647,6 +647,13 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         try self.emitIndent();
         try emitConst(self,"}\n");
     }
+
+    // Handle optional else clause (for/else)
+    if (orelse_body) |else_body| {
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
 }
 
 /// Generate for loop
@@ -676,32 +683,32 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         if (std.mem.eql(u8, func_name, "range")) {
             // range() requires single target variable
             const var_name = sanitizeVarName(for_stmt.target.name.id);
-            try genRangeLoop(self, var_name, for_stmt.iter.call.args, for_stmt.body);
+            try genRangeLoop(self, var_name, for_stmt.iter.call.args, for_stmt.body, for_stmt.orelse_body);
             return;
         }
 
         // Handle enumerate() loops
         if (std.mem.eql(u8, func_name, "enumerate")) {
             // enumerate() requires tuple target (idx, item)
-            try genEnumerateLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body);
+            try genEnumerateLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body, for_stmt.orelse_body);
             return;
         }
 
         // Handle zip() loops
         if (std.mem.eql(u8, func_name, "zip")) {
-            try genZipLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body);
+            try genZipLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body, for_stmt.orelse_body);
             return;
         }
     }
 
     // Check if target is tuple unpacking (e.g., for k, v in dict.items())
     if (for_stmt.target.* == .list) {
-        try genTupleUnpackLoop(self, for_stmt.target.*, for_stmt.iter.*, for_stmt.body);
+        try genTupleUnpackLoop(self, for_stmt.target.*, for_stmt.iter.*, for_stmt.body, for_stmt.orelse_body);
         return;
     }
     // Also handle tuple target (e.g., for (r, g, b) in colors:)
     if (for_stmt.target.* == .tuple) {
-        try genTupleUnpackLoop(self, for_stmt.target.*, for_stmt.iter.*, for_stmt.body);
+        try genTupleUnpackLoop(self, for_stmt.target.*, for_stmt.iter.*, for_stmt.body, for_stmt.orelse_body);
         return;
     }
 
@@ -859,6 +866,77 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         // Use unique loop capture variable name to avoid shadowing in nested loops
         const loop_var_id = self.name_gen.nextId();
+
+        // For callable tuples with heterogeneous function types (e.g., pow, operator.pow),
+        // unroll the loop instead of using inline for. This avoids type confusion when
+        // both functions have `anytype` parameters - each unrolled block gets its own
+        // concrete type for the loop variable.
+        const should_unroll = has_callable_elements and for_stmt.iter.* == .tuple;
+
+        if (should_unroll) {
+            // Unroll the callable tuple loop - generate separate blocks for each element
+            const tuple_elts = for_stmt.iter.tuple.elts;
+
+            // Mark error_callable_vars before entering unrolled blocks
+            // Check if tuple contains pow builtin (directly or via attribute)
+            // Both pow and operator.pow return error unions, so they need try
+            var has_pow_builtin_unroll = false;
+            var has_function_ref_unroll = false;
+            for (tuple_elts) |elt| {
+                if (elt == .name) {
+                    const name = elt.name.id;
+                    if (std.mem.eql(u8, name, "pow")) {
+                        has_pow_builtin_unroll = true;
+                    }
+                } else if (elt == .attribute) {
+                    const attr = elt.attribute;
+                    if (attr.value.* == .name) {
+                        const mod_name = attr.value.name.id;
+                        if (std.mem.eql(u8, mod_name, "operator")) {
+                            has_function_ref_unroll = true;
+                        }
+                    }
+                }
+            }
+            if (has_pow_builtin_unroll or has_function_ref_unroll) {
+                const owned_name = try self.arena.allocator().dupe(u8, var_name);
+                try self.error_callable_vars.put(owned_name, {});
+            }
+
+            for (tuple_elts) |tuple_elt| {
+                try self.emitIndent();
+                try emitConst(self, "{\n");
+                self.indent();
+                try self.pushScope();
+
+                // Generate: const pow_op = <element>;
+                try self.emitIndent();
+                try emitConst(self, "const ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                try emitConst(self, " = ");
+                try self.genExpr(tuple_elt);
+                try emitConst(self, ";\n");
+
+                // Generate body
+                for (for_stmt.body) |stmt| {
+                    try self.generateStmt(stmt);
+                }
+
+                try self.emitScopedDiscards();
+                self.popScope();
+                self.dedent();
+                try self.emitIndent();
+                try emitConst(self, "}\n");
+            }
+
+            // Handle optional else clause (for/else)
+            if (for_stmt.orelse_body) |else_body| {
+                for (else_body) |stmt| {
+                    try self.generateStmt(stmt);
+                }
+            }
+            return;
+        }
 
         try self.emitIndent();
         try emitConst(self,"inline for (");
@@ -1093,6 +1171,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         try self.emitIndent();
         try emitConst(self,"}\n");
+
+        // Handle optional else clause (for/else)
+        if (for_stmt.orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         return;
     }
 
@@ -1140,6 +1225,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         try self.emitIndent();
         try emitConst(self,"}\n");
+
+        // Handle optional else clause (for/else)
+        if (for_stmt.orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         return;
     }
 
@@ -1185,6 +1277,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         try self.emitIndent();
         try emitConst(self,"}\n");
+
+        // Handle optional else clause (for/else)
+        if (for_stmt.orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         return;
     }
 
@@ -1246,6 +1345,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
         try self.emitIndent();
         try emitConst(self,"}\n");
+
+        // Handle optional else clause (for/else)
+        if (for_stmt.orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         return;
     }
 
@@ -1314,6 +1420,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
         try self.emitIndent();
         try emitConst(self,"}\n");
+
+        // Handle optional else clause (for/else)
+        if (for_stmt.orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         return;
     }
 
@@ -1423,6 +1536,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             self.dedent();
             try self.emitIndent();
             try emitConst(self,"}\n");
+
+            // Handle optional else clause (for/else)
+            if (for_stmt.orelse_body) |else_body| {
+                for (else_body) |stmt| {
+                    try self.generateStmt(stmt);
+                }
+            }
             return;
         }
     }
@@ -1524,6 +1644,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
         try self.emitIndent();
         try emitConst(self,"}\n");
+
+        // Handle optional else clause (for/else)
+        if (for_stmt.orelse_body) |else_body| {
+            for (else_body) |stmt| {
+                try self.generateStmt(stmt);
+            }
+        }
         return;
     }
 
@@ -1777,7 +1904,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 }
 
 /// Generate range() loop as Zig while loop
-fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, body: []ast.Node) CodegenError!void {
+fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, body: []ast.Node, orelse_body: ?[]ast.Node) CodegenError!void {
     // range(stop) or range(start, stop) or range(start, stop, step)
     var start_expr: ?ast.Node = null;
     var stop_expr: ast.Node = undefined;
@@ -1970,6 +2097,13 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     self.dedent();
     try self.emitIndent();
     try emitConst(self,"}\n");
+
+    // Handle optional else clause (runs if loop completes without break)
+    if (orelse_body) |else_body| {
+        for (else_body) |stmt| {
+            try self.generateStmt(stmt);
+        }
+    }
 
     // No block scope to close - we removed the wrapper to allow loop variable
     // to persist after the loop (Python semantics)

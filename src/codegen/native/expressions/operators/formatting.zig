@@ -198,6 +198,26 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         return;
     }
 
+    // For %f/%e/%g formats (float formatting), use runtime.pyStringFormat for banker's rounding
+    // This must be checked BEFORE creating the buffer/writer
+    if (format_str) |fmt| {
+        var fi: usize = 0;
+        while (fi < fmt.len) {
+            if (fmt[fi] == '%' and fi + 1 < fmt.len) {
+                const fspec = parseFormatSpec(fmt, fi);
+                if (fspec.spec_char == 'f' or fspec.spec_char == 'e' or fspec.spec_char == 'E' or
+                    fspec.spec_char == 'g' or fspec.spec_char == 'G')
+                {
+                    // Use runtime formatting for banker's rounding and proper %g semantics
+                    try emitRuntimePyStringFormat(self, label_id, alloc_name, binop.left.*, binop.right.*);
+                    return;
+                }
+                break; // Only check first format specifier
+            }
+            fi += 1;
+        }
+    }
+
     // Use unique buf AND writer names to avoid shadowing in nested format expressions
     // e.g., "%s" % repr(x) where repr(x) generates another format block
     try emitFormatBlockOpen(self, label_id, alloc_name);

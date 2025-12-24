@@ -48,9 +48,10 @@ pub const Real = struct {
         return @intFromFloat(@ceil(self.value));
     }
 
-    /// Round to nearest integer
+    /// Round to nearest integer (banker's rounding)
     pub fn round(self: Real) i64 {
-        return @intFromFloat(@round(self.value));
+        const bankersRound = @import("../../runtime/builtins/conversion.zig").bankersRound;
+        return @intFromFloat(bankersRound(self.value));
     }
 
     // Arithmetic operations

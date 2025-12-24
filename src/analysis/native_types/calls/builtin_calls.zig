@@ -55,7 +55,11 @@ pub fn inferBuiltinCall(
                 .fixed_int => .{ .int = .bounded },
                 .fixed_float => .float,
                 .fixed_bool => .bool,
-                .unknown => .unknown,
+                // Callable with unknown return type should be .pyvalue, not .unknown
+                // This prevents narrowing to .float when widening with other calls
+                // E.g., pow() can return float or complex (PyValue), so calls like
+                // assertEqualAndEqualSign(pow_op(-0.0, 1.0), ...) must use PyValue params
+                .unknown => .pyvalue,
             };
         }
     }
@@ -85,28 +89,94 @@ pub fn inferBuiltinCall(
         return try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
     }
 
-    // Special case: pow(base, exp) returns float if any arg is float, int if both are int
-    // Note: pow(int, negative_int) returns float in Python, but we can't always know at compile time
-    // Default to float for safety since that's the more common case in float tests
+    // Special case: pow(base, exp) - may return float, int, or PyPowResult (complex)
+    // pow(-2, 0.5) returns complex number, pow(4, 0.5) returns float 2.0
+    // pow(2, 3) returns int 8
+    // pow(0, -1) raises ZeroDivisionError (returns PyPowResult for error handling)
     const POW_HASH = comptime fnv_hash.hash("pow");
     if (fnv_hash.hash(func_name) == POW_HASH and call.args.len >= 2) {
         const base_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[0], type_inferrer);
         const exp_type = try expressions.inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, call.args[1], type_inferrer);
-        // If either is float, result is float
-        if (@as(std.meta.Tag(NativeType), base_type) == .float or @as(std.meta.Tag(NativeType), exp_type) == .float) {
-            return .float;
-        }
-        // If both are int, check for negative exponent
-        if (type_traits.isIntegral(base_type) and type_traits.isIntegral(exp_type)) {
-            // Check if exponent is a negative literal
+
+        // Check if exponent could be negative (needs pyPow for ZeroDivisionError)
+        const exp_could_be_negative = blk: {
             if (call.args[1] == .unaryop and call.args[1].unaryop.op == .USub) {
-                return .float; // pow(x, -y) returns float
+                break :blk true; // -x is negative
             }
             if (call.args[1] == .constant and call.args[1].constant.value == .int) {
-                if (call.args[1].constant.value.int < 0) {
-                    return .float; // pow(x, -1) returns float
+                if (call.args[1].constant.value.int < 0) break :blk true;
+            }
+            if (call.args[1] == .constant and call.args[1].constant.value == .float) {
+                if (call.args[1].constant.value.float < 0) break :blk true;
+            }
+            break :blk false;
+        };
+
+        // Negative exponent uses pyPowAsPyValue which returns PyValue
+        if (exp_could_be_negative) {
+            return .pyvalue;
+        }
+
+        // If exponent is float, could produce complex (PyPowResult)
+        // Unless we can prove at compile time that base is non-negative
+        if (@as(std.meta.Tag(NativeType), exp_type) == .float) {
+            // Try to extract comptime base value
+            var base_val: ?f64 = null;
+            if (call.args[0] == .constant and call.args[0].constant.value == .float) {
+                base_val = call.args[0].constant.value.float;
+            } else if (call.args[0] == .constant and call.args[0].constant.value == .int) {
+                base_val = @as(f64, @floatFromInt(call.args[0].constant.value.int));
+            } else if (call.args[0] == .unaryop and call.args[0].unaryop.op == .USub) {
+                // Handle (-x) expressions
+                if (call.args[0].unaryop.operand.* == .constant) {
+                    const operand = call.args[0].unaryop.operand.constant;
+                    if (operand.value == .float) {
+                        base_val = -operand.value.float;
+                    } else if (operand.value == .int) {
+                        base_val = -@as(f64, @floatFromInt(operand.value.int));
+                    }
                 }
             }
+
+            // If exp is a constant non-negative whole number, codegen uses std.math.pow (returns f64)
+            // Check this first to match codegen behavior regardless of base
+            if (call.args[1] == .constant and call.args[1].constant.value == .float) {
+                const exp = call.args[1].constant.value.float;
+                if (exp >= 0.0 and exp == @trunc(exp)) {
+                    return .float; // Non-negative whole number exponent = always real result
+                }
+            }
+
+            // If base is known non-negative AND exp is a constant, result is definitely float
+            // If exp is not a constant, codegen uses pyPow which returns PyPowResult
+            const exp_is_constant = call.args[1] == .constant and
+                (call.args[1].constant.value == .float or call.args[1].constant.value == .int);
+
+            if (base_val) |base| {
+                if (base >= 0.0 and exp_is_constant) {
+                    return .float;
+                }
+                // Negative base with float exponent - check if exp is an integer
+                if (call.args[1] == .constant and call.args[1].constant.value == .float) {
+                    const exp = call.args[1].constant.value.float;
+                    if (exp == @trunc(exp)) {
+                        return .float; // Integer exponent = real result
+                    }
+                }
+            }
+
+            // Unknown base, non-constant exp, or negative base with non-integer exp = could be complex
+            // Use PyValue since codegen uses pyPowAsPyValue which returns PyValue
+            return .pyvalue;
+        }
+
+        // Base is float but exp is int - result is float
+        if (@as(std.meta.Tag(NativeType), base_type) == .float) {
+            return .float;
+        }
+
+        // If both are int, positive exponent - result is int
+        if (type_traits.isIntegral(base_type) and type_traits.isIntegral(exp_type)) {
             return .{ .int = .bounded }; // pow(int, positive_int) returns int
         }
         // Default to float for safety

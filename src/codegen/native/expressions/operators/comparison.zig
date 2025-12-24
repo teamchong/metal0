@@ -851,11 +851,12 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
         else if ((container_traits.isTuple(current_left_type) or current_left == .tuple) and
             (container_traits.isTuple(right_type) or compare.comparators[i] == .tuple))
         {
-            // Use runtime.pyTupleEql for Python semantics (NaN identity)
+            // Use runtime.pyAnyEql for Python semantics (NaN identity)
+            // pyAnyEql handles mixed types in tuples (e.g. PyValue vs f64)
             if (op == .NotEq) {
                 try emitConst(self, "!");
             }
-            try emitConst(self, "runtime.pyTupleEql(");
+            try emitConst(self, "runtime.pyAnyEql(");
             try genExpr(self, current_left);
             try emitConst(self, ", ");
             try genExpr(self, compare.comparators[i]);
@@ -1389,6 +1390,62 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
             try emitConst(self, ", ");
             try genExpr(self, compare.comparators[i]);
             try emitConst(self, BigIntCompOps.get(@tagName(op)) orelse ", .eq)");
+        }
+        // Handle PyPowResult comparisons (tagged union from pow() with float/negative exponent)
+        else if (current_left_type == .pow_result or right_type == .pow_result) {
+            // PyPowResult is a tagged union, can't use direct == or !=
+            // Use .eql() method for float comparison, or runtime.pyAnyEql for general case
+            if (op == .Eq) {
+                if (current_left_type == .pow_result and right_type == .pow_result) {
+                    // Both are PyPowResult - use .eqlResult()
+                    try emitConst(self, "(");
+                    try genExpr(self, current_left);
+                    try emitConst(self, ").eqlResult(");
+                    try genExpr(self, compare.comparators[i]);
+                    try emitConst(self, ")");
+                } else if (current_left_type == .pow_result) {
+                    // Left is PyPowResult, right is f64 - use .eql()
+                    try emitConst(self, "(");
+                    try genExpr(self, current_left);
+                    try emitConst(self, ").eql(");
+                    try genExpr(self, compare.comparators[i]);
+                    try emitConst(self, ")");
+                } else {
+                    // Right is PyPowResult, left is f64 - swap order and use .eql()
+                    try emitConst(self, "(");
+                    try genExpr(self, compare.comparators[i]);
+                    try emitConst(self, ").eql(");
+                    try genExpr(self, current_left);
+                    try emitConst(self, ")");
+                }
+            } else if (op == .NotEq) {
+                if (current_left_type == .pow_result and right_type == .pow_result) {
+                    // Both are PyPowResult - use !.eqlResult()
+                    try emitConst(self, "!(");
+                    try genExpr(self, current_left);
+                    try emitConst(self, ").eqlResult(");
+                    try genExpr(self, compare.comparators[i]);
+                    try emitConst(self, ")");
+                } else if (current_left_type == .pow_result) {
+                    // Left is PyPowResult, right is f64 - use !.eql()
+                    try emitConst(self, "!(");
+                    try genExpr(self, current_left);
+                    try emitConst(self, ").eql(");
+                    try genExpr(self, compare.comparators[i]);
+                    try emitConst(self, ")");
+                } else {
+                    // Right is PyPowResult, left is f64 - swap order and use !.eql()
+                    try emitConst(self, "!(");
+                    try genExpr(self, compare.comparators[i]);
+                    try emitConst(self, ").eql(");
+                    try genExpr(self, current_left);
+                    try emitConst(self, ")");
+                }
+            } else {
+                // PyPowResult (complex potential) doesn't support <, >, <=, >=
+                // For float results we could theoretically compare, but not worth the complexity
+                try emitConst(self, "unreachable // TypeError: ordering comparison not supported for pow result (may be complex)");
+            }
         }
         // Handle complex number comparisons (PyComplex struct doesn't support ==)
         else if (current_left_type == .complex or right_type == .complex) {

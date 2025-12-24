@@ -432,6 +432,26 @@ pub const PyValue = union(enum) {
         };
     }
 
+    /// Check if this value is NaN (for float/complex types)
+    /// Used by math.isnan() to support PyValue arguments
+    pub fn isNan(self: PyValue) bool {
+        return switch (self) {
+            .float => |v| std.math.isNan(v),
+            .complex => |v| std.math.isNan(v.real) or std.math.isNan(v.imag),
+            else => false,
+        };
+    }
+
+    /// Check if this value is infinite (for float/complex types)
+    /// Used by math.isinf() to support PyValue arguments
+    pub fn isInf(self: PyValue) bool {
+        return switch (self) {
+            .float => |v| std.math.isInf(v),
+            .complex => |v| std.math.isInf(v.real) or std.math.isInf(v.imag),
+            else => false,
+        };
+    }
+
     /// Get length for list/tuple/string PyValues
     pub fn pyLen(self: PyValue) usize {
         return switch (self) {
@@ -564,6 +584,15 @@ pub const PyValue = union(enum) {
             return .{ .bigint = value };
         }
 
+        // Handle PyPowResult explicitly - convert to float or complex
+        const builtins_pow = @import("../runtime/builtins/pow.zig");
+        if (T == builtins_pow.PyPowResult) {
+            return switch (value) {
+                .float_val => |f| .{ .float = f },
+                .complex_val => |c| .{ .complex = .{ .real = c.real, .imag = c.imag } },
+            };
+        }
+
         if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
             return .{ .int = @intCast(value) };
         } else if (T == f64 or T == f32 or T == comptime_float) {
@@ -618,6 +647,30 @@ pub const PyValue = union(enum) {
             // Store as ptr for unknown pointer types
             return .{ .ptr = @ptrCast(@constCast(value)) };
         } else if (@typeInfo(T) == .@"struct") {
+            const struct_info = @typeInfo(T).@"struct";
+            // Handle tuples (anonymous structs with is_tuple = true)
+            // Use rotating static storage to avoid allocation while supporting
+            // comparisons like: PyValue.from(.{a, b}).eql(PyValue.from(.{c, d}))
+            // where we need two different buffers in the same expression
+            if (struct_info.is_tuple) {
+                const TupleStorage = struct {
+                    // 4 rotating buffers for small tuples (up to 8 elements each)
+                    // This handles comparisons and nested tuple operations
+                    threadlocal var buffers: [4][8]PyValue = undefined;
+                    threadlocal var next_buffer: u2 = 0;
+                };
+                const len = struct_info.fields.len;
+                if (len <= 8) {
+                    const buf_idx = TupleStorage.next_buffer;
+                    TupleStorage.next_buffer +%= 1;
+                    inline for (0..len) |i| {
+                        TupleStorage.buffers[buf_idx][i] = from(value[i]);
+                    }
+                    return .{ .tuple = TupleStorage.buffers[buf_idx][0..len] };
+                }
+                // Tuple too large for static storage - return none
+                return .{ .none = {} };
+            }
             // Handle Complex numbers (PyComplex has .real and .imag fields)
             if (@hasField(T, "real") and @hasField(T, "imag")) {
                 return .{ .complex = .{ .real = value.real, .imag = value.imag } };
@@ -1507,7 +1560,9 @@ pub const PyValue = union(enum) {
         if (self_tag == other_tag) {
             return switch (self) {
                 .int => |v| v == other.int,
-                .float => |v| v == other.float,
+                // Use bit-level comparison for NaN identity semantics
+                // In Python containers, nan == nan returns True (same object identity)
+                .float => |v| @as(u64, @bitCast(v)) == @as(u64, @bitCast(other.float)),
                 .string => |v| std.mem.eql(u8, v, other.string),
                 .bytes => |v| std.mem.eql(u8, v.data, other.bytes.data),
                 .bool => |v| v == other.bool,

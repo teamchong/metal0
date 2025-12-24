@@ -263,6 +263,41 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         }
     }
 
+    // Track error-returning builtins assigned to variables: pow_op = pow
+    // These need try prefix when called: (try pow_op(...))
+    // List of builtins that return error unions (from runtime/builtins.zig)
+    const is_error_returning = blk: {
+        if (assign.value.* == .name) {
+            const builtin_name = assign.value.name.id;
+            // Check if this is an error-returning builtin function
+            break :blk std.mem.eql(u8, builtin_name, "pow") or
+                std.mem.eql(u8, builtin_name, "open") or
+                std.mem.eql(u8, builtin_name, "eval") or
+                std.mem.eql(u8, builtin_name, "exec");
+        }
+        // Also check for attribute expressions like operator.pow
+        if (assign.value.* == .attribute) {
+            const attr = assign.value.attribute;
+            if (attr.value.* == .name) {
+                const module_name = attr.value.name.id;
+                const attr_name = attr.attr;
+                // operator.pow returns error union
+                if (std.mem.eql(u8, module_name, "operator") and std.mem.eql(u8, attr_name, "pow")) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+    if (is_error_returning) {
+        for (assign.targets) |target| {
+            if (target == .name) {
+                const owned_name = try self.arena.allocator().dupe(u8, target.name.id);
+                try self.error_callable_vars.put(owned_name, {});
+            }
+        }
+    }
+
     // Track C extension module call results: arr = np.array([1,2,3])
     // When a variable is assigned from a C extension module function call,
     // track it as pyobject type for method call dispatch

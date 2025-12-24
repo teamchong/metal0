@@ -431,6 +431,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
             if (std.mem.eql(u8, attr.attr, "__getformat__")) {
                 // float.__getformat__('double') -> runtime.floatGetFormat("double")
+                // Returns error union - caller decides if try/catch is needed
                 try emitRuntimeCallStart(self, "floatGetFormat");
                 if (call.args.len > 0) {
                     try genExpr(self, call.args[0]);
@@ -885,9 +886,46 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try emitConst(self, "}");
             } else {
                 // Normal argument emission
+                // Look up expected parameter types for method (ClassName.methodName)
+                var method_key_buf: [512]u8 = undefined;
+                const method_key: ?[]const u8 = if (method_class_name) |cn|
+                    std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ cn, attr.attr }) catch null
+                else
+                    null;
+                const expected_param_types: ?[]const NativeType = if (method_key) |key|
+                    self.type_inferrer.function_call_args.get(key)
+                else
+                    null;
+
                 for (call.args, 0..) |arg, i| {
                     if (i > 0) try emitConst(self, ", ");
-                    try genExpr(self, arg);
+
+                    // Check if expected param type is PyValue and actual arg is primitive
+                    // If so, wrap with runtime.PyValue.from()
+                    const need_pyvalue_wrap = blk: {
+                        if (expected_param_types) |param_types| {
+                            if (i < param_types.len and param_types[i] == .pyvalue) {
+                                // Expected type is PyValue, check if arg is primitive
+                                const arg_type = self.inferExprScoped(arg) catch .unknown;
+                                // Wrap primitives (float, int, bool, string) that aren't already PyValue
+                                if (arg_type != .pyvalue and
+                                    (arg_type == .float or type_traits.isIntegral(arg_type) or
+                                    arg_type == .bool or string_traits.isString(arg_type)))
+                                {
+                                    break :blk true;
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+
+                    if (need_pyvalue_wrap) {
+                        try emitConst(self, "runtime.PyValue.from(");
+                        try genExpr(self, arg);
+                        try emitConst(self, ")");
+                    } else {
+                        try genExpr(self, arg);
+                    }
                 }
 
                 // Add keyword arguments as positional arguments
@@ -1037,7 +1075,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             const returns_error = self.error_callable_vars.contains(raw_func_name);
             // Callable call: f("100") -> (try f.call("100")) for error callables
             //                f("100") -> f.call("100") for regular callables
-            if (returns_error) {
+            // In assertRaises context, don't use try - let error propagate for expectError to check
+            const use_try = returns_error and !self.in_assert_raises_context;
+            if (use_try) {
                 try emitConst(self, "(try ");
             }
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
@@ -1053,7 +1093,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            if (returns_error) {
+            if (use_try) {
                 try emitConst(self, "))");
             } else {
                 try emitConst(self, ")");
@@ -1065,7 +1105,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // This happens when iterating over mixed tuples like (pow, operator.pow)
         // Both return error unions but are function pointers, called directly without .call()
         if (self.error_callable_vars.contains(raw_func_name) and !self.callable_vars.contains(raw_func_name)) {
-            try emitConst(self, "(try ");
+            // In assertRaises context, don't use try - let error propagate for expectError to check
+            const use_try = !self.in_assert_raises_context;
+            if (use_try) {
+                try emitConst(self, "(try ");
+            } else {
+                try emitConst(self, "(");
+            }
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
             try emitConst(self, "(");
 
@@ -1681,10 +1727,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Add 'try' if function needs allocator, is async, or returns error union
         // Note: kwarg functions don't need try - the block expression handles errors
-        // IMPORTANT: Only emit 'try' inside function bodies (scope level > 0)
-        // At module level (scope 0), 'try' is invalid in Zig - error unions must be handled differently
-        const at_module_level = self.symbol_table.currentScopeLevel() == 0;
-        if (!at_module_level and (user_func_needs_alloc or is_async_func or func_needs_error)) {
+        // IMPORTANT: Only emit 'try' inside function bodies (indent_level > 0)
+        // At module level (indent 0), 'try' is invalid in Zig - error unions must be handled differently
+        // Use indent_level instead of scope_level because main() body is at scope 0 but indent 1
+        const inside_function_body = self.indent_level > 0;
+        if (inside_function_body and (user_func_needs_alloc or is_async_func or func_needs_error)) {
             try emitConst(self, "try ");
         }
 

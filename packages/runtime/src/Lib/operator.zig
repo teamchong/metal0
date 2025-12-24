@@ -12,6 +12,7 @@
 const std = @import("std");
 const comparison = @import("../runtime/comparison.zig");
 const PyValue = @import("../Objects/object.zig").PyValue;
+const float_ops = @import("../runtime/float_ops/arithmetic.zig");
 
 // ============================================================================
 // Comparison Operations
@@ -172,7 +173,15 @@ pub fn floordiv(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
 }
 
 /// Modulo: a % b
+/// For floats, uses Python semantics with proper signed zero handling
 pub fn mod(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
+    const T = @TypeOf(a);
+    const info = @typeInfo(T);
+    // For floats, use Python's modulo semantics (handles signed zeros)
+    if (info == .float or info == .comptime_float) {
+        return @floatCast(float_ops.pyFloatMod(a, b));
+    }
+    // For integers, use Zig's builtin mod
     return @mod(a, b);
 }
 
@@ -187,25 +196,30 @@ pub fn pos(a: anytype) @TypeOf(a) {
 }
 
 /// Power: a ** b
-/// Returns error for invalid operations like 0**-1 (ZeroDivisionError)
-pub fn pow(base: anytype, exp: @TypeOf(base)) !@TypeOf(base) {
+/// Returns PyValue which can be either float or complex
+/// Python: (-2.0) ** 0.5 returns complex, 4.0 ** 0.5 returns float
+/// NOTE: Returns PyValue (not PyPowResult) for O(1) type compatibility
+/// This eliminates type mismatches when result is assigned to PyValue variables
+pub fn pow(base: anytype, exp: @TypeOf(base)) !PyValue {
     const T = @TypeOf(base);
-    const op_ops = @import("../runtime/operator_ops.zig");
 
-    // Dispatch to error-checking implementations
-    if (T == i64) return op_ops.powI64(base, exp);
-    if (T == f64) return op_ops.powF64(base, exp);
+    // Convert to f64 for complex-capable pow
+    const base_f: f64 = switch (@typeInfo(T)) {
+        .int, .comptime_int => @floatFromInt(base),
+        .float, .comptime_float => @floatCast(base),
+        else => @compileError("pow requires numeric types"),
+    };
+    const exp_f: f64 = switch (@typeInfo(T)) {
+        .int, .comptime_int => @floatFromInt(exp),
+        .float, .comptime_float => @floatCast(exp),
+        else => @compileError("pow requires numeric types"),
+    };
 
-    // Fallback for other numeric types
-    if (@typeInfo(T) == .float) {
-        return @floatCast(try op_ops.powF64(@floatCast(base), @floatCast(exp)));
-    }
-    // Integer fallback
-    const base_f: f64 = @floatFromInt(base);
-    const exp_f: f64 = @floatFromInt(exp);
-    const result = try op_ops.powF64(base_f, exp_f);
-    return @intFromFloat(result);
+    // Use pyPowAsPyValue which returns PyValue directly for type compatibility
+    return builtins.pyPowAsPyValue(base_f, exp_f);
 }
+
+const builtins = @import("../runtime/builtins.zig");
 
 // ============================================================================
 // Bitwise Operations
@@ -528,9 +542,19 @@ test "truth and not" {
 }
 
 test "power" {
-    try std.testing.expectEqual(@as(i32, 8), pow(@as(i32, 2), @as(i32, 3)));
-    try std.testing.expectEqual(@as(i32, 1), pow(@as(i32, 5), @as(i32, 0)));
-    try std.testing.expectEqual(@as(i32, 27), pow(@as(i32, 3), @as(i32, 3)));
+    // pow now returns PyValue (float or complex) for O(1) type compatibility
+    const r1 = try pow(@as(i64, 2), @as(i64, 3));
+    try std.testing.expect(r1 == .float and r1.float == 8.0);
+
+    const r2 = try pow(@as(i64, 5), @as(i64, 0));
+    try std.testing.expect(r2 == .float and r2.float == 1.0);
+
+    const r3 = try pow(@as(i64, 3), @as(i64, 3));
+    try std.testing.expect(r3 == .float and r3.float == 27.0);
+
+    // Complex result for negative base with non-integer exponent
+    const r4 = try pow(@as(f64, -2.0), @as(f64, 0.5));
+    try std.testing.expect(r4 == .complex);
 }
 
 test "in-place operations" {

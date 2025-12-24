@@ -413,10 +413,14 @@ pub fn inferModuleFunctionCall(
             {
                 return .{ .int = .bounded };
             }
-            // pow/ipow can return int or float depending on arguments
-            // Return float as the more general type (codegen handles actual types)
-            if (func_hash == POW_HASH or func_hash == IPOW_HASH or func_hash == TRUEDIV_HASH) {
+            // truediv always returns float
+            if (func_hash == TRUEDIV_HASH) {
                 return .float;
+            }
+            // pow/ipow can return float OR complex (PyPowResult)
+            // Python: pow(-2.0, 0.5) returns complex, not float
+            if (func_hash == POW_HASH or func_hash == IPOW_HASH) {
+                return .unknown;
             }
             return .unknown;
         },

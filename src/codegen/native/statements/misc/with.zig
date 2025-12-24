@@ -476,7 +476,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                             try self.emitIndent();
                             try emitConst(self,"const ");
                             try emitConst(self,actual_name);
-                            try emitConst(self,": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                            try emitConst(self,": runtime.unittest.ContextManager = runtime.unittest.ContextManager.init();\n");
                             try self.hoisted_vars.put(var_name, {});
                         }
                     } else {
@@ -509,7 +509,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                                 try self.emitIndent();
                                 try emitConst(self,"const ");
                                 try emitConst(self,actual_cm_name);
-                                try emitConst(self,": runtime.unittest.ContextManager = runtime.unittest.ContextManager{};\n");
+                                try emitConst(self,": runtime.unittest.ContextManager = runtime.unittest.ContextManager.init();\n");
                                 try self.hoisted_vars.put(cm_var_name, {});
                             }
                         } else {
@@ -717,7 +717,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     // Use const for context manager variables (they're read-only)
                     try b.write("const ");
                     try b.write(var_name);
-                    try b.write(" = runtime.unittest.ContextManager{};\n");
+                    try b.write(" = runtime.unittest.ContextManager.init();\n");
                     // Always discard pointer to suppress unused warning
                     // Using pointer avoids "pointless discard" when variable IS used later
                     try b.writeIndent();
@@ -729,7 +729,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     // Variable was hoisted by scope analyzer - still need to assign value
                     try b.writeIndent();
                     try b.write(var_name);
-                    try b.write(" = runtime.unittest.ContextManager{};\n");
+                    try b.write(" = runtime.unittest.ContextManager.init();\n");
                 }
             }
         }
@@ -762,7 +762,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         const escaped_copy = try self.arena.allocator().dupe(u8, escaped_var);
                         self.output.shrinkRetainingCapacity(start_pos);
                         try b.write(escaped_copy);
-                        try b.write(" = runtime.unittest.ContextManager{};\n");
+                        try b.write(" = runtime.unittest.ContextManager.init();\n");
                         try b.writeIndent();
                         try b.write("_ = &");
                         try b.write(escaped_copy);
@@ -804,10 +804,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const was_in_assert_raises = self.in_assert_raises_context;
             self.in_assert_raises_context = true;
 
-            // Set inside_try_body so that any error-returning calls propagate errors
-            // instead of using catch unreachable
+            // IMPORTANT: Do NOT set inside_try_body for assertRaises context!
+            // We want error-returning calls to return error unions that we can check,
+            // NOT to propagate with try (which would bypass our error catching).
             const prev_inside_try = self.inside_try_body;
-            self.inside_try_body = true;
+            self.inside_try_body = false;
 
             // Check recursively if body contains raise or expr statements
             // Must be recursive because the statement might be nested inside other blocks (if, with, for, etc.)

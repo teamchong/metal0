@@ -337,6 +337,15 @@ pub fn pyObjToInt(obj: *PyObject) i64 {
     return if (getTypeId(obj) == .int) PyInt.getValue(obj) else 0;
 }
 
+/// Extract float value from PyObject (for eval() results)
+pub fn pyObjToFloat(obj: *PyObject) f64 {
+    return switch (getTypeId(obj)) {
+        .float => pyobject_cast.cast(PyFloatObject, obj).ob_fval,
+        .int => @floatFromInt(PyInt.getValue(obj)),
+        else => 0.0,
+    };
+}
+
 /// Extract BigInt value from PyObject (for eval() results with large integers)
 pub fn pyObjToBigInt(obj: *PyObject, allocator: std.mem.Allocator) BigInt {
     const cast = pyobject_cast.cast;

@@ -281,6 +281,20 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Special case: type(x).__name__ -> runtime.pyTypeName(x)
+    // runtime.pyTypeName already returns the type name as a string, so accessing .__name__ is redundant
+    // This handles both regular Python types and PyPowResult (which returns "float" or "complex")
+    if (std.mem.eql(u8, attr.attr, "__name__") and attr.value.* == .call) {
+        const call = attr.value.call;
+        if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "type") and call.args.len == 1) {
+            // type(x).__name__ -> runtime.pyTypeName(x)
+            try emitConst(self, "runtime.pyTypeName(");
+            try genExpr(self, call.args[0]);
+            try emitConst(self, ")");
+            return;
+        }
+    }
+
     // Check if value produces a block expression - need to wrap in temp variable
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     // Wrap in parentheses to prevent "label:" from being parsed as named argument when used in fn calls

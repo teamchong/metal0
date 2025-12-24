@@ -86,8 +86,9 @@ pub const Decimal = struct {
         const scale: f64 = std.math.pow(f64, 10.0, @floatFromInt(scale_exp));
         const scaled = abs_val * scale;
 
-        // Get coefficient digits
-        const coeff_int: u64 = @intFromFloat(@round(scaled));
+        // Get coefficient digits (use banker's rounding for Python semantics)
+        const bankersRound = @import("../../runtime/builtins/conversion.zig").bankersRound;
+        const coeff_int: u64 = @intFromFloat(bankersRound(scaled));
 
         // Find actual exponent (trim trailing zeros)
         var coeff = coeff_int;

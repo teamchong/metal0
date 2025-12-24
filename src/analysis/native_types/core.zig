@@ -196,6 +196,7 @@ pub const NativeType = union(enum) {
     bytes: void, // runtime.builtins.PyBytes - Python bytes type (preserves type info for repr)
     complex: void, // runtime.PyComplex - complex number
     int_result: void, // runtime.IntResult - tagged union (i64 small, BigInt big) from float rounding
+    pow_result: void, // runtime.builtins.PyPowResult - tagged union (float_val or complex_val) from pow with float exponent
 
     // Composites
     array: struct {
@@ -367,6 +368,7 @@ pub const NativeType = union(enum) {
             .bigint => try buf.appendSlice(allocator, "runtime.BigInt"),
             .unified_int => try buf.appendSlice(allocator, "runtime.UnifiedInt"),
             .int_result => try buf.appendSlice(allocator, "runtime.IntResult"),
+            .pow_result => try buf.appendSlice(allocator, "runtime.builtins.PyPowResult"),
             .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),

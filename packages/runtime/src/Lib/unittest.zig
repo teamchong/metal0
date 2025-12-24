@@ -76,21 +76,31 @@ pub const subTestInt = subtest.subTestInt;
 
 /// Helper for assertRaises codegen - returns true if value is NOT an error
 /// For error unions: returns true if no error, false if error
+/// For plain error sets: returns false (is an error)
 /// For non-error types: returns true (no error possible)
 pub fn expectError(value: anytype) bool {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
-    if (info == .error_union) {
-        // Error union - check if it's an error
-        if (value) |_| {
-            return true; // No error - test should fail
-        } else |_| {
-            return false; // Error raised - test passes
-        }
-    } else {
-        // Not an error union - no error possible
-        return true;
-    }
+    return switch (info) {
+        .error_union => blk: {
+            // Error union - check if it's an error
+            if (value) |_| {
+                break :blk true; // No error - test should fail
+            } else |_| {
+                break :blk false; // Error raised - test passes
+            }
+        },
+        .error_set => blk: {
+            // Plain error set - this IS an error, test passes
+            @branchHint(.cold);
+            break :blk false;
+        },
+        else => blk: {
+            // Not an error union - no error possible
+            @branchHint(.cold);
+            break :blk true;
+        },
+    };
 }
 
 /// Result of expectSpecificError - used by assertRaises with specific exception types
@@ -105,21 +115,34 @@ pub const ExpectErrorResult = enum {
 pub fn expectSpecificError(value: anytype, comptime expected_error_name: []const u8) ExpectErrorResult {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
-    if (info == .error_union) {
-        if (value) |_| {
-            return .no_error; // No error raised
-        } else |err| {
-            const actual_error_name = @errorName(err);
-            if (std.mem.eql(u8, actual_error_name, expected_error_name)) {
-                return .correct_error;
-            } else {
-                return .wrong_error;
+    return switch (info) {
+        .error_union => blk: {
+            if (value) |_| {
+                break :blk .no_error; // No error raised
+            } else |err| {
+                const actual_error_name = @errorName(err);
+                if (std.mem.eql(u8, actual_error_name, expected_error_name)) {
+                    break :blk .correct_error;
+                } else {
+                    break :blk .wrong_error;
+                }
             }
-        }
-    } else {
-        // Not an error union - no error possible
-        return .no_error;
-    }
+        },
+        .error_set => blk: {
+            // Plain error set - check if it matches expected
+            const actual_error_name = @errorName(value);
+            if (std.mem.eql(u8, actual_error_name, expected_error_name)) {
+                break :blk .correct_error;
+            } else {
+                break :blk .wrong_error;
+            }
+        },
+        else => blk: {
+            // Not an error union - no error possible
+            @branchHint(.cold);
+            break :blk .no_error;
+        },
+    };
 }
 
 /// Base TestCase class with setUp/tearDown stubs
@@ -210,21 +233,66 @@ pub const ContextManager = struct {
     /// Exception info captured by the context manager
     /// When str(cm.exception) is called, it retrieves from thread-local storage
     pub const Exception = struct {
-        /// Exception arguments (like args[0])
-        args: [8][]const u8 = .{""} ** 8,
+        /// Cached exception message (populated when exception is caught)
+        _message: []const u8 = "",
+        /// Cached exception type name
+        _type_name: []const u8 = "",
+        /// Exception arguments - PUBLIC field for cm.exception.args[0] access
+        /// Returns thread-local args by default, populated by calling getArgs()
+        args: []const []const u8 = &[_][]const u8{},
 
-        /// Python __str__ - returns the exception message from thread-local storage
-        pub fn __str__(_: *const @This(), _: std.mem.Allocator) ![]const u8 {
+        // SyntaxError-specific attributes
+        offset: ?i64 = null,
+        lineno: ?i64 = null,
+        text: ?[]const u8 = null,
+        end_lineno: ?i64 = null,
+        end_offset: ?i64 = null,
+
+        // Exception chaining
+        __suppress_context__: bool = false,
+
+        /// Python __str__ - returns the exception message
+        pub fn __str__(self: *const @This(), _: std.mem.Allocator) ![]const u8 {
+            // Return cached message if available, otherwise fallback to thread-local
+            if (self._message.len > 0) {
+                return self._message;
+            }
             return exceptions.getExceptionMessage();
         }
 
         /// toStr for pyStr compatibility
-        pub fn toStr(_: @This(), _: std.mem.Allocator) []const u8 {
+        pub fn toStr(self: @This(), _: std.mem.Allocator) []const u8 {
+            if (self._message.len > 0) {
+                return self._message;
+            }
             return exceptions.getExceptionMessage();
+        }
+
+        /// Get args from thread-local storage (for fresh read)
+        pub fn getArgs(_: *const @This()) []const []const u8 {
+            return exceptions.getExceptionArgs();
+        }
+
+        /// Populate exception info from current thread-local storage
+        /// Called when an exception is caught in assertRaises context
+        pub fn populateFromThreadLocal(self: *@This()) void {
+            self._message = exceptions.getExceptionMessage();
+            self._type_name = exceptions.getExceptionType();
+            self.args = exceptions.getExceptionArgs();
         }
     };
 
     exception: Exception = .{},
+
+    /// Create a ContextManager with exception args populated from thread-local storage
+    /// Use this instead of {} when you need cm.exception.args access
+    pub fn init() ContextManager {
+        return .{
+            .exception = .{
+                .args = exceptions.getExceptionArgs(),
+            },
+        };
+    }
 
     /// Context manager __enter__ - returns self
     pub fn __enter__(self: *@This(), _: anytype) !*@This() {
@@ -235,6 +303,11 @@ pub const ContextManager = struct {
     pub fn __exit__(self: *@This(), _: anytype, _: anytype, _: anytype, _: anytype) !?bool {
         _ = self;
         return null;
+    }
+
+    /// Populate exception info from current thread-local storage
+    pub fn captureException(self: *@This()) void {
+        self.exception.populateFromThreadLocal();
     }
 };
 

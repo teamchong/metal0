@@ -67,12 +67,19 @@ fn emitBinaryCall(self: *NativeCodegen, func: []const u8, left: ast.Node, right:
 
 /// Generate power operation
 /// Uses auto-close patterns to guarantee matching parentheses
+/// Python semantics: negative base with non-integer exponent returns complex
 pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     const left_is_bool = type_traits.isBoolean(left_type);
     const right_is_bool = type_traits.isBoolean(right_type);
+    const left_is_int = type_traits.isIntegral(left_type) or left_is_bool;
+    const right_is_int = type_traits.isIntegral(right_type) or right_is_bool;
+    const right_is_float = type_traits.isFloating(right_type);
 
-    // Check if exponent is large enough to need UnifiedInt
-    if (binop.right.* == .constant and binop.right.constant.value == .int) {
+    // Check if exponent is a constant integer
+    const is_constant_int_exp = binop.right.* == .constant and binop.right.constant.value == .int;
+
+    // Case 1: Large constant integer exponent - use UnifiedInt for arbitrary precision
+    if (is_constant_int_exp) {
         const exp = binop.right.constant.value.int;
         if (exp >= 20) {
             const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
@@ -97,7 +104,8 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
             }.f);
             return;
         }
-        // Small constant positive exponent - use i64
+
+        // Case 2: Small constant positive integer exponent - use i64 fast path
         const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
         try emitConst(self, "std.math.pow");
         try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
@@ -110,7 +118,78 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
         }.f);
         return;
     }
-    // Runtime exponent - use f64 for safety
+
+    // Case 3: Float exponent OR runtime exponent - could produce complex
+    // But only if exponent is NOT a whole number (1.0, 2.0, etc are safe)
+    // Use runtime.builtins.pyPow which returns PyPowResult (float or complex)
+    const needs_complex_support = blk: {
+        if (!right_is_float and right_is_int) break :blk false;
+        // Check if float exponent is a whole number
+        if (binop.right.* == .constant and binop.right.constant.value == .float) {
+            const exp = binop.right.constant.value.float;
+            if (exp == @trunc(exp)) break :blk false; // Whole number, no complex
+        }
+        // Also check for unary minus on constant
+        if (binop.right.* == .unaryop and binop.right.unaryop.op == .USub) {
+            if (binop.right.unaryop.operand.* == .constant and
+                binop.right.unaryop.operand.constant.value == .float)
+            {
+                const exp = binop.right.unaryop.operand.constant.value.float;
+                if (exp == @trunc(exp)) break :blk false;
+            }
+        }
+        break :blk true;
+    };
+
+    if (needs_complex_support) {
+        // pyPow handles negative base with non-integer exponent -> complex
+        try emitConst(self, "(try runtime.builtins.pyPow(");
+
+        // Convert base to f64
+        if (left_is_int) {
+            try emitConst(self, "@as(f64, @floatFromInt(");
+            try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
+            try emitConst(self, "))");
+        } else {
+            try emitConst(self, "@as(f64, ");
+            try genExpr(self, binop.left.*);
+            try emitConst(self, ")");
+        }
+
+        try emitConst(self, ", ");
+
+        // Convert exponent to f64
+        if (right_is_int) {
+            try emitConst(self, "@as(f64, @floatFromInt(");
+            try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
+            try emitConst(self, "))");
+        } else {
+            try emitConst(self, "@as(f64, ");
+            try genExpr(self, binop.right.*);
+            try emitConst(self, ")");
+        }
+
+        try emitConst(self, "))");
+        return;
+    }
+
+    // Case 3b: Float exponent that's a whole number - use std.math.pow(f64)
+    // This handles cases like pow(-0.0, 1.0) which should return f64, not PyPowResult
+    if (right_is_float) {
+        const Ctx2 = struct { b: ast.Node.BinOp };
+        try emitConst(self, "std.math.pow");
+        try self.withParensCtx(Ctx2{ .b = binop }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx2) CodegenError!void {
+                try emitConst(s, "f64, ");
+                try genExpr(s, ctx.b.left.*);
+                try emitConst(s, ", ");
+                try genExpr(s, ctx.b.right.*);
+            }
+        }.f);
+        return;
+    }
+
+    // Case 4: Runtime integer exponent - use f64 for safety (no complex needed since int exp)
     const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
     try emitConst(self, "std.math.pow");
     try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {

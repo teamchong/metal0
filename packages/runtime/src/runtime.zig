@@ -310,7 +310,131 @@ pub const floatGetFormat = @import("runtime/float_ops/conversion.zig").floatGetF
 pub const packInt = @import("runtime/int_convert.zig").packInt;
 
 // Re-export math module for codegen (runtime.math.isnan, etc.)
-pub const math = std.math;
+// Wrapper that adds PyPowResult support
+pub const math = struct {
+    // Re-export all std.math constants
+    pub const inf = std.math.inf;
+    pub const nan = std.math.nan;
+    pub const e = std.math.e;
+    pub const pi = std.math.pi;
+    pub const tau = std.math.tau;
+
+    // Re-export std.math functions
+    pub const pow = std.math.pow;
+    pub const sqrt = std.math.sqrt;
+    pub const log = std.math.log;
+    pub const log2 = std.math.log2;
+    pub const log10 = std.math.log10;
+    pub const exp = std.math.exp;
+    pub const exp2 = std.math.exp2;
+    pub const floor = std.math.floor;
+    pub const ceil = std.math.ceil;
+    pub const round = std.math.round;
+    pub const trunc = std.math.trunc;
+    pub const fabs = std.math.fabs;
+    /// copysign with PyPowResult and PyValue support
+    pub fn copysign(magnitude: anytype, sign_val: anytype) @TypeOf(magnitude) {
+        const T = @TypeOf(magnitude);
+        const S = @TypeOf(sign_val);
+        const PyValueType = object_zig.PyValue;
+        // Handle PyValue for sign value
+        if (S == PyValueType) {
+            const sign_f = switch (sign_val) {
+                .float => |f| f,
+                .int => |i| @as(f64, @floatFromInt(i)),
+                .complex => |c| c.real, // Use real part for sign
+                else => 0.0,
+            };
+            return std.math.copysign(magnitude, sign_f);
+        }
+        // Handle PyPowResult for sign value
+        if (S == builtins.PyPowResult) {
+            const sign_f = sign_val.toFloat(); // NaN for complex
+            return std.math.copysign(magnitude, sign_f);
+        }
+        // Handle PyValue for magnitude
+        if (T == PyValueType) {
+            const mag_f = switch (magnitude) {
+                .float => |f| f,
+                .int => |i| @as(f64, @floatFromInt(i)),
+                .complex => |c| c.real,
+                else => 0.0,
+            };
+            return PyValueType{ .float = std.math.copysign(mag_f, sign_val) };
+        }
+        // Handle PyPowResult for magnitude
+        if (T == builtins.PyPowResult) {
+            const mag_f = magnitude.toFloat();
+            return .{ .float_val = std.math.copysign(mag_f, sign_val) };
+        }
+        // Default to std.math.copysign
+        return std.math.copysign(magnitude, sign_val);
+    }
+    pub const sin = std.math.sin;
+    pub const cos = std.math.cos;
+    pub const tan = std.math.tan;
+    pub const asin = std.math.asin;
+    pub const acos = std.math.acos;
+    pub const atan = std.math.atan;
+    pub const atan2 = std.math.atan2;
+    pub const sinh = std.math.sinh;
+    pub const cosh = std.math.cosh;
+    pub const tanh = std.math.tanh;
+    pub const asinh = std.math.asinh;
+    pub const acosh = std.math.acosh;
+    pub const atanh = std.math.atanh;
+    pub const maxInt = std.math.maxInt;
+    pub const minInt = std.math.minInt;
+    pub const floatMax = std.math.floatMax;
+    pub const floatMin = std.math.floatMin;
+    pub const clamp = std.math.clamp;
+    pub const sign = std.math.sign;
+
+    /// isNan with PyPowResult and PyValue support
+    pub fn isNan(value: anytype) bool {
+        const T = @TypeOf(value);
+        const PyValueType = object_zig.PyValue;
+        // Handle PyValue tagged union
+        if (T == PyValueType) {
+            return switch (value) {
+                .float => |f| std.math.isNan(f),
+                .complex => |c| std.math.isNan(c.real) or std.math.isNan(c.imag),
+                else => false,
+            };
+        }
+        // Handle PyPowResult tagged union
+        if (T == builtins.PyPowResult) {
+            return value.isNan();
+        }
+        // Default to std.math.isNan for floats
+        return std.math.isNan(value);
+    }
+
+    /// isInf with PyPowResult and PyValue support
+    pub fn isInf(value: anytype) bool {
+        const T = @TypeOf(value);
+        const PyValueType = object_zig.PyValue;
+        // Handle PyValue tagged union
+        if (T == PyValueType) {
+            return switch (value) {
+                .float => |f| std.math.isInf(f),
+                .complex => |c| std.math.isInf(c.real) or std.math.isInf(c.imag),
+                else => false,
+            };
+        }
+        // Handle PyPowResult tagged union
+        if (T == builtins.PyPowResult) {
+            return value.isInf();
+        }
+        // Default to std.math.isInf for floats
+        return std.math.isInf(value);
+    }
+
+    /// isFinite with PyPowResult support
+    pub fn isFinite(value: anytype) bool {
+        return !isNan(value) and !isInf(value);
+    }
+};
 
 // Re-export list operations for codegen
 pub const PyList = @import("Objects/listobject.zig").PyList;
@@ -752,6 +876,7 @@ pub const pyLen = pyobject_utils.pyLen;
 pub const pyObjEqInt = pyobject_utils.pyObjEqInt;
 pub const pyObjEqUnifiedInt = pyobject_utils.pyObjEqUnifiedInt;
 pub const pyObjToInt = pyobject_utils.pyObjToInt;
+pub const pyObjToFloat = pyobject_utils.pyObjToFloat;
 pub const pyObjToBigInt = pyobject_utils.pyObjToBigInt;
 pub const createObject = pyobject_utils.createObject;
 

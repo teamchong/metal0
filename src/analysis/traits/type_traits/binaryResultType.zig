@@ -25,6 +25,10 @@ pub const OperationHints = struct {
     shift_amount: ?i64 = null,
     /// For Pow: the exponent value if known at compile time
     exponent: ?i64 = null,
+    /// For Pow: the base value if known at compile time (for complex check)
+    pow_base: ?f64 = null,
+    /// For Pow: the float exponent value if known at compile time (for complex check)
+    pow_exp: ?f64 = null,
 };
 
 /// Get result type with optional hints for AST-level information
@@ -114,6 +118,27 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             // UnifiedInt will auto-promote to BigInt internally
             if (hints.exponent) |exp| {
                 if (exp >= 20) return .unified_int;
+            }
+            // Float exponent produces PyPowResult (could be complex for negative base)
+            // e.g., (-2.0) ** 0.5 = complex, 4.0 ** 0.5 = float 2.0
+            // EXCEPTION: If both base and exp are comptime known and base >= 0, result is float
+            if (isFloating(right)) {
+                if (hints.pow_base != null and hints.pow_exp != null) {
+                    const base = hints.pow_base.?;
+                    const exp = hints.pow_exp.?;
+                    // Positive base with any exponent = float
+                    // Negative base with integer exponent = float (or int, but float is safe)
+                    // Negative base with non-integer exponent = complex
+                    if (base >= 0.0) {
+                        return .float;
+                    }
+                    // Check if exponent is an integer (e.g., 2.0)
+                    if (exp == @trunc(exp)) {
+                        return .float;
+                    }
+                    // Negative base, non-integer exponent = complex
+                }
+                return .pow_result;
             }
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;

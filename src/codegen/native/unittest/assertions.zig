@@ -160,11 +160,11 @@ fn emitCallableInvocation(
                     try emitConst(self,info.func);
                     try emitConst(self,if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
                     // FloorBig/CeilBig return error unions
-                    // In assertRaises context (inside_try_body), let error propagate
+                    // In assertRaises context, let error propagate (no try/catch)
                     // Otherwise, catch unreachable for normal assertEqual context
                     const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
                     if (is_big_variant) {
-                        if (self.inside_try_body) {
+                        if (self.in_assert_raises_context or self.inside_try_body) {
                             try emitConst(self,")"); // Let error propagate for assertRaises
                         } else {
                             try emitConst(self," catch unreachable)");
@@ -273,11 +273,11 @@ fn emitCallableInvocation(
             try emitConst(self,info.func);
             try emitConst(self,if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
             // FloorBig/CeilBig return error unions
-            // In assertRaises context (inside_try_body), let error propagate
+            // In assertRaises context, let error propagate (no try/catch)
             // Otherwise, catch unreachable for normal assertEqual context
             const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
             if (is_big_variant) {
-                if (self.inside_try_body) {
+                if (self.in_assert_raises_context or self.inside_try_body) {
                     try emitConst(self,")"); // Let error propagate for assertRaises
                 } else {
                     try emitConst(self," catch unreachable)");
@@ -605,6 +605,45 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         }
     }
 
+    // === SPECIAL CASE: assertEqual(type(x), complex/float/int/str/bool/bytes) ===
+    // When comparing type(x) to a type name like complex, generate:
+    //   if (!std.mem.eql(u8, runtime.pyTypeName(x), "complex")) return error.AssertionFailed;
+    if (args[0] == .call and args[0].call.func.* == .name and
+        std.mem.eql(u8, args[0].call.func.name.id, "type") and args[0].call.args.len >= 1)
+    {
+        // Check if args[1] is a known type name (complex, float, int, etc.)
+        if (args[1] == .name) {
+            const type_name = args[1].name.id;
+            const known_types = [_][]const u8{ "complex", "float", "int", "str", "bool", "bytes", "list", "dict", "tuple", "set" };
+            for (known_types) |known| {
+                if (std.mem.eql(u8, type_name, known)) {
+                    // Generate: if (!std.mem.eql(u8, runtime.pyTypeName(x), "type_name")) return error.AssertionFailed;
+                    try emitConst(self, "if (!std.mem.eql(u8, runtime.pyTypeName(");
+                    try parent.genExpr(self, args[0].call.args[0]);
+                    try emitFmtConst(self, "), \"{s}\")) return error.AssertionFailed;\n", .{type_name});
+                    return;
+                }
+            }
+        }
+    }
+    // Also handle reversed order: assertEqual(complex, type(x))
+    if (args[1] == .call and args[1].call.func.* == .name and
+        std.mem.eql(u8, args[1].call.func.name.id, "type") and args[1].call.args.len >= 1)
+    {
+        if (args[0] == .name) {
+            const type_name = args[0].name.id;
+            const known_types = [_][]const u8{ "complex", "float", "int", "str", "bool", "bytes", "list", "dict", "tuple", "set" };
+            for (known_types) |known| {
+                if (std.mem.eql(u8, type_name, known)) {
+                    try emitConst(self, "if (!std.mem.eql(u8, runtime.pyTypeName(");
+                    try parent.genExpr(self, args[1].call.args[0]);
+                    try emitFmtConst(self, "), \"{s}\")) return error.AssertionFailed;\n", .{type_name});
+                    return;
+                }
+            }
+        }
+    }
+
     // === SPECIAL CASE: assertEqual(list(x), y) or assertEqual(x, list(y)) ===
     // Optimize list() conversion by using runtime.listEquals helper
     // This avoids listFromAny anytype monomorphization
@@ -753,17 +792,6 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try emitConst(self,", __ae_slice_a, __ae_slice_b); ");
         try self.emitInlineBlockEnd();
         try emitConst(self,") return error.AssertionFailed;\n");
-        return;
-    }
-
-    // === TUPLE COMPARISON ===
-    // Use PyValue.from().eql() for tuple comparison - compiles once, not per type
-    if (tag_a == .tuple and tag_b == .tuple) {
-        try emitConst(self,"if (!runtime.PyValue.from(");
-        try parent.genExpr(self, args[0]);
-        try emitConst(self,").eql(runtime.PyValue.from(");
-        try parent.genExpr(self, args[1]);
-        try emitConst(self,"))) return error.AssertionFailed;\n");
         return;
     }
 
@@ -1212,9 +1240,10 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     };
 
     const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
-    // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
-    const prev_inside_try = self.inside_try_body;
-    self.inside_try_body = true;
+    // Set in_assert_raises_context so error-returning functions return raw error unions
+    // (not wrapped with try/catch), allowing expectError/expectSpecificError to check them
+    const prev_assert_raises = self.in_assert_raises_context;
+    self.in_assert_raises_context = true;
 
     if (exception_name) |exc_name| {
         // Use expectSpecificError for known exception types
@@ -1229,7 +1258,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         // expectError returns true if NO error was raised (test should fail)
         try emitConst(self, ")) return error.ExpectedExceptionNotRaised;");
     }
-    self.inside_try_body = prev_inside_try;
+    self.in_assert_raises_context = prev_assert_raises;
 }
 
 /// Generate code for self.assertRaises(exception_type, callable, *args, **kwargs)
@@ -1264,9 +1293,10 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
     };
 
     const call_args: []const ast.Node = if (args.len > 2) args[2..] else &.{};
-    // Set inside_try_body so error-returning functions propagate errors instead of swallowing them
-    const prev_inside_try = self.inside_try_body;
-    self.inside_try_body = true;
+    // Set in_assert_raises_context so error-returning functions return raw error unions
+    // (not wrapped with try/catch), allowing expectError/expectSpecificError to check them
+    const prev_assert_raises = self.in_assert_raises_context;
+    self.in_assert_raises_context = true;
 
     if (exception_name) |exc_name| {
         // Use expectSpecificError for known exception types
@@ -1280,7 +1310,7 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         try emitCallableInvocation(self, args[1], call_args, keyword_args);
         try emitConst(self, ")) return error.ExpectedExceptionNotRaised;");
     }
-    self.inside_try_body = prev_inside_try;
+    self.in_assert_raises_context = prev_assert_raises;
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args, **kwargs)

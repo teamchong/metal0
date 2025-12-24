@@ -4,6 +4,7 @@ const std = @import("std");
 // Import PyPowResult from builtins
 const builtins = @import("builtins.zig");
 const PyPowResult = builtins.PyPowResult;
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 /// Get Python type name for type() builtin using runtime dispatch
 /// This version uses anytype with runtime type introspection to avoid comptime explosion
@@ -14,6 +15,26 @@ pub fn pyTypeName(value: anytype) []const u8 {
     // Special handling for PyPowResult - check which variant it is
     if (T == PyPowResult) {
         return value.typeName();
+    }
+
+    // Special handling for PyValue - return Python type name based on variant
+    if (T == PyValue) {
+        return switch (value) {
+            .int => "int",
+            .float => "float",
+            .string => "str",
+            .bytes => "bytes",
+            .bool => "bool",
+            .none => "NoneType",
+            .not_implemented => "NotImplementedType",
+            .list => "list",
+            .tuple => "tuple",
+            .bigint => "int",
+            .complex => "complex",
+            .type_obj => "type",
+            .ptr => "object",
+            .object => |o| if (o.vtable.class_name) |name| name else "object",
+        };
     }
 
     // Map Zig types to Python type names using runtime introspection

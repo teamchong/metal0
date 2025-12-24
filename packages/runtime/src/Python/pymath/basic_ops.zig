@@ -27,10 +27,12 @@ pub fn Py_TRUNC(x: f64) f64 {
     return @trunc(x);
 }
 
-/// Round to nearest integer
+/// Round to nearest integer (banker's rounding - round half to even)
 pub fn Py_ROUND(x: f64) f64 {
-    return @round(x);
+    return bankersRound(x);
 }
+
+const bankersRound = @import("../../runtime/builtins/conversion.zig").bankersRound;
 
 /// Square root
 pub fn Py_SQRT(x: f64) f64 {

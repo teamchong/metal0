@@ -16,8 +16,14 @@ const VoidFunctions = std.StaticStringMap(void).initComptime(.{
 
 /// Module functions that return values (need `_ = ` prefix when used as statements)
 /// These modules are dispatched via ModuleDispatch, not import_registry
-/// Format: "module.function" -> void
+/// Format: "module.function" or "type.method" -> void
 const ModuleFuncsReturningValues = std.StaticStringMap(void).initComptime(.{
+    // Builtin type class methods
+    .{ "float.__getformat__", {} },
+    .{ "float.fromhex", {} },
+    .{ "float.hex", {} },
+    .{ "int.from_bytes", {} },
+    .{ "bool.from_bytes", {} },
     // struct module
     .{ "struct.pack", {} },
     .{ "struct.unpack", {} },

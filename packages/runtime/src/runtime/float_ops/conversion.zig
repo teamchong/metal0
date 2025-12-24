@@ -19,12 +19,26 @@ pub const PythonError = error{
 /// float.__getformat__(typestr) - Returns the IEEE 754 format string
 pub fn floatGetFormat(typestr: anytype) PythonError![]const u8 {
     const T = @TypeOf(typestr);
+    const type_info = @typeInfo(T);
 
-    if (T != []const u8 and T != []u8) {
+    // Extract string slice from various string types
+    const str: []const u8 = blk: {
+        if (T == []const u8 or T == []u8) {
+            break :blk typestr;
+        } else if (type_info == .pointer) {
+            const child_info = @typeInfo(type_info.pointer.child);
+            if (child_info == .array and child_info.array.child == u8) {
+                // Pointer to fixed-size array (e.g., *const [6:0]u8)
+                // Get the array length and slice directly
+                const arr_len = child_info.array.len;
+                break :blk typestr[0..arr_len];
+            }
+        }
+        // Not a string type - raise TypeError
         return PythonError.TypeError;
-    }
+    };
 
-    if (!std.mem.eql(u8, typestr, "double") and !std.mem.eql(u8, typestr, "float")) {
+    if (!std.mem.eql(u8, str, "double") and !std.mem.eql(u8, str, "float")) {
         return PythonError.ValueError;
     }
 

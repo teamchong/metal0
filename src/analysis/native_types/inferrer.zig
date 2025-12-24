@@ -448,12 +448,32 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Fourth pass: Collect constructor call arg types (before processing class definitions)
+        // Fourth pass: Process module-level assignments to populate var_types
+        // This MUST run before collecting constructor args, otherwise calls like test(INF)
+        // won't find INF in var_types when INF = float('inf') is defined at module level.
+        for (module.body) |stmt| {
+            if (stmt == .assign) {
+                try self.visitModuleLevelAssign(stmt.assign, arena_alloc);
+            } else if (stmt == .ann_assign) {
+                // Annotated assignment: x: int = 5
+                // For now, just infer from the value (annotation is complex AST node)
+                if (stmt.ann_assign.target.* == .name) {
+                    const var_name = stmt.ann_assign.target.name.id;
+                    if (stmt.ann_assign.value) |val| {
+                        const inferred = try expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, val.*);
+                        try self.var_types.put(var_name, inferred);
+                    }
+                    // If no value, skip (forward declaration, type will be set on actual assignment)
+                }
+            }
+        }
+
+        // Fifth pass: Collect constructor call arg types (before processing class definitions)
         for (module.body) |stmt| {
             try self.collectConstructorArgs(stmt, arena_alloc);
         }
 
-        // Fifth pass: Infer return types from return statements (for functions without annotations)
+        // Sixth pass: Infer return types from return statements (for functions without annotations)
         // IMPORTANT: Must run BEFORE statement analysis so variable assignments from function calls
         // can look up the correct return type.
         // NOTE: We process nested functions first so that outer functions can resolve inner function calls.
@@ -463,12 +483,12 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Sixth pass: Analyze all statements (must run after return type inference)
+        // Seventh pass: Analyze all statements (must run after return type inference)
         for (module.body) |stmt| {
             try self.visitStmt(stmt);
         }
 
-        // Seventh pass: Promote array types to list types for mutated variables
+        // Eighth pass: Promote array types to list types for mutated variables
         // This ensures list literals assigned to variables that later have methods
         // like .sort(), .append(), etc. called on them become ArrayLists
         const mutations = mutation_analyzer.analyzeMutations(module, self.allocator) catch null;
@@ -530,7 +550,7 @@ pub const TypeInferrer = struct {
             }
         }
 
-        // Eighth pass: Analyze closures that append to captured lists and infer element types from call sites
+        // Ninth pass: Analyze closures that append to captured lists and infer element types from call sites
         // This handles patterns like:
         //   actual_calls = []
         //   def add_call(pos, value):
@@ -679,14 +699,9 @@ pub const TypeInferrer = struct {
     fn collectConstructorArgs(self: *TypeInferrer, node: ast.Node, arena_alloc: std.mem.Allocator) InferError!void {
         switch (node) {
             .assign => |assign| {
-                // Check if value is a class constructor call: g = Greeter("World")
-                if (assign.value.* == .call) {
-                    try self.checkConstructorCall(assign.value.call, arena_alloc);
-                }
-                // Also scan dict/list comprehensions and literals for function calls
+                // Handle dictcomp with zip() unpacking - set up temp vars for comprehension variables
                 if (assign.value.* == .dictcomp) {
                     const dc = assign.value.dictcomp;
-                    // Set up temp vars for comprehension variables before collecting calls
                     var saved_types: [8]struct { name: []const u8, old_type: ?NativeType } = undefined;
                     var saved_count: usize = 0;
                     for (dc.generators) |gen| {
@@ -724,48 +739,56 @@ pub const TypeInferrer = struct {
                     }
                     try self.collectCallsFromExpr(dc.key.*, arena_alloc);
                     try self.collectCallsFromExpr(dc.value.*, arena_alloc);
-                }
-                if (assign.value.* == .listcomp) {
-                    try self.collectCallsFromExpr(assign.value.listcomp.elt.*, arena_alloc);
-                }
-                if (assign.value.* == .genexp) {
-                    try self.collectCallsFromExpr(assign.value.genexp.elt.*, arena_alloc);
-                }
-                // Dict literals: {key_expr: value_expr, ...}
-                if (assign.value.* == .dict) {
-                    for (assign.value.dict.keys) |key| {
-                        try self.collectCallsFromExpr(key, arena_alloc);
+                } else {
+                    // Also infer and set the variable type so subsequent function calls
+                    // can use this variable's type correctly (e.g., assertEqualAndEqualSign(result, ...))
+                    if (assign.targets.len == 1 and assign.targets[0] == .name) {
+                        const var_name = assign.targets[0].name.id;
+                        const value_type = expressions.inferExprWithInferrer(
+                            arena_alloc,
+                            &self.var_types,
+                            &self.class_fields,
+                            &self.func_return_types,
+                            assign.value.*,
+                            self,
+                        ) catch .unknown;
+                        if (value_type != .unknown) {
+                            try self.var_types.put(var_name, value_type);
+                        }
                     }
-                    for (assign.value.dict.values) |val| {
-                        try self.collectCallsFromExpr(val, arena_alloc);
-                    }
-                }
-                // List literals: [expr, ...]
-                if (assign.value.* == .list) {
-                    for (assign.value.list.elts) |elt| {
-                        try self.collectCallsFromExpr(elt, arena_alloc);
-                    }
+                    // Collect all function calls from the assignment value (handles all cases uniformly)
+                    try self.collectCallsFromExpr(assign.value.*, arena_alloc);
                 }
             },
             .expr_stmt => |expr| {
-                // Check for standalone constructor calls
-                if (expr.value.* == .call) {
-                    try self.checkConstructorCall(expr.value.call, arena_alloc);
+                // Check for all function calls in the expression (including nested)
+                try self.collectCallsFromExpr(expr.value.*, arena_alloc);
+            },
+            .aug_assign => |aug| {
+                // Augmented assignment: x += func(...)
+                try self.collectCallsFromExpr(aug.value.*, arena_alloc);
+            },
+            .ann_assign => |ann| {
+                // Annotated assignment: x: int = func(...)
+                if (ann.value) |val| {
+                    try self.collectCallsFromExpr(val.*, arena_alloc);
                 }
             },
             .return_stmt => |ret| {
-                // Check for return AbstractInstance(self)
+                // Check for all function calls in the return value (including nested)
                 if (ret.value) |val| {
-                    if (val.* == .call) {
-                        try self.checkConstructorCall(val.call, arena_alloc);
-                    }
+                    try self.collectCallsFromExpr(val.*, arena_alloc);
                 }
             },
             .if_stmt => |if_stmt| {
+                // Check condition for function calls (e.g., if func(): ...)
+                try self.collectCallsFromExpr(if_stmt.condition.*, arena_alloc);
                 for (if_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
                 for (if_stmt.else_body) |s| try self.collectConstructorArgs(s, arena_alloc);
             },
             .while_stmt => |while_stmt| {
+                // Check condition for function calls
+                try self.collectCallsFromExpr(while_stmt.condition.*, arena_alloc);
                 for (while_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
                 if (while_stmt.orelse_body) |orelse_body| {
                     for (orelse_body) |s| try self.collectConstructorArgs(s, arena_alloc);
@@ -774,6 +797,63 @@ pub const TypeInferrer = struct {
             .for_stmt => |for_stmt| {
                 // Check the iterator expression for function calls (e.g., for x in frange(0.0, 1.0, 0.2):)
                 try self.collectCallsFromExpr(for_stmt.iter.*, arena_alloc);
+
+                // Set up loop variable type before visiting body
+                // This ensures function calls inside the loop have correct arg types
+                var saved_loop_var: ?NativeType = null;
+                var loop_var_name: ?[]const u8 = null;
+
+                if (for_stmt.target.* == .name) {
+                    loop_var_name = for_stmt.target.name.id;
+                    // Infer element type from iterator
+                    const elem_type: NativeType = blk: {
+                        if (for_stmt.iter.* == .list and for_stmt.iter.list.elts.len > 0) {
+                            // List literal: for fmt in ['%e', '%f', '%g']
+                            var widened = try expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, for_stmt.iter.list.elts[0]);
+                            for (for_stmt.iter.list.elts[1..]) |elem| {
+                                const elem_type_inner = expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, elem) catch .unknown;
+                                widened = widened.widen(elem_type_inner);
+                            }
+                            break :blk widened;
+                        } else if (for_stmt.iter.* == .tuple and for_stmt.iter.tuple.elts.len > 0) {
+                            // Tuple literal: for fmt in ('%e', '%f', '%g')
+                            var widened = try expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, for_stmt.iter.tuple.elts[0]);
+                            for (for_stmt.iter.tuple.elts[1..]) |elem| {
+                                const elem_type_inner = expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, elem) catch .unknown;
+                                widened = widened.widen(elem_type_inner);
+                            }
+                            break :blk widened;
+                        } else if (for_stmt.iter.* == .name) {
+                            // Variable: for fmt in formats
+                            const iter_type = self.var_types.get(for_stmt.iter.name.id) orelse .unknown;
+                            break :blk switch (iter_type) {
+                                .list => |l| l.*,
+                                .array => |a| a.element_type.*,
+                                .string => .{ .string = .runtime },
+                                else => .unknown,
+                            };
+                        } else if (for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .name) {
+                            // range() call
+                            const func_name = for_stmt.iter.call.func.name.id;
+                            if (std.mem.eql(u8, func_name, "range")) {
+                                break :blk .usize;
+                            }
+                            break :blk .unknown;
+                        } else {
+                            break :blk .unknown;
+                        }
+                    };
+                    if (loop_var_name) |name| {
+                        saved_loop_var = self.putTempVar(name, elem_type) catch null;
+                    }
+                }
+
+                defer {
+                    if (loop_var_name) |name| {
+                        self.restoreTempVar(name, saved_loop_var);
+                    }
+                }
+
                 for (for_stmt.body) |s| try self.collectConstructorArgs(s, arena_alloc);
                 if (for_stmt.orelse_body) |orelse_body| {
                     for (orelse_body) |s| try self.collectConstructorArgs(s, arena_alloc);
@@ -824,69 +904,120 @@ pub const TypeInferrer = struct {
 
     /// Check if a call is a class constructor or function and store arg types
     fn checkConstructorCall(self: *TypeInferrer, call: ast.Node.Call, arena_alloc: std.mem.Allocator) InferError!void {
+        var func_name: []const u8 = undefined;
+        var is_method_call = false;
+
         if (call.func.* == .name) {
-            const func_name = call.func.name.id;
-            // Class names start with uppercase (Python convention)
-            // Lowercase names are regular functions
-            const is_likely_class = func_name.len > 0 and
-                std.ascii.isUpper(func_name[0]) and
-                !isCommonBuiltin(func_name);
+            func_name = call.func.name.id;
+        } else if (call.func.* == .attribute) {
+            // Method call: self.method_name(), obj.method_name()
+            const attr = call.func.attribute;
+            const method_name = attr.attr;
 
-            // Infer types of all arguments (positional + keyword)
-            const total_args = call.args.len + call.keyword_args.len;
-            if (total_args == 0) return; // No args to track
+            // Get class name from receiver (self/obj) for qualified name
+            if (attr.value.* == .name) {
+                const receiver_name = attr.value.name.id;
+                const receiver_type = self.var_types.get(receiver_name) orelse .unknown;
 
-            const arg_types = try arena_alloc.alloc(NativeType, total_args);
-
-            // Positional args first
-            for (call.args, 0..) |arg, i| {
-                arg_types[i] = try expressions.inferExpr(
-                    arena_alloc,
-                    &self.var_types,
-                    &self.class_fields,
-                    &self.func_return_types,
-                    arg,
-                );
-            }
-
-            // Keyword args after positional
-            for (call.keyword_args, 0..) |kwarg, i| {
-                arg_types[call.args.len + i] = try expressions.inferExpr(
-                    arena_alloc,
-                    &self.var_types,
-                    &self.class_fields,
-                    &self.func_return_types,
-                    kwarg.value,
-                );
-            }
-
-            // Store in appropriate map based on whether it looks like a class
-            if (is_likely_class) {
-                try self.class_constructor_args.put(func_name, arg_types);
-            } else {
-                // Regular function call - track for parameter type inference
-                try self.function_call_args.put(func_name, arg_types);
-            }
-
-            // Also store keyword arg name -> type mapping for name-based lookup
-            // Widen types if there are multiple calls with different types
-            for (call.keyword_args) |kwarg| {
-                const kwarg_type = try expressions.inferExpr(
-                    arena_alloc,
-                    &self.var_types,
-                    &self.class_fields,
-                    &self.func_return_types,
-                    kwarg.value,
-                );
-                // Store as "FuncName.param_name" -> type
-                const key = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{ func_name, kwarg.name });
-                // Widen with existing type if present (use dict-aware widening)
-                if (self.var_types.get(key)) |existing| {
-                    const widened = try self.widenDictAware(existing, kwarg_type, arena_alloc);
-                    try self.var_types.put(key, widened);
+                if (receiver_type == .class_instance) {
+                    // Use qualified name: ClassName.methodName
+                    func_name = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{
+                        receiver_type.class_instance, method_name,
+                    });
+                    is_method_call = true;
                 } else {
-                    try self.var_types.put(key, kwarg_type);
+                    // Unknown receiver type, use just method name (fallback)
+                    func_name = method_name;
+                    is_method_call = true;
                 }
+            } else {
+                // Complex receiver (e.g., obj.foo().bar()), use just method name
+                func_name = method_name;
+                is_method_call = true;
+            }
+        } else {
+            return; // Unsupported call type (subscript, call, etc.)
+        }
+
+        // Class names start with uppercase (Python convention)
+        // Lowercase names are regular functions
+        // Methods are never treated as class constructors
+        const is_likely_class = !is_method_call and
+            func_name.len > 0 and
+            std.ascii.isUpper(func_name[0]) and
+            !isCommonBuiltin(func_name);
+
+        // Infer types of all arguments (positional + keyword)
+        const total_args = call.args.len + call.keyword_args.len;
+        if (total_args == 0) return; // No args to track
+
+        const arg_types = try arena_alloc.alloc(NativeType, total_args);
+
+        // Positional args first
+        for (call.args, 0..) |arg, i| {
+            arg_types[i] = try expressions.inferExprWithInferrer(
+                arena_alloc,
+                &self.var_types,
+                &self.class_fields,
+                &self.func_return_types,
+                arg,
+                self,
+            );
+        }
+
+        // Keyword args after positional
+        for (call.keyword_args, 0..) |kwarg, i| {
+            arg_types[call.args.len + i] = try expressions.inferExprWithInferrer(
+                arena_alloc,
+                &self.var_types,
+                &self.class_fields,
+                &self.func_return_types,
+                kwarg.value,
+                self,
+            );
+        }
+
+        // Store in appropriate map based on whether it looks like a class
+        // Widen types when same function is called with different types
+        if (is_likely_class) {
+            if (self.class_constructor_args.get(func_name)) |existing_types| {
+                // Widen each positional arg type
+                const min_len = @min(existing_types.len, arg_types.len);
+                for (0..min_len) |i| {
+                    arg_types[i] = try self.widenDictAware(existing_types[i], arg_types[i], arena_alloc);
+                }
+            }
+            try self.class_constructor_args.put(func_name, arg_types);
+        } else {
+            // Regular function call or method call - track for parameter type inference
+            if (self.function_call_args.get(func_name)) |existing_types| {
+                // Widen each positional arg type
+                const min_len = @min(existing_types.len, arg_types.len);
+                for (0..min_len) |i| {
+                    arg_types[i] = try self.widenDictAware(existing_types[i], arg_types[i], arena_alloc);
+                }
+            }
+            try self.function_call_args.put(func_name, arg_types);
+        }
+
+        // Also store keyword arg name -> type mapping for name-based lookup
+        // Widen types if there are multiple calls with different types
+        for (call.keyword_args) |kwarg| {
+            const kwarg_type = try expressions.inferExpr(
+                arena_alloc,
+                &self.var_types,
+                &self.class_fields,
+                &self.func_return_types,
+                kwarg.value,
+            );
+            // Store as "FuncName.param_name" -> type
+            const key = try std.fmt.allocPrint(arena_alloc, "{s}.{s}", .{ func_name, kwarg.name });
+            // Widen with existing type if present (use dict-aware widening)
+            if (self.var_types.get(key)) |existing| {
+                const widened = try self.widenDictAware(existing, kwarg_type, arena_alloc);
+                try self.var_types.put(key, widened);
+            } else {
+                try self.var_types.put(key, kwarg_type);
             }
         }
     }
@@ -994,6 +1125,41 @@ pub const TypeInferrer = struct {
                 try self.collectCallsFromExpr(named.value.*, arena_alloc);
             },
             else => {},
+        }
+    }
+
+    /// Process a module-level assignment to populate var_types early.
+    /// This runs before constructor call collection to ensure variables like
+    /// INF = float('inf') are available when analyzing test(INF).
+    fn visitModuleLevelAssign(self: *TypeInferrer, assign: ast.Node.Assign, arena_alloc: std.mem.Allocator) InferError!void {
+        // Infer the type of the value being assigned
+        const value_type = try expressions.inferExpr(arena_alloc, &self.var_types, &self.class_fields, &self.func_return_types, assign.value.*);
+
+        // Store type for each target
+        for (assign.targets) |target| {
+            if (target == .name) {
+                const var_name = target.name.id;
+                // Use widening if variable already exists (handles reassignment)
+                if (self.var_types.get(var_name)) |existing| {
+                    const widened = try self.widenDictAware(existing, value_type, arena_alloc);
+                    try self.var_types.put(var_name, widened);
+                } else {
+                    try self.var_types.put(var_name, value_type);
+                }
+            } else if (target == .tuple or target == .list) {
+                // Tuple/list unpacking: a, b = value
+                const elts = if (target == .tuple) target.tuple.elts else target.list.elts;
+                for (elts) |elt| {
+                    if (elt == .name) {
+                        // For unpacking, we can't easily infer individual element types here
+                        // Just mark as unknown if not already set
+                        const elt_name = elt.name.id;
+                        if (self.var_types.get(elt_name) == null) {
+                            try self.var_types.put(elt_name, .unknown);
+                        }
+                    }
+                }
+            }
         }
     }
 

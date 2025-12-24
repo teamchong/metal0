@@ -51,34 +51,103 @@ pub fn hasClassmethodDecorator(decorators: []const ast.Node) bool {
 /// Get type from call site argument types (for functions without annotations)
 /// Returns allocated Zig type string if found, null otherwise
 fn getTypeFromCallSiteOrScope(self: *NativeCodegen, func: ast.Node.FunctionDef, arg: ast.Arg, param_idx: usize) CodegenError!?[]const u8 {
-    // Try function_call_args first (more accurate than default i64)
-    if (self.type_inferrer.function_call_args.get(func.name)) |call_arg_types| {
-        // For methods, func.args includes 'self' but call_arg_types doesn't
-        // Adjust the index: if first arg is 'self', offset by 1
-        const is_method = func.args.len > 0 and std.mem.eql(u8, func.args[0].name, "self");
-        const call_idx = if (is_method and param_idx > 0) param_idx - 1 else param_idx;
+    // For methods, try qualified name lookup first (ClassName.methodName)
+    // This is more accurate as it distinguishes same-named methods in different classes
+    const is_method = func.args.len > 0 and std.mem.eql(u8, func.args[0].name, "self");
+    const call_idx = if (is_method and param_idx > 0) param_idx - 1 else param_idx;
 
-        if (call_idx < call_arg_types.len) {
-            const call_type = call_arg_types[call_idx];
-            const call_type_tag = @as(std.meta.Tag(@TypeOf(call_type)), call_type);
+    // Try qualified name lookup for methods
+    if (is_method) {
+        if (self.current_class_name) |class_name| {
+            var buf: [256]u8 = undefined;
+            const qualified_name = std.fmt.bufPrint(&buf, "{s}.{s}", .{ class_name, func.name }) catch func.name;
+            if (self.type_inferrer.function_call_args.get(qualified_name)) |call_arg_types| {
+                if (try getTypeFromCallArgs(self, call_arg_types, arg, call_idx)) |result| {
+                    return result;
+                }
+            }
+        }
+    }
+
+    // Try direct function name lookup (for regular functions, or fallback for methods)
+    if (self.type_inferrer.function_call_args.get(func.name)) |call_arg_types| {
+        if (try getTypeFromCallArgs(self, call_arg_types, arg, call_idx)) |result| {
+            return result;
+        }
+    }
+
+    // Not found in call args
+    return null;
+}
+
+/// Helper to extract type from call argument types array
+fn getTypeFromCallArgs(self: *NativeCodegen, call_arg_types: []const NativeType, arg: ast.Arg, call_idx: usize) CodegenError!?[]const u8 {
+    if (call_idx < call_arg_types.len) {
+        const call_type = call_arg_types[call_idx];
+        const call_type_tag = @as(std.meta.Tag(NativeType), call_type);
+        if (call_type_tag != .unknown and call_type_tag != .int) {
+            // For dict types with =None default, use anytype since different call sites
+            // may pass dicts with different value types (e.g., {"x": [1]} vs {"y": [1,2,3]})
+            // This is a common Python pattern for optional dict parameters
+            if (call_type_tag == .dict and arg.default != null) {
+                const is_none_default = arg.default.?.* == .constant and
+                    arg.default.?.constant.value == .none;
+                if (is_none_default) {
+                    // Use anytype for optional dict parameters (polymorphic)
+                    return null; // Will fall through to other handling
+                }
+            }
+            // Found non-default type from call site
+            return try self.nativeTypeToZigType(call_type);
+        }
+    }
+    return null;
+}
+
+/// Get type from call site for a method parameter using qualified name lookup
+/// Uses ClassName.methodName to avoid collisions between same-named methods in different classes
+fn getMethodTypeFromCallSite(self: *NativeCodegen, class_name: []const u8, method: ast.Node.FunctionDef, arg: ast.Arg, param_idx: usize) CodegenError!?[]const u8 {
+    // Build qualified name: ClassName.methodName
+    var buf: [256]u8 = undefined;
+    const qualified_name = std.fmt.bufPrint(&buf, "{s}.{s}", .{ class_name, method.name }) catch method.name;
+
+    // Look up call site types using qualified name
+    if (self.type_inferrer.function_call_args.get(qualified_name)) |call_arg_types| {
+        if (param_idx < call_arg_types.len) {
+            const call_type = call_arg_types[param_idx];
+            const call_type_tag = @as(std.meta.Tag(NativeType), call_type);
             if (call_type_tag != .unknown and call_type_tag != .int) {
-                // For dict types with =None default, use anytype since different call sites
-                // may pass dicts with different value types (e.g., {"x": [1]} vs {"y": [1,2,3]})
-                // This is a common Python pattern for optional dict parameters
+                // For dict types with =None default, use anytype (polymorphic pattern)
                 if (call_type_tag == .dict and arg.default != null) {
                     const is_none_default = arg.default.?.* == .constant and
                         arg.default.?.constant.value == .none;
                     if (is_none_default) {
-                        // Use anytype for optional dict parameters (polymorphic)
-                        return null; // Will fall through to other handling
+                        return null;
                     }
                 }
-                // Found non-default type from call site
                 return try self.nativeTypeToZigType(call_type);
             }
         }
     }
-    // Not found in call args
+
+    // Fallback: try just method name (for cases where class wasn't tracked)
+    if (self.type_inferrer.function_call_args.get(method.name)) |call_arg_types| {
+        if (param_idx < call_arg_types.len) {
+            const call_type = call_arg_types[param_idx];
+            const call_type_tag = @as(std.meta.Tag(NativeType), call_type);
+            if (call_type_tag != .unknown and call_type_tag != .int) {
+                if (call_type_tag == .dict and arg.default != null) {
+                    const is_none_default = arg.default.?.* == .constant and
+                        arg.default.?.constant.value == .none;
+                    if (is_none_default) {
+                        return null;
+                    }
+                }
+                return try self.nativeTypeToZigType(call_type);
+            }
+        }
+    }
+
     return null;
 }
 
@@ -1550,6 +1619,11 @@ pub fn genMethodSignatureWithSkip(
             // Parameter receives BigInt at some call site - use anytype
             try emitConst(self,"anytype");
             try self.anytype_params.put(arg.name, {});
+        } else if (try getMethodTypeFromCallSite(self, class_name, method, arg, param_index)) |zig_type| {
+            // Found type from call site analysis - use it
+            defer self.allocator.free(zig_type);
+            if (arg.default != null) try emitConst(self,"?");
+            try emitConst(self,zig_type);
         } else if (arg.type_annotation) |_| {
             if (arg.default != null) {
                 try emitConst(self,"?");

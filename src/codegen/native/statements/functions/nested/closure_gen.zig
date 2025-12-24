@@ -513,26 +513,33 @@ pub fn genStandardClosure(
         try self.var_renames.put(var_name, rename);
     }
 
-    for (func.args) |arg| {
+    for (func.args, 0..) |arg, idx| {
         try self.declareVar(arg.name);
         // Add rename mapping for parameter access in body
         if (param_renames.get(arg.name)) |renamed| {
             try self.var_renames.put(arg.name, renamed);
         }
+        // If this param is anytype, add the ORIGINAL name to anytype_params
+        // This ensures dunder dispatch checks work correctly (AST uses original names)
+        if (std.mem.eql(u8, param_types[idx], "anytype")) {
+            try self.anytype_params.put(arg.name, {});
+        }
     }
-    // Also declare and rename vararg if present
+    // Also declare and rename vararg if present (always anytype)
     if (func.vararg) |vararg_name| {
         try self.declareVar(vararg_name);
         if (param_renames.get(vararg_name)) |renamed| {
             try self.var_renames.put(vararg_name, renamed);
         }
+        try self.anytype_params.put(vararg_name, {}); // varargs are always anytype
     }
-    // Also declare and rename kwarg if present
+    // Also declare and rename kwarg if present (always anytype)
     if (func.kwarg) |kwarg_name| {
         try self.declareVar(kwarg_name);
         if (param_renames.get(kwarg_name)) |renamed| {
             try self.var_renames.put(kwarg_name, renamed);
         }
+        try self.anytype_params.put(kwarg_name, {}); // kwargs are always anytype
     }
 
     // Track closure body start position for scope-limited discard detection
@@ -574,15 +581,21 @@ pub fn genStandardClosure(
         try self.emitPendingDiscards();
     }
 
-    // Remove param renames after body generation
-    for (func.args) |arg| {
+    // Remove param renames and anytype_params after body generation
+    for (func.args, 0..) |arg, idx| {
+        // Remove from anytype_params if we added it (using original name)
+        if (std.mem.eql(u8, param_types[idx], "anytype")) {
+            _ = self.anytype_params.swapRemove(arg.name);
+        }
         _ = self.var_renames.swapRemove(arg.name);
     }
-    // Remove vararg and kwarg renames
+    // Remove vararg and kwarg renames (always anytype)
     if (func.vararg) |vararg_name| {
+        _ = self.anytype_params.swapRemove(vararg_name);
         _ = self.var_renames.swapRemove(vararg_name);
     }
     if (func.kwarg) |kwarg_name| {
+        _ = self.anytype_params.swapRemove(kwarg_name);
         _ = self.var_renames.swapRemove(kwarg_name);
     }
 
