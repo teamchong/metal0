@@ -588,6 +588,7 @@ pub fn emitVarDeclaration(
     // Check if var_name would shadow a module-level import, function, or global var
     // If so, use a prefixed name to avoid Zig's "shadows declaration" error
     const shadows_import = self.imported_modules.contains(var_name);
+    const shadows_from_import = self.module_level_from_imports.contains(var_name);
     const shadows_module_func = self.module_level_funcs.contains(var_name);
     const shadows_global = self.isGlobalVar(var_name);
     // Also check if var_name would shadow a class-level attribute (becomes lazy method)
@@ -608,7 +609,7 @@ pub fn emitVarDeclaration(
     // Check if we need to create a local rename for shadowing
     // BUT: if var_renames already has a lazy attr pattern "(try X(__alloc))", that's for READS, not declarations
     // In that case, we still need to create a local rename for the declaration
-    const needs_local_rename = shadows_import or shadows_module_func or shadows_global or shadows_class_member;
+    const needs_local_rename = shadows_import or shadows_from_import or shadows_module_func or shadows_global or shadows_class_member;
     const existing_rename = self.var_renames.get(var_name);
     const has_lazy_pattern = if (existing_rename) |r| std.mem.startsWith(u8, r, "(try ") else false;
     if (needs_local_rename and (existing_rename == null or has_lazy_pattern)) {

@@ -1,4 +1,14 @@
 /// Python format() builtin and string formatting
+///
+/// BANKER'S ROUNDING: All float formatting uses banker's rounding (IEEE 754
+/// round-half-to-even) for Python compatibility. This is implemented via:
+///   - bankersRoundToPrecision() from float_format.zig
+///   - Which calls bankersRound() from conversion.zig
+///
+/// DO NOT use Zig's @round or std.fmt directly for floats - they use
+/// round-half-away-from-zero which gives wrong results for Python.
+///
+/// Example: "%.0f" % 2.5 should produce "2" (not "3")
 const std = @import("std");
 const format_spec = @import("format_spec.zig");
 const float_format = @import("float_format.zig");
@@ -18,6 +28,11 @@ const formatFloat = float_format.formatFloat;
 pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: anytype) ![]const u8 {
     const spec_str: []const u8 = if (@TypeOf(format_spec_str) == []const u8) format_spec_str else @as([]const u8, format_spec_str);
     var spec = parseFormatSpec(spec_str);
+
+    // Check for invalid format spec combinations
+    if (spec.invalid) {
+        return error.ValueError;
+    }
 
     const T = @TypeOf(value);
     var buf = std.ArrayListUnmanaged(u8){};
@@ -189,7 +204,8 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
             }
             try buf.appendSlice(allocator, if (uppercase) "INF" else "inf");
         } else {
-            if (float_val < 0) {
+            // Use signbit to detect negative zero: -0.0 < 0 is false, but signbit(-0.0) is true
+            if (std.math.signbit(float_val)) {
                 try buf.append(allocator, '-');
             } else if (spec.sign == .always) {
                 try buf.append(allocator, '+');
@@ -213,7 +229,19 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
                             exp -= 1;
                         }
                     }
-                    try buf.writer(allocator).print("{d:.[1]}", .{ mantissa, prec });
+                    // Apply banker's rounding for Python semantics
+                    const prec_u32: u32 = @intCast(prec);
+                    var rounded_mantissa = float_format.bankersRoundToPrecision(mantissa, prec_u32);
+                    // Check if rounding caused mantissa to reach 10 (e.g., 9.95 -> 10.0 at prec=1)
+                    if (rounded_mantissa >= 10.0) {
+                        rounded_mantissa /= 10.0;
+                        exp += 1;
+                    }
+                    try buf.writer(allocator).print("{d:.[1]}", .{ rounded_mantissa, prec });
+                    // Alternate form always includes decimal point even when prec=0
+                    if (spec.alternate and prec == 0) {
+                        try buf.append(allocator, '.');
+                    }
                     try buf.append(allocator, if (spec.fmt_type == 'E') 'E' else 'e');
                     try buf.append(allocator, if (exp >= 0) '+' else '-');
                     const abs_exp: u32 = @intCast(@abs(exp));
@@ -221,11 +249,26 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
                     try buf.writer(allocator).print("{d}", .{abs_exp});
                 },
                 '%' => {
-                    try buf.writer(allocator).print("{d:.[1]}", .{ abs_val * 100.0, prec });
+                    // Apply banker's rounding for Python semantics
+                    const prec_u32: u32 = @intCast(prec);
+                    const rounded_val = float_format.bankersRoundToPrecision(abs_val * 100.0, prec_u32);
+                    try buf.writer(allocator).print("{d:.[1]}", .{ rounded_val, prec });
                     try buf.append(allocator, '%');
                 },
                 'f', 'F' => {
-                    try buf.writer(allocator).print("{d:.[1]}", .{ abs_val, prec });
+                    // Use formatPythonFloat for consistent formatting including BigInt for large numbers
+                    const prec_u32: u32 = @intCast(prec);
+                    const sign_opt: FloatSignOption = if (spec.sign == .always) .plus else if (spec.sign == .space) .space else .none;
+                    // Note: we already emitted the sign, so tell formatPythonFloat not to add another
+                    const val_str = try formatPythonFloat(allocator, abs_val, .{
+                        .sign = .none, // Sign already handled above
+                        .format_type = .fixed,
+                        .precision = prec_u32,
+                        .alt_form = spec.alternate,
+                    });
+                    defer allocator.free(val_str);
+                    try buf.appendSlice(allocator, val_str);
+                    _ = sign_opt; // silence unused variable warning
                 },
                 'g', 'G' => {
                     // 'g' format: significant figures with trailing zeros stripped

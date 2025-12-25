@@ -131,10 +131,10 @@ pub fn equalPyValueWith(pyval: anytype, other: anytype) bool {
     if (tag == .float) {
         const val = @field(pyval, "float");
         if (other_info == .float or other_info == .comptime_float) {
-            return @abs(val - other) < 0.0001;
+            return val == other; // Use exact equality
         }
         if (other_info == .int or other_info == .comptime_int) {
-            return @abs(val - @as(f64, @floatFromInt(other))) < 0.0001;
+            return val == @as(f64, @floatFromInt(other)); // Use exact equality
         }
         return false;
     }
@@ -302,17 +302,8 @@ pub fn isStringType(comptime T: type) bool {
 
 /// Helper to compare two float values, handling special cases (inf, nan)
 pub fn floatsEqual(a: f64, b: f64) bool {
-    // Handle infinity: inf == inf, -inf == -inf
-    if (std.math.isInf(a) and std.math.isInf(b)) {
-        return (a > 0) == (b > 0); // Same sign infinity
-    }
-    // NaN is never equal to anything
-    if (std.math.isNan(a) or std.math.isNan(b)) {
-        return false;
-    }
-    // Regular float comparison with tolerance
-    const diff = if (a > b) a - b else b - a;
-    return diff < 0.0001;
+    // Use exact equality (IEEE 754 semantics)
+    return a == b;
 }
 
 /// Helper to compare two values of potentially different but compatible types

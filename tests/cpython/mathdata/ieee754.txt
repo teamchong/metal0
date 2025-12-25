@@ -116,7 +116,7 @@ inf
 >>> 0 ** -1
 Traceback (most recent call last):
 ...
-ZeroDivisionError: zero to a negative power
+ZeroDivisionError: 0.0 cannot be raised to a negative power
 >>> pow(0, NAN)
 nan
 
@@ -127,31 +127,31 @@ Trigonometric Functions
 >>> sin(INF)
 Traceback (most recent call last):
 ...
-ValueError: expected a finite input, got inf
+ValueError: math domain error
 >>> sin(NINF)
 Traceback (most recent call last):
 ...
-ValueError: expected a finite input, got -inf
+ValueError: math domain error
 >>> sin(NAN)
 nan
 >>> cos(INF)
 Traceback (most recent call last):
 ...
-ValueError: expected a finite input, got inf
+ValueError: math domain error
 >>> cos(NINF)
 Traceback (most recent call last):
 ...
-ValueError: expected a finite input, got -inf
+ValueError: math domain error
 >>> cos(NAN)
 nan
 >>> tan(INF)
 Traceback (most recent call last):
 ...
-ValueError: expected a finite input, got inf
+ValueError: math domain error
 >>> tan(NINF)
 Traceback (most recent call last):
 ...
-ValueError: expected a finite input, got -inf
+ValueError: math domain error
 >>> tan(NAN)
 nan
 
@@ -169,11 +169,11 @@ True
 >>> asin(INF), asin(NINF)
 Traceback (most recent call last):
 ...
-ValueError: expected a number in range from -1 up to 1, got inf
+ValueError: math domain error
 >>> acos(INF), acos(NINF)
 Traceback (most recent call last):
 ...
-ValueError: expected a number in range from -1 up to 1, got inf
+ValueError: math domain error
 >>> equal(atan(INF), PI/2), equal(atan(NINF), -PI/2)
 (True, True)
 

@@ -702,6 +702,11 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
             if (b_info == .comptime_int or b_info == .int) {
                 return int_obj.ob_digit == @as(i64, b);
+            } else if (b_info == .comptime_float or b_info == .float) {
+                // Cross-type comparison: PyLongObject vs f64
+                // Python: 0 == 0.0 returns True
+                const int_val: i64 = int_obj.ob_digit;
+                return @as(f64, @floatFromInt(int_val)) == @as(f64, b);
             }
         } else if (cpython.PyBool_Check(a)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
@@ -728,6 +733,11 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
             if (a_info == .comptime_int or a_info == .int) {
                 return @as(i64, a) == int_obj.ob_digit;
+            } else if (a_info == .comptime_float or a_info == .float) {
+                // Cross-type comparison: f64 vs PyLongObject
+                // Python: 0.0 == 0 returns True
+                const int_val: i64 = int_obj.ob_digit;
+                return @as(f64, a) == @as(f64, @floatFromInt(int_val));
             }
         } else if (cpython.PyBool_Check(b)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));

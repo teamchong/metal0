@@ -768,7 +768,7 @@ pub const NativeCodegen = struct {
     // Will gradually replace string-based emit()/emitFmt() calls
     builder: ?*builder_mod.ZigBuilder,
 
-    pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo) !*NativeCodegen {
+    pub fn init(allocator: std.mem.Allocator, type_inferrer: *TypeInferrer, semantic_info: *SemanticInfo, source_file_path: []const u8) !*NativeCodegen {
         // Create arena for internal string allocations (keys, duped strings)
         // Arena allocator allows O(1) cleanup via single deinit() call
         const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -847,7 +847,7 @@ pub const NativeCodegen = struct {
             .test_factories = hashmap_helper.StringHashMap(TestFactoryInfo).init(aa),
             .comptime_evaluator = comptime_eval.ComptimeEvaluator.init(allocator), // Own cleanup
             .import_ctx = null,
-            .source_file_path = null,
+            .source_file_path = source_file_path,
             .decorated_functions = std.ArrayList(DecoratedFunction){},
             .import_registry = registry,
             .module_registry = mod_registry,
@@ -965,10 +965,6 @@ pub const NativeCodegen = struct {
 
     pub fn setImportContext(self: *NativeCodegen, ctx: *const @import("c_interop").ImportContext) void {
         self.import_ctx = ctx;
-    }
-
-    pub fn setSourceFilePath(self: *NativeCodegen, path: []const u8) void {
-        self.source_file_path = path;
     }
 
     /// Set debug info writer for recording Python->Zig line mappings

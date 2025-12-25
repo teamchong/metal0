@@ -13,6 +13,7 @@ pub const FormatSpec = struct {
     precision: ?usize = null,
     decimal_grouping_char: ?u8 = null,
     fmt_type: u8 = 0,
+    invalid: bool = false, // Set when format spec has invalid combinations
 };
 
 pub fn parseFormatSpec(spec: []const u8) FormatSpec {
@@ -102,6 +103,14 @@ pub fn parseFormatSpec(spec: []const u8) FormatSpec {
         if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
             result.decimal_grouping_char = spec[i];
             i += 1;
+            // Check for invalid pattern: ._ followed by digits (e.g., ._6f)
+            if (i < spec.len and spec[i] >= '0' and spec[i] <= '9') {
+                result.invalid = true;
+            }
+            // Check for invalid pattern: two grouping chars (e.g., .,_f or ._,f)
+            if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
+                result.invalid = true;
+            }
         } else {
             // Parse precision digits
             const prec_start = i;
@@ -113,6 +122,10 @@ pub fn parseFormatSpec(spec: []const u8) FormatSpec {
             if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
                 result.decimal_grouping_char = spec[i];
                 i += 1;
+                // Check for invalid pattern: two grouping chars (e.g., .6,_f or .6_,f)
+                if (i < spec.len and (spec[i] == ',' or spec[i] == '_')) {
+                    result.invalid = true;
+                }
             }
         }
     }
@@ -120,6 +133,11 @@ pub fn parseFormatSpec(spec: []const u8) FormatSpec {
     // Type
     if (i < spec.len) {
         result.fmt_type = spec[i];
+    }
+
+    // Validate: 'n' format type is not allowed with decimal grouping
+    if (result.decimal_grouping_char != null and result.fmt_type == 'n') {
+        result.invalid = true;
     }
 
     return result;
@@ -276,17 +294,29 @@ pub fn addThousandsGrouping(allocator: std.mem.Allocator, num_str: []const u8, i
 
     var result = std.ArrayListUnmanaged(u8){};
 
-    // Find decimal point
+    // Handle sign prefix - don't include in grouping
+    var sign_prefix: []const u8 = "";
+    var num_start: usize = 0;
+    if (num_str.len > 0 and (num_str[0] == '-' or num_str[0] == '+' or num_str[0] == ' ')) {
+        sign_prefix = num_str[0..1];
+        num_start = 1;
+    }
+    const remaining = num_str[num_start..];
+
+    // Find decimal point in remaining string
     var decimal_pos: ?usize = null;
-    for (num_str, 0..) |c, idx| {
+    for (remaining, 0..) |c, idx| {
         if (c == '.') {
             decimal_pos = idx;
             break;
         }
     }
 
-    const integer_part = if (decimal_pos) |dp| num_str[0..dp] else num_str;
-    const fractional_digits = if (decimal_pos) |dp| num_str[dp + 1 ..] else ""; // Skip the '.'
+    const integer_part = if (decimal_pos) |dp| remaining[0..dp] else remaining;
+    const fractional_digits = if (decimal_pos) |dp| remaining[dp + 1 ..] else ""; // Skip the '.'
+
+    // Add sign prefix first
+    try result.appendSlice(allocator, sign_prefix);
 
     // Add integer part with grouping if int_sep is set
     if (int_sep) |sep| {

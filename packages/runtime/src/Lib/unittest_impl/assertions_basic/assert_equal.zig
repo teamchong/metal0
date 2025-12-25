@@ -161,14 +161,10 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
         return error.AssertionFailed;
     }
 
-    // Fast path: f64 == f64 (with tolerance)
+    // Fast path: f64 == f64 (exact equality with NaN identity)
     if (A == f64 and B == f64) {
-        const equal = blk: {
-            if (std.math.isInf(a) and std.math.isInf(b)) break :blk (a > 0) == (b > 0);
-            if (std.math.isNan(a) or std.math.isNan(b)) break :blk false;
-            break :blk @abs(a - b) < 0.0001;
-        };
-        if (equal) {
+        // Use comparison_ops.eqF64 for exact equality (IEEE 754 semantics)
+        if (comparison_ops.eqF64(a, b)) {
             if (runner.global_result) |result| result.addPass();
             return;
         }
@@ -400,13 +396,8 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
         // Same type - direct comparison
         if (A == B) {
             if (a_info == .float or a_info == .comptime_float) {
-                if (std.math.isInf(a) and std.math.isInf(b)) {
-                    break :blk (a > 0) == (b > 0);
-                }
-                if (std.math.isNan(a) or std.math.isNan(b)) {
-                    break :blk false;
-                }
-                break :blk @abs(a - b) < 0.0001;
+                // Use exact equality (IEEE 754 semantics)
+                break :blk a == b;
             }
             if (a_info == .array) {
                 break :blk std.mem.eql(@TypeOf(a[0]), &a, &b);
@@ -441,13 +432,8 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 const child = a_info.pointer.child;
                 const child_info = @typeInfo(child);
                 if (comptime (child_info == .@"struct" and @hasField(child, "__base_value__"))) {
-                    const BaseType = @TypeOf(a.*.__base_value__);
-                    if (comptime (BaseType == f64 or BaseType == f32)) {
-                        break :blk @abs(@as(f64, a.*.__base_value__) - @as(f64, b.*.__base_value__)) < 0.0001;
-                    }
-                    if (comptime (BaseType == i64)) {
-                        break :blk a.*.__base_value__ == b.*.__base_value__;
-                    }
+                    // Use exact equality for base values
+                    break :blk a.*.__base_value__ == b.*.__base_value__;
                 }
             }
             break :blk a == b;
@@ -604,41 +590,41 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             break :blk false;
         }
 
-        // Float comparisons
+        // Float comparisons - use exact equality (IEEE 754 semantics)
         if ((a_info == .float or a_info == .comptime_float) and (b_info == .float or b_info == .comptime_float)) {
-            break :blk @abs(@as(f64, a) - @as(f64, b)) < 0.0001;
+            break :blk @as(f64, a) == @as(f64, b);
         }
 
-        // Float to int comparisons
+        // Float to int comparisons - use exact equality
         if ((a_info == .float or a_info == .comptime_float) and (b_info == .int or b_info == .comptime_int)) {
-            break :blk @abs(@as(f64, a) - @as(f64, @floatFromInt(b))) < 0.0001;
+            break :blk @as(f64, a) == @as(f64, @floatFromInt(b));
         }
         if ((a_info == .int or a_info == .comptime_int) and (b_info == .float or b_info == .comptime_float)) {
-            break :blk @abs(@as(f64, @floatFromInt(a)) - @as(f64, b)) < 0.0001;
+            break :blk @as(f64, @floatFromInt(a)) == @as(f64, b);
         }
 
-        // Float subclass comparisons
+        // Float subclass comparisons - use exact equality
         if (a_info == .@"struct" and @hasField(A, "__base_value__") and (b_info == .float or b_info == .comptime_float)) {
             const BaseType = @TypeOf(a.__base_value__);
             if (BaseType == f64 or BaseType == f32) {
-                break :blk @abs(@as(f64, a.__base_value__) - @as(f64, b)) < 0.0001;
+                break :blk @as(f64, a.__base_value__) == @as(f64, b);
             }
         }
         if ((a_info == .float or a_info == .comptime_float) and b_info == .@"struct" and @hasField(B, "__base_value__")) {
             const BaseType = @TypeOf(b.__base_value__);
             if (BaseType == f64 or BaseType == f32) {
-                break :blk @abs(@as(f64, a) - @as(f64, b.__base_value__)) < 0.0001;
+                break :blk @as(f64, a) == @as(f64, b.__base_value__);
             }
         }
 
-        // Pointer to float subclass
+        // Pointer to float subclass - use exact equality
         if (a_info == .pointer and a_info.pointer.size == .one) {
             const child = a_info.pointer.child;
             const child_info = @typeInfo(child);
             if (child_info == .@"struct" and @hasField(child, "__base_value__")) {
                 const BaseType = @TypeOf(a.*.__base_value__);
                 if ((BaseType == f64 or BaseType == f32) and (b_info == .float or b_info == .comptime_float)) {
-                    break :blk @abs(@as(f64, a.*.__base_value__) - @as(f64, b)) < 0.0001;
+                    break :blk @as(f64, a.*.__base_value__) == @as(f64, b);
                 }
             }
         }
@@ -648,12 +634,12 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             if (child_info == .@"struct" and @hasField(child, "__base_value__")) {
                 const BaseType = @TypeOf(b.*.__base_value__);
                 if ((BaseType == f64 or BaseType == f32) and (a_info == .float or a_info == .comptime_float)) {
-                    break :blk @abs(@as(f64, a) - @as(f64, b.*.__base_value__)) < 0.0001;
+                    break :blk @as(f64, a) == @as(f64, b.*.__base_value__);
                 }
             }
         }
 
-        // Two pointers to struct
+        // Two pointers to struct - use exact equality
         if (comptime (a_info == .pointer and a_info.pointer.size == .one and
             b_info == .pointer and b_info.pointer.size == .one))
         {
@@ -667,7 +653,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 const ABaseType = @TypeOf(a.*.__base_value__);
                 const BBaseType = @TypeOf(b.*.__base_value__);
                 if (comptime ((ABaseType == f64 or ABaseType == f32) and (BBaseType == f64 or BBaseType == f32))) {
-                    break :blk @abs(@as(f64, a.*.__base_value__) - @as(f64, b.*.__base_value__)) < 0.0001;
+                    break :blk @as(f64, a.*.__base_value__) == @as(f64, b.*.__base_value__);
                 }
             }
         }

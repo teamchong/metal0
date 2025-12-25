@@ -643,6 +643,30 @@ fn getConstantType(node: ast.Node) []const u8 {
                 if (std.mem.eql(u8, fn_name, "float")) {
                     return "f64";
                 }
+                // String-returning builtins
+                if (std.mem.eql(u8, fn_name, "str") or
+                    std.mem.eql(u8, fn_name, "repr") or
+                    std.mem.eql(u8, fn_name, "chr") or
+                    std.mem.eql(u8, fn_name, "bin") or
+                    std.mem.eql(u8, fn_name, "hex") or
+                    std.mem.eql(u8, fn_name, "oct") or
+                    std.mem.eql(u8, fn_name, "ascii") or
+                    std.mem.eql(u8, fn_name, "format"))
+                {
+                    return "[]const u8";
+                }
+                // len() returns int
+                if (std.mem.eql(u8, fn_name, "len") or
+                    std.mem.eql(u8, fn_name, "ord") or
+                    std.mem.eql(u8, fn_name, "hash") or
+                    std.mem.eql(u8, fn_name, "id"))
+                {
+                    return "i64";
+                }
+                // bool() returns bool
+                if (std.mem.eql(u8, fn_name, "bool")) {
+                    return "bool";
+                }
             }
             return "runtime.PyValue";
         },
@@ -720,9 +744,25 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
                     {
                         return "[]const u8";
                     }
-                    // String functions
-                    if (std.mem.eql(u8, fn_name, "str")) {
+                    // String-returning builtins
+                    if (std.mem.eql(u8, fn_name, "str") or
+                        std.mem.eql(u8, fn_name, "repr") or
+                        std.mem.eql(u8, fn_name, "chr") or
+                        std.mem.eql(u8, fn_name, "bin") or
+                        std.mem.eql(u8, fn_name, "hex") or
+                        std.mem.eql(u8, fn_name, "oct") or
+                        std.mem.eql(u8, fn_name, "ascii") or
+                        std.mem.eql(u8, fn_name, "format"))
+                    {
                         return "[]const u8";
+                    }
+                    // Int-returning builtins
+                    if (std.mem.eql(u8, fn_name, "len") or
+                        std.mem.eql(u8, fn_name, "ord") or
+                        std.mem.eql(u8, fn_name, "hash") or
+                        std.mem.eql(u8, fn_name, "id"))
+                    {
+                        return "i64";
                     }
                     // Range returns iterator
                     if (std.mem.eql(u8, fn_name, "range")) {
@@ -751,9 +791,19 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
 
             // Binary ops usually produce same type as operands
             .binop => |b| {
-                // If either side is a string op, result is string
+                // If left side is a string constant, result is string (for % formatting)
                 if (b.left.* == .constant and b.left.constant.value == .string) {
                     return "[]const u8";
+                }
+                // String formatting: str % value -> string
+                // If Mod operator and left side is a variable (likely a format string), return string
+                if (b.op == .Mod) {
+                    // Could be string formatting (common case) or numeric modulo
+                    // If left side is a name (variable), assume it could be a format string
+                    // The type system will refine this later if needed
+                    if (b.left.* == .name) {
+                        return "[]const u8"; // Assume string formatting
+                    }
                 }
                 // Python's / operator ALWAYS returns float (true division)
                 if (b.op == .Div) {

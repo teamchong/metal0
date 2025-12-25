@@ -411,28 +411,48 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
     return result;
 }
 
-/// Banker's rounding (round half to even)
+/// Banker's rounding (IEEE 754 round-half-to-even)
+///
+/// THIS IS THE SOURCE OF TRUTH FOR BANKER'S ROUNDING IN METAL0.
+/// DO NOT create alternative implementations. All rounding that needs
+/// Python semantics MUST use this function or bankersRoundToPrecision
+/// from float_format.zig (which calls this).
+///
+/// Python uses banker's rounding (round-half-to-even):
+///   - 0.5 -> 0 (round to even)
+///   - 1.5 -> 2 (round to even)
+///   - 2.5 -> 2 (round to even)
+///   - 3.5 -> 4 (round to even)
+///
+/// Zig's @round uses round-half-away-from-zero:
+///   - 0.5 -> 1 (WRONG for Python)
+///   - 2.5 -> 3 (WRONG for Python)
+///
+/// Used by:
+///   - round() builtin
+///   - "%.0f" % value (via float_format.zig)
+///   - format(value, ".0f") (via py_format.zig)
+///   - All float formatting with precision
+///
 /// Handles floating point imprecision near 0.5
 pub fn bankersRound(value: f64) f64 {
     if (std.math.isNan(value) or std.math.isInf(value)) {
         return value;
     }
 
-    // Use @round for the basic rounding, then check for half cases
-    const rounded = @round(value);
-    const diff = value - rounded;
-
-    // If we're very close to the rounded value, just use it
-    // This handles cases like 2.5000000000001 which should round to 2 (even)
-    const epsilon = 1e-9;
-
-    // Check if value is close to X.5 (halfway between integers)
+    // Get floor and fractional part
     const floor_val = @floor(value);
     const frac = value - floor_val;
 
-    // Is this a "half" case? (frac is very close to 0.5)
+    // Check if fractional part is exactly 0.5
+    // Use a VERY tight epsilon - X.5 values are exactly representable in IEEE 754
+    // for small integers, so we only need to handle tiny floating-point imprecision.
+    // 1e-15 is about 2-3 ULP for numbers in the range 1-10.
+    // This prevents 3.499999999999 (frac ≈ 0.4999999999999) from being treated as 0.5.
+    const epsilon = 1e-15;
+
     if (@abs(frac - 0.5) < epsilon) {
-        // Apply banker's rounding - round to even
+        // Exactly half case - apply banker's rounding (round to even)
         const floor_int: i64 = @intFromFloat(floor_val);
         if (@mod(floor_int, 2) == 0) {
             return floor_val;
@@ -441,8 +461,7 @@ pub fn bankersRound(value: f64) f64 {
         }
     }
 
-    // For non-half cases, just use standard rounding
-    _ = diff; // unused
+    // For non-half cases, use standard rounding
     if (frac < 0.5) {
         return floor_val;
     } else {

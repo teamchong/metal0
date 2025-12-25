@@ -133,8 +133,8 @@ pub const PyFile = struct {
         // Read entire file content
         const content = try data.handle.readToEndAlloc(allocator, std.math.maxInt(usize));
 
-        // Split into lines
-        var lines = std.ArrayList([]const u8){};
+        // Split into lines (Zig 0.15: ArrayList is unmanaged, use .{})
+        var lines: std.ArrayList([]const u8) = .{};
         var iter = std.mem.splitScalar(u8, content, '\n');
         while (iter.next()) |line| {
             // Include the newline character like Python does (except for last line if no trailing newline)
@@ -159,7 +159,7 @@ pub const PyFile = struct {
         pub fn next(self: *LineIterator) !?[]const u8 {
             if (self.done) return null;
 
-            var line_buffer = std.ArrayList(u8){};
+            var line_buffer: std.ArrayList(u8) = .{};
             self.reader.streamUntilDelimiter(line_buffer.writer(self.allocator), '\n', null) catch |err| {
                 if (err == error.EndOfStream) {
                     self.done = true;

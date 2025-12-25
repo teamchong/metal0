@@ -257,14 +257,18 @@ pub fn genReplace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
         try emitFmtConst(self, "    break :repl_{d} _repl_result.items;\n", .{repl_label});
         try emitConst(self,"}");
     } else {
-        // replace(old, new) - replace all
-        try emitConst(self,"try std.mem.replaceOwned(u8, __global_allocator, ");
+        // replace(old, new) - replace all, using labeled block like other string methods
+        const repl_label = self.nextLabelId();
+        try emitFmtConst(self, "repl_{d}: {{\n", .{repl_label});
+        try emitConst(self, "    const __repl_result = std.mem.replaceOwned(u8, __global_allocator, ");
         try self.genExpr(obj);
-        try emitConst(self,", ");
+        try emitConst(self, ", ");
         try self.genExpr(args[0]);
-        try emitConst(self,", ");
+        try emitConst(self, ", ");
         try self.genExpr(args[1]);
-        try emitConst(self,")");
+        try emitConst(self, ") catch \"\";\n");
+        try emitFmtConst(self, "    break :repl_{d} __repl_result;\n", .{repl_label});
+        try emitConst(self, "}");
     }
 }
 

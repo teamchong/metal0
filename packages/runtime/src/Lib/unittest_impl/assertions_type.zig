@@ -348,7 +348,7 @@ pub fn assertSequenceEqual(a: anytype, b: anytype) !void {
         const elem_b = b[i];
         const equal = switch (@typeInfo(@TypeOf(elem_a))) {
             .int, .comptime_int => elem_a == elem_b,
-            .float, .comptime_float => @abs(elem_a - elem_b) < 0.0001,
+            .float, .comptime_float => elem_a == elem_b, // Use exact equality (IEEE 754)
             .bool => elem_a == elem_b,
             .pointer => |ptr| blk: {
                 if (ptr.size == .slice) {

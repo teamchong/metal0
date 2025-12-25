@@ -175,7 +175,7 @@ pub fn assertNotEqual(a: anytype, b: anytype) !void {
     const a_info = @typeInfo(A);
     const equal = switch (a_info) {
         .int, .comptime_int => a == b,
-        .float, .comptime_float => @abs(a - b) < 0.0001,
+        .float, .comptime_float => a == b, // Use exact equality (IEEE 754 semantics)
         .bool => a == b,
         .pointer => |ptr| blk: {
             if (ptr.size == .slice) {

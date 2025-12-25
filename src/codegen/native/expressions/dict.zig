@@ -494,16 +494,18 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
 
     // Use unique label to avoid conflicts with nested dict literals
     const label = try self.emitInlineBlockStart("dict");
+    // Generate unique map variable name to avoid shadowing in nested dicts
+    const map_var = try self.name_gen.temp();
     try emitConst(self, "\n");
     self.indent();
     try self.emitIndent();
     if (uses_int_keys) {
-        try emitConst(self, "var map = std.AutoArrayHashMap(i64, ");
+        try emitFmtConst(self, "var {s} = std.AutoArrayHashMap(i64, ", .{map_var});
     } else if (uses_float_keys) {
         // Floats can't be hashed directly in Zig, use u64 bit representation
-        try emitConst(self, "var map = std.AutoArrayHashMap(u64, ");
+        try emitFmtConst(self, "var {s} = std.AutoArrayHashMap(u64, ", .{map_var});
     } else {
-        try emitConst(self, "var map = hashmap_helper.StringHashMap(");
+        try emitFmtConst(self, "var {s} = hashmap_helper.StringHashMap(", .{map_var});
     }
     try val_type.toZigType(self.allocator, &self.output);
     try emitConst(self, ").init(");
@@ -549,11 +551,11 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             try self.emitIndent();
             // If target dict expects PyValue, wrap the source value
             if (val_type == .pyvalue) {
-                try emitConst(self, "try map.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(");
+                try emitFmtConst(self, "try {s}.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(", .{map_var});
                 try emitConst(self, alloc_name);
                 try emitConst(self, ", entry.value_ptr.*));\n");
             } else {
-                try emitConst(self, "try map.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+                try emitFmtConst(self, "try {s}.put(entry.key_ptr.*, entry.value_ptr.*);\n", .{map_var});
             }
             self.dedent();
             try self.emitIndent();
@@ -565,7 +567,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         }
 
         try self.emitIndent();
-        try emitConst(self, "try map.put(");
+        try emitFmtConst(self, "try {s}.put(", .{map_var});
         if (uses_float_keys) {
             // Convert float key to bits for hashing
             try emitConst(self, "@bitCast(");
@@ -607,7 +609,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
 
     try self.emitIndent();
     // Break with map value
-    try emitFmtConst(self, "break :{s} map;\n", .{label});
+    try emitFmtConst(self, "break :{s} {s};\n", .{ label, map_var });
     self.dedent();
     try self.emitIndent();
     try self.emitInlineBlockEnd();

@@ -629,6 +629,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
                     try emitConst(self, ": []const []const u8 = &[_][]const u8{};\n");
                     try generated_symbols.put(symbol_name, {});
+                    // Track for local variable shadowing prevention
+                    try self.module_level_from_imports.put(symbol_name, {});
                 }
                 continue;
             }
@@ -647,6 +649,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
                 try emitConst(self, ": ?*anyopaque = null;\n");
                 try generated_symbols.put(symbol_name, {});
+                // Track for local variable shadowing prevention
+                try self.module_level_from_imports.put(symbol_name, {});
             }
             continue;
         }

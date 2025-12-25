@@ -156,7 +156,7 @@ fn compileModuleAsStructWithPrefix(
     }
 
     // Use full codegen to generate proper module code
-    var codegen = try NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    var codegen = try NativeCodegen.init(aa, &type_inferrer, &semantic_info, py_path);
     defer codegen.deinit();
 
     // Set mode to module so functions are wrapped in pub struct

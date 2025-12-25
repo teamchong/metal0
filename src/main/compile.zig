@@ -142,7 +142,7 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: [
     }
 
     // Generate Zig code in module mode (top-level exports, no struct wrapper)
-    var codegen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    var codegen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, module_path);
     defer codegen.deinit();
 
     codegen.mode = .module;
@@ -214,7 +214,7 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
     const bin_path = try output.getNotebookOutputPath(aa, opts.input_file, opts.output_file, opts.binary);
 
     // Compile combined source directly (skip temp file)
-    try compilePythonSource(allocator, combined_source, bin_path, opts.mode, opts.binary);
+    try compilePythonSource(allocator, combined_source, bin_path, opts.input_file, opts.mode, opts.binary);
 
     std.debug.print("✓ Compiled notebook to: {s}\n", .{bin_path});
 
@@ -227,7 +227,7 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
 }
 
 /// Compile Python source code directly (without reading from file)
-pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin_path: []const u8, mode: []const u8, binary: bool) !void {
+pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin_path: []const u8, source_file_path: []const u8, mode: []const u8, binary: bool) !void {
     _ = mode; // mode not used for now (no caching for notebooks)
     _ = binary; // binary flag passed but not checked (native codegen always produces binaries)
 
@@ -312,7 +312,7 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
 
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
-    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, source_file_path);
     std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
@@ -426,7 +426,7 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
 
     // Codegen
     std.debug.print("Initializing codegen...\n", .{});
-    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, input_file);
     std.debug.print("Codegen initialized.\n", .{});
     defer native_gen.deinit();
 
@@ -720,7 +720,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
     std.debug.print("Generating native Zig code...\n", .{});
-    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info);
+    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, opts.input_file);
     std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
@@ -741,9 +741,6 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // Pass import context to codegen
     native_gen.setImportContext(&import_ctx);
-
-    // Set source file path for import resolution
-    native_gen.setSourceFilePath(opts.input_file);
 
     // Pass debug writer and tokens to codegen (if --debug flag set)
     if (debug_writer) |*dw| {
