@@ -1,12 +1,38 @@
-/// Float formatting utilities
+/// Float formatting utilities for Python-compatible output
+///
+/// BANKER'S ROUNDING: All float formatting in metal0 uses banker's rounding
+/// (IEEE 754 round-half-to-even) for Python compatibility.
+///
+/// The source of truth for banker's rounding is:
+///   - bankersRound() in runtime/builtins/conversion.zig
+///   - bankersRoundToPrecision() in THIS FILE (calls bankersRound)
+///
+/// EXACT DECIMAL EXPANSION: For large numbers (>= 1e15), we use BigInt.fromFloat()
+/// to extract the exact IEEE 754 representation instead of Zig's std.fmt (Ryu).
+/// This fixes cases like "%.0f" % 1e49 which should output the exact integer
+/// representation (9999999999999999464902769475481793196872414789632), not a
+/// rounded value (10000000000000000000000000000000000000000000000000).
+///
+/// DO NOT use Zig's @round for Python output - it uses round-half-away-from-zero.
 const std = @import("std");
+const BigInt = @import("bigint").BigInt;
 
-// Import banker's rounding from conversion.zig
+// Import banker's rounding from conversion.zig - THE source of truth
 const bankersRound = @import("../../runtime/builtins/conversion.zig").bankersRound;
 
-/// Pre-round value to precision using banker's rounding (Python semantics)
-/// This ensures "%.0f" % 2.5 -> "2" (not "3")
-fn bankersRoundToPrecision(value: f64, precision: u32) f64 {
+/// Apply banker's rounding to a specific decimal precision.
+///
+/// Examples (Python semantics):
+///   bankersRoundToPrecision(2.5, 0) -> 2.0   (round to even)
+///   bankersRoundToPrecision(3.5, 0) -> 4.0   (round to even)
+///   bankersRoundToPrecision(0.125, 2) -> 0.12 (round to even)
+///
+/// Used by py_format.zig for:
+///   - "%.Nf" % value  (fixed-point formatting)
+///   - "%.Ne" % value  (scientific notation)
+///   - format(value, ".Nf")
+///   - format(value, ".Ne")
+pub fn bankersRoundToPrecision(value: f64, precision: u32) f64 {
     if (std.math.isNan(value) or std.math.isInf(value)) return value;
     const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(precision)));
     const scaled = value * multiplier;
@@ -46,6 +72,68 @@ pub const PyFloatFormatOptions = struct {
     alt_form: bool = false, // '#' flag - always include decimal point
 };
 
+/// Format a large float (>= 1e15) using BigInt for exact decimal representation.
+/// This is essential for Python compatibility where "%.0f" % 1e49 must output
+/// the exact IEEE 754 representation, not a rounded value.
+fn formatFixedBigInt(
+    allocator: std.mem.Allocator,
+    result: *std.ArrayListUnmanaged(u8),
+    abs_val: f64,
+    prec: u32,
+    is_negative: bool,
+    alt_form: bool,
+) !void {
+    // Add negative sign if needed
+    if (is_negative) {
+        try result.append(allocator, '-');
+    }
+
+    // Get the integer part using BigInt.fromFloat()
+    // This extracts the exact value from IEEE 754 representation:
+    // For 1e49, this gives 9999999999999999464902769475481793196872414789632
+    // Note: NaN/Inf are already handled by caller, so InvalidFloat should not occur
+    // Note: InvalidBase won't occur since we always use base 10
+    var integer_big = BigInt.fromFloat(allocator, @floor(abs_val)) catch |err| switch (err) {
+        error.InvalidFloat => return error.OutOfMemory, // Should not happen - NaN/Inf handled earlier
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer integer_big.deinit();
+    const int_str = integer_big.toDecimalString(allocator) catch |err| switch (err) {
+        error.InvalidBase => return error.OutOfMemory, // Should not happen - we use base 10
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer allocator.free(int_str);
+
+    // Append integer part
+    try result.appendSlice(allocator, int_str);
+
+    // Handle fractional part
+    if (prec > 0 or alt_form) {
+        try result.append(allocator, '.');
+        if (prec > 0) {
+            // For very large floats, the fractional part is always 0
+            // because the float precision is exhausted
+            const frac = abs_val - @floor(abs_val);
+            if (frac == 0) {
+                try result.appendNTimes(allocator, '0', prec);
+            } else {
+                // Round fractional part using banker's rounding
+                const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(prec)));
+                const scaled = frac * multiplier;
+                const rounded: u64 = @intFromFloat(bankersRound(scaled));
+
+                // Format with leading zeros if needed
+                var buf: [64]u8 = undefined;
+                const digits = std.fmt.bufPrint(&buf, "{d}", .{rounded}) catch return error.OutOfMemory;
+                if (digits.len < prec) {
+                    try result.appendNTimes(allocator, '0', prec - @as(u32, @intCast(digits.len)));
+                }
+                try result.appendSlice(allocator, digits);
+            }
+        }
+    }
+}
+
 /// Canonical Python float formatter
 pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFloatFormatOptions) ![]const u8 {
     var result = std.ArrayListUnmanaged(u8){};
@@ -75,7 +163,9 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
         return result.toOwnedSlice(allocator);
     }
 
-    if (value >= 0) {
+    // Use signbit to detect negative zero: -0.0 >= 0 is true, but signbit(-0.0) is true
+    // We handle sign in individual format types for scientific, but need it here for repr
+    if (!std.math.signbit(value)) {
         switch (options.sign) {
             .plus => try result.append(allocator, '+'),
             .space => try result.append(allocator, ' '),
@@ -85,9 +175,65 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
 
     switch (options.format_type) {
         .repr => {
-            if (@mod(value, 1.0) == 0.0 and @abs(value) < 1e15) {
+            const abs_val = @abs(value);
+            const is_negative = std.math.signbit(value);
+            if (abs_val >= 1e16) {
+                // Large numbers use scientific notation
+                // Python format: 1e+16 (not 1.0e+16)
+                if (is_negative) try result.append(allocator, '-');
+                const log_val = @log10(abs_val);
+                const exp: i32 = @intFromFloat(@floor(log_val));
+                const mantissa = abs_val / std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exp)));
+
+                // Format mantissa - strip trailing zeros
+                if (@mod(mantissa, 1.0) == 0.0) {
+                    // Integer mantissa
+                    try result.writer(allocator).print("{d}e", .{@as(u64, @intFromFloat(mantissa))});
+                } else {
+                    try result.writer(allocator).print("{d}e", .{mantissa});
+                }
+                try result.append(allocator, if (exp >= 0) '+' else '-');
+                const abs_exp: u32 = @intCast(@abs(exp));
+                if (abs_exp < 10) try result.append(allocator, '0');
+                try result.writer(allocator).print("{d}", .{abs_exp});
+            } else if (abs_val > 0 and abs_val < 1e-4) {
+                // Small numbers use scientific notation
+                // Use Zig's {e} formatter (Ryu algorithm) for correct mantissa,
+                // then reformat exponent to Python's style (e-05 not e-5)
+                var buf: [64]u8 = undefined;
+                const zig_str = std.fmt.bufPrint(&buf, "{e}", .{abs_val}) catch return error.OutOfMemory;
+
+                // Find 'e' position
+                var e_pos: usize = 0;
+                for (zig_str, 0..) |c, idx| {
+                    if (c == 'e') {
+                        e_pos = idx;
+                        break;
+                    }
+                }
+
+                // Add sign for original value
+                if (is_negative) try result.append(allocator, '-');
+
+                // Add mantissa (before 'e')
+                try result.appendSlice(allocator, zig_str[0..e_pos]);
+                try result.append(allocator, 'e');
+
+                // Parse and reformat exponent with Python-style: always 2 digits, with sign
+                const exp_str = zig_str[e_pos + 1 ..];
+                const exp_sign: u8 = if (exp_str[0] == '-') '-' else '+';
+                const exp_digits = if (exp_str[0] == '-' or exp_str[0] == '+') exp_str[1..] else exp_str;
+                const exp = std.fmt.parseInt(i32, exp_digits, 10) catch 0;
+
+                try result.append(allocator, exp_sign);
+                const abs_exp: u32 = @intCast(@abs(exp));
+                if (abs_exp < 10) try result.append(allocator, '0');
+                try result.writer(allocator).print("{d}", .{abs_exp});
+            } else if (@mod(value, 1.0) == 0.0 and abs_val < 1e16) {
+                // Integer values: always show .0
                 try result.writer(allocator).print("{d:.1}", .{value});
             } else {
+                // Default representation
                 try result.writer(allocator).print("{d}", .{value});
             }
         },
@@ -105,22 +251,41 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
             const rounded_exp: i32 = if (rounded == 0) 0 else @intFromFloat(@floor(@log10(rounded)));
 
             // Python uses scientific if exponent < -4 or >= precision
+            // Use signbit to detect negative zero: -0.0 < 0 is false, but signbit(-0.0) is true
+            const is_negative = std.math.signbit(value);
             if (rounded_exp < -4 or rounded_exp >= @as(i32, @intCast(prec))) {
                 // Scientific notation
-                try formatGeneralScientific(allocator, &result, rounded, prec, options.alt_form, value < 0);
+                try formatGeneralScientific(allocator, &result, rounded, prec, options.alt_form, is_negative);
             } else {
                 // Fixed notation
-                try formatGeneralFixed(allocator, &result, rounded, prec, rounded_exp, options.alt_form, value < 0);
+                try formatGeneralFixed(allocator, &result, rounded, prec, rounded_exp, options.alt_form, is_negative);
             }
         },
         .fixed => {
             const prec = options.precision orelse 6;
-            // Pre-round using banker's rounding for Python semantics
-            const rounded_value = bankersRoundToPrecision(value, prec);
-            try result.writer(allocator).print("{d:.[1]}", .{ rounded_value, prec });
-            // Handle alternate form for precision 0 (always include '.')
-            if (options.alt_form and prec == 0) {
-                try result.append(allocator, '.');
+            // Python preserves the sign even when rounding to 0
+            // e.g., "%.0f" % -0.1 gives "-0", not "0"
+            const is_negative = std.math.signbit(value);
+            const abs_val = @abs(value);
+
+            // For large numbers (>= 1e15), use BigInt for exact decimal expansion
+            // This fixes cases like "%.0f" % 1e49 which should output the exact
+            // IEEE 754 integer representation, not a rounded value
+            if (abs_val >= 1e15) {
+                try formatFixedBigInt(allocator, &result, abs_val, prec, is_negative, options.alt_form);
+            } else {
+                // Fast path for normal numbers - use standard formatting
+                // Pre-round using banker's rounding for Python semantics
+                const rounded_value = bankersRoundToPrecision(abs_val, prec);
+                // Add negative sign if original was negative (even if rounded to 0)
+                if (is_negative) {
+                    try result.append(allocator, '-');
+                }
+                try result.writer(allocator).print("{d:.[1]}", .{ rounded_value, prec });
+                // Handle alternate form for precision 0 (always include '.')
+                if (options.alt_form and prec == 0) {
+                    try result.append(allocator, '.');
+                }
             }
         },
         .scientific => {
@@ -130,7 +295,8 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
             // e.g., %.0e % 2.5 -> 2e+00 (banker's rounds 2.5 to 2)
 
             const abs_val = @abs(value);
-            const is_negative = value < 0;
+            // Use signbit to detect negative zero: -0.0 < 0 is false, but signbit(-0.0) is true
+            const is_negative = std.math.signbit(value);
 
             // Add negative sign if needed
             if (is_negative) {
@@ -200,17 +366,90 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
 
 /// Format for %g in scientific notation
 fn formatGeneralScientific(allocator: std.mem.Allocator, result: *std.ArrayListUnmanaged(u8), abs_val: f64, prec: u32, alt_form: bool, is_negative: bool) !void {
-    _ = is_negative;
-    // Format with prec-1 decimal places (prec significant figures total)
-    const decimal_places = if (prec > 1) prec - 1 else 0;
-    try result.writer(allocator).print("{e:.[1]}", .{ abs_val, decimal_places });
+    // Add negative sign if needed (for -0.0 which has signbit set)
+    if (is_negative) {
+        try result.append(allocator, '-');
+    }
 
-    // Convert Zig's scientific notation to Python format: 1e3 -> 1e+03
-    try normalizeSciNotation(allocator, result);
+    if (abs_val == 0) {
+        // Special case: 0
+        if (alt_form) {
+            try result.append(allocator, '0');
+            try result.append(allocator, '.');
+            // For alt_form with precision N, add N-1 zeros after decimal
+            if (prec > 1) {
+                try result.appendNTimes(allocator, '0', prec - 1);
+            }
+            try result.appendSlice(allocator, "e+00");
+        } else {
+            try result.appendSlice(allocator, "0e+00");
+        }
+        return;
+    }
+
+    // Calculate exponent
+    const log_val = @log10(abs_val);
+    const exp: i32 = @intFromFloat(@floor(log_val));
+
+    // Normalize mantissa to 1.xxx
+    var mantissa = abs_val;
+    if (abs_val >= 10.0) {
+        const divisor = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(exp)));
+        mantissa = abs_val / divisor;
+    } else if (abs_val < 1.0) {
+        const multiplier = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(-exp)));
+        mantissa = abs_val * multiplier;
+    }
+
+    // For %g, precision means total significant figures, so mantissa gets prec-1 decimal places
+    const decimal_places = if (prec > 1) prec - 1 else 0;
+
+    // Apply banker's rounding to mantissa at the specified precision
+    const rounded_mantissa = bankersRoundToPrecision(mantissa, decimal_places);
+
+    // Check if rounding caused mantissa to reach 10 (e.g., 9.95 -> 10.0 at prec=1)
+    var final_mantissa = rounded_mantissa;
+    var final_exp = exp;
+    if (rounded_mantissa >= 10.0) {
+        final_mantissa = rounded_mantissa / 10.0;
+        final_exp += 1;
+    }
+
+    // Format mantissa
+    try result.writer(allocator).print("{d:.[1]}", .{ final_mantissa, decimal_places });
 
     if (!alt_form) {
-        // Remove trailing zeros from mantissa
-        stripTrailingZeros(result);
+        // Remove trailing zeros from mantissa (before adding exponent)
+        stripTrailingZerosBeforeExp(result);
+        // Also remove trailing decimal point if not alt_form
+        if (result.items.len > 0 and result.items[result.items.len - 1] == '.') {
+            result.items.len -= 1;
+        }
+    } else {
+        // alt_form: ensure there's a decimal point
+        var has_dot = false;
+        for (result.items) |c| {
+            if (c == '.') {
+                has_dot = true;
+                break;
+            }
+        }
+        if (!has_dot) {
+            try result.append(allocator, '.');
+        }
+    }
+
+    // Add exponent
+    try result.append(allocator, 'e');
+    if (final_exp >= 0) {
+        try result.append(allocator, '+');
+        if (final_exp < 10) try result.append(allocator, '0');
+        try result.writer(allocator).print("{d}", .{@as(u32, @intCast(final_exp))});
+    } else {
+        try result.append(allocator, '-');
+        const abs_exp: u32 = @intCast(-final_exp);
+        if (abs_exp < 10) try result.append(allocator, '0');
+        try result.writer(allocator).print("{d}", .{abs_exp});
     }
 }
 
@@ -264,7 +503,10 @@ fn normalizeSciNotation(allocator: std.mem.Allocator, result: *std.ArrayListUnma
 
 /// Format for %g in fixed notation
 fn formatGeneralFixed(allocator: std.mem.Allocator, result: *std.ArrayListUnmanaged(u8), abs_val: f64, prec: u32, exponent: i32, alt_form: bool, is_negative: bool) !void {
-    _ = is_negative;
+    // Add negative sign if needed (for -0.0 which has signbit set)
+    if (is_negative) {
+        try result.append(allocator, '-');
+    }
     // Calculate how many decimal places we need
     // sig_figs = prec, exp gives position of first significant digit
     // decimal_places = max(0, prec - 1 - exp) for positive exp
@@ -286,10 +528,42 @@ fn formatGeneralFixed(allocator: std.mem.Allocator, result: *std.ArrayListUnmana
         if (result.items.len > 0 and result.items[result.items.len - 1] == '.') {
             _ = result.pop();
         }
+    } else {
+        // alt_form: always include decimal point
+        // Check if there's already a decimal point
+        var has_dot = false;
+        for (result.items) |c| {
+            if (c == '.') {
+                has_dot = true;
+                break;
+            }
+        }
+        if (!has_dot) {
+            try result.append(allocator, '.');
+        }
     }
 }
 
-/// Remove trailing zeros after decimal point
+/// Remove trailing zeros from mantissa BEFORE exponent is added
+/// This version does not handle 'e' parts since they haven't been added yet
+fn stripTrailingZerosBeforeExp(result: *std.ArrayListUnmanaged(u8)) void {
+    // Check if there's a decimal point
+    var has_dot = false;
+    for (result.items) |c| {
+        if (c == '.') {
+            has_dot = true;
+            break;
+        }
+    }
+    if (!has_dot) return;
+
+    // Strip trailing zeros
+    while (result.items.len > 0 and result.items[result.items.len - 1] == '0') {
+        result.items.len -= 1;
+    }
+}
+
+/// Remove trailing zeros after decimal point (handling existing exponent)
 fn stripTrailingZeros(result: *std.ArrayListUnmanaged(u8)) void {
     // Find 'e' position if exists
     var e_pos: ?usize = null;
@@ -321,9 +595,9 @@ fn stripTrailingZeros(result: *std.ArrayListUnmanaged(u8)) void {
     if (strip_to < end_pos) {
         // Move 'e...' part (if any) left
         if (e_pos) |epos| {
-            const exp_part = result.items[epos..];
-            const exp_len = exp_part.len;
-            @memcpy(result.items[strip_to .. strip_to + exp_len], exp_part);
+            const exp_len = result.items.len - epos;
+            // Use std.mem.copyBackwards to handle overlapping memory safely
+            std.mem.copyBackwards(u8, result.items[strip_to .. strip_to + exp_len], result.items[epos..]);
             result.items.len = strip_to + exp_len;
         } else {
             result.items.len = strip_to;

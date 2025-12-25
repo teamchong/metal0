@@ -575,6 +575,15 @@ pub const pyFloatMod = runtime_format.pyFloatMod;
 pub const pyFloatFloorDiv = runtime_format.pyFloatFloorDiv;
 pub const pyStringFormat = runtime_format.pyStringFormat;
 
+/// Unified Format Dispatcher - ALL formatting should go through this
+/// Usage:
+///   pyFormatDispatch(alloc, value, .str, null)     // str(value)
+///   pyFormatDispatch(alloc, value, .repr, null)    // repr(value)
+///   pyFormatDispatch(alloc, value, .format, ".2f") // format(value, ".2f")
+pub const format_dispatch = @import("Python/format_dispatch.zig");
+pub const pyFormatDispatch = format_dispatch.pyFormatDispatch;
+pub const FormatMode = format_dispatch.FormatMode;
+
 // Re-export floor division from floor_div.zig
 pub const pyFloorDiv = floor_div.pyFloorDiv;
 
