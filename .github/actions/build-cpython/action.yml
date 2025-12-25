@@ -5,6 +5,9 @@ inputs:
     description: 'Operating system (linux, macos, windows)'
     required: true
     default: 'linux'
+  commit:
+    description: 'CPython commit hash'
+    required: true
 
 outputs:
   python-path:
@@ -23,7 +26,7 @@ runs:
       id: cpython-cache
       with:
         path: ~/cpython-install
-        key: cpython-3.13.1-${{ inputs.os }}-${{ runner.arch }}-v2
+        key: cpython-${{ inputs.commit }}-${{ inputs.os }}-${{ runner.arch }}-v1
 
     - name: Cache CPython build (Windows)
       if: inputs.os == 'windows'
@@ -31,7 +34,7 @@ runs:
       id: cpython-cache-win
       with:
         path: C:\cpython-install
-        key: cpython-3.13.1-windows-${{ runner.arch }}-v2
+        key: cpython-${{ inputs.commit }}-windows-${{ runner.arch }}-v1
 
     # =========================================================================
     # Build CPython from source (Linux)
@@ -62,12 +65,12 @@ runs:
           libffi-dev \
           uuid-dev
 
-        # Clone CPython at pinned tag (v3.13.1)
-        git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git ~/cpython-src
+        # Clone CPython at pinned commit
+        git clone https://github.com/python/cpython.git ~/cpython-src
         cd ~/cpython-src
+        git checkout ${{ inputs.commit }}
 
         # Configure WITHOUT --enable-optimizations (PGO takes too long in CI)
-        # Still use --with-lto for smaller binary
         ./configure --prefix=$HOME/cpython-install
 
         # Build (use all available cores)
@@ -95,9 +98,10 @@ runs:
         # Install build dependencies via Homebrew
         brew install openssl@3 readline sqlite3 xz zlib tcl-tk pkg-config
 
-        # Clone CPython at pinned tag (v3.13.1)
-        git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git ~/cpython-src
+        # Clone CPython at pinned commit
+        git clone https://github.com/python/cpython.git ~/cpython-src
         cd ~/cpython-src
+        git checkout ${{ inputs.commit }}
 
         # Configure with Homebrew paths (no --enable-optimizations for speed)
         export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix readline)/lib/pkgconfig:$(brew --prefix sqlite3)/lib/pkgconfig:$(brew --prefix zlib)/lib/pkgconfig"
@@ -126,9 +130,11 @@ runs:
       if: inputs.os == 'windows' && steps.cpython-cache-win.outputs.cache-hit != 'true'
       shell: pwsh
       run: |
-        # Clone CPython at pinned tag (v3.13.1)
-        git clone --depth 1 --branch v3.13.1 https://github.com/python/cpython.git C:\cpython-src
-        Set-Location C:\cpython-src\PCbuild
+        # Clone CPython at pinned commit
+        git clone https://github.com/python/cpython.git C:\cpython-src
+        Set-Location C:\cpython-src
+        git checkout ${{ inputs.commit }}
+        Set-Location PCbuild
 
         # Get external dependencies (for ssl, etc.)
         .\get_externals.bat

@@ -8,7 +8,7 @@ on:
 
 env:
   ZIG_VERSION: "0.15.2"
-  CPYTHON_VERSION: "v3.13.1"  # Pinned commit: 067145177975eadd61a0c907d0d177f7b6a5a3de
+  CPYTHON_COMMIT: "067145177975eadd61a0c907d0d177f7b6a5a3de"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -206,6 +206,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core1"
@@ -224,6 +225,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core2"
@@ -242,6 +244,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core3"
@@ -260,6 +263,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core4"
@@ -278,6 +282,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core5"
@@ -296,6 +301,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "core6"
@@ -314,6 +320,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "linux"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "linux"
@@ -332,6 +339,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "macos"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "macos"
@@ -350,6 +358,7 @@ jobs:
       - uses: ./.github/actions/build-cpython
         with:
           os: "windows"
+          commit: ${{ env.CPYTHON_COMMIT }}
       - uses: ./.github/actions/run-cpython-tests
         with:
           group: "windows"
