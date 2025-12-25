@@ -13,7 +13,6 @@ mimetypes: linux,macos,windows
 ntpath: linux,macos,windows
 platform: linux,macos,windows
 posixpath: linux,macos,windows
-remote_pdb: linux,macos,windows
 selectors: linux,macos,windows
 shutil: linux,macos,windows
 signal: linux,macos,windows
