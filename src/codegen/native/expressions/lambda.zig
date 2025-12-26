@@ -108,15 +108,17 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         return;
     }
 
-    // FIX: When inside a function scope (scope level > 0), use inline lambda
+    // FIX: When inside a function scope, use inline lambda
     // Module-level lambdas are stored and emitted in PHASE 8, which happens after
     // function bodies are generated. This causes "undeclared identifier" errors
     // when lambdas are used as keyword arguments like data.sort(key=lambda x: x[1])
-    if (self.symbol_table.currentScopeLevel() > 0) {
+    // Also check current_function_name which is set during method generation
+    const scope_level = self.symbol_table.currentScopeLevel();
+    const func_name = self.current_function_name;
+    if (scope_level > 0 or func_name != null) {
         try genInlineLambda(self, lambda);
         return;
     }
-
     // Check if lambda references variables from outer scope (not its parameters)
     const captured_vars = try findCapturedVars(self, lambda);
     defer self.allocator.free(captured_vars);
@@ -336,9 +338,17 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
             if (shared.PythonBuiltinNames.has(var_name)) continue;
 
             // Skip module-level variables/functions - they're available at module level
-            if (self.module_level_vars.contains(var_name)) continue;
-            if (self.module_level_funcs.contains(var_name)) continue;
-            if (self.module_level_from_imports.contains(var_name)) continue;
+            // EXCEPTION: Both script and module modes wrap code in a generated struct,
+            // so a module-level lambda function can't access struct fields - must capture them.
+            // Only skip if we're truly at module level (inside a function where module
+            // vars are accessible via closure or at package level)
+            const inside_function_scope = self.current_function_name != null or
+                self.symbol_table.currentScopeLevel() > 0;
+            if (inside_function_scope) {
+                if (self.module_level_vars.contains(var_name)) continue;
+                if (self.module_level_funcs.contains(var_name)) continue;
+                if (self.module_level_from_imports.contains(var_name)) continue;
+            }
 
             // For all other references:
             // 1. If we can verify it's in outer scope via isDeclared/var_types, capture it
@@ -352,7 +362,13 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
                 self.symbol_table.currentScopeLevel() > 0 or
                 self.indent_level > 0;
 
-            if (is_verified_local or inside_function) {
+            // At top-level (not inside function), module-level vars are in a struct,
+            // so we need to capture them for lambdas
+            const is_top_level_module_var = !inside_function_scope and
+                (self.module_level_vars.contains(var_name) or
+                self.module_level_funcs.contains(var_name));
+
+            if (is_verified_local or inside_function or is_top_level_module_var) {
                 try filtered.append(self.allocator, var_name);
             }
         }

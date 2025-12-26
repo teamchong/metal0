@@ -272,68 +272,37 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
     }
 
     // Handle immediate lambda calls: (lambda x: x * 2)(5)
+    // Use inline anonymous struct to access captured variables from surrounding scope
     if (call.func.* == .lambda) {
-        // For immediate calls, we need the function name WITHOUT the & prefix
-        // Generate lambda function and get its name
         const lambda = call.func.lambda;
 
-        // Generate unique lambda function name
-        const id = self.name_gen.nextId();
-        const lambda_name = try std.fmt.allocPrint(
-            self.allocator,
-            "__m{d}_lambda",
-            .{id},
-        );
-        defer self.allocator.free(lambda_name);
-
-        // Generate the lambda function definition using lambda_mod
-        // We'll do this manually to avoid the & prefix
-        var lambda_func = std.ArrayList(u8){};
-        const lambda_writer = lambda_func.writer(self.allocator);
-
-        // Function signature
-        try lambda_writer.print("fn {s}(", .{lambda_name});
+        // Generate inline struct lambda that can capture surrounding scope
+        try self.emit("(struct {\n");
+        try self.emit("    fn call(");
 
         for (lambda.args, 0..) |arg, i| {
-            if (i > 0) try lambda_writer.writeAll(", ");
-            try lambda_writer.print("{s}: i64", .{arg.name});
+            if (i > 0) try self.emit(", ");
+            try self.emitFmt("{s}: anytype", .{arg.name});
         }
 
-        try lambda_writer.print(") i64 {{\n    return ", .{});
-
-        // Generate body expression
-        const saved_output = self.output;
-        self.output = std.ArrayList(u8){};
+        try self.emit(") @TypeOf(");
+        // Generate body expression for return type
         try genExpr(self, lambda.body.*);
-        const body_code = try self.output.toOwnedSlice(self.allocator);
-        self.output = saved_output;
+        try self.emit(") {\n        return ");
+        // Generate body expression for actual return
+        try genExpr(self, lambda.body.*);
+        try self.emit(";\n    }\n}.call)(");
 
-        try lambda_writer.writeAll(body_code);
-        self.allocator.free(body_code);
-        try lambda_writer.writeAll(";\n}\n\n");
-
-        // Store lambda function
-        try self.lambda_functions.append(self.allocator, try lambda_func.toOwnedSlice(self.allocator));
-
-        // Generate direct function call (no & prefix for immediate calls)
-        try self.emit(lambda_name);
-        // Use auto-close pattern for lambda call arguments
-        const LambdaArgsCtx = struct { args: []ast.Node, kwargs: []ast.Node.KeywordArg };
-        try self.withParensCtx(LambdaArgsCtx{
-            .args = call.args,
-            .kwargs = call.keyword_args,
-        }, struct {
-            pub fn f(s: *NativeCodegen, ctx: LambdaArgsCtx) CodegenError!void {
-                for (ctx.args, 0..) |arg, i| {
-                    if (i > 0) try s.emit(", ");
-                    try genExpr(s, arg);
-                }
-                for (ctx.kwargs, 0..) |kwarg, i| {
-                    if (i > 0 or ctx.args.len > 0) try s.emit(", ");
-                    try genExpr(s, kwarg.value);
-                }
-            }
-        }.f);
+        // Generate call arguments
+        for (call.args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try genExpr(self, arg);
+        }
+        for (call.keyword_args, 0..) |kwarg, i| {
+            if (i > 0 or call.args.len > 0) try self.emit(", ");
+            try genExpr(self, kwarg.value);
+        }
+        try self.emit(")");
         return;
     }
 
