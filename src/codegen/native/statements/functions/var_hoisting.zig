@@ -710,6 +710,19 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
         return switch (expr.*) {
             // Function calls - usually return PyValue or objects
             .call => |c| {
+                // Check for unittest context manager methods (self.assertRaises, etc.)
+                if (c.func.* == .attribute) {
+                    const attr = c.func.attribute;
+                    const method_name = attr.attr;
+                    if (std.mem.eql(u8, method_name, "assertRaises") or
+                        std.mem.eql(u8, method_name, "assertRaisesRegex") or
+                        std.mem.eql(u8, method_name, "assertWarns") or
+                        std.mem.eql(u8, method_name, "assertWarnsRegex") or
+                        std.mem.eql(u8, method_name, "assertLogs"))
+                    {
+                        return "runtime.unittest.ContextManager";
+                    }
+                }
                 // Check for known return types
                 if (c.func.* == .name) {
                     const fn_name = c.func.name.id;
@@ -1022,6 +1035,10 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                 const fallback = inferFallbackType(init, escaped.source);
                 try self.emit(": ");
                 try self.emit(fallback);
+                // Track if hoisted with PyValue type for proper wrapping on assignment
+                if (std.mem.eql(u8, fallback, "runtime.PyValue")) {
+                    try self.pyvalue_hoisted_vars.put(escaped.name, {});
+                }
             }
         } else if (escaped.source == .for_loop and escaped.for_iter_expr != null and escaped.tuple_index != null) {
             // For-loop tuple unpacking: derive type from iteration expression
@@ -1046,6 +1063,10 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                 const fallback = inferFallbackType(null, escaped.source);
                 try self.emit(": ");
                 try self.emit(fallback);
+                // Track if hoisted with PyValue type for proper wrapping on assignment
+                if (std.mem.eql(u8, fallback, "runtime.PyValue")) {
+                    try self.pyvalue_hoisted_vars.put(escaped.name, {});
+                }
             }
         } else if (escaped.source == .for_loop and escaped.for_iter_expr != null) {
             // For-loop variable (without tuple unpacking) - analyze iterator to get element type
@@ -1092,6 +1113,7 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                                 }
                             } else {
                                 try self.emit(": runtime.PyValue");
+                                try self.pyvalue_hoisted_vars.put(escaped.name, {});
                             }
                         }
                     } else {
@@ -1110,6 +1132,7 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                             }
                         } else {
                             try self.emit(": runtime.PyValue");
+                            try self.pyvalue_hoisted_vars.put(escaped.name, {});
                         }
                     }
                 }
@@ -1119,6 +1142,10 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
             const fallback = inferFallbackType(null, escaped.source);
             try self.emit(": ");
             try self.emit(fallback);
+            // Track if hoisted with PyValue type for proper wrapping on assignment
+            if (std.mem.eql(u8, fallback, "runtime.PyValue")) {
+                try self.pyvalue_hoisted_vars.put(escaped.name, {});
+            }
         }
 
         try self.emit(" = undefined;\n");

@@ -562,6 +562,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
                 try self.emit(": runtime.PyValue = undefined;\n");
                 try self.hoisted_vars.put(var_name, {});
+                try self.pyvalue_hoisted_vars.put(var_name, {});
             }
         }
     }
@@ -731,9 +732,15 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     try self.declareVar(var_name);
                 } else if (is_hoisted) {
                     // Variable was hoisted by scope analyzer - still need to assign value
+                    // Check if hoisted as PyValue type - need to wrap with PyValue.from()
+                    const is_pyvalue_hoisted = self.pyvalue_hoisted_vars.contains(var_name);
                     try b.writeIndent();
                     try b.write(var_name);
-                    try b.write(" = runtime.unittest.ContextManager.init();\n");
+                    if (is_pyvalue_hoisted) {
+                        try b.write(" = runtime.PyValue.from(runtime.unittest.ContextManager.init());\n");
+                    } else {
+                        try b.write(" = runtime.unittest.ContextManager.init();\n");
+                    }
                 }
             }
         }

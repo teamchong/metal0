@@ -376,6 +376,9 @@ pub const NativeCodegen = struct {
     // Track variables hoisted from try blocks (to skip declaration in assignment)
     hoisted_vars: FnvVoidMap,
 
+    // Track variables hoisted with PyValue type (need PyValue.from() wrapper on assignment)
+    pyvalue_hoisted_vars: FnvVoidMap,
+
     // Track exception variable names (from "except X as name:") - typed as PyException
     exception_vars: FnvVoidMap,
 
@@ -984,6 +987,7 @@ pub const NativeCodegen = struct {
             .callable_context_param_type = null,
             .var_renames = FnvStringMap.init(aa),
             .hoisted_vars = FnvVoidMap.init(aa),
+            .pyvalue_hoisted_vars = FnvVoidMap.init(aa),
             .exception_vars = FnvVoidMap.init(aa),
             .pending_discards = FnvStringMap.init(aa),
             .vm_fallback_used_vars = FnvVoidMap.init(aa),
@@ -1962,6 +1966,80 @@ pub const NativeCodegen = struct {
             return b.getTypePool();
         }
         return null;
+    }
+
+    // ============================================================
+    // exprToValue - Bridge from AST expressions to ZigValue
+    // ============================================================
+    //
+    // This is the key integration point for structured codegen.
+    // Converts AST expressions to ZigValues with type confidence,
+    // enabling the builder's type-safe comparison/assertion APIs.
+
+    /// Convert an AST expression to a ZigValue with type confidence
+    /// This is the bridge between AST-based codegen and structured builder APIs.
+    ///
+    /// Returns:
+    /// - .certain_* variants for known types (literals, annotated variables)
+    /// - .uncertain_pyvalue for unknown types (user functions, subscripts)
+    /// - .raw_expr for complex expressions that need to be emitted as-is
+    ///
+    /// Usage:
+    ///   const left_val = try self.exprToValue(left_expr);
+    ///   const right_val = try self.exprToValue(right_expr);
+    ///   try builder.emitComparison(.eq, left_val, right_val);
+    pub fn exprToValue(self: *NativeCodegen, node: ast.Node) CodegenError!builder_mod.ZigValue {
+        switch (node) {
+            .constant => |c| {
+                return switch (c.value) {
+                    .int => |i| builder_mod.ZigValue.int(i),
+                    .float => |f| builder_mod.ZigValue.float(f),
+                    .string => |s| builder_mod.ZigValue.string(s),
+                    .bool_ => |b| builder_mod.ZigValue.boolean(b),
+                    .none => builder_mod.ZigValue.null_(),
+                    .bytes => |s| builder_mod.ZigValue.string(s),
+                    .complex_imag => builder_mod.ZigValue.pyvalue(.unknown),
+                };
+            },
+            .name => |n| {
+                const name = n.id;
+
+                // Check for Python singletons
+                if (std.mem.eql(u8, name, "True")) {
+                    return builder_mod.ZigValue.boolean(true);
+                }
+                if (std.mem.eql(u8, name, "False")) {
+                    return builder_mod.ZigValue.boolean(false);
+                }
+                if (std.mem.eql(u8, name, "None")) {
+                    return builder_mod.ZigValue.null_();
+                }
+
+                // Check type confidence from inferrer
+                if (self.type_inferrer.getTypedVar(name)) |typed| {
+                    if (typed.confidence == .uncertain or self.pyvalue_vars.contains(name)) {
+                        return builder_mod.ZigValue.pyvalue(.unknown);
+                    }
+                }
+
+                // Check if it's a PyValue variable
+                if (self.pyvalue_vars.contains(name)) {
+                    return builder_mod.ZigValue.pyvalue(.unknown);
+                }
+
+                // Return named reference (will be emitted as variable name)
+                return builder_mod.ZigValue.fromName(name);
+            },
+            else => {
+                // For complex expressions: emit to buffer, wrap as raw
+                // This is the escape hatch for expressions not yet fully migrated
+                const start = self.output.items.len;
+                try expr_emitter.genExpr(self, node);
+                const expr_str = try self.arena.allocator().dupe(u8, self.output.items[start..]);
+                self.output.shrinkRetainingCapacity(start);
+                return builder_mod.ZigValue.raw(expr_str);
+            },
+        }
     }
 
     // ============================================================
