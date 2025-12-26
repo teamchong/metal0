@@ -301,6 +301,11 @@ pub const NativeCodegen = struct {
     // Discards are emitted at end of scope after checking if variable was actually used
     pending_discards: FnvStringMap,
 
+    // Track which parameters have been discarded in current function scope
+    // Prevents duplicate `_ = &param;` emissions from multiple code paths
+    // Cleared when entering a new function scope
+    discarded_params: FnvVoidMap,
+
     // Starting position in output buffer for current function
     // Used to limit variable usage search to current function scope only
     function_start_pos: usize,
@@ -886,6 +891,7 @@ pub const NativeCodegen = struct {
             .hoisted_vars = FnvVoidMap.init(aa),
             .exception_vars = FnvVoidMap.init(aa),
             .pending_discards = FnvStringMap.init(aa),
+            .discarded_params = FnvVoidMap.init(aa),
             .function_start_pos = 0,
             .array_vars = FnvVoidMap.init(aa),
             .array_slice_vars = FnvVoidMap.init(aa),
@@ -1391,6 +1397,35 @@ pub const NativeCodegen = struct {
         return false;
     }
 
+    /// Check if a local variable name would shadow module-level declarations
+    /// Similar to wouldParamShadow but also checks for 'main' (the entry point)
+    pub fn wouldLocalShadow(self: *const NativeCodegen, name: []const u8) bool {
+        // Check for 'main' - the Zig entry point function
+        if (std.mem.eql(u8, name, "main")) return true;
+
+        // Use the same checks as wouldParamShadow
+        return self.wouldParamShadow(name);
+    }
+
+    /// Get a safe local variable name that won't shadow module-level declarations
+    /// If the name would shadow, generates a unique name and registers the rename mapping
+    /// Returns the safe name to use (original or renamed)
+    pub fn getSafeLocalName(self: *NativeCodegen, name: []const u8) CodegenError![]const u8 {
+        // If already renamed, return the existing renamed version
+        if (self.var_renames.get(name)) |existing| {
+            return existing;
+        }
+        // Check if this name would shadow
+        if (self.wouldLocalShadow(name)) {
+            // Generate unique name
+            const safe_name = try self.freshName(name);
+            // Register the rename so references to 'name' use 'safe_name'
+            try self.var_renames.put(name, safe_name);
+            return safe_name;
+        }
+        return name;
+    }
+
     /// Check if a variable is an exception variable (from "except X as name:")
     /// Exception variables are typed as runtime.PyException
     pub fn isExceptionVar(self: *NativeCodegen, name: []const u8) bool {
@@ -1861,6 +1896,30 @@ pub const NativeCodegen = struct {
     /// Use this for field names, method names, and type names only.
     pub fn emitIdent(self: *NativeCodegen, name: []const u8) CodegenError!void {
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name);
+    }
+
+    /// Emit a parameter discard statement: `_ = &param_name;`
+    /// This method tracks which parameters have been discarded in the current function scope.
+    /// If the parameter has already been discarded, this is a no-op (prevents duplicates).
+    /// Must call clearDiscardedParams() when entering a new function scope.
+    pub fn emitParamDiscard(self: *NativeCodegen, param_name: []const u8) CodegenError!void {
+        // Check if already discarded in current function scope
+        if (self.discarded_params.contains(param_name)) {
+            return; // Already discarded, skip duplicate
+        }
+        // Mark as discarded
+        try self.discarded_params.put(param_name, {});
+        // Emit the discard statement
+        try self.emitIndent();
+        try self.emit("_ = &");
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), param_name);
+        try self.emit(";\n");
+    }
+
+    /// Clear the discarded_params set when entering a new function scope.
+    /// This ensures discard tracking is isolated per function.
+    pub fn clearDiscardedParams(self: *NativeCodegen) void {
+        self.discarded_params.clearRetainingCapacity();
     }
 
     /// Emit inline block with callback pattern - automatically handles labels, braces, and semicolons
@@ -2590,15 +2649,6 @@ pub const NativeCodegen = struct {
     /// module imports are file-scope constants that can't be shadowed
     pub fn wouldShadowImport(self: *NativeCodegen, var_name: []const u8) bool {
         return self.imported_modules.contains(var_name);
-    }
-
-    /// Get a safe local variable name that won't shadow imported modules
-    /// Returns the original name if it doesn't conflict, or uses NameGen if it does
-    pub fn getSafeLocalName(self: *NativeCodegen, var_name: []const u8) ![]const u8 {
-        if (self.wouldShadowImport(var_name)) {
-            return try self.name_gen.local(var_name);
-        }
-        return var_name;
     }
 
     /// Get the renamed variable name for DECLARATIONS (const/var statements)

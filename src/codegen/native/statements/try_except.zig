@@ -567,25 +567,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         return; // Skip generating the full try/except structure
     }
 
-    // Check if we're in module mode (can generate functions) or function mode (cannot)
-    // In Zig, function definitions must be at module level, not inside other functions
-    const can_generate_functions = self.mode == .module;
-
-    // Hoist function definitions from except handlers to current level (if at module level)
-    // If inside a function (e.g., main()), skip function definitions entirely - they should have been
-    // handled by the from-import at module level which generates null stubs
-    for (try_node.handlers) |handler| {
-        for (handler.body) |stmt| {
-            if (stmt == .function_def) {
-                if (can_generate_functions) {
-                    // Generate the function definition at module level (before try block)
-                    try self.generateStmt(stmt);
-                }
-                // If not at module level, skip entirely - the function should already be declared
-                // as a const at module level by the from-import handler
-            }
-        }
-    }
+    // NOTE: Function definitions from except handlers are hoisted during Phase 5.1 in generator.zig
+    // This ensures they're at module level before main() is generated, not inside catch blocks.
+    // The handler body generation below will skip function_def statements that were hoisted.
 
     // First pass: collect variables declared in try block AND except handlers that need hoisting
     // Only hoist variables that aren't already declared in the current scope
@@ -1482,9 +1466,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                 }
                 for (handler.body) |stmt| {
-                    // Only skip function_def if it was already hoisted (at module level)
-                    // When inside a function/method, function defs in handlers must be generated inline
-                    if (stmt == .function_def and self.mode == .module) continue;
+                    // Skip function_def if it was already hoisted during Phase 5.1
+                    // (function definitions in except handlers are hoisted to module level)
+                    if (stmt == .function_def) {
+                        if (self.module_level_vars.contains(stmt.function_def.name)) continue;
+                    }
                     try self.generateStmt(stmt);
                 }
                 // If inside assertRaises context, break out of the __ar_blk block
@@ -1563,9 +1549,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                 }
                 for (handler.body) |stmt| {
-                    // Only skip function_def if it was already hoisted (at module level)
-                    // When inside a function/method, function defs in handlers must be generated inline
-                    if (stmt == .function_def and self.mode == .module) continue;
+                    // Skip function_def if it was already hoisted during Phase 5.1
+                    // (function definitions in except handlers are hoisted to module level)
+                    if (stmt == .function_def) {
+                        if (self.module_level_vars.contains(stmt.function_def.name)) continue;
+                    }
                     try self.generateStmt(stmt);
                 }
                 // If inside assertRaises context, break out of the __ar_blk block

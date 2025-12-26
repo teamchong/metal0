@@ -177,6 +177,7 @@ const shadowing_module_names = std.StaticStringMap(void).initComptime(.{
     .{ "string", {} }, // string module
     .{ "time", {} }, // time module
     .{ "random", {} }, // random module
+    .{ "main", {} }, // Entry point function - can't shadow pub fn main()
 });
 
 /// Check if a parameter name would shadow a common method name

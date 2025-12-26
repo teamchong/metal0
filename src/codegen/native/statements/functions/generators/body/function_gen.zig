@@ -512,6 +512,8 @@ pub fn genFunctionBody(
     // (e.g., def f() in one method shouldn't affect f = Foo() in another method)
     self.closure_vars.clearRetainingCapacity();
     self.void_closure_vars.clearRetainingCapacity();
+    // Clear discarded params tracking for new function scope
+    self.clearDiscardedParams();
     // NOTE: var_renames is NOT cleared here anymore.
     // Parameter renames are set up in generators.zig BEFORE signature generation,
     // so both signature and body use the same renamed names.
@@ -587,40 +589,20 @@ pub fn genFunctionBody(
         }
     }
 
-    // Emit discards for anytype parameters at the BEGINNING of function body
+    // Emit discards for ALL parameters at the BEGINNING of function body
     // This is necessary because:
-    // 1. anytype params can't be made anonymous ("_:") in the signature - they need a name for Zig to accept them
+    // 1. Params may be used in Python but compiled away (e.g., passed to an external function)
     // 2. The end-of-function unused param check is skipped when control_flow_terminated is true
-    // 3. Functions that panic/raise early would leave anytype params without discards
+    // 3. Functions that return in all branches would leave params without discards
     // By emitting discards upfront, we ensure they execute even if the function terminates early
+    // The centralized tracker prevents duplicate discards, so it's safe to always emit
     for (func.args) |arg| {
         // Skip params with defaults - they have different handling
         if (arg.default != null) continue;
-        // Check if this param is anytype by checking if it was used as a function/iterator/type-check
-        // (same conditions that make signature.zig emit "anytype")
-        const is_func_arg = param_analyzer.isParameterUsedAsFunction(func.body, arg.name);
-        const is_iter_arg = param_analyzer.isParameterUsedAsIterator(func.body, arg.name) and arg.type_annotation == null;
-        const is_type_check_arg = param_analyzer.isParameterUsedInTypeCheck(func.body, arg.name) and arg.type_annotation == null;
-        const is_passed_to_callable_arg = param_analyzer.isParameterPassedToCallableParam(func.body, arg.name, func.args);
-        // Check if function has any callable parameter
-        const has_callable_param_arg = blk: {
-            for (func.args) |p| {
-                if (param_analyzer.isParameterUsedAsFunction(func.body, p.name)) {
-                    break :blk true;
-                }
-            }
-            break :blk false;
-        };
-        const is_anytype_arg = is_func_arg or is_iter_arg or is_type_check_arg or
-            ((is_passed_to_callable_arg or has_callable_param_arg) and arg.type_annotation == null);
-
-        if (is_anytype_arg) {
-            // Emit discard for anytype param using address-of to avoid "pointless discard" error
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            try self.emit(";\n");
-        }
+        // Skip params made anonymous in signature (not used in Python source)
+        if (!param_analyzer.isNameUsedInBody(func.body, arg.name)) continue;
+        // Emit discard for this param
+        try self.emitParamDiscard(arg.name);
     }
 
     // Also emit discards for vararg (*args) and kwarg (**kwargs) parameters
@@ -628,19 +610,13 @@ pub fn genFunctionBody(
     if (func.vararg) |vararg_name| {
         // Only emit if vararg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(func.body, vararg_name)) {
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try self.emit(";\n");
+            try self.emitParamDiscard(vararg_name);
         }
     }
     if (func.kwarg) |kwarg_name| {
         // Only emit if kwarg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(func.body, kwarg_name)) {
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-            try self.emit(";\n");
+            try self.emitParamDiscard(kwarg_name);
         }
     }
 
@@ -935,6 +911,11 @@ pub fn genFunctionBody(
         };
 
         for (func.args) |arg| {
+            // Skip if param was already discarded at function start (prevents duplicates)
+            if (self.discarded_params.contains(arg.name)) {
+                continue;
+            }
+
             // Skip if param was made anonymous in the signature.
             // Check matches signature generation: for classes without known parent, params
             // only used in super() calls are made anonymous (super calls are stripped).
@@ -1326,6 +1307,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         self.pending_discards = saved_pending_discards;
     }
 
+    // Clear discarded params for this method scope
+    // Each method tracks its own discarded params to prevent duplicates
+    self.clearDiscardedParams();
+
     // Track whether we're inside a method with 'self' parameter.
     // This is used by generators.zig to know if a nested class should use __self.
     // The first parameter of a class method is always self (regardless of name like test_self, cls, etc.)
@@ -1476,10 +1461,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             "self";
 
         if (self_param_name) |spn| {
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try self.emit(spn);
-            try self.emit(";\n");
+            try self.emitParamDiscard(spn);
         }
     }
 
@@ -1495,10 +1477,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     if (is_comparison_method and method.args.len > 1) {
         // Second parameter (after self) is the comparison target
         const other_param_name = method.args[1].name;
-        try self.emitIndent();
-        try self.emit("_ = &");
-        try self.emit(other_param_name);
-        try self.emit(";\n");
+        try self.emitParamDiscard(other_param_name);
     }
 
     // For __deepcopy__ and __copy__ methods, emit suppression for memo parameter
@@ -1511,10 +1490,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         const memo_param_name = method.args[1].name;
         // Only emit discard if the param is used in Python (not made anonymous in signature)
         if (param_analyzer.isNameUsedInBody(method.body, memo_param_name)) {
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try self.emit(memo_param_name);
-            try self.emit(";\n");
+            try self.emitParamDiscard(memo_param_name);
         }
     }
     if (is_copy_method and method.args.len > 1) {
@@ -1522,10 +1498,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         for (method.args[1..]) |arg| {
             // Only emit discard if the param is used in Python (not made anonymous in signature)
             if (param_analyzer.isNameUsedInBody(method.body, arg.name)) {
-                try self.emitIndent();
-                try self.emit("_ = &");
-                try self.emit(arg.name);
-                try self.emit(";\n");
+                try self.emitParamDiscard(arg.name);
             }
         }
     }
@@ -1540,10 +1513,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // Only emit discard if the param is used in Python source (not made anonymous in signature)
             // If it was made anonymous, no discard needed
             if (param_analyzer.isNameUsedInBody(method.body, arg.name)) {
-                try self.emitIndent();
-                try self.emit("_ = &");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-                try self.emit(";\n");
+                try self.emitParamDiscard(arg.name);
             }
         }
     }
@@ -1557,7 +1527,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Check if class has a known parent - affects whether params only used in super() are anonymous
     const has_known_parent_for_discard = if (self.current_class_name) |ccn| self.getParentClassName(ccn) != null else true;
 
-    const start_param_idx = if (method.args.len > 0 and !is_staticmethod and !is_classmethod) @as(usize, 1) else @as(usize, 0);
+    // For regular methods: skip first param (self), start from index 1
+    // For static/class methods: start from index 0
+    // For implicit classmethods (__new__, etc.): skip first param (cls), start from index 1
+    //   NOTE: The cls param is not generated in the signature (replaced with _: std.mem.Allocator)
+    const start_param_idx = if (method.args.len > 0 and (!is_staticmethod and !is_classmethod or is_implicit_classmethod)) @as(usize, 1) else @as(usize, 0);
     for (method.args[start_param_idx..]) |arg| {
         // Skip if param was made anonymous in the signature.
         // For classes without known parent, params only used in super() calls are made anonymous.
@@ -1570,36 +1544,13 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             continue;
         }
 
-        // Check if this param is anytype by checking if it was used as a function/iterator/type-check
-        // (same conditions that make signature.zig emit "anytype")
-        const is_func = param_analyzer.isParameterUsedAsFunction(method.body, arg.name);
-        const is_iter = param_analyzer.isParameterUsedAsIterator(method.body, arg.name) and arg.type_annotation == null;
-        const is_type_check = param_analyzer.isParameterUsedInTypeCheck(method.body, arg.name) and arg.type_annotation == null;
-        const is_passed_to_callable = param_analyzer.isParameterPassedToCallableParam(method.body, arg.name, method.args);
-        // Check if function has any callable parameter
-        const has_callable_param = blk: {
-            for (method.args) |p| {
-                if (param_analyzer.isParameterUsedAsFunction(method.body, p.name)) {
-                    break :blk true;
-                }
-            }
-            break :blk false;
-        };
-        // Also check anytype_params which is populated during signature generation
-        // This catches cases where signature.zig determined the param should be anytype
-        // but the conditions here don't match (e.g., subscript access like state["foo"])
-        const is_in_anytype_params = self.anytype_params.contains(arg.name);
-        const is_anytype = (is_func and arg.default == null) or is_iter or is_type_check or
-            ((is_passed_to_callable or has_callable_param) and arg.type_annotation == null) or
-            is_in_anytype_params;
-
-        if (is_anytype) {
-            // Emit discard for anytype param using address-of to avoid "pointless discard" error
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            try self.emit(";\n");
-        }
+        // Emit discard for ALL params that are used in Python source.
+        // This is necessary because:
+        // 1. The param may be used in Python but compiled away (e.g., passed to an external function)
+        // 2. If function terminates early (return in all branches), control_flow_terminated is true
+        //    and end-of-function discard logic is skipped
+        // 3. The centralized tracker prevents duplicate discards, so it's safe to always emit
+        try self.emitParamDiscard(arg.name);
     }
 
     // Also emit discards for vararg (*args) and kwarg (**kwargs) parameters
@@ -1607,19 +1558,13 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     if (method.vararg) |vararg_name| {
         // Only emit if vararg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(method.body, vararg_name)) {
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try self.emit(";\n");
+            try self.emitParamDiscard(vararg_name);
         }
     }
     if (method.kwarg) |kwarg_name| {
         // Only emit if kwarg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(method.body, kwarg_name)) {
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-            try self.emit(";\n");
+            try self.emitParamDiscard(kwarg_name);
         }
     }
 
@@ -1888,6 +1833,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Start from 1 to skip self parameter (already handled above)
         const start_param = if (method.args.len > 0) @as(usize, 1) else @as(usize, 0);
         for (method.args[start_param..]) |arg| {
+            // Skip if param was already discarded at method start (prevents duplicates)
+            if (self.discarded_params.contains(arg.name)) {
+                continue;
+            }
+
             // Skip if param was made anonymous in the signature.
             // Check matches signature generation: for classes without known parent, params
             // only used in super() calls are made anonymous (super calls are stripped).

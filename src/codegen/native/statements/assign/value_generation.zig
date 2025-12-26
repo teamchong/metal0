@@ -112,15 +112,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.type_inferrer.putScopedVar(var_name, source_type.array.element_type.*);
             }
 
-            // Check if var_name would shadow a module-level import, function, or global var
-            // If so, use NameGen for consistent unique naming
-            const shadows_import = self.imported_modules.contains(var_name);
-            const shadows_module_func = self.module_level_funcs.contains(var_name);
-            const shadows_global = self.isGlobalVar(var_name);
-            if ((shadows_import or shadows_module_func or shadows_global) and !self.var_renames.contains(var_name)) {
-                const prefixed_name = try self.name_gen.local(var_name);
-                try self.var_renames.put(var_name, prefixed_name);
-            }
+            // Check if var_name would shadow module-level declarations (imports, funcs, vars, 'main')
+            // getSafeLocalName handles all shadow cases and adds to var_renames if needed
+            _ = try self.getSafeLocalName(var_name);
 
             // Use renamed version for declarations (filters out lazy attribute patterns)
             const actual_name = self.getVarDeclName(var_name);
@@ -428,6 +422,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             } else if (type_traits.isArray(source_type)) {
                 try self.type_inferrer.putScopedVar(var_name, source_type.array.element_type.*);
             }
+
+            // Check if var_name would shadow module-level declarations (imports, funcs, vars, 'main')
+            // getSafeLocalName handles all shadow cases and adds to var_renames if needed
+            _ = try self.getSafeLocalName(var_name);
 
             // Use renamed version for declarations (filters out lazy attribute patterns)
             const actual_name = self.getVarDeclName(var_name);

@@ -272,6 +272,83 @@ pub fn format_error(expected: anytype, actual: anytype) []const u8 {
 }
 
 // ============================================================================
+// Output Capture Context Managers
+// ============================================================================
+
+/// Context manager for capturing stdout
+/// In AOT compilation, this is a no-op that returns empty content
+pub const captured_stdout = struct {
+    const Self = @This();
+
+    /// Enter context - returns self
+    pub fn __enter__(self: *Self) *Self {
+        return self;
+    }
+
+    /// Exit context - no-op
+    pub fn __exit__(_: *Self, _: anytype, _: anytype, _: anytype) bool {
+        return false;
+    }
+
+    /// Get captured content (always empty in AOT)
+    pub fn getvalue(_: *Self) []const u8 {
+        return "";
+    }
+
+    /// Initialize context manager
+    pub fn init() Self {
+        return .{};
+    }
+};
+
+/// Context manager for capturing stderr
+/// In AOT compilation, this is a no-op that returns empty content
+pub const captured_stderr = struct {
+    const Self = @This();
+
+    /// Enter context - returns self
+    pub fn __enter__(self: *Self) *Self {
+        return self;
+    }
+
+    /// Exit context - no-op
+    pub fn __exit__(_: *Self, _: anytype, _: anytype, _: anytype) bool {
+        return false;
+    }
+
+    /// Get captured content (always empty in AOT)
+    pub fn getvalue(_: *Self) []const u8 {
+        return "";
+    }
+
+    /// Initialize context manager
+    pub fn init() Self {
+        return .{};
+    }
+};
+
+/// Context manager for capturing stdin
+/// In AOT compilation, this is a no-op
+pub const captured_stdin = struct {
+    const Self = @This();
+
+    /// Enter context - returns self
+    pub fn __enter__(self: *Self) *Self {
+        return self;
+    }
+
+    /// Exit context - no-op
+    pub fn __exit__(_: *Self, _: anytype, _: anytype, _: anytype) bool {
+        return false;
+    }
+
+    /// Initialize context manager
+    pub fn init() Self {
+        return .{};
+    }
+};
+
+// ============================================================================
 // Warning Helpers
 // ============================================================================
 

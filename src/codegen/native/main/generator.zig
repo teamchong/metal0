@@ -525,6 +525,27 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // This prevents the state from leaking into subsequent class definitions
             // which could incorrectly trigger `_ = &ClassName;` emission at struct level
             self.func_local_uses.clearRetainingCapacity();
+        } else if (stmt == .try_stmt) {
+            // Hoist function definitions from except handlers to module level
+            // This is needed because:
+            // 1. try/except is processed inside main() later (Phase 7)
+            // 2. Zig doesn't allow function definitions inside catch blocks
+            // 3. Python pattern: try: import X except: def X(): pass
+            const try_node = stmt.try_stmt;
+            for (try_node.handlers) |handler| {
+                for (handler.body) |h_stmt| {
+                    if (h_stmt == .function_def) {
+                        // Generate function at module level (before main)
+                        self.recordLineMappingForName(h_stmt.function_def.name);
+                        try statements.genFunctionDef(self, h_stmt.function_def);
+                        try self.emit("\n");
+                        self.func_local_uses.clearRetainingCapacity();
+                        // Mark as hoisted so we skip it in the handler body later
+                        // Use module_level_vars (not hoisted_vars) since hoisted_vars gets cleared before main()
+                        try self.module_level_vars.put(h_stmt.function_def.name, {});
+                    }
+                }
+            }
         } else if (stmt == .assign) {
             if (self.mode == .module) {
                 // In module mode, export constants as pub const

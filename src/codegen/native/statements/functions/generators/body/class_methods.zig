@@ -1539,10 +1539,7 @@ pub fn genInitMethodFromNew(
                 }
                 break :blk arg.name;
             };
-            try self.emitIndent();
-            try self.emit("_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), param_name);
-            try self.emit(";\n");
+            try self.emitParamDiscard(param_name);
         }
     }
 
