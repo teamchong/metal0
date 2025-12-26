@@ -381,6 +381,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("secrets", .zig_runtime, "runtime.Lib.secrets", null);
     try registry.register("csv", .zig_runtime, "runtime.Lib.csv", null);
     try registry.register("configparser", .zig_runtime, "runtime.Lib.configparser", null);
+    try registry.register("copyreg", .zig_runtime, "runtime.Lib.copyreg", null);
+    try registry.register("keyword", .zig_runtime, "runtime.Lib.keyword", null);
     try registry.register("argparse", .zig_runtime, "runtime.Lib.argparse", null);
     try registry.register("zipfile", .zig_runtime, "runtime.Lib.zipfile", null);
     try registry.register("gzip", .zig_runtime, "std", "z");

@@ -524,6 +524,10 @@ const object_zig = @import("Objects/object.zig");
 pub const PyValue = object_zig.PyValue;
 /// Convert any value to PyValue (O(n) instantiations instead of O(n²))
 pub const toPyValue = object_zig.toPyValue;
+/// HashMap with PyValue keys - for dicts with non-string keys (tuples, ints, bools, etc.)
+pub const PyValueHashMap = object_zig.PyValueHashMap;
+/// Hash context for PyValue keys (exposed for custom hashmap usage)
+pub const PyValueHashContext = object_zig.PyValueHashContext;
 
 /// Export NativeList - unified list type for native codegen (avoids anytype monomorphization)
 /// See listobject.zig for full documentation
