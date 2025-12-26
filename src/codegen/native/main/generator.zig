@@ -21,6 +21,7 @@ const FnvVoidMap = hashmap_helper.StringHashMap(void);
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const module_functions = @import("../dispatch/module_functions.zig");
 
 // Comptime constants for code generation (zero runtime cost)
 const BUILD_DIR = build_dirs.CACHE;
@@ -258,6 +259,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         if (std.mem.eql(u8, mod_name, "builtins")) {
             // Generate: const builtins = runtime.builtins;
             try self.emit("const builtins = runtime.builtins;\n");
+            try emitted_module_consts.put(mod_name, {});
+            continue;
+        }
+
+        // Special handling for codegen-only modules (e.g., logic_table)
+        // These modules have dispatch handlers but no runtime library - dispatch.zig handles them
+        if (module_functions.hasCodegenDispatch(mod_name)) {
+            // Track as imported (so needsVMFallback returns false), but don't generate any import code
+            const mod_copy = try self.arena.allocator().dupe(u8, mod_name);
+            try self.imported_modules.put(mod_copy, {});
             try emitted_module_consts.put(mod_name, {});
             continue;
         }

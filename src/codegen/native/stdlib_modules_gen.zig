@@ -647,8 +647,6 @@ pub const stdlib_module_names = [_][]const u8{
     "keyword",
     "linecache",
     "locale",
-    // metal0 native modules (GPU-accelerated data processing)
-    "logic_table",
     "logging",
     "logging.config",
     "logging.filter",

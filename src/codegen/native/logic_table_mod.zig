@@ -63,7 +63,7 @@ fn logicTableDecorator(self: *h.NativeCodegen, args: []@import("analysis.ast").N
 /// GPU dispatch on Apple Silicon, SIMD fallback elsewhere
 fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
-        try self.emit("@as(f32, 0.0)");
+        try self.emit("@as(f64, 0.0)");
         return;
     }
 
@@ -73,9 +73,11 @@ fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Cod
     try self.emit("; const __b = ");
     try self.genExpr(args[1]);
     // GPU-accelerated dot product with normalization
+    // Use @TypeOf to infer element type from array (works with f32 or f64)
     try self.emitFmt(
         \\; const __dim = @min(__a.len, __b.len);
-        \\var __dot: f32 = 0.0; var __norm_a: f32 = 0.0; var __norm_b: f32 = 0.0;
+        \\const __ElemType = @typeInfo(@TypeOf(__a)).array.child;
+        \\var __dot: __ElemType = 0.0; var __norm_a: __ElemType = 0.0; var __norm_b: __ElemType = 0.0;
         \\var __i: usize = 0;
         \\while (__i < __dim) : (__i += 1) {{
         \\    __dot += __a[__i] * __b[__i];
@@ -83,7 +85,7 @@ fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Cod
         \\    __norm_b += __b[__i] * __b[__i];
         \\}}
         \\const __denom = @sqrt(__norm_a) * @sqrt(__norm_b);
-        \\break :{s} if (__denom > 0.0) __dot / __denom else 0.0;
+        \\break :{s} @as(f64, if (__denom > 0.0) __dot / __denom else 0.0);
     , .{label});
     try self.emitInlineBlockEnd();
 }
@@ -91,7 +93,7 @@ fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Cod
 /// l2_distance(a, b) - L2 (Euclidean) distance between two vectors
 fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
-        try self.emit("@as(f32, 0.0)");
+        try self.emit("@as(f64, 0.0)");
         return;
     }
 
@@ -102,7 +104,8 @@ fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
     try self.genExpr(args[1]);
     try self.emitFmt(
         \\; const __dim = @min(__a.len, __b.len);
-        \\var __sum: f32 = 0.0;
+        \\const __ElemType = @typeInfo(@TypeOf(__a)).array.child;
+        \\var __sum: __ElemType = 0.0;
         \\var __i: usize = 0;
         \\while (__i < __dim) : (__i += 1) {{
         \\    const __diff = __a[__i] - __b[__i];
@@ -116,7 +119,7 @@ fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
 /// dot_product(a, b) - dot product of two vectors
 fn dotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
-        try self.emit("@as(f32, 0.0)");
+        try self.emit("@as(f64, 0.0)");
         return;
     }
 
@@ -127,7 +130,8 @@ fn dotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
     try self.genExpr(args[1]);
     try self.emitFmt(
         \\; const __dim = @min(__a.len, __b.len);
-        \\var __sum: f32 = 0.0;
+        \\const __ElemType = @typeInfo(@TypeOf(__a)).array.child;
+        \\var __sum: __ElemType = 0.0;
         \\var __i: usize = 0;
         \\while (__i < __dim) : (__i += 1) {{
         \\    __sum += __a[__i] * __b[__i];

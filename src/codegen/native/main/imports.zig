@@ -533,6 +533,17 @@ pub fn collectImports(
                 continue;
             }
 
+            // Check if module has codegen-level handlers (function-only modules like logic_table)
+            // These modules are handled at compile time via dispatch, not runtime
+            const module_functions_dispatch = @import("../dispatch/module_functions.zig");
+            if (module_functions_dispatch.hasCodegenDispatch(python_module)) {
+                // Module has function handlers but no runtime library
+                // Mark as "codegen only" so dispatch works but no runtime import is generated
+                std.debug.print("Info: Module '{s}' has codegen dispatch (no runtime library)\n", .{python_module});
+                try self.markCodegenOnlyModule(python_module);
+                continue;
+            }
+
             // If this is a known CPython builtin module but we don't have an implementation,
             // use VM fallback for drop-in CPython replacement
             if (import_resolver.isBuiltinModule(python_module)) {

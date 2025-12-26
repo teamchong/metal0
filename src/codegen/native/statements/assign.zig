@@ -1663,6 +1663,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_first_assignment) {
                 const suppress_name = self.var_renames.get(var_name) orelse var_name;
                 // Record both the original name and the emitted name for later discard check
+                std.debug.print("assign: adding '{s}' -> '{s}' to pending_discards\n", .{ var_name, suppress_name });
                 try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
             }
 

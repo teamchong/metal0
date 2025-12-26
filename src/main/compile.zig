@@ -23,6 +23,7 @@ const build_dirs = @import("../build_dirs.zig");
 const debug_info = @import("debug.debug_info");
 const zig_keywords = @import("utils.zig_keywords");
 const module_signature_cache = @import("../analysis/module_signature_cache.zig");
+const module_functions = @import("../codegen/native/dispatch/module_functions.zig");
 
 // Submodules
 const cache = @import("compile/cache.zig");
@@ -298,6 +299,11 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
                 if (info.strategy == .zig_runtime or info.strategy == .c_library) {
                     continue;
                 }
+            }
+
+            // Skip codegen-only modules (they have dispatch handlers but no Python source)
+            if (module_functions.hasCodegenDispatch(module_name)) {
+                continue;
             }
 
             _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry, &sig_cache) catch |err| {
@@ -637,6 +643,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 if (info.strategy == .zig_runtime or info.strategy == .c_library) {
                     continue;
                 }
+            }
+
+            // Skip codegen-only modules (they have dispatch handlers but no Python source)
+            if (module_functions.hasCodegenDispatch(module_name)) {
+                continue;
             }
 
             const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry2, &sig_cache2) catch |err| {

@@ -100,18 +100,25 @@ pub fn emitVMFallbackFromAST(self: *NativeCodegen, node: ast.Node) CodegenError!
 fn collectVMFallbackVars(self: *NativeCodegen, node: ast.Node) !void {
     switch (node) {
         .name => |n| {
-            // Skip Python builtins and keywords
+            // Skip Python builtins and keywords - these don't need discards
             if (std.mem.eql(u8, n.id, "None") or std.mem.eql(u8, n.id, "True") or
                 std.mem.eql(u8, n.id, "False") or std.mem.eql(u8, n.id, "self") or
-                std.mem.eql(u8, n.id, "complex") or std.mem.eql(u8, n.id, "operator"))
+                std.mem.eql(u8, n.id, "complex") or std.mem.eql(u8, n.id, "operator") or
+                std.mem.eql(u8, n.id, "int") or std.mem.eql(u8, n.id, "float") or
+                std.mem.eql(u8, n.id, "str") or std.mem.eql(u8, n.id, "list") or
+                std.mem.eql(u8, n.id, "dict") or std.mem.eql(u8, n.id, "set") or
+                std.mem.eql(u8, n.id, "tuple") or std.mem.eql(u8, n.id, "len") or
+                std.mem.eql(u8, n.id, "range") or std.mem.eql(u8, n.id, "print") or
+                std.mem.eql(u8, n.id, "type") or std.mem.eql(u8, n.id, "isinstance") or
+                std.mem.eql(u8, n.id, "hasattr") or std.mem.eql(u8, n.id, "getattr"))
             {
                 return;
             }
-            // Only track local variables (check if declared)
-            if (self.func_local_vars.contains(n.id) or self.symbol_table.lookup(n.id) != null) {
-                const name_copy = try self.arena.allocator().dupe(u8, n.id);
-                try self.vm_fallback_used_vars.put(name_copy, {});
-            }
+            // Track ALL variable names in VM fallback expressions
+            // The discard emitter will check if they're actually in scope
+            std.debug.print("collectVMFallbackVars: adding '{s}'\n", .{n.id});
+            const name_copy = try self.arena.allocator().dupe(u8, n.id);
+            try self.vm_fallback_used_vars.put(name_copy, {});
         },
         .call => |call| {
             try collectVMFallbackVars(self, call.func.*);
@@ -802,6 +809,11 @@ pub const NativeCodegen = struct {
     // Used to skip calls to functions that weren't generated
     skipped_functions: FnvVoidMap,
 
+    // Track "codegen only" modules (function handlers only, no runtime library)
+    // These modules like 'logic_table' are handled purely at compile time via dispatch
+    // Maps module name -> void (e.g., "logic_table" -> {})
+    codegen_only_modules: FnvVoidMap,
+
     // Track C extension modules (numpy, pandas, etc.)
     // Maps module name -> alias name (e.g., "numpy" -> "np", "pandas" -> "pd")
     // These are loaded at runtime via PyImport_ImportModule
@@ -1077,6 +1089,7 @@ pub const NativeCodegen = struct {
             .target_wasm_browser = false,
             .skipped_modules = FnvVoidMap.init(aa),
             .skipped_functions = FnvVoidMap.init(aa),
+            .codegen_only_modules = FnvVoidMap.init(aa),
             .c_extension_modules = FnvStringMap.init(aa),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(aa),
             .local_from_imports = FnvStringMap.init(aa),
@@ -1594,6 +1607,10 @@ pub const NativeCodegen = struct {
                         const var_name = attr.value.name.id;
                         // Imported modules are always known at compile time - let dispatch handle them
                         if (self.import_aliases.contains(var_name)) {
+                            return false;
+                        }
+                        // Direct imports (import X) are also known - let dispatch handle them
+                        if (self.imported_modules.contains(var_name)) {
                             return false;
                         }
                         // If receiver type is uncertain, we can't statically dispatch
@@ -2634,6 +2651,12 @@ pub const NativeCodegen = struct {
         const output_str = self.output.items;
         const search_start = self.function_start_pos;
 
+        std.debug.print("emitScopedDiscards: pending_discards count = {}, vm_fallback_used_vars count = {}\n", .{ self.pending_discards.count(), self.vm_fallback_used_vars.count() });
+        var dbg_it = self.pending_discards.iterator();
+        while (dbg_it.next()) |dbg_entry| {
+            std.debug.print("  pending_discards contains: '{s}'\n", .{dbg_entry.key_ptr.*});
+        }
+
         // Collect keys to remove (can't modify during iteration)
         var to_remove: std.ArrayList([]const u8) = .empty;
         defer to_remove.deinit(self.allocator);
@@ -2644,7 +2667,9 @@ pub const NativeCodegen = struct {
             const emit_name = entry.value_ptr.*;
 
             // Only process variables declared in current scope
-            if (!self.symbol_table.isDeclaredInCurrentScope(var_name)) continue;
+            const in_scope = self.symbol_table.isDeclaredInCurrentScope(var_name);
+            std.debug.print("emitScopedDiscards: checking '{s}', in_scope={}\n", .{ var_name, in_scope });
+            if (!in_scope) continue;
 
             // Count occurrences of the variable name as a complete identifier
             // Skip occurrences inside string literals (e.g., VM fallback strings like "lhs.split()")
@@ -2680,6 +2705,39 @@ pub const NativeCodegen = struct {
         // Remove processed entries
         for (to_remove.items) |key| {
             _ = self.pending_discards.swapRemove(key);
+        }
+
+        // Also emit discards for variables referenced only in VM fallback expressions
+        // These variables are declared but only appear inside eval string literals
+        // The occurrence count check above may not find them because:
+        // 1. Builder pattern puts code in builder buffer, not self.output
+        // 2. Variables inside eval strings are not counted as usage
+        var vm_it = self.vm_fallback_used_vars.iterator();
+        while (vm_it.next()) |entry| {
+            const var_name = entry.key_ptr.*;
+
+            // Skip variables already processed via pending_discards
+            var already_processed = false;
+            for (to_remove.items) |processed_name| {
+                if (std.mem.eql(u8, var_name, processed_name)) {
+                    already_processed = true;
+                    break;
+                }
+            }
+            if (already_processed) continue;
+
+            // Check if this variable was declared by looking at type inferrer
+            // Variables in VM fallback that were declared will have a type entry
+            const var_type = self.type_inferrer.var_types.get(var_name) orelse continue;
+            _ = var_type;
+
+            // Get the renamed name if applicable
+            const emit_name = self.var_renames.get(var_name) orelse var_name;
+
+            try self.emitIndent();
+            try emitConst(self, "_ = &");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
+            try emitConst(self, ";\n");
         }
     }
 
@@ -2820,6 +2878,21 @@ pub const NativeCodegen = struct {
     pub fn markSkippedModule(self: *NativeCodegen, module_name: []const u8) !void {
         const name_copy = try self.arena.allocator().dupe(u8, module_name);
         try self.skipped_modules.put(name_copy, {});
+    }
+
+    /// Check if a module is "codegen only" (has function handlers but no runtime library)
+    /// These modules like 'logic_table' are handled purely at compile time via dispatch
+    pub fn isCodegenOnlyModule(self: *NativeCodegen, module_name: []const u8) bool {
+        return self.codegen_only_modules.contains(module_name);
+    }
+
+    /// Mark a module as "codegen only" (function handlers only, no runtime library)
+    /// Also tracks in imported_modules so needsVMFallback returns false for these modules
+    pub fn markCodegenOnlyModule(self: *NativeCodegen, module_name: []const u8) !void {
+        const name_copy = try self.arena.allocator().dupe(u8, module_name);
+        try self.codegen_only_modules.put(name_copy, {});
+        // Also track as imported so needsVMFallback() returns false for module.func() calls
+        try self.imported_modules.put(name_copy, {});
     }
 
     /// Check if a function was skipped (references skipped modules)

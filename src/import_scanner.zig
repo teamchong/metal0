@@ -277,6 +277,13 @@ pub const ImportGraph = struct {
                 std.debug.print("  Skipped import (zig_runtime): {s}\n", .{import_name});
                 continue;
             }
+            // Skip modules with codegen-only dispatch (function handlers, no runtime library)
+            // These are handled at compile time via module_functions.tryDispatch
+            const module_functions = @import("codegen/native/dispatch/module_functions.zig");
+            if (module_functions.hasCodegenDispatch(import_name)) {
+                std.debug.print("  Skipped import (codegen_dispatch): {s}\n", .{import_name});
+                continue;
+            }
             // Skip C extension modules - they're loaded at runtime via c_interop
             if (import_resolver.isCExtension(import_name, self.allocator)) {
                 std.debug.print("  Skipped import (c_extension): {s}\n", .{import_name});
