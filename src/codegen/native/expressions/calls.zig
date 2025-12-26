@@ -661,8 +661,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     needs_try = traits.can_error;
                 } else {
                     // Function not found in local module - use VM fallback for drop-in CPython replacement
-                    const core = @import("../main/core.zig");
-                    try core.emitVMFallbackFromAST(self, .{ .call = call });
+                    try self.emitVMFallback(.{ .call = call });
                     return;
                 }
             } else {
@@ -789,8 +788,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
                             if (arg == .starred) {
                                 // Starred arg in mixed context - use VM fallback for drop-in CPython replacement
-                                const core = @import("../main/core.zig");
-                                try core.emitVMFallbackFromAST(self, .{ .call = call });
+                                try self.emitVMFallback(.{ .call = call });
                                 return;
                             } else {
                                 try emitConst(self, "runtime.PyValue.from(");

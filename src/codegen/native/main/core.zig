@@ -1008,6 +1008,12 @@ pub const NativeCodegen = struct {
         return self;
     }
 
+    /// Emit VM fallback from AST node (auto-converts to Python source)
+    /// This method allows direct calls via self.emitVMFallback() without importing core.zig
+    pub fn emitVMFallback(self: *NativeCodegen, node: ast.Node) CodegenError!void {
+        return emitVMFallbackFromAST(self, node);
+    }
+
     pub fn setImportContext(self: *NativeCodegen, ctx: *const @import("c_interop").ImportContext) void {
         self.import_ctx = ctx;
     }

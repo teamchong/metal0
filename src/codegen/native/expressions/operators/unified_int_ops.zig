@@ -197,8 +197,7 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         },
         else => {
             // Unsupported UnifiedInt op - use VM fallback for drop-in CPython replacement
-            const core = @import("../../main/core.zig");
-            try core.emitVMFallbackFromAST(self, .{ .binop = binop });
+            try self.emitVMFallback(.{ .binop = binop });
         },
     }
 }
@@ -236,8 +235,7 @@ pub fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: N
         .Div => "div",
         else => {
             // Unsupported complex operation - use VM fallback for drop-in CPython replacement
-            const core = @import("../../main/core.zig");
-            try core.emitVMFallbackFromAST(self, .{ .binop = binop });
+            try self.emitVMFallback(.{ .binop = binop });
             return;
         },
     };

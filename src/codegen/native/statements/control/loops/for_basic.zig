@@ -693,8 +693,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             genEnumerateLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body, for_stmt.orelse_body) catch |err| {
                 if (err == error.UnsupportedSyntax) {
                     // Use VM fallback for unsupported syntax - drop-in CPython replacement
-                    const core = @import("../../../main/core.zig");
-                    try core.emitVMFallbackFromAST(self, .{ .for_stmt = for_stmt });
+                    try self.emitVMFallback(.{ .for_stmt = for_stmt });
                     try emitConst(self, ";\n");
                     return;
                 }
@@ -724,8 +723,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Regular iteration over collection - requires single target variable
     if (for_stmt.target.* != .name) {
         // Unsupported target type - use VM fallback for drop-in CPython replacement
-        const core = @import("../../../main/core.zig");
-        try core.emitVMFallbackFromAST(self, .{ .for_stmt = for_stmt });
+        try self.emitVMFallback(.{ .for_stmt = for_stmt });
         try emitConst(self, ";\n");
         return;
     }
@@ -2132,8 +2130,7 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Get the loop variable name
     if (for_stmt.target.* != .name) {
         // Async for with tuple unpacking - use VM fallback for drop-in CPython replacement
-        const core = @import("../../../main/core.zig");
-        try core.emitVMFallbackFromAST(self, .{ .for_stmt = for_stmt });
+        try self.emitVMFallback(.{ .for_stmt = for_stmt });
         try emitConst(self, ";\n");
         return;
     }

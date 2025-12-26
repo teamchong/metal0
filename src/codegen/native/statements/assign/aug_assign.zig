@@ -134,8 +134,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     // Dynamic attribute aug assign: put the new value
                     // Note: Pow and MatMul use VM fallback for dynamic dict attributes
                     if (aug.op == .Pow or aug.op == .MatMul) {
-                        const core = @import("../../main/core.zig");
-                        try core.emitVMFallbackFromAST(self, .{ .aug_assign = aug });
+                        try self.emitVMFallback(.{ .aug_assign = aug });
                         try emitConst(self, ";\n");
                         return;
                     }
@@ -278,8 +277,7 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         } else {
             // Other operators (Sub, Div, etc.) are not valid for slice assignment in Python
             // Python raises TypeError at runtime - use VM fallback for drop-in CPython replacement
-            const core = @import("../../main/core.zig");
-            try core.emitVMFallbackFromAST(self, .{ .aug_assign = aug });
+            try self.emitVMFallback(.{ .aug_assign = aug });
             try emitConst(self,";\n");
         }
 

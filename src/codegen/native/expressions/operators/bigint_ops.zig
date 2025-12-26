@@ -321,8 +321,7 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     const op_name = @tagName(binop.op);
     const runtime_fn = BigIntRuntimeOps.get(op_name) orelse {
         // Unsupported operation - use VM fallback for drop-in CPython replacement
-        const core = @import("../../main/core.zig");
-        try core.emitVMFallbackFromAST(self, .{ .binop = binop });
+        try self.emitVMFallback(.{ .binop = binop });
         return;
     };
 
