@@ -155,9 +155,10 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
                     name;
                 // Wrap as PyValue with vtable pointer
                 // This allows class objects to be passed as values in Python
-                try self.emit("runtime.PyValue{ .ptr = @ptrCast(&");
+                // Use @constCast since __vtable__ is a pub const
+                try self.emit("runtime.PyValue{ .ptr = @constCast(@ptrCast(&");
                 try self.emit(zig_name);
-                try self.emit(".__vtable__) }");
+                try self.emit(".__vtable__)) }");
                 continue;
             }
         }

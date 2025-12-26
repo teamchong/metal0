@@ -971,8 +971,9 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
 
         try self.emitIndent();
         try self.emit("var ");
-        // Use escaped name directly since we already computed and tracked the rename
-        try self.emit(actual_name);
+        // Use writeEscapedIdent to handle Zig keywords (like "packed")
+        // Note: actual_name already has method-shadowing suffix if needed
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
 
         if (escaped.init_expr) |init| {
             // Check for self-reference: `line = line.strip()` where init references the variable being declared
