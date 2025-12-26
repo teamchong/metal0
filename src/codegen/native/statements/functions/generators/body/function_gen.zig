@@ -780,13 +780,9 @@ pub fn genFunctionBody(
     defer forward_refs.deinit(self.allocator);
     for (forward_refs.items) |fwd_var| {
         // Check if this variable would shadow a module-level declaration
-        // (module-level functions, imports, module-level vars, or global vars declared with 'global' keyword)
-        // If so, rename to avoid Zig's shadowing error
+        // Use CONSOLIDATED helper for most checks, plus isGlobalVar for forward vars
         var actual_fwd_var = fwd_var;
-        const shadows_module_level = self.module_level_funcs.contains(fwd_var) or
-            self.imported_modules.contains(fwd_var) or
-            self.module_level_vars.contains(fwd_var) or
-            self.isGlobalVar(fwd_var);
+        const shadows_module_level = self.wouldParamShadow(fwd_var) or self.isGlobalVar(fwd_var);
         if (shadows_module_level) {
             // Rename to avoid shadowing using NameGen for consistent naming
             const renamed = try self.name_gen.local(fwd_var);
@@ -1660,8 +1656,12 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             continue;
         }
         is_first = false;
-        // Check if this param would shadow a method name or sibling class method
-        const shadows_builtin_method = zig_keywords.wouldShadowMethod(arg.name);
+        // Use CONSOLIDATED helper for module-level shadowing detection
+        // This checks module_level_funcs, module_level_vars, imported_modules,
+        // module_level_from_imports, and zig_keywords shadow lists
+        const shadows_module_level = self.wouldParamShadow(arg.name);
+
+        // Check if param would shadow a sibling class method or attribute
         const shadows_class_method = if (self.current_class_body) |cb| blk: {
             for (cb) |stmt| {
                 if (stmt == .function_def) {
@@ -1685,14 +1685,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             break :blk false;
         } else false;
 
-        // Also check if parameter shadows an imported module (e.g., 'test', 'copy')
-        const shadows_imported_module = self.imported_modules.contains(arg.name);
-
         // Check if parameter shadows a local variable from an outer scope
         // e.g., for module in modules: class C: def setUpClass(module): ... - `module` shadows loop var
         const shadows_local_scope = self.isDeclaredInAnyScope(arg.name);
 
-        if (shadows_builtin_method or shadows_class_method or shadows_imported_module or shadows_local_scope) {
+        if (shadows_module_level or shadows_class_method or shadows_local_scope) {
             // Use deterministic rename pattern to match signature.zig
             // Both signature and body must use the same name ({name}__shadow)
             const renamed = try std.fmt.allocPrint(self.allocator, "{s}__shadow", .{arg.name});
@@ -1783,13 +1780,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     defer forward_refs_method.deinit(self.allocator);
     for (forward_refs_method.items) |fwd_var| {
         // Check if this variable would shadow a module-level declaration
-        // (module-level functions, imports, module-level vars, or global vars declared with 'global' keyword)
-        // If so, rename to avoid Zig's shadowing error
+        // Use CONSOLIDATED helper for most checks, plus isGlobalVar for forward vars
         var actual_fwd_var = fwd_var;
-        const shadows_module_level = self.module_level_funcs.contains(fwd_var) or
-            self.imported_modules.contains(fwd_var) or
-            self.module_level_vars.contains(fwd_var) or
-            self.isGlobalVar(fwd_var);
+        const shadows_module_level = self.wouldParamShadow(fwd_var) or self.isGlobalVar(fwd_var);
         if (shadows_module_level) {
             const renamed = try self.name_gen.local(fwd_var);
             try self.var_renames.put(try self.arena.allocator().dupe(u8, fwd_var), renamed);

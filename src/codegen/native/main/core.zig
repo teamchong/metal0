@@ -1353,6 +1353,33 @@ pub const NativeCodegen = struct {
         return self.symbol_table.lookup(name) != null;
     }
 
+    /// CONSOLIDATED: Check if a parameter name would shadow any declaration
+    /// This is the SINGLE SOURCE OF TRUTH for parameter shadowing detection.
+    /// All codegen that generates function/method parameters should use this.
+    ///
+    /// Checks (in order):
+    /// 1. Module-level function names (self.module_level_funcs)
+    /// 2. Module-level variable names (self.module_level_vars)
+    /// 3. Imported module names (self.imported_modules)
+    /// 4. From-import symbols (self.module_level_from_imports) - e.g., 'deque' from 'from collections import deque'
+    /// 5. Common method names that conflict with Zig builtins (zig_keywords.wouldShadowMethod)
+    /// 6. Common module names (zig_keywords.wouldShadowModule)
+    ///
+    /// Returns true if the parameter name would cause a shadowing error in Zig.
+    pub fn wouldParamShadow(self: *const NativeCodegen, param_name: []const u8) bool {
+        // Check module-level declarations tracked at codegen time
+        if (self.module_level_funcs.contains(param_name)) return true;
+        if (self.module_level_vars.contains(param_name)) return true;
+        if (self.imported_modules.contains(param_name)) return true;
+        if (self.module_level_from_imports.contains(param_name)) return true;
+
+        // Check static lists of known-problematic names
+        if (zig_keywords.wouldShadowMethod(param_name)) return true;
+        if (zig_keywords.wouldShadowModule(param_name)) return true;
+
+        return false;
+    }
+
     /// Check if a variable is an exception variable (from "except X as name:")
     /// Exception variables are typed as runtime.PyException
     pub fn isExceptionVar(self: *NativeCodegen, name: []const u8) bool {

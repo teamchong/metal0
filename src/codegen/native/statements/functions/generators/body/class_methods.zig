@@ -490,18 +490,15 @@ pub fn genInitMethod(
 
         // Check if parameter name shadows a class method or class-level attribute
         // e.g., `def real(self)` method or `num = property(...)` class attr conflicts with param of same name
-        // Uses the same helper as genInitMethodWithBuiltinBase() for consistency
         const shadows_class_member = if (self.current_class_body) |class_body|
             wouldShadowMethodInClass(arg.name, class_body)
         else
             false;
 
-        // Check if parameter shadows module-level declaration (var, function, import)
-        // Also check module_level_from_imports for `from X import Y` symbols (e.g., `deque` from `from collections import deque`)
-        const shadows_module_level = self.module_level_funcs.contains(arg.name) or
-            self.module_level_vars.contains(arg.name) or
-            self.imported_modules.contains(arg.name) or
-            self.module_level_from_imports.contains(arg.name);
+        // Check if parameter shadows module-level declaration using CONSOLIDATED helper
+        // This is the single source of truth - checks module_level_funcs, module_level_vars,
+        // imported_modules, module_level_from_imports, and zig_keywords shadow lists
+        const shadows_module_level = self.wouldParamShadow(arg.name);
 
         // Check if parameter name is assigned in the init body (local var shadows param)
         // e.g., `def __init__(self, d): if not d: d = {}` - the `d = {}` would shadow param
@@ -903,10 +900,8 @@ pub fn genInitMethodWithBuiltinBase(
                 // Check if param would shadow a method in the class
                 const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
                 // Check if param would shadow module-level declaration
-                const shadows_module_level = self.module_level_funcs.contains(arg.name) or
-                    self.module_level_vars.contains(arg.name) or
-                    self.imported_modules.contains(arg.name) or
-                    self.module_level_from_imports.contains(arg.name);
+                // Use CONSOLIDATED helper for module-level shadowing detection
+                const shadows_module_level = self.wouldParamShadow(arg.name);
                 // Check if param would shadow a local variable assignment in init body
                 const shadows_local_assign = param_analyzer.isNameAssignedInInitBody(init.body, arg.name);
 
@@ -1450,10 +1445,8 @@ pub fn genInitMethodFromNew(
             // Check if param would shadow a method in the class
             const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
             // Check if param would shadow module-level declaration
-            const shadows_module_level = self.module_level_funcs.contains(arg.name) or
-                self.module_level_vars.contains(arg.name) or
-                self.imported_modules.contains(arg.name) or
-                self.module_level_from_imports.contains(arg.name);
+            // Use CONSOLIDATED helper for module-level shadowing detection
+            const shadows_module_level = self.wouldParamShadow(arg.name);
             // Check if param is 'self' in nested class (would shadow outer method's self)
             const shadows_outer_self = is_nested and std.mem.eql(u8, arg.name, "self");
             // Check if param would shadow a local variable assignment in __new__ body
