@@ -99,6 +99,10 @@ pub const bigint_ops = @import("runtime/bigint_ops.zig");
 /// Use unified_int_ops.add(a, b, alloc) for Python's unlimited precision int semantics
 pub const unified_int_ops = @import("runtime/unified_int_ops.zig");
 
+/// Bytecode VM - Dynamic Python execution for eval(), exec(), dynamic import, etc.
+/// The VM dispatches to existing runtime functions for actual Python semantics.
+pub const bytecode = @import("bytecode.zig");
+
 // =============================================================================
 // Modular submodules (split from runtime.zig for organization)
 // These are available as separate imports for new code:

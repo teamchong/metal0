@@ -644,11 +644,19 @@ pub fn build(b: *std.Build) void {
     const resolve_step = b.step("resolve", "Run package resolver (usage: zig build resolve -- numpy pandas)");
     resolve_step.dependOn(&run_resolve.step);
 
-    // Bytecode VM tests (for eval/exec) - test opcode and VM directly
-    // (compiler.zig has parser/lexer deps that require separate build config)
+    // Bytecode VM tests (for eval/exec) - test the runtime-side bytecode module
+    // packages/runtime/src/bytecode/ contains the stable bytecode VM for dynamic Python
     const opcode_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bytecode/opcode.zig"),
+            .root_source_file = b.path("packages/runtime/src/bytecode/opcodes.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const frame_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("packages/runtime/src/bytecode/frame.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -656,18 +664,18 @@ pub fn build(b: *std.Build) void {
 
     const vm_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bytecode/vm.zig"),
+            .root_source_file = b.path("packages/runtime/src/bytecode/vm.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    // VM uses runtime.PyValue conditionally
-    vm_tests.root_module.addImport("runtime", runtime);
 
     const run_opcode_tests = b.addRunArtifact(opcode_tests);
+    const run_frame_tests = b.addRunArtifact(frame_tests);
     const run_vm_tests = b.addRunArtifact(vm_tests);
 
     const bytecode_test_step = b.step("test-bytecode", "Run bytecode VM tests");
     bytecode_test_step.dependOn(&run_opcode_tests.step);
+    bytecode_test_step.dependOn(&run_frame_tests.step);
     bytecode_test_step.dependOn(&run_vm_tests.step);
 }
