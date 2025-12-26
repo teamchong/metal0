@@ -2049,3 +2049,34 @@ test "SIMD string comparison" {
     try testing.expect(eqlString("", ""));
     try testing.expect(!eqlString("a", ""));
 }
+
+// =============================================================================
+// PyValue HashMap Support
+// =============================================================================
+
+/// Hash context for PyValue keys in ArrayHashMap
+/// Enables non-string dict keys (tuples, ints, bools, etc.)
+/// Uses PyValue.pyHash() for hashing and PyValue.eql() for equality
+pub const PyValueHashContext = struct {
+    pub fn hash(_: @This(), key: PyValue) u32 {
+        // Use PyValue's pyHash which handles all types
+        const h = key.pyHash();
+        // Truncate i64 hash to u32 for ArrayHashMap
+        return @truncate(@as(u64, @bitCast(h)));
+    }
+
+    pub fn eql(_: @This(), a: PyValue, b: PyValue, _: usize) bool {
+        // Use PyValue's eql which handles all type combinations
+        return a.eql(b);
+    }
+};
+
+/// HashMap with PyValue keys - for Python dicts with non-string keys
+/// Uses ArrayHashMap for O(n) iteration and better cache locality
+/// Example:
+///   var dict: runtime.PyValueHashMap(runtime.PyValue) = .{};
+///   dict.put(allocator, .{ .int = 42 }, .{ .string = "value" });
+///   dict.put(allocator, .{ .tuple = &[_]PyValue{.{ .int = 1 }, .{ .int = 2 }} }, .{ .string = "tuple key" });
+pub fn PyValueHashMap(comptime V: type) type {
+    return std.ArrayHashMap(PyValue, V, PyValueHashContext, true);
+}
