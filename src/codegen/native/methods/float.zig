@@ -56,7 +56,7 @@ pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Raises ValueError for NaN, OverflowError for Inf
 pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // as_integer_ratio takes no arguments
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
     // Return a struct that can be unpacked: { BigInt, BigInt }
     // The IntegerRatioResult has .numerator and .denominator, we convert to anonymous tuple
     const label = try self.emitInlineBlockStart("ratio");
@@ -74,7 +74,7 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
 /// Zig: try runtime.floatHex(allocator, f)
 pub fn genHex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
     try self.emit("try runtime.floatHex(");
     try self.emit(alloc_name);
     try self.emit(", ");
@@ -100,7 +100,7 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Zig: runtime.floatFloorBig(allocator, f) catch unreachable (or raw in assertRaises context)
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
     if (self.in_assert_raises_context) {
         // In assertRaises context - return error union for expectError to catch
         try self.emit("(runtime.floatFloorBig(");
@@ -133,7 +133,7 @@ pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Zig: runtime.floatCeilBig(allocator, f) catch unreachable (or raw in assertRaises context)
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
     if (self.in_assert_raises_context) {
         // In assertRaises context - return error union for expectError to catch
         try self.emit("(runtime.floatCeilBig(");
@@ -163,7 +163,7 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 /// Zig: try runtime.floatTrunc(allocator, f)
 pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
     try self.emit("(try runtime.floatTrunc(");
     try self.emit(alloc_name);
     try self.emit(", ");
@@ -176,7 +176,7 @@ pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatRound(allocator, f) for no args
 pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
     if (args.len == 0) {
         try self.emit("(try runtime.floatRound(");
         try self.emit(alloc_name);

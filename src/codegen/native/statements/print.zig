@@ -401,7 +401,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
                 try flattenConcat(self, arg, &parts);
 
                 // Get allocator name based on scope
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
 
                 try self.emit("try std.mem.concat(");
                 try self.emit(alloc_name);

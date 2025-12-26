@@ -7,11 +7,12 @@ const helpers = @import("assign_helpers.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const zig_keywords = @import("utils.zig_keywords");
 
-/// Get the allocator name based on current scope level
-fn getAllocName(self: *NativeCodegen) []const u8 {
-    // In main() (scope 0): use 'allocator' (local variable)
-    // In functions (scope > 0): use '__global_allocator' (module-level)
-    return if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+/// Global allocator name - always use __global_allocator for consistency
+const global_allocator_name = "__global_allocator";
+
+/// Get the allocator name - always returns global allocator
+fn getAllocName(_: *NativeCodegen) []const u8 {
+    return global_allocator_name;
 }
 
 /// Add defer cleanup for string concatenation

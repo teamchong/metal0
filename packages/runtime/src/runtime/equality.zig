@@ -307,6 +307,42 @@ pub fn pyValueNe(a: PyValue, b: PyValue) bool {
     return !pyValueEql(a, b);
 }
 
+// =============================================================================
+// Identity Comparison (for 'is' operator)
+// =============================================================================
+
+/// Python identity comparison - compiles ONCE per type
+/// Checks if two values are the same object (same memory location)
+/// For containers (list, dict, set), compares pointer addresses
+/// For primitives, identity == equality
+pub fn pyIdentical(a: anytype, b: @TypeOf(a)) bool {
+    const T = @TypeOf(a);
+    const info = @typeInfo(T);
+
+    // Pointers: compare addresses directly
+    if (info == .pointer) {
+        return a == b;
+    }
+
+    // Slices: compare ptr addresses (same backing array)
+    if (info == .pointer and info.pointer.size == .slice) {
+        return a.ptr == b.ptr;
+    }
+
+    // ArrayList: compare by pointer to items buffer
+    if (info == .@"struct" and @hasField(T, "items") and @hasField(T, "capacity")) {
+        return a.items.ptr == b.items.ptr;
+    }
+
+    // Structs (tuples, class instances): compare addresses
+    if (info == .@"struct") {
+        return &a == &b;
+    }
+
+    // Primitives: identity == equality
+    return a == b;
+}
+
 /// PyValue tuple/list lexicographic less-than helper
 fn pyValueTupleLt(a: []const PyValue, b: []const PyValue) bool {
     const min_len = @min(a.len, b.len);

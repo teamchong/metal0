@@ -39,7 +39,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Convert number to string
     // Use scope-aware allocator: __global_allocator in functions, allocator in main()
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
 
     // Check if this is a float() call that might return error union
     // float(string_var) generates runtime.floatBuiltinCall which returns !f64
@@ -209,7 +209,7 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For integers, create bytes of that length filled with zeros
     if (type_traits.isIntegral(arg_type)) {
         // bytes(n) creates a bytes object of n null bytes
-        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        const alloc_name = "__global_allocator";
         var em = self.exprEmitter();
         const bytes_label_id = em.reserveLabelId();
         try self.emitFmt("bytes_{d}: {{\n", .{bytes_label_id});
@@ -263,7 +263,7 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For integers, create bytearray of that length filled with zeros
     if (type_traits.isIntegral(arg_type)) {
         // bytearray(n) creates a bytearray of n null bytes
-        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        const alloc_name = "__global_allocator";
         var em = self.exprEmitter();
         const bytearray_label_id = em.reserveLabelId();
         try self.emitFmt("bytearray_{d}: {{\n", .{bytearray_label_id});
@@ -279,7 +279,7 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Two-Flow: For unknown/PyValue types, use runtime bytearray conversion
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        const alloc_name = "__global_allocator";
         try self.emit("(try runtime.builtins.bytearray(");
         try self.emit(alloc_name);
         try self.emit(", ");
@@ -316,7 +316,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
 
     // Use scope-aware allocator: __global_allocator in functions, allocator in main()
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
 
     // For strings, wrap with quotes: "'string'"
     if (string_traits.isString(arg_type)) {
@@ -451,7 +451,7 @@ pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
 
     // Two-Flow: Check if value is uncertain
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;

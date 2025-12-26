@@ -161,7 +161,7 @@ fn parseFormatSpec(fmt: []const u8, start: usize) FormatSpec {
 /// Generate Python-style string formatting: "%d" % value or "%s %s" % (a, b)
 /// Handles both single value and tuple of values
 pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
 
     // Get the format string (parser already strips quotes)
     const format_str = if (binop.left.* == .constant and binop.left.constant.value == .string)

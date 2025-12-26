@@ -123,7 +123,7 @@ pub fn genNoTryCall(comptime spec: NoTryCallSpec) fn (*NativeCodegen, []ast.Node
 
             try self.emit(spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emit(alloc_name);
                 if (spec.arg_count > 0) {
                     try self.emit(", ");
@@ -163,7 +163,7 @@ pub fn genFieldAccessCall(comptime spec: FieldAccessCallSpec) fn (*NativeCodegen
             }
             try self.emit(spec.runtime_path ++ "(");
             if (spec.needs_allocator) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emit(alloc_name);
                 if (spec.arg_count > 0) {
                     try self.emit(", ");

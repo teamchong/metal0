@@ -332,14 +332,27 @@ fn findCapturedVars(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!
             }
         }
         if (!is_param) {
-            // Check if this variable is actually declared in outer scope
-            // Also treat "self" as a captured variable when inside a class method
-            // Check both symbol_table (via isDeclared) and type_inferrer.var_types
-            // because for loop variables are only in var_types, not symbol_table
-            if (self.isDeclared(var_name) or
+            // Skip builtin names - they're available at module level
+            if (shared.PythonBuiltinNames.has(var_name)) continue;
+
+            // Skip module-level variables/functions - they're available at module level
+            if (self.module_level_vars.contains(var_name)) continue;
+            if (self.module_level_funcs.contains(var_name)) continue;
+            if (self.module_level_from_imports.contains(var_name)) continue;
+
+            // For all other references:
+            // 1. If we can verify it's in outer scope via isDeclared/var_types, capture it
+            // 2. If we're inside a function scope (not module level), also capture unknown refs
+            //    because they must be from enclosing scope (e.g., lambda inside f-string)
+            const is_verified_local = self.isDeclared(var_name) or
                 self.type_inferrer.var_types.contains(var_name) or
-                (std.mem.eql(u8, var_name, "self") and self.current_class_name != null))
-            {
+                (std.mem.eql(u8, var_name, "self") and self.current_class_name != null);
+
+            const inside_function = self.current_function_name != null or
+                self.symbol_table.currentScopeLevel() > 0 or
+                self.indent_level > 0;
+
+            if (is_verified_local or inside_function) {
                 try filtered.append(self.allocator, var_name);
             }
         }

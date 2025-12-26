@@ -335,7 +335,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Parse string to int
     if (string_traits.isString(arg_type)) {
-        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        const alloc_name = "__global_allocator";
 
         // Check if this is a literal string
         if (args[0] == .constant and args[0].constant.value == .string) {
@@ -399,7 +399,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const min_i128: f64 = -170141183460469231731687303715884105728.0; // -2^127
             if (float_val > max_i128 or float_val < min_i128) {
                 // Value exceeds i128 range - use UnifiedInt.fromFloat (auto-demotes to i64 if fits)
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emitFmt("(try runtime.UnifiedInt.fromFloat({s}, ", .{alloc_name});
                 try self.genExpr(args[0]);
                 try self.emit("))");
@@ -416,7 +416,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
         // For runtime float values, use toIntBig which handles overflow to BigInt
         // Return as UnifiedInt to preserve BigInt values (Python ints have unlimited precision)
-        const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+        const alloc_name = "__global_allocator";
         try self.emitFmt("(try (try runtime.toIntBig({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
         try self.emitFmt(")).asUnifiedInt({s}))", .{alloc_name});
@@ -496,7 +496,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // (e.g., variables captured by anytype in try/except helper structs, attribute access, PyValue)
     // toIntBig returns !IntResult which safely handles large floats
     // We call .asI64() to extract i64, which throws OverflowError for BigInt values
-    const alloc_name_unknown = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name_unknown = "__global_allocator";
     try self.emitFmt("(try (try runtime.toIntBig({s}, ", .{alloc_name_unknown});
     try self.genExpr(args[0]);
     try self.emit(")).asI64())");

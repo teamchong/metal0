@@ -1462,8 +1462,8 @@ pub fn genMethodSignatureWithSkip(
         // (This handles cases where Python code explicitly uses allocator, though rare)
         const allocator_literally_used = param_analyzer.isNameUsedInBody(method.body, "allocator");
         if (actually_uses_allocator and allocator_literally_used) {
-            const is_nested = self.nested_class_names.contains(class_name);
-            const alloc_name = if (is_nested) "__alloc" else "allocator";
+            // Always use __alloc to avoid shadowing local allocator in main()
+            const alloc_name = "__alloc";
             try self.output.writer(self.allocator).print("{s}: std.mem.Allocator", .{alloc_name});
         } else {
             try self.emit("_: std.mem.Allocator");

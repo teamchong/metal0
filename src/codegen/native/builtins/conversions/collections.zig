@@ -27,7 +27,8 @@ fn getAppendMethodForType(t: NativeType) []const u8 {
 /// Generate code for list(iterable)
 /// Converts an iterable to a list (ArrayList)
 pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    // Always use __global_allocator - it's always available (parameter "allocator" was renamed to avoid shadowing)
+    const alloc_name = "__global_allocator";
 
     // list() with no args returns empty NativeList
     if (args.len == 0) {
@@ -449,7 +450,8 @@ pub fn genDict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for set(iterable)
 /// Converts an iterable to a set (AutoHashMap with void values)
 pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    // Always use __global_allocator - it's always available (parameter "allocator" was renamed to avoid shadowing)
+    const alloc_name = "__global_allocator";
 
     // set() with no args returns empty set
     // Default to i64 key type since it's the most common case

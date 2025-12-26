@@ -22,6 +22,7 @@ pub const BuiltinBaseInfo = builtin_types.BuiltinBaseInfo;
 pub const ComplexParentInfo = builtin_types.ComplexParentInfo;
 pub const getBuiltinBaseInfo = builtin_types.getBuiltinBaseInfo;
 pub const getComplexParentInfo = builtin_types.getComplexParentInfo;
+pub const isIteratorBuiltin = builtin_types.isIteratorBuiltin;
 pub const hasCPythonOnlyDecorator = test_skip.hasCPythonOnlyDecorator;
 pub const hasSkipUnlessCPythonModule = test_skip.hasSkipUnlessCPythonModule;
 pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
@@ -956,6 +957,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             // Skip builtin types that don't have vtables (int, float, str, etc.)
             if (getBuiltinBaseInfo(base_name) != null) continue;
             if (getComplexParentInfo(base_name) != null) continue;
+            // Skip iterator/generator builtins (enumerate, filter, map, zip, etc.)
+            if (isIteratorBuiltin(base_name)) continue;
             // Skip ABCMeta and type metaclasses
             if (std.mem.eql(u8, base_name, "ABCMeta")) continue;
             if (std.mem.eql(u8, base_name, "type")) continue;
@@ -979,6 +982,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Skip builtin types
                 if (getBuiltinBaseInfo(base_name) != null) continue;
                 if (getComplexParentInfo(base_name) != null) continue;
+                // Skip iterator/generator builtins
+                if (isIteratorBuiltin(base_name)) continue;
                 if (std.mem.eql(u8, base_name, "ABCMeta")) continue;
                 if (std.mem.eql(u8, base_name, "type")) continue;
                 if (std.mem.eql(u8, base_name, "object")) continue;
@@ -1877,6 +1882,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             // Skip builtin types (int, float, str, etc.)
             if (getBuiltinBaseInfo(base_name) != null) continue;
             if (getComplexParentInfo(base_name) != null) continue;
+            // Skip iterator/generator builtins (enumerate, filter, map, zip, etc.)
+            if (isIteratorBuiltin(base_name)) continue;
             // Skip unittest.TestCase and similar
             if (std.mem.indexOf(u8, base_name, ".") != null) continue;
             // Skip Exception bases

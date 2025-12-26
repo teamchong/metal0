@@ -373,7 +373,7 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if either argument is BigInt or unknown (could be anytype)
     const left_type = self.inferExprScoped(args[0]) catch .unknown;
     const right_type = self.inferExprScoped(args[1]) catch .unknown;
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
 
     if (left_type == .bigint or right_type == .bigint or left_type == .unknown or right_type == .unknown) {
         // BigInt or unknown type - use runtime.bigIntDivmod

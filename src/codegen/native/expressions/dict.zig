@@ -135,7 +135,7 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     // Determine which allocator to use based on scope
     // In main() (scope 0): use 'allocator' (local variable)
     // In functions (scope > 0): use '__global_allocator' (module-level)
-    const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator";
 
     // Empty dict - check if mutations will use int keys, string keys, or mixed
     if (dict.keys.len == 0) {

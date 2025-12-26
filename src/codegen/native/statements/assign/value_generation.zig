@@ -1001,7 +1001,7 @@ pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
 
     // Get allocator name based on scope
     const at_module_level = self.symbol_table.currentScopeLevel() == 0;
-    const alloc_name = if (!at_module_level) "__global_allocator" else "allocator";
+    const alloc_name = "__global_allocator"; // Always use global allocator
 
     // Generate concat with all parts at once
     // At module level (scope 0), we can't use 'try' - use 'catch unreachable' instead

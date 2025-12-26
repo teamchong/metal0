@@ -62,6 +62,25 @@ const builtin_bases = std.StaticStringMap(B).initComptime(.{
     } } },
 });
 
+/// Check if base_name is an iterator/generator builtin (enumerate, filter, map, zip, etc.)
+/// These are Python builtins that return iterators and don't have Zig vtables
+pub fn isIteratorBuiltin(base_name: []const u8) bool {
+    return iterator_builtins.has(base_name);
+}
+
+const iterator_builtins = std.StaticStringMap(void).initComptime(.{
+    .{ "enumerate", {} },
+    .{ "filter", {} },
+    .{ "map", {} },
+    .{ "zip", {} },
+    .{ "reversed", {} },
+    .{ "range", {} },
+    .{ "iter", {} },
+    .{ "generator", {} },
+    .{ "coroutine", {} },
+    .{ "async_generator", {} },
+});
+
 /// Complex parent types with multiple fields (like array.array)
 pub const ComplexParentInfo = struct {
     fields: []const FieldInfo,

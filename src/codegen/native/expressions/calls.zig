@@ -198,7 +198,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // pickle.loads and other modules use different signatures
             if (self.from_import_needs_allocator.contains("loads")) {
                 // json.loads wrapper - call with allocator
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emit("try loads(");
                 try genExpr(self, call.args[0]);
                 try self.emit(", ");
@@ -693,7 +693,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // For module calls or class method calls, add allocator as first argument only if needed
             if ((is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emit(alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
                     try self.emit(", ");
@@ -814,7 +814,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // For module calls or class method calls, add allocator as first argument only if needed
             const allocator_emitted = (is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc;
             if (allocator_emitted) {
-                const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+                const alloc_name = "__global_allocator";
                 try self.emit(alloc_name);
                 if (call.args.len > 0 or call.keyword_args.len > 0) {
                     try self.emit(", ");
@@ -1737,7 +1737,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // For user-defined functions: inject allocator as FIRST argument
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
         if (user_func_needs_alloc and !is_async_func) {
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            const alloc_name = "__global_allocator";
             try self.emit(alloc_name);
             allocator_was_emitted = true;
             if (call.args.len > 0 or call.keyword_args.len > 0 or is_vararg_func) {
@@ -1960,7 +1960,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (call.args.len > 0 or call.keyword_args.len > 0) {
                 try self.emit(", ");
             }
-            const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
+            const alloc_name = "__global_allocator";
             try self.emit(alloc_name);
         }
 

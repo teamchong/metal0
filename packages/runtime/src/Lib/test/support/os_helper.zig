@@ -25,6 +25,26 @@ pub const EnvironmentVarGuard = struct {
     pub fn __exit__(_: *EnvironmentVarGuard, _: std.mem.Allocator) !void {}
 };
 
+/// Context manager for changing to a temp directory
+/// Used for tests that need to work in an isolated directory
+pub const temp_cwd = struct {
+    original_cwd: ?[]const u8 = null,
+
+    pub fn init(_: std.mem.Allocator) temp_cwd {
+        return .{};
+    }
+
+    pub fn deinit(_: *temp_cwd) void {}
+
+    /// Python context manager __enter__
+    pub fn __enter__(self: *temp_cwd, _: std.mem.Allocator) !*temp_cwd {
+        return self;
+    }
+
+    /// Python context manager __exit__
+    pub fn __exit__(_: *temp_cwd, _: std.mem.Allocator) !void {}
+};
+
 pub fn __stub__() void {
     // Stub - see module header for why this isn't needed
 }

@@ -104,7 +104,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             //    over class attribute lazy patterns from outer scopes
             // 4. Check var_renames for transformed names (class attributes, shadows, etc.)
             const name_to_use = blk: {
+                // Check both hoisted_local_classes (method-level nested classes)
+                // and nested_class_aliases (class-body-level nested classes)
                 if (self.hoisted_local_classes.get(n.id)) |hoisted| break :blk hoisted;
+                if (self.nested_class_aliases.get(n.id)) |aliased| break :blk aliased;
                 // Comprehension loop variables (__comp_*) MUST shadow local vars (Python 3 scope isolation)
                 // Parameter renames (__m*_p_*) MUST apply even for func_local_vars (zero-capture closure params)
                 if (self.var_renames.get(n.id)) |renamed| {
