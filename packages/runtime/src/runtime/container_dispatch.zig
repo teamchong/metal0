@@ -317,9 +317,29 @@ pub fn dictContains(comptime DictType: type, comptime KeyType: type, dict: DictT
                 const params = contains_fn.@"fn".params;
                 if (params.len >= 2) {
                     const expected_key = params[1].type orelse return false;
-                    // If key types match, do the contains check
+                    // If key types match exactly, do the contains check
                     if (expected_key == KeyType) {
                         return dict.contains(key);
+                    }
+                    // Handle comptime_int -> integer coercion
+                    if (KeyType == comptime_int) {
+                        const key_info = @typeInfo(expected_key);
+                        if (key_info == .int) {
+                            // Coerce comptime_int to the dict's key type
+                            return dict.contains(@as(expected_key, key));
+                        }
+                    }
+                    // Handle integer type coercion (e.g., i64 to usize)
+                    const key_type_info = @typeInfo(KeyType);
+                    const expected_info = @typeInfo(expected_key);
+                    if (key_type_info == .int and expected_info == .int) {
+                        // Both are integers - use std.math.cast for safe conversion
+                        const converted = std.math.cast(expected_key, key);
+                        if (converted) |conv_key| {
+                            return dict.contains(conv_key);
+                        }
+                        // Key value out of range for dict's key type
+                        return false;
                     }
                     // Type mismatch - key cannot be in dict
                     return false;
