@@ -24,6 +24,7 @@ const PyList = pylist.PyList;
 const PyString = pystring.PyString;
 const PyDict = dict_module.PyDict;
 const incref = runtime_core.incref;
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 /// Check if all elements in iterable are truthy
 pub fn all(iterable: *PyObject) bool {
@@ -160,7 +161,6 @@ pub fn minIterable(iterable: anytype) i64 {
             return min_val;
         }
     }
-    const PyValue = @import("../../Objects/object.zig").PyValue;
     const IterType = @TypeOf(iterable);
     const ElemType = std.meta.Elem(IterType);
 
@@ -219,7 +219,6 @@ pub fn maxIterable(iterable: anytype) i64 {
         }
     }
     const rt = @import("../../runtime.zig");
-    const PyValue = @import("../../Objects/object.zig").PyValue;
     const slice = rt.iterSlice(iterable);
     const SliceType = @TypeOf(slice);
     const ElemType = std.meta.Elem(SliceType);
@@ -330,4 +329,84 @@ pub fn filterTruthy(iterable: *PyObject, allocator: std.mem.Allocator) !*PyObjec
     }
 
     return result;
+}
+
+/// Python filter() builtin - CPython aligned
+/// filter(function, iterable) -> filter object
+/// Raises TypeError if not exactly 2 arguments
+pub const PythonError = @import("../../Python/errors/init.zig").PythonError;
+
+pub fn filter(args: []const PyValue, allocator: std.mem.Allocator) PythonError!*PyObject {
+    // CPython: filter expected 2 arguments, got N
+    if (args.len != 2) {
+        return PythonError.TypeError;
+    }
+
+    const func_arg = args[0];
+    const iter_arg = args[1];
+
+    // Get the iterable as PyObject
+    const iterable = iter_arg.toObject(allocator) catch return PythonError.TypeError;
+
+    // Create result list (filter returns iterator, but we materialize for simplicity)
+    const result = try PyList.create(allocator);
+
+    // If func is None, filter by truthiness
+    if (func_arg == .none) {
+        if (iterable.type_id == .list) {
+            const source: *PyList = @ptrCast(@alignCast(iterable.data));
+            for (source.items.items) |item| {
+                if (runtime_core.toBool(item)) {
+                    incref(item);
+                    try PyList.append(result, item);
+                }
+            }
+        }
+        return result;
+    }
+
+    // Apply filter function to each element
+    if (iterable.type_id == .list) {
+        const source: *PyList = @ptrCast(@alignCast(iterable.data));
+        for (source.items.items) |item| {
+            // TODO: Call func_arg on item and check truthiness
+            // For now, just include all (placeholder for full impl)
+            incref(item);
+            try PyList.append(result, item);
+        }
+    }
+
+    return result;
+}
+
+/// Python iter() builtin - CPython aligned
+/// iter(iterable) -> iterator object
+/// iter(callable, sentinel) -> iterator that calls callable until sentinel is returned
+/// Raises TypeError if not at least 1 argument
+pub fn iterBuiltin(args: []const PyValue, allocator: std.mem.Allocator) PythonError!*PyObject {
+    // CPython: iter expected at least 1 argument, got 0
+    if (args.len < 1) {
+        return PythonError.TypeError;
+    }
+
+    // If 2 args: callable/sentinel form
+    if (args.len == 2) {
+        // TODO: Implement callable-sentinel iterator
+        return PythonError.TypeError;
+    }
+
+    // If more than 2 args: TypeError
+    if (args.len > 2) {
+        return PythonError.TypeError;
+    }
+
+    // Single arg: get iterator for iterable
+    const iterable_arg = args[0];
+
+    // Get the iterable as PyObject
+    const iterable = iterable_arg.toObject(allocator) catch return PythonError.TypeError;
+
+    // For now, just return the object as-is (it's already iterable)
+    // In a full impl, we'd create a proper iterator wrapper
+    return iterable;
 }

@@ -686,12 +686,15 @@ pub fn emitVarDeclaration(
     // Note: is_mutable_class_instance was previously used when closure calls added `&` for class args,
     // but now closures pass class instances directly (no &), so this flag is no longer needed.
     _ = is_mutable_class_instance; // No longer used for var/const decision
-    // List comprehensions return ArrayLists which need `var` for defer deinit() calls
     // Dicts need `var` because defer cleanup calls .deinit() which takes *Self (mutable reference)
     // Python array module (array.array) returns inline struct with mutating methods - needs var
+    // NOTE: List comprehensions (is_listcomp) don't automatically need `var` - the internal __comp_result_N
+    // uses var, but the target variable like `instances = [...]` only needs var if mutated.
+    // If is_mutated is false, use const to avoid "never mutated" warnings.
     const is_python_array = type_traits.isClassInstance(value_type) and
         std.mem.eql(u8, value_type.class_instance, "array.array");
-    const needs_var = is_arraylist or is_mutated or is_mutable_collection or is_iterator or is_listcomp or is_dict or is_python_array;
+    const needs_var = is_arraylist or is_mutated or is_mutable_collection or is_iterator or is_dict or is_python_array;
+    _ = is_listcomp; // Listcomp target var mutability is determined by is_mutated, not by being a listcomp
 
     if (needs_var) {
         try self.emit("var ");

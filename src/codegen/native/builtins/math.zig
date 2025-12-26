@@ -334,10 +334,20 @@ pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generate: &[_]u8{@intCast(n)}
-    try self.emit("&[_]u8{@intCast(");
+    // Check if argument is a small integer literal (ASCII range)
+    if (args[0] == .constant and args[0].constant.value == .int) {
+        const val = args[0].constant.value.int;
+        if (val >= 0 and val <= 127) {
+            // Fast path for ASCII: inline single-byte array
+            try self.emitFmt("&[_]u8{{{d}}}", .{@as(u8, @intCast(val))});
+            return;
+        }
+    }
+
+    // Full Unicode support via runtime (handles UTF-8 encoding)
+    try self.emit("(try runtime.builtins.chr(__global_allocator, ");
     try self.genExpr(args[0]);
-    try self.emit(")}");
+    try self.emit("))");
 }
 
 /// Generate code for ord(c)

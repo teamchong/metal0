@@ -18,6 +18,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "executable", h.c("__sys_executable") },
     .{ "stdin", h.c("(try runtime.PyFile.create(__global_allocator, std.io.getStdIn(), \"r\"))") }, .{ "stdout", h.c("(try runtime.PyFile.create(__global_allocator, std.io.getStdOut(), \"w\"))") }, .{ "stderr", h.c("(try runtime.PyFile.create(__global_allocator, std.io.getStdErr(), \"w\"))") },
     .{ "maxsize", h.c("@as(i128, std.math.maxInt(i64))") },
+    .{ "maxunicode", h.I64(0x10FFFF) }, // Largest Unicode code point (1114111)
     // sys.byteorder references pre-computed global (avoids block label collision)
     .{ "byteorder", h.c("__sys_byteorder") },
     .{ "getsizeof", h.wrap("@as(i64, @intCast(@sizeOf(@TypeOf(", "))))", "@as(i64, 0)") }, .{ "getrecursionlimit", h.I64(1000) }, .{ "setrecursionlimit", h.c("{}") },

@@ -32,8 +32,11 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(", ");
         try self.genExpr(args[2]); // dict
         try self.emit("))");
+    } else {
+        // 0 args, 2 args, or 4+ args - TypeError in Python
+        // Emit an expression that returns an error for assertRaises testing
+        try self.emit("(return error.TypeError)");
     }
-    // 0 args or other counts - return nothing (error case in Python too)
 }
 
 /// Generate code for isinstance(obj, type)

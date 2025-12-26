@@ -372,6 +372,32 @@ fn emitCallableInvocation(
         return;
     }
 
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "iter")) {
+        // iter() builtin - CPython aligned: validates args at runtime
+        try self.emit("runtime.builtins.iterBuiltin(&.{");
+        for (call_args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.emit("runtime.PyValue.from(");
+            try parent.genExpr(self, arg);
+            try self.emit(")");
+        }
+        try self.emit("}, __global_allocator)");
+        return;
+    }
+
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "filter")) {
+        // filter() builtin - CPython aligned: validates args at runtime
+        try self.emit("runtime.builtins.filter(&.{");
+        for (call_args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.emit("runtime.PyValue.from(");
+            try parent.genExpr(self, arg);
+            try self.emit(")");
+        }
+        try self.emit("}, __global_allocator)");
+        return;
+    }
+
     if (callable == .name and self.callable_vars.contains(callable.name.id)) {
         try parent.genExpr(self, callable);
         try self.emit(".call(");

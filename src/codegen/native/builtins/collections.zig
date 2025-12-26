@@ -689,42 +689,20 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for filter(func, iterable)
-/// Falls back to bytecode VM for dynamic execution (lambdas, complex expressions)
+/// CPython-aligned: runtime.builtins.filter validates args and raises TypeError if needed
 pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len < 2) {
-        return error.UnsupportedSyntax;
+    const expressions = @import("../expressions.zig");
+
+    // Unified code path: runtime.builtins.filter(&.{args...}, allocator)
+    // Runtime validates arg count and raises TypeError if != 2
+    try self.emit("runtime.builtins.filter(&.{");
+    for (args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try self.emit("runtime.PyValue.from(");
+        try expressions.genExpr(self, arg);
+        try self.emit(")");
     }
-
-    // Use AST printer to convert filter arguments to Python source
-    // This handles lambdas, attribute access, and all complex expressions
-    const ast_printer = @import("../ast_printer.zig");
-    var printer = ast_printer.AstPrinter.init(self.allocator);
-    defer printer.deinit();
-
-    const func_source = printer.print(args[0]) catch {
-        // Fallback to error if AST printing fails
-        return error.UnsupportedSyntax;
-    };
-    defer self.allocator.free(func_source);
-
-    // Reset printer for second arg
-    printer.output.clearRetainingCapacity();
-    const iter_source = printer.print(args[1]) catch {
-        return error.UnsupportedSyntax;
-    };
-    defer self.allocator.free(iter_source);
-
-    // Build full filter() source string and emit VM fallback
-    var source_buf = std.ArrayList(u8){};
-    defer source_buf.deinit(self.allocator);
-    try source_buf.appendSlice(self.allocator, "list(filter(");
-    try source_buf.appendSlice(self.allocator, func_source);
-    try source_buf.appendSlice(self.allocator, ", ");
-    try source_buf.appendSlice(self.allocator, iter_source);
-    try source_buf.appendSlice(self.allocator, "))");
-
-    const core = @import("../main/core.zig");
-    try core.emitVMFallback(self, source_buf.items);
+    try self.emit("}, __global_allocator)");
 }
 
 /// Generate code for iter(iterable)

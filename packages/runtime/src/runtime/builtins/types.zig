@@ -99,6 +99,16 @@ pub fn structPackIntoNoArgs() PythonError!void {
     return PythonError.TypeError;
 }
 
+/// filter() stub - no args version (raises TypeError)
+pub fn filterNoArgs() PythonError!void {
+    return PythonError.TypeError;
+}
+
+/// map() stub - no args version (raises TypeError)
+pub fn mapNoArgs() PythonError!void {
+    return PythonError.TypeError;
+}
+
 /// Compare operation enum for BigInt
 pub const CompareOp = enum { lt, le, eq, ne, gt, ge };
 
