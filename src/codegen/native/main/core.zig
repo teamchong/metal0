@@ -116,7 +116,6 @@ fn collectVMFallbackVars(self: *NativeCodegen, node: ast.Node) !void {
             }
             // Track ALL variable names in VM fallback expressions
             // The discard emitter will check if they're actually in scope
-            std.debug.print("collectVMFallbackVars: adding '{s}'\n", .{n.id});
             const name_copy = try self.arena.allocator().dupe(u8, n.id);
             try self.vm_fallback_used_vars.put(name_copy, {});
         },
@@ -2651,12 +2650,6 @@ pub const NativeCodegen = struct {
         const output_str = self.output.items;
         const search_start = self.function_start_pos;
 
-        std.debug.print("emitScopedDiscards: pending_discards count = {}, vm_fallback_used_vars count = {}\n", .{ self.pending_discards.count(), self.vm_fallback_used_vars.count() });
-        var dbg_it = self.pending_discards.iterator();
-        while (dbg_it.next()) |dbg_entry| {
-            std.debug.print("  pending_discards contains: '{s}'\n", .{dbg_entry.key_ptr.*});
-        }
-
         // Collect keys to remove (can't modify during iteration)
         var to_remove: std.ArrayList([]const u8) = .empty;
         defer to_remove.deinit(self.allocator);
@@ -2667,9 +2660,7 @@ pub const NativeCodegen = struct {
             const emit_name = entry.value_ptr.*;
 
             // Only process variables declared in current scope
-            const in_scope = self.symbol_table.isDeclaredInCurrentScope(var_name);
-            std.debug.print("emitScopedDiscards: checking '{s}', in_scope={}\n", .{ var_name, in_scope });
-            if (!in_scope) continue;
+            if (!self.symbol_table.isDeclaredInCurrentScope(var_name)) continue;
 
             // Count occurrences of the variable name as a complete identifier
             // Skip occurrences inside string literals (e.g., VM fallback strings like "lhs.split()")
