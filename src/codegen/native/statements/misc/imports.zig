@@ -84,13 +84,22 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         try b.writeIndent();
         // Check if variable was hoisted (e.g., for imports inside with blocks)
         // Hoisted variables use assignment, non-hoisted use const declaration
-        if (!self.hoisted_vars.contains(alias)) {
+        const was_hoisted = self.hoisted_vars.contains(alias);
+        if (!was_hoisted) {
             try b.write("const ");
         }
         try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
         // Generate eval that imports and returns the module
         // Use the last part of the module path as the value to return
         try b.writeFmt(" = runtime.PyValue.from(try runtime.eval(__global_allocator, \"import {s}; {s}\"));\n", .{ module_name, module_name });
+        // Emit discard to suppress "unused local constant" warning for non-hoisted imports
+        // Hoisted variables are used elsewhere (outside the block), so no discard needed
+        if (!was_hoisted) {
+            try b.writeIndent();
+            try b.write("_ = &");
+            try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
+            try b.write(";\n");
+        }
 
         const output = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output);

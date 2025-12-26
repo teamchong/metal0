@@ -1878,8 +1878,72 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
     }
 
+    // Record position before generating body - used to check if loop var is actually used
+    const pre_body_pos = self.output.items.len;
+
     for (for_stmt.body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // After generating body, check if variable was actually used in generated code
+    // This handles cases where AST shows usage but generated code uses runtime.eval() etc.
+    // Example: for obj in items: assertTrue(_interpreters.is_shareable(obj))
+    // AST says obj is used, but Zig code is: runtime.eval("_interpreters.is_shareable(obj)")
+    // The obj in the string is not a Zig identifier reference
+    if (var_used and !shadows_outer) {
+        const body_code = self.output.items[pre_body_pos..];
+        // Get the actual capture name (may be escaped for Zig keywords)
+        const capture_name = if (zig_keywords.isZigKeyword(var_name))
+            var_name // Keywords like 'type' would have @"type" in generated code
+        else
+            var_name;
+
+        // Check if the variable appears as an identifier in generated code
+        // It must appear outside of string literals to count as actual usage
+        const var_actually_used = blk: {
+            var in_string = false;
+            var i: usize = 0;
+            while (i < body_code.len) {
+                // Track string literal boundaries
+                if (body_code[i] == '"' and (i == 0 or body_code[i - 1] != '\\')) {
+                    in_string = !in_string;
+                    i += 1;
+                    continue;
+                }
+                if (in_string) {
+                    i += 1;
+                    continue;
+                }
+                // Look for variable name as identifier (not part of larger word)
+                if (std.mem.startsWith(u8, body_code[i..], capture_name)) {
+                    const before_ok = i == 0 or !std.ascii.isAlphanumeric(body_code[i - 1]) and body_code[i - 1] != '_';
+                    const after_idx = i + capture_name.len;
+                    const after_ok = after_idx >= body_code.len or (!std.ascii.isAlphanumeric(body_code[after_idx]) and body_code[after_idx] != '_');
+                    if (before_ok and after_ok) {
+                        break :blk true;
+                    }
+                }
+                i += 1;
+            }
+            break :blk false;
+        };
+
+        // If variable was expected to be used but wasn't, emit discard
+        if (!var_actually_used) {
+            // Insert _ = varname; right after pre_body_pos
+            // First, save the body code
+            const body_code_copy = try self.allocator.dupe(u8, body_code);
+            defer self.allocator.free(body_code_copy);
+            // Truncate to pre_body_pos
+            self.output.shrinkRetainingCapacity(pre_body_pos);
+            // Emit discard
+            try self.emitIndent();
+            try self.emit("_ = ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit(";\n");
+            // Re-append body
+            try self.output.appendSlice(self.allocator, body_code_copy);
+        }
     }
 
     // Clean up loop capture tracking and renames when exiting loop
