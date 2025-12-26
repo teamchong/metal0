@@ -594,6 +594,28 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             return;
         }
 
+        // Check if the value is a renamed variable (e.g., other -> other_converted for type dispatch)
+        // If so, use the renamed variable directly for field access instead of going through genExpr
+        // which might not apply the rename due to func_local_vars precedence
+        if (attr.value.* == .name) {
+            const original_name = attr.value.name.id;
+            if (self.var_renames.get(original_name)) |renamed| {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
+                try emitConst(self, ".");
+                // Apply name demangling for private attributes
+                const attr_name = blk: {
+                    if (std.mem.startsWith(u8, attr.attr, "_") and attr.attr.len > 2) {
+                        if (std.mem.indexOf(u8, attr.attr[1..], "__")) |pos| {
+                            break :blk attr.attr[1 + pos ..];
+                        }
+                    }
+                    break :blk attr.attr;
+                };
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                return;
+            }
+        }
+
         // Known attribute: direct field access
         // Escape attribute name if it's a Zig keyword (e.g., "test")
         try genExpr(self, attr.value.*);

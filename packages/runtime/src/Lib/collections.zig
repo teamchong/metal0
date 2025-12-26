@@ -26,6 +26,11 @@ pub const UserDict = @import("collections/userdict.zig").UserDict;
 pub const UserList = @import("collections/userlist.zig").UserList;
 pub const UserString = @import("collections/userstring.zig").UserString;
 
+// Lowercase aliases for Python compatibility (Python uses lowercase)
+pub const deque = Deque;
+pub const defaultdict = DefaultDict;
+pub const ordereddict = OrderedDict;
+
 // ============================================================================
 // Tests - Re-run all component tests
 // ============================================================================

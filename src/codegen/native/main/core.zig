@@ -1504,6 +1504,16 @@ pub const NativeCodegen = struct {
                     if (std.mem.eql(u8, var_name, "self")) {
                         return false;
                     }
+                    // Renamed variables are being specially handled by codegen
+                    // (e.g., other -> other_converted) - let genAttribute use the rename
+                    if (self.var_renames.contains(var_name)) {
+                        return false;
+                    }
+                    // Local variables declared in current function are known to exist
+                    // (e.g., x = self/other; return x.__num) - use direct access
+                    if (self.func_local_vars.contains(var_name)) {
+                        return false;
+                    }
                     // Imported modules are always known at compile time - let dispatch handle them
                     // This prevents os.curdir, math.pi etc from falling back to VM
                     if (self.imported_modules.contains(var_name)) {
@@ -2390,6 +2400,7 @@ pub const NativeCodegen = struct {
             if (!self.symbol_table.isDeclaredInCurrentScope(var_name)) continue;
 
             // Count occurrences of the variable name as a complete identifier
+            // Skip occurrences inside string literals (e.g., VM fallback strings like "lhs.split()")
             var occurrence_count: usize = 0;
             var pos: usize = search_start;
             while (std.mem.indexOfPos(u8, output_str, pos, emit_name)) |idx| {
@@ -2398,8 +2409,11 @@ pub const NativeCodegen = struct {
                 const valid_end = end >= output_str.len or (!std.ascii.isAlphanumeric(output_str[end]) and output_str[end] != '_');
 
                 if (valid_start and valid_end) {
-                    occurrence_count += 1;
-                    if (occurrence_count > 1) break;
+                    // Skip occurrences inside string literals
+                    if (!isInsideStringLiteral(output_str, idx)) {
+                        occurrence_count += 1;
+                        if (occurrence_count > 1) break;
+                    }
                 }
                 pos = end;
             }
@@ -2422,6 +2436,30 @@ pub const NativeCodegen = struct {
         }
     }
 
+    /// Check if a position in the output is inside a string literal
+    /// Scans backward to count unescaped quotes - odd count means inside string
+    fn isInsideStringLiteral(output_str: []const u8, pos: usize) bool {
+        // Simple heuristic: scan backward from pos to the last newline or semicolon
+        // and count unescaped double quotes. Odd count = inside string.
+        var quote_count: usize = 0;
+        var i = pos;
+        while (i > 0) {
+            i -= 1;
+            const c = output_str[i];
+            if (c == '\n' or c == ';') break; // Stop at statement boundary
+            if (c == '"') {
+                // Check if escaped (preceded by \)
+                if (i > 0 and output_str[i - 1] == '\\') {
+                    // Could be escaped, but we'd need to count consecutive backslashes
+                    // For simplicity, just check one level
+                    if (i < 2 or output_str[i - 2] != '\\') continue; // escaped quote, skip
+                }
+                quote_count += 1;
+            }
+        }
+        return (quote_count % 2) == 1; // Odd count = inside string
+    }
+
     /// Emit discards for variables that were assigned but never used in the generated code
     /// This checks the actual output buffer to count how many times the variable name appears
     /// If it only appears once (in the assignment), it's unused and needs a discard
@@ -2442,6 +2480,7 @@ pub const NativeCodegen = struct {
 
             // Count occurrences of the variable name as a complete identifier
             // If count <= 1, variable is only used in its own assignment (unused)
+            // Skip occurrences inside string literals (e.g., VM fallback strings like "lhs.split()")
             var occurrence_count: usize = 0;
             var pos: usize = search_start;
             while (std.mem.indexOfPos(u8, output_str, pos, emit_name)) |idx| {
@@ -2451,8 +2490,11 @@ pub const NativeCodegen = struct {
                 const valid_end = end >= output_str.len or (!std.ascii.isAlphanumeric(output_str[end]) and output_str[end] != '_');
 
                 if (valid_start and valid_end) {
-                    occurrence_count += 1;
-                    if (occurrence_count > 1) break; // Found more than one use, variable is used
+                    // Skip occurrences inside string literals
+                    if (!isInsideStringLiteral(output_str, idx)) {
+                        occurrence_count += 1;
+                        if (occurrence_count > 1) break; // Found more than one use, variable is used
+                    }
                 }
                 pos = end;
             }

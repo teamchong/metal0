@@ -558,6 +558,9 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             const is_hoisted = self.hoisted_vars.contains(var_name);
             const is_reassigned = varIsReassignedInBody(body, var_name);
 
+            // Track the name used for declaration (for discard emission)
+            var emit_name: []const u8 = var_name;
+
             if (is_hoisted) {
                 // Already declared at function level - just assign using original name
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -594,8 +597,16 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
                 // Track this variable for post-generation discard check
                 try declared_vars.append(self.allocator, decl_name);
+                emit_name = decl_name;
             }
             try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+
+            // Emit discard to prevent "unused variable" errors - safe because Zig allows _ = &x; even if x is used
+            // This handles cases where AST shows usage but codegen uses VM fallback (e.g., f.method() -> runtime.eval("f.method()"))
+            try self.emitIndent();
+            try emitConst(self, "_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), emit_name);
+            try emitConst(self, ";\n");
 
             // Mark the variable as declared so reassignment won't redeclare it
             if (!is_hoisted) try self.declareVar(var_name);
@@ -607,33 +618,11 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         try self.generateStmt(stmt);
     }
 
-    // Post-generation check: emit discards for variables declared but not actually used in output
-    // This catches cases where AST says var is used but codegen optimized it away (e.g., *arg expansion)
-    const body_output = self.output.items[pre_body_pos..];
-    for (declared_vars.items) |var_name| {
-        // Count occurrences of the variable name as a complete identifier in the generated body
-        var occurrence_count: usize = 0;
-        var pos: usize = 0;
-        while (std.mem.indexOfPos(u8, body_output, pos, var_name)) |idx| {
-            const end = idx + var_name.len;
-            // Check boundaries for complete identifier match
-            const valid_start = idx == 0 or (!std.ascii.isAlphanumeric(body_output[idx - 1]) and body_output[idx - 1] != '_');
-            const valid_end = end >= body_output.len or (!std.ascii.isAlphanumeric(body_output[end]) and body_output[end] != '_');
-            if (valid_start and valid_end) {
-                occurrence_count += 1;
-                if (occurrence_count > 1) break; // Found usage beyond declaration
-            }
-            pos = end;
-        }
-
-        // If only 1 occurrence (the declaration itself), emit discard
-        if (occurrence_count <= 1) {
-            try self.emitIndent();
-            try emitConst(self,"_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try emitConst(self,";\n");
-        }
-    }
+    // Note: Discards are now emitted immediately after each tuple variable declaration (see above)
+    // This ensures unused variables don't cause Zig compilation errors, even when native codegen
+    // optimizes away the usage (e.g., method calls going through VM fallback).
+    _ = pre_body_pos; // suppress unused variable warning
+    _ = &declared_vars; // suppress unused variable warning (still used for tracking)
 
     self.popScope();
     self.dedent();
@@ -1269,6 +1258,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // we need to rename the new variable to avoid shadowing the immutable Zig capture
         if (tuple_var_used) {
             try self.loop_capture_vars.put(var_name, {});
+            // Emit discard to prevent "unused capture" errors when codegen uses VM fallback
+            // (e.g., line.strip() -> runtime.eval("line.strip()") doesn't reference Zig's line variable)
+            try self.emitIndent();
+            try emitConst(self, "_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try emitConst(self, ";\n");
         }
 
         for (for_stmt.body) |stmt| {
@@ -1280,6 +1275,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         _ = self.var_renames.swapRemove(var_name);
         _ = self.heterogeneous_loop_vars.swapRemove(var_name);
 
+        // Emit discards for variables only used in VM fallback strings before exiting scope
+        try self.emitScopedDiscards();
         self.popScope();
         self.dedent();
 

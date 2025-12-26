@@ -348,6 +348,22 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             }
         }
     }
+
+    // When source uses VM fallback, unpacked variables are only referenced in VM fallback strings
+    // (as Python variable names), not as Zig code. Emit discards to prevent "unused local constant" errors.
+    if (self.needsVMFallback(assign.value.*)) {
+        for (target_tuple.elts) |target| {
+            if (target == .name) {
+                const var_name = target.name.id;
+                // Skip discard pattern
+                if (std.mem.eql(u8, var_name, "_")) continue;
+                try self.emitIndent();
+                try emitConst(self, "_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try emitConst(self, ";\n");
+            }
+        }
+    }
 }
 
 /// Generate list unpacking assignment: [a, b] = [1, 2] or a, b = x (when parsed as list)
@@ -552,6 +568,22 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                         });
                     }
                 }
+            }
+        }
+    }
+
+    // When source uses VM fallback, unpacked variables are only referenced in VM fallback strings
+    // (as Python variable names), not as Zig code. Emit discards to prevent "unused local constant" errors.
+    if (self.needsVMFallback(assign.value.*)) {
+        for (target_list.elts) |target| {
+            if (target == .name) {
+                const var_name = target.name.id;
+                // Skip discard pattern
+                if (std.mem.eql(u8, var_name, "_")) continue;
+                try self.emitIndent();
+                try emitConst(self, "_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try emitConst(self, ";\n");
             }
         }
     }

@@ -112,7 +112,10 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         // Check for type compatibility:
         // - Same tag = compatible
         // - class_instance types are only compatible if same class name
+        // - VM fallback expressions return *PyObject which is incompatible with native types
         const types_compatible = blk: {
+            // VM fallback returns *PyObject - always incompatible with native types
+            if (self.needsVMFallback(a) or self.needsVMFallback(b)) break :blk false;
             if (a_tag != b_tag) break :blk false;
             if (type_traits.isClassInstance(a_type)) {
                 break :blk std.mem.eql(u8, a_type.class_instance, b_type.class_instance);

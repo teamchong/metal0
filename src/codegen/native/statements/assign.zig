@@ -1558,6 +1558,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 }
             }
 
+            // For variables assigned from VM fallback, emit discard to suppress unused warnings
+            // VM fallback variables are referenced by name in subsequent eval() strings,
+            // not as Zig identifiers, so Zig sees them as unused
+            if (is_first_assignment and self.needsVMFallback(assign.value.*)) {
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.emitIndent();
+                try emitConst(self,"_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                try emitConst(self,";\n");
+            }
+
             // Track first assignments for potential discard emission
             // We defer discard emission to check if the variable is actually used in generated code
             // This avoids "pointless discard" errors when the variable IS used
@@ -1729,6 +1740,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try emitConst(self,";\n");
                     return;
                 }
+            }
+
+            // Check if the attribute's base object is uncertain (would generate runtime.eval)
+            // If so, we need to use VM fallback for the entire assignment since
+            // runtime.eval() returns an rvalue, not an lvalue
+            const target_needs_vm_fallback = self.needsVMFallback(target);
+            if (target_needs_vm_fallback) {
+                // Use VM fallback for entire assignment: obj.attr = value
+                try self.emitVMFallback(.{ .assign = assign });
+                try emitConst(self, ";\n");
+                return;
             }
 
             if (is_dynamic) {
