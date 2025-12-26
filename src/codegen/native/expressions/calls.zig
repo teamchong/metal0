@@ -1055,6 +1055,21 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // Handle vararg loop variable calls FIRST: c(arg) where c is from "for c in *classes"
+        // Vararg loop variables are types (structs) at comptime, need .init() to instantiate
+        // This MUST be checked before is_pyvalue_callable since vararg vars are typed as unknown
+        if (self.vararg_loop_vars.contains(raw_func_name)) {
+            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, try ");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+            try self.emit(".init(__global_allocator");
+            for (call.args) |arg| {
+                try self.emit(", ");
+                try genExpr(self, arg);
+            }
+            try self.emit("))");
+            return;
+        }
+
         // Check if this is a PyValue callable (from runtime.eval of lambda or VM fallback)
         // PyValue callables need to use .call() method with PyValue array argument
         // Check pyvalue_vars FIRST - this is tracked during assignment codegen (more reliable)
@@ -1063,6 +1078,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             const func_type = self.type_inferrer.getScopedVar(raw_func_name) orelse
                 self.type_inferrer.var_types.get(raw_func_name);
             if (func_type) |ft| {
+                // Exclude unknown types that are vararg loop vars (handled above)
                 break :blk (ft == .pyvalue or ft == .unknown);
             }
             break :blk false;
@@ -1675,21 +1691,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
         }
 
-        // Handle vararg loop variable calls: c(arg) where c is from "for c in *classes"
-        // Vararg loop variables are types (structs) at comptime, need .init() to instantiate
-        // Wrap result in PyValue.fromAlloc for use in heterogeneous containers (e.g., lists populated in vararg loops)
-        // Generate: try runtime.PyValue.fromAlloc(__global_allocator, try c.init(allocator, args...))
-        if (self.vararg_loop_vars.contains(raw_func_name)) {
-            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, try ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-            try self.emit(".init(__global_allocator");
-            for (call.args) |arg| {
-                try self.emit(", ");
-                try genExpr(self, arg);
-            }
-            try self.emit("))");
-            return;
-        }
+        // Note: vararg loop variable calls are handled earlier in this function
+        // (before is_pyvalue_callable check)
 
         // Fallback: regular function call
         // Use raw_func_name for registry lookups (original Python name)
