@@ -311,12 +311,51 @@ pub fn pyValueNe(a: PyValue, b: PyValue) bool {
 // Identity Comparison (for 'is' operator)
 // =============================================================================
 
-/// Python identity comparison - compiles ONCE per type
+/// Python identity comparison - handles different types for pointer/value comparison
 /// Checks if two values are the same object (same memory location)
 /// For containers (list, dict, set), compares pointer addresses
 /// For primitives, identity == equality
-pub fn pyIdentical(a: anytype, b: @TypeOf(a)) bool {
-    const T = @TypeOf(a);
+pub fn pyIdentical(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    const a_info = @typeInfo(A);
+    const b_info = @typeInfo(B);
+
+    // Same type case
+    if (A == B) {
+        return pyIdenticalSameType(A, a, b);
+    }
+
+    // Handle pointer to value comparison: a is *T, b is T
+    if (a_info == .pointer and a_info.pointer.size == .one) {
+        if (a_info.pointer.child == B) {
+            // a is *T, b is T - check if a points to b's address
+            // For ArrayList, compare items.ptr
+            if (b_info == .@"struct" and @hasField(B, "items") and @hasField(B, "capacity")) {
+                return a.items.ptr == b.items.ptr;
+            }
+            return a == &b;
+        }
+    }
+
+    // Handle value to pointer comparison: a is T, b is *T
+    if (b_info == .pointer and b_info.pointer.size == .one) {
+        if (b_info.pointer.child == A) {
+            // a is T, b is *T - check if b points to a's address
+            // For ArrayList, compare items.ptr
+            if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity")) {
+                return a.items.ptr == b.items.ptr;
+            }
+            return &a == b;
+        }
+    }
+
+    // Different incompatible types - not identical
+    return false;
+}
+
+/// Helper for same-type identity comparison
+fn pyIdenticalSameType(comptime T: type, a: T, b: T) bool {
     const info = @typeInfo(T);
 
     // Pointers: compare addresses directly

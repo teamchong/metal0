@@ -650,6 +650,10 @@ pub const NativeCodegen = struct {
     // Used to detect when a variable's type is BigInt for subsequent operations
     bigint_vars: FnvVoidMap,
 
+    // Track variables assigned from PyValue expressions (VM fallback, eval)
+    // Used to detect when a variable holds a PyValue callable for .call() generation
+    pyvalue_vars: FnvVoidMap,
+
     // Track base class for nested classes (maps class name -> base class name)
     // Used to provide default args when calling BadIndex() where BadIndex(int)
     nested_class_bases: FnvStringMap,
@@ -1051,6 +1055,7 @@ pub const NativeCodegen = struct {
             .nested_class_aliases = FnvStringMap.init(aa),
             .hoisted_local_classes = FnvStringMap.init(aa),
             .bigint_vars = FnvVoidMap.init(aa),
+            .pyvalue_vars = FnvVoidMap.init(aa),
             .nested_class_bases = FnvStringMap.init(aa),
             .nested_class_defs = FnvClassDefMap.init(aa),
             .nested_class_method_needs_alloc = FnvVoidMap.init(aa),

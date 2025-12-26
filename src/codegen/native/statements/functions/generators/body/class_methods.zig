@@ -63,6 +63,124 @@ fn bodyCanRaise(stmts: []const ast.Node) bool {
     return false;
 }
 
+/// Check if a call is super() or super().__method__()
+/// super() implicitly references self, even without explicit self argument
+fn isSuperCall(call: ast.Node.Call) bool {
+    // Check for super() call
+    if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "super")) {
+        return true;
+    }
+    // Check for super().__method__() call
+    if (call.func.* == .attribute) {
+        const attr = call.func.attribute;
+        if (attr.value.* == .call) {
+            const inner_call = attr.value.call;
+            if (inner_call.func.* == .name and std.mem.eql(u8, inner_call.func.name.id, "super")) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if an expression references bare `self` (not self.attr)
+/// This is used to detect expressions like id(self), foo(self), super().__init__(), etc.
+/// that can't be evaluated before struct initialization
+fn exprReferencesSelf(expr: ast.Node) bool {
+    return switch (expr) {
+        .name => |n| std.mem.eql(u8, n.id, "self"),
+        .attribute => |attr| exprReferencesSelf(attr.value.*),
+        .binop => |b| exprReferencesSelf(b.left.*) or exprReferencesSelf(b.right.*),
+        .unaryop => |u| exprReferencesSelf(u.operand.*),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprReferencesSelf(v)) break :blk true;
+            break :blk false;
+        },
+        .compare => |c| blk: {
+            if (exprReferencesSelf(c.left.*)) break :blk true;
+            for (c.comparators) |comp| if (exprReferencesSelf(comp)) break :blk true;
+            break :blk false;
+        },
+        .call => |c| blk: {
+            // super() calls implicitly reference self - treat them as self-referencing
+            if (isSuperCall(c)) break :blk true;
+            if (exprReferencesSelf(c.func.*)) break :blk true;
+            for (c.args) |arg| if (exprReferencesSelf(arg)) break :blk true;
+            for (c.keyword_args) |kw| if (exprReferencesSelf(kw.value)) break :blk true;
+            break :blk false;
+        },
+        .subscript => |s| blk: {
+            if (exprReferencesSelf(s.value.*)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| if (exprReferencesSelf(idx.*)) break :blk true,
+                .slice => |sr| {
+                    if (sr.lower) |l| if (exprReferencesSelf(l.*)) break :blk true;
+                    if (sr.upper) |u| if (exprReferencesSelf(u.*)) break :blk true;
+                    if (sr.step) |st| if (exprReferencesSelf(st.*)) break :blk true;
+                },
+            }
+            break :blk false;
+        },
+        .if_expr => |ie| exprReferencesSelf(ie.condition.*) or
+            exprReferencesSelf(ie.body.*) or
+            exprReferencesSelf(ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |el| if (exprReferencesSelf(el)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |el| if (exprReferencesSelf(el)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys, d.values) |k, v| {
+                if (exprReferencesSelf(k) or exprReferencesSelf(v)) break :blk true;
+            }
+            break :blk false;
+        },
+        .set => |s| blk: {
+            for (s.elts) |el| if (exprReferencesSelf(el)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Check if a statement references bare `self`
+/// Used to detect statements like super().__init__(), parent_class.__init__(self)
+/// that can't be executed before struct initialization
+fn stmtReferencesSelf(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprReferencesSelf(e.value.*),
+        .assign => |a| exprReferencesSelf(a.value.*),
+        .aug_assign => |aug| exprReferencesSelf(aug.value.*),
+        .if_stmt => |if_s| blk: {
+            if (exprReferencesSelf(if_s.condition.*)) break :blk true;
+            for (if_s.body) |s| if (stmtReferencesSelf(s)) break :blk true;
+            for (if_s.else_body) |s| if (stmtReferencesSelf(s)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |for_s| blk: {
+            if (exprReferencesSelf(for_s.iter.*)) break :blk true;
+            for (for_s.body) |s| if (stmtReferencesSelf(s)) break :blk true;
+            if (for_s.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (stmtReferencesSelf(s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .while_stmt => |while_s| blk: {
+            if (exprReferencesSelf(while_s.condition.*)) break :blk true;
+            for (while_s.body) |s| if (stmtReferencesSelf(s)) break :blk true;
+            if (while_s.orelse_body) |orelse_body| {
+                for (orelse_body) |s| if (stmtReferencesSelf(s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .return_stmt => |ret| if (ret.value) |v| exprReferencesSelf(v.*) else false,
+        else => false,
+    };
+}
+
 /// Check if an expression references self.attr (meaning it depends on other fields)
 /// This is used to detect computed fields that can't be initialized inline in struct literal
 fn exprReferencesSelfAttr(expr: ast.Node) bool {
@@ -592,6 +710,10 @@ pub fn genInitMethod(
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created
     // Skip the type-check statements that were already handled with comptime branching
+    // Also collect statements that reference self for deferred execution after struct init
+    var deferred_self_stmts = std.ArrayListUnmanaged(ast.Node){};
+    defer deferred_self_stmts.deinit(self.allocator);
+
     for (init_def.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
@@ -606,9 +728,16 @@ pub fn genInitMethod(
             break :blk false;
         };
 
-        // Generate non-field statements (local var assignments, if statements, etc.)
-        if (!is_field_assign) {
+        // Check if statement references self (e.g., super().__init__(), parent_class.__init__(self))
+        const references_self = stmtReferencesSelf(stmt);
+
+        // Generate non-field statements that don't reference self
+        // Statements that reference self are deferred until after struct creation
+        if (!is_field_assign and !references_self) {
             try self.generateStmt(stmt);
+        } else if (!is_field_assign and references_self) {
+            // Defer statements that reference self (e.g., parent __init__ calls)
+            try deferred_self_stmts.append(self.allocator, stmt);
         }
     }
 
@@ -660,6 +789,10 @@ pub fn genInitMethod(
         return;
     }
 
+    // Determine if we need the __self pattern for non-nested classes
+    // This is required when we have deferred statements that reference self
+    const needs_self_pattern = !is_nested and deferred_self_stmts.items.len > 0;
+
     // Generate return statement with field initializers
     if (is_nested) {
         // Nested classes: heap-allocate for Python reference semantics
@@ -667,6 +800,10 @@ pub fn genInitMethod(
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
         try self.emit("__ptr.* = @This(){\n");
+    } else if (needs_self_pattern) {
+        // Non-nested with deferred self statements: use const __self pattern
+        try self.emitIndent();
+        try self.emit("const __self = @This(){\n");
     } else {
         try self.emitIndent();
         try self.emit("return @This(){\n");
@@ -688,8 +825,9 @@ pub fn genInitMethod(
                     const field_name = attr.attr;
 
                     // Check if value references self.attr (computed from other fields)
-                    // These must be deferred until after struct initialization
-                    if (exprReferencesSelfAttr(assign.value.*)) {
+                    // OR bare self (e.g., id(self)) - both must be deferred until after
+                    // struct initialization since self doesn't exist yet
+                    if (exprReferencesSelfAttr(assign.value.*) or exprReferencesSelf(assign.value.*)) {
                         try deferred_assigns.append(self.allocator, stmt);
                         // Initialize with undefined for now - will be set after struct init
                         try self.emitIndent();
@@ -779,29 +917,46 @@ pub fn genInitMethod(
     try self.emitIndent();
     try self.emit("};\n");
 
-    // Emit deferred field assignments (fields that reference self.attr)
-    // For nested classes, use __ptr; for top-level, we're inside return so this shouldn't happen
-    if (is_nested and deferred_assigns.items.len > 0) {
-        for (deferred_assigns.items) |stmt| {
-            const assign = stmt.assign;
-            const attr = assign.targets[0].attribute;
-            const field_name = attr.attr;
+    // Emit deferred field assignments (fields that reference self.attr or bare self)
+    // For nested classes, use __ptr; for non-nested with __self pattern, use __self
+    if (deferred_assigns.items.len > 0) {
+        const self_var = if (is_nested) "__ptr" else if (needs_self_pattern) "__self" else null;
+        if (self_var) |sv| {
+            for (deferred_assigns.items) |stmt| {
+                const assign = stmt.assign;
+                const attr = assign.targets[0].attribute;
+                const field_name = attr.attr;
 
-            try self.emitIndent();
-            try self.emit("__ptr.");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
-            try self.emit(" = ");
-            // Temporarily add var_rename for self -> __ptr for this expression
-            try self.var_renames.put("self", "__ptr");
-            try self.genExpr(assign.value.*);
-            _ = self.var_renames.swapRemove("self");
-            try self.emit(";\n");
+                try self.emitIndent();
+                try self.emit(sv);
+                try self.emit(".");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
+                try self.emit(" = ");
+                // Temporarily add var_rename for self -> __ptr/__self for this expression
+                try self.var_renames.put("self", sv);
+                try self.genExpr(assign.value.*);
+                _ = self.var_renames.swapRemove("self");
+                try self.emit(";\n");
+            }
         }
+    }
+
+    // Emit deferred self-referencing statements (e.g., super().__init__(), parent.__init__(self))
+    if (deferred_self_stmts.items.len > 0) {
+        const self_var = if (is_nested) "__ptr" else "__self";
+        try self.var_renames.put("self", self_var);
+        for (deferred_self_stmts.items) |stmt| {
+            try self.generateStmt(stmt);
+        }
+        _ = self.var_renames.swapRemove("self");
     }
 
     if (is_nested) {
         try self.emitIndent();
         try self.emit("return __ptr;\n");
+    } else if (needs_self_pattern) {
+        try self.emitIndent();
+        try self.emit("return __self;\n");
     }
 
     // Close comptime type guard if we opened one
@@ -1086,6 +1241,10 @@ pub fn genInitMethodWithBuiltinBase(
     // First pass: generate non-field assignments (local variables, control flow, etc.)
     // These need to be executed BEFORE the struct is created (unless we did early __ptr)
     // Skip type-check statements if we're using comptime branching
+    // Also collect statements that reference self for deferred execution after struct init
+    var deferred_self_stmts_builtin = std.ArrayListUnmanaged(ast.Node){};
+    defer deferred_self_stmts_builtin.deinit(self.allocator);
+
     for (init.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
@@ -1100,11 +1259,18 @@ pub fn genInitMethodWithBuiltinBase(
             break :blk false;
         };
 
-        // Generate non-field statements (local var assignments, if statements, etc.)
-        if (!is_field_assign) {
+        // Check if statement references self (e.g., super().__init__(), parent_class.__init__(self))
+        const references_self = stmtReferencesSelf(stmt);
+
+        // Generate non-field statements that don't reference self
+        // Statements that reference self are deferred until after struct creation
+        if (!is_field_assign and !references_self) {
             try self.generateStmt(stmt);
             // If statement terminated control flow, skip remaining statements
             if (self.control_flow_terminated) break;
+        } else if (!is_field_assign and references_self) {
+            // Defer statements that reference self (e.g., parent __init__ calls)
+            try deferred_self_stmts_builtin.append(self.allocator, stmt);
         }
     }
 
@@ -1129,6 +1295,10 @@ pub fn genInitMethodWithBuiltinBase(
         return;
     }
 
+    // Determine if we need the __self pattern for non-nested classes
+    // This is required when we have deferred statements that reference self
+    const needs_self_pattern_builtin = !is_nested and deferred_self_stmts_builtin.items.len > 0;
+
     // Generate return statement with field initializers
     // Skip if we already created __ptr early (needs_early_ptr)
     if (is_nested and !needs_early_ptr) {
@@ -1137,6 +1307,18 @@ pub fn genInitMethodWithBuiltinBase(
         try self.output.writer(self.allocator).print("const __ptr = try {s}.create(@This());\n", .{alloc_name});
         try self.emitIndent();
         try self.emit("__ptr.* = @This(){\n");
+        self.indent();
+        // Initialize captured variable pointers first
+        if (captured_vars) |vars| {
+            for (vars) |var_name| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print(".__captured_{s} = __cap_{s},\n", .{ var_name, var_name });
+            }
+        }
+    } else if (!is_nested and needs_self_pattern_builtin) {
+        // Non-nested with deferred self statements: use const __self pattern
+        try self.emitIndent();
+        try self.emit("const __self = @This(){\n");
         self.indent();
         // Initialize captured variable pointers first
         if (captured_vars) |vars| {
@@ -1250,8 +1432,9 @@ pub fn genInitMethodWithBuiltinBase(
                 if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
                     const field_name = attr.attr;
 
-                    // Check if value references self.attr - these must be deferred
-                    const needs_deferral = exprReferencesSelfAttr(assign.value.*);
+                    // Check if value references self.attr OR bare self (e.g., id(self))
+                    // These must be deferred until after struct initialization
+                    const needs_deferral = exprReferencesSelfAttr(assign.value.*) or exprReferencesSelf(assign.value.*);
 
                     try self.emitIndent();
                     try self.emit(".");
@@ -1356,9 +1539,22 @@ pub fn genInitMethodWithBuiltinBase(
         }
     }
 
+    // Emit deferred self-referencing statements (e.g., super().__init__(), parent.__init__(self))
+    if (deferred_self_stmts_builtin.items.len > 0) {
+        const self_var = if (is_nested) "__ptr" else "__self";
+        try self.var_renames.put("self", self_var);
+        for (deferred_self_stmts_builtin.items) |stmt| {
+            try self.generateStmt(stmt);
+        }
+        _ = self.var_renames.swapRemove("self");
+    }
+
     if (is_nested) {
         try self.emitIndent();
         try self.emit("return __ptr;\n");
+    } else if (needs_self_pattern_builtin) {
+        try self.emitIndent();
+        try self.emit("return __self;\n");
     }
 
     // Close comptime type guard if we opened one

@@ -783,25 +783,17 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         // 1. Evaluates both expressions
         // 2. Extracts slices with explicit type annotation (forces coercion)
         // 3. Compares with std.mem.eql using concrete type (no monomorphization)
-        try self.emit("if (");
-        const label = try self.emitInlineBlockStart("ae");
-        try self.emit("const __ae_raw_a = ");
+        // Use unified slicesEqual which handles arrays, slices, and structs with .items
+        // Takes pointers to avoid by-value array copying issues
+        try self.emit("if (!runtime.container_dispatch.slicesEqual(@TypeOf(");
         try parent.genExpr(self, args[0]);
-        try self.emit("; const __ae_raw_b = ");
+        try self.emit("), @TypeOf(");
         try parent.genExpr(self, args[1]);
-        // Extract slice using container_dispatch helper - avoids inline @typeInfo monomorphization
-        try self.emit("; const __ae_slice_a: ");
-        try self.emit(slice_type.?);
-        try self.emit(" = runtime.container_dispatch.getSlice(@TypeOf(__ae_raw_a), __ae_raw_a);");
-        try self.emit(" const __ae_slice_b: ");
-        try self.emit(slice_type.?);
-        try self.emit(" = runtime.container_dispatch.getSlice(@TypeOf(__ae_raw_b), __ae_raw_b);");
-        // Compare with concrete type
-        try self.emitFmt(" break :{s} !std.mem.eql(", .{label});
-        try self.emit(elem_type.?);
-        try self.emit(", __ae_slice_a, __ae_slice_b); ");
-        try self.emitInlineBlockEnd();
-        try self.emit(") return error.AssertionFailed;\n");
+        try self.emit("), &");
+        try parent.genExpr(self, args[0]);
+        try self.emit(", &");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) return error.AssertionFailed;\n");
         return;
     }
 

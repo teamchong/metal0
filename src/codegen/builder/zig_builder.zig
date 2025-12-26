@@ -1274,6 +1274,466 @@ pub const ZigBuilder = struct {
     }
 
     // ============================================
+    // Callback-Based Auto-Closing APIs (Phase 1)
+    // ============================================
+    //
+    // These methods guarantee proper closing of braces.
+    // The callback pattern makes it impossible to forget closing braces.
+
+    /// Struct definition with callback body (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withStruct("MyTuple", struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.writeIndent();
+    ///           try b.write("x: i64,\n");
+    ///           try b.writeIndent();
+    ///           try b.write("y: f64,\n");
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates:
+    ///   const MyTuple = struct {
+    ///       x: i64,
+    ///       y: f64,
+    ///   };
+    pub fn withStruct(self: *ZigBuilder, name: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("const {s} = struct {{\n", .{name});
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("};\n");
+    }
+
+    /// Anonymous struct literal with callback body (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withAnonStruct(struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.write(".x = 1, .y = 2");
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates: .{ .x = 1, .y = 2 }
+    pub fn withAnonStruct(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.write(".{ ");
+        try body_fn(self, context);
+        try self.write(" }");
+    }
+
+    /// Inline for loop with callback body (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withInlineFor("fields", "|field|", struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.writeIndent();
+    ///           try b.write("// process field\n");
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates:
+    ///   inline for (fields) |field| {
+    ///       // process field
+    ///   }
+    pub fn withInlineFor(self: *ZigBuilder, iterable: []const u8, capture: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("inline for ({s}) {s} {{\n", .{ iterable, capture });
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// For loop with raw string iterable (auto-close guaranteed)
+    ///
+    /// Use this when you have a pre-rendered expression string.
+    /// For ZigValue iterables, use withFor() instead.
+    pub fn withForRaw(self: *ZigBuilder, iterable: []const u8, capture: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("for ({s}) |{s}| {{\n", .{ iterable, capture });
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// For loop with index (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withForIndexed("items", "item", "i", struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           // body
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates:
+    ///   for (items, 0..) |item, i| {
+    ///       // body
+    ///   }
+    pub fn withForIndexed(self: *ZigBuilder, iterable: []const u8, capture: []const u8, index_name: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("for ({s}, 0..) |{s}, {s}| {{\n", .{ iterable, capture, index_name });
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Try block with callback body (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withTryBlock(struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.writeIndent();
+    ///           try b.write("try riskyOperation();\n");
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Note: In Zig, try doesn't create a block. This is for semantic grouping.
+    /// For actual error handling, use withTryCatch.
+    pub fn withTryExpr(self: *ZigBuilder, expr_fn: anytype, context: anytype) !void {
+        try self.write("try ");
+        try expr_fn(self, context);
+    }
+
+    /// If-else expression with callbacks (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withIfElse("condition", thenFn, elseFn, ctx);
+    ///
+    /// Generates:
+    ///   if (condition) {
+    ///       // then body
+    ///   } else {
+    ///       // else body
+    ///   }
+    pub fn withIfElse(self: *ZigBuilder, condition: []const u8, then_fn: anytype, else_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("if ({s}) {{\n", .{condition});
+        self.indent();
+
+        try then_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("} else {\n");
+        self.indent();
+
+        try else_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// If with optional else (auto-close guaranteed)
+    ///
+    /// Use this when else is optional. Pass null for no else branch.
+    pub fn withIfOpt(self: *ZigBuilder, condition: []const u8, then_fn: anytype, else_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("if ({s}) {{\n", .{condition});
+        self.indent();
+
+        try then_fn(self, context);
+
+        self.dedent();
+
+        const TypeInfo = @typeInfo(@TypeOf(else_fn));
+        const is_null = TypeInfo == .null;
+
+        if (!is_null) {
+            try self.writeIndent();
+            try self.write("} else {\n");
+            self.indent();
+            try else_fn(self, context);
+            self.dedent();
+        }
+
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Labeled block expression with callback (auto-close guaranteed)
+    ///
+    /// Returns a LabeledBlockScope that provides breakWith() for returning values.
+    ///
+    /// Example:
+    ///   const scope = try builder.beginLabeledBlockExpr("result");
+    ///   // ... generate body ...
+    ///   try scope.breakWith(ZigValue.int(42));
+    ///   try builder.endLabeledBlockExpr(scope);
+    ///
+    /// Generates:
+    ///   result: {
+    ///       // body
+    ///       break :result 42;
+    ///   }
+    pub const LabeledBlockScope = struct {
+        builder: *ZigBuilder,
+        label: []const u8,
+        owns_label: bool,
+
+        /// Break with a ZigValue
+        pub fn breakWith(self: *LabeledBlockScope, value: ZigValue) !void {
+            try self.builder.writeIndent();
+            try self.builder.writeFmt("break :{s} ", .{self.label});
+            try self.builder.emitValue(value, EmitConfig.forExpression());
+            try self.builder.write(";\n");
+        }
+
+        /// Break with a raw expression string
+        pub fn breakWithRaw(self: *LabeledBlockScope, expr: []const u8) !void {
+            try self.builder.writeIndent();
+            try self.builder.writeFmt("break :{s} {s};\n", .{ self.label, expr });
+        }
+
+        /// Continue to the labeled loop
+        pub fn continueLoop(self: *LabeledBlockScope) !void {
+            try self.builder.writeIndent();
+            try self.builder.writeFmt("continue :{s};\n", .{self.label});
+        }
+
+        /// Get the label for use in nested code
+        pub fn getLabel(self: *LabeledBlockScope) []const u8 {
+            return self.label;
+        }
+    };
+
+    /// Begin a labeled block expression
+    pub fn beginLabeledBlockExpr(self: *ZigBuilder, label: []const u8) !LabeledBlockScope {
+        try self.writeIndent();
+        try self.writeFmt("{s}: {{\n", .{label});
+        self.indent();
+
+        return LabeledBlockScope{
+            .builder = self,
+            .label = label,
+            .owns_label = false,
+        };
+    }
+
+    /// Begin a labeled block expression with auto-generated label
+    pub fn beginLabeledBlockExprAuto(self: *ZigBuilder, hint: []const u8) !LabeledBlockScope {
+        const label = try self.freshBlockLabel();
+        _ = hint;
+
+        try self.writeIndent();
+        try self.writeFmt("{s}: {{\n", .{label});
+        self.indent();
+
+        return LabeledBlockScope{
+            .builder = self,
+            .label = label,
+            .owns_label = true,
+        };
+    }
+
+    /// End a labeled block expression
+    pub fn endLabeledBlockExpr(self: *ZigBuilder, scope: LabeledBlockScope) !void {
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+
+        if (scope.owns_label) {
+            self.allocator.free(scope.label);
+        }
+    }
+
+    /// Labeled block with callback (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withLabeledBlock("blk", struct {
+    ///       fn emit(b: *ZigBuilder, scope: *LabeledBlockScope, _: void) !void {
+    ///           try b.writeIndent();
+    ///           try b.write("if (cond) ");
+    ///           try scope.breakWithRaw("value");
+    ///       }
+    ///   }.emit, {});
+    pub fn withLabeledBlock(self: *ZigBuilder, label: []const u8, body_fn: anytype, context: anytype) !void {
+        var scope = try self.beginLabeledBlockExpr(label);
+        try body_fn(self, &scope, context);
+        try self.endLabeledBlockExpr(scope);
+    }
+
+    /// Function definition with callback body (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withFnDef("add", "x: i64, y: i64", "i64", struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.writeIndent();
+    ///           try b.write("return x + y;\n");
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates:
+    ///   fn add(x: i64, y: i64) i64 {
+    ///       return x + y;
+    ///   }
+    pub fn withFnDef(self: *ZigBuilder, name: []const u8, params: []const u8, return_type: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("fn {s}({s}) {s} {{\n", .{ name, params, return_type });
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Public function definition with callback body (auto-close guaranteed)
+    pub fn withPubFnDef(self: *ZigBuilder, name: []const u8, params: []const u8, return_type: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("pub fn {s}({s}) {s} {{\n", .{ name, params, return_type });
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Const declaration with callback for value (auto-semicolon guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withConstDecl("x", "i64", struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.write("compute()");
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates: const x: i64 = compute();
+    pub fn withConstDecl(self: *ZigBuilder, name: []const u8, type_annotation: ?[]const u8, value_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("const {s}", .{name});
+        if (type_annotation) |ty| {
+            try self.writeFmt(": {s}", .{ty});
+        }
+        try self.write(" = ");
+        try value_fn(self, context);
+        try self.write(";\n");
+    }
+
+    /// Var declaration with callback for value (auto-semicolon guaranteed)
+    pub fn withVarDecl(self: *ZigBuilder, name: []const u8, type_annotation: ?[]const u8, value_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("var {s}", .{name});
+        if (type_annotation) |ty| {
+            try self.writeFmt(": {s}", .{ty});
+        }
+        try self.write(" = ");
+        try value_fn(self, context);
+        try self.write(";\n");
+    }
+
+    /// While loop with raw condition string (auto-close guaranteed)
+    pub fn withWhileRaw(self: *ZigBuilder, condition: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("while ({s}) {{\n", .{condition});
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Switch statement with callback body (auto-close guaranteed)
+    ///
+    /// Example:
+    ///   try builder.withSwitch("value", struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.writeIndent();
+    ///           try b.write(".foo => doFoo(),\n");
+    ///           try b.writeIndent();
+    ///           try b.write("else => {},\n");
+    ///       }
+    ///   }.emit, {});
+    pub fn withSwitch(self: *ZigBuilder, value: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("switch ({s}) {{\n", .{value});
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
+    /// Discard expression: _ = &expr;
+    /// Used for unused parameters/variables
+    pub fn emitDiscard(self: *ZigBuilder, expr: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("_ = &{s};\n", .{expr});
+    }
+
+    /// Emit const declaration with raw value
+    pub fn emitConstRaw(self: *ZigBuilder, name: []const u8, value: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("const {s} = {s};\n", .{ name, value });
+    }
+
+    /// Emit const declaration with type and raw value
+    pub fn emitConstTypedRaw(self: *ZigBuilder, name: []const u8, type_str: []const u8, value: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("const {s}: {s} = {s};\n", .{ name, type_str, value });
+    }
+
+    /// Emit var declaration with raw value
+    pub fn emitVarRaw(self: *ZigBuilder, name: []const u8, type_str: ?[]const u8, value: []const u8) !void {
+        try self.writeIndent();
+        if (type_str) |ts| {
+            try self.writeFmt("var {s}: {s} = {s};\n", .{ name, ts, value });
+        } else {
+            try self.writeFmt("var {s} = {s};\n", .{ name, value });
+        }
+    }
+
+    /// Emit assignment with raw expressions
+    pub fn emitAssignRaw(self: *ZigBuilder, target: []const u8, value: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("{s} = {s};\n", .{ target, value });
+    }
+
+    /// Emit return with raw expression
+    pub fn emitReturnRaw(self: *ZigBuilder, value: ?[]const u8) !void {
+        try self.writeIndent();
+        if (value) |v| {
+            try self.writeFmt("return {s};\n", .{v});
+        } else {
+            try self.write("return;\n");
+        }
+    }
+
+    /// Emit defer statement
+    pub fn emitDefer(self: *ZigBuilder, expr: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("defer {s};\n", .{expr});
+    }
+
+    /// Emit errdefer statement
+    pub fn emitErrdefer(self: *ZigBuilder, expr: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("errdefer {s};\n", .{expr});
+    }
+
+    // ============================================
     // Statement-level callbacks (auto-semicolon)
     // ============================================
 

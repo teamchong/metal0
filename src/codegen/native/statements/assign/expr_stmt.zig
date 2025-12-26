@@ -201,9 +201,11 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Detect if this is a labeled block (pattern: __mN_xxx: { ... } or set_pyval_N: { ... })
     // Labeled blocks at statement level don't need semicolons in Zig
     // BUT: Assigned labeled blocks (e.g., _ = set_pyval_39: { ... }) DO need semicolons
+    // Also detect wrapped labeled blocks: (__mN_xxx: { ... }) which start with ( then __m
     const trimmed_start = std.mem.trim(u8, expr_output, " \t");
     const has_labeled_block_pattern = std.mem.indexOf(u8, expr_output, ": {") != null and
         (std.mem.startsWith(u8, trimmed_start, "__m") or
+         std.mem.startsWith(u8, trimmed_start, "(__m") or // wrapped labeled block pattern
          std.mem.startsWith(u8, trimmed_start, "set_") or
          std.mem.startsWith(u8, trimmed_start, "dict_") or
          std.mem.startsWith(u8, trimmed_start, "list_"));
@@ -262,6 +264,8 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // BUT: Block expressions { ... } are NOT error unions even if they contain runtime.eval
     // AND: @panic returns noreturn, so catch {} after it is unreachable code
     // AND: PyValue.from(try runtime.eval(...)) is NOT an error union - the try is inside
+    // AND: Expressions starting with "try " already handle errors - don't add extra catch {}
+    // AND: Labeled blocks (__mN_xxx: { ... }) and wrapped labeled blocks ((...: { ... })) return void, not error unions
     const contains_eval = std.mem.indexOf(u8, expr_output, "runtime.eval(") != null;
     const is_block_expression = trimmed_start.len > 0 and trimmed_start[0] == '{' and ends_with_brace;
     const contains_panic = std.mem.indexOf(u8, expr_output, "@panic(") != null;
@@ -269,7 +273,14 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // This is the top-level pattern that returns a PyValue and needs discarding
     const is_pyvalue_wrapped = std.mem.startsWith(u8, trimmed_start, "runtime.PyValue.from(try runtime.eval(") or
         std.mem.startsWith(u8, trimmed_start, "runtime.PyValue.from(runtime.eval(");
-    const has_error_return = contains_eval and !is_block_expression and !contains_panic and !is_pyvalue_wrapped;
+    // Check if expression already uses try - don't add catch {} to "try X" expressions
+    // This handles unittest assertions like "try unittest.assertIs(...)" which already handle errors
+    const already_uses_try = std.mem.startsWith(u8, trimmed_start, "try ");
+    // Check for wrapped labeled blocks: (__mN_xxx: { ... }) - these return void, not error unions
+    // Labeled blocks that break with {} return void even if they contain eval() inside
+    // Check both patterns: is_wrapped_labeled_block detects ((__mN_...) and is_labeled_block detects __mN_...:
+    const is_labeled_expr = is_wrapped_labeled_block or is_labeled_block or has_labeled_block_pattern;
+    const has_error_return = contains_eval and !is_block_expression and !contains_panic and !is_pyvalue_wrapped and !already_uses_try and !is_labeled_expr;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);
@@ -494,6 +505,26 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         // Otherwise, assume it returns a value and needs discard
         // This catches closures, PyValue variables, and other callable types
         return true;
+    }
+
+    // Binary operations with class instances (e.g., x / 1 where x has __truediv__)
+    // These generate dunder method calls that return values
+    if (expr == .binop) {
+        const left_type = self.type_inferrer.inferExpr(expr.binop.left.*) catch .unknown;
+        const right_type = self.type_inferrer.inferExpr(expr.binop.right.*) catch .unknown;
+        // If either operand is a class instance, the binary op will use dunder methods
+        // which return values that need to be discarded
+        if (type_traits.isClassInstance(left_type) or type_traits.isClassInstance(right_type)) {
+            return true;
+        }
+    }
+
+    // Unary operations with class instances (e.g., -x where x has __neg__)
+    if (expr == .unaryop) {
+        const operand_type = self.type_inferrer.inferExpr(expr.unaryop.operand.*) catch .unknown;
+        if (type_traits.isClassInstance(operand_type)) {
+            return true;
+        }
     }
 
     // Labeled block expressions

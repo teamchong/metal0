@@ -25,14 +25,15 @@ fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     return false;
 }
 
-/// Helper to emit expression, extracting string from PyValue if uncertain
+/// Helper to emit expression, extracting string using runtime.container_dispatch.toPathStr
+/// This handles all cases: []const u8 (passthrough), PyValue (.string field), eval() results
 fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    if (isExprUncertain(self, expr)) {
-        try self.genExpr(expr);
-        try self.emit(".asString()");
-    } else {
-        try self.genExpr(expr);
-    }
+    // Use toPathStr for robust type extraction - works with any input type
+    try self.emit("runtime.container_dispatch.toPathStr(@TypeOf(");
+    try self.genExpr(expr);
+    try self.emit("), ");
+    try self.genExpr(expr);
+    try self.emit(")");
 }
 
 /// Generate code for open(filename, mode)

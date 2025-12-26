@@ -46,6 +46,9 @@ fn classifyType(t: NativeType) TypeClass {
     if (type_traits.isClassInstance(t)) return .class_instance;
     if (string_traits.isStringLike(t)) return .string;
     if (container_traits.isContainer(t) or container_traits.isTuple(t)) return .container;
+    // Complex numbers are NOT primitive - they need .eql() comparison, not native ==
+    // Use std.meta.activeTag for 0.15 compatibility
+    if (std.meta.activeTag(t) == .complex or std.meta.activeTag(t) == .pow_result) return .unknown;
     if (type_traits.isNumeric(t) or type_traits.isBoolean(t)) return .primitive;
     return .unknown;
 }
@@ -204,11 +207,17 @@ fn emitContainmentCheck(
         return;
     }
 
-    // Dict key containment
+    // Dict key containment - use runtime.container_dispatch.dictContains for type safety
+    // This handles type mismatches (like int key on StringHashMap) by returning false
     if (container_traits.isDict(right_type)) {
         if (is_not_in) try self.emit("!");
+        try self.emit("runtime.container_dispatch.dictContains(@TypeOf(");
         try genExpr(self, right);
-        try self.emit(".contains(");
+        try self.emit("), @TypeOf(");
+        try genExpr(self, left);
+        try self.emit("), ");
+        try genExpr(self, right);
+        try self.emit(", ");
         try genExpr(self, left);
         try self.emit(")");
         return;

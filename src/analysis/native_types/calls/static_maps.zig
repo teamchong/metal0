@@ -39,8 +39,8 @@ pub const BuiltinFuncMap = std.StaticStringMap(NativeType).initComptime(.{
     .{ "BytesIO", NativeType.bytesio },
     // File I/O
     .{ "open", NativeType.file },
-    // Runtime evaluation
-    .{ "eval", NativeType{ .pyobject = "builtins" } }, // eval() returns *PyObject (CPython runtime object)
+    // Runtime evaluation - returns PyValue (wrapped with PyValue.from() in codegen)
+    .{ "eval", NativeType.pyvalue },
 });
 
 pub const StringMethods = std.StaticStringMap(NativeType).initComptime(.{

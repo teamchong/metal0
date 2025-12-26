@@ -3,6 +3,38 @@
 /// Each helper compiles ONCE per element type, not per call site
 const std = @import("std");
 
+/// Compare two containers for equality - handles arrays, slices, and structs with .items
+/// This is the unified comparison function for assertEqual on sequences
+/// Takes pointers to avoid by-value copying of arrays
+pub fn slicesEqual(comptime T: type, comptime U: type, a: *const T, b: *const U) bool {
+    const slice_a = getConstSliceFromPtr(T, a);
+    const slice_b = getConstSliceFromPtr(U, b);
+    // Get element type for std.mem.eql
+    const ElemA = std.meta.Elem(@TypeOf(slice_a));
+    const ElemB = std.meta.Elem(@TypeOf(slice_b));
+    if (ElemA != ElemB) return false;
+    return std.mem.eql(ElemA, slice_a, slice_b);
+}
+
+/// Get const slice from pointer to container - always returns []const T
+/// Unlike getSlice which returns arrays by value, this takes a pointer and returns a slice
+fn getConstSliceFromPtr(comptime T: type, ptr: *const T) []const GetElementType(T) {
+    const info = @typeInfo(T);
+    if (info == .@"struct" and @hasField(T, "list")) {
+        return ptr.list.items;
+    } else if (info == .@"struct" and @hasField(T, "items")) {
+        return ptr.items;
+    } else if (info == .@"struct" and @hasField(T, "data")) {
+        return ptr.data;
+    } else if (info == .pointer and info.pointer.size == .slice) {
+        return ptr.*;
+    } else if (info == .array) {
+        // Array: return slice from pointer
+        return ptr;
+    }
+    return &[0]GetElementType(T){};
+}
+
 /// Extract slice from any container type
 /// Handles: ArrayList (has .items), PyBytes (has .data), PyValue.list (has .list.items), fixed arrays, slices, tuples
 /// Returns const slice for read operations
@@ -266,4 +298,67 @@ pub fn getPtrChild(comptime T: type) type {
         return info.pointer.child;
     }
     return void;
+}
+
+/// Check if key is in a dict (HashMap) - handles type mismatches safely
+/// For `key in dict` where dict may have different key type than the key being checked
+/// Returns false if key types are incompatible (like int key in StringHashMap)
+/// Compiles ONCE per (dict_type, key_type) pair
+pub fn dictContains(comptime DictType: type, comptime KeyType: type, dict: DictType, key: KeyType) bool {
+    const dict_info = @typeInfo(DictType);
+
+    // Extract the actual key type from the HashMap
+    if (dict_info == .@"struct") {
+        // Check if it has a .contains method
+        if (@hasDecl(DictType, "contains")) {
+            // Get the expected key type from the contains method signature
+            const contains_fn = @typeInfo(@TypeOf(DictType.contains));
+            if (contains_fn == .@"fn") {
+                const params = contains_fn.@"fn".params;
+                if (params.len >= 2) {
+                    const expected_key = params[1].type orelse return false;
+                    // If key types match, do the contains check
+                    if (expected_key == KeyType) {
+                        return dict.contains(key);
+                    }
+                    // Type mismatch - key cannot be in dict
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Fallback: type not recognized as dict, return false
+    return false;
+}
+
+/// Extract path string from any value type for filesystem operations
+/// Handles: []const u8 (passthrough), PyValue (.string field), *PyObject (eval result)
+/// Returns empty string if value cannot be converted to a path
+/// Used by os.remove, os.unlink, etc. where the path may come from eval()
+pub fn toPathStr(comptime T: type, value: T) []const u8 {
+    const info = @typeInfo(T);
+
+    // Direct string slice - just return it
+    if (info == .pointer and info.pointer.size == .slice and info.pointer.child == u8) {
+        return value;
+    }
+
+    // PyValue - extract string field
+    if (info == .@"union" and @hasField(T, "string")) {
+        if (value == .string) {
+            return value.string;
+        }
+        return "";
+    }
+
+    // Check for struct with asString method
+    if (info == .@"struct" or info == .@"union") {
+        if (@hasDecl(T, "asString")) {
+            return value.asString();
+        }
+    }
+
+    // Unknown type - return empty string
+    return "";
 }

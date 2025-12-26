@@ -12,8 +12,9 @@ const H = m.H;
 
 // === Comptime helper generators for OS-specific patterns ===
 
-/// Generate os_X_blk: { const _path = arg; ...body...; break :os_X_blk result; }
+/// Generate os_X_blk: { const _path = toPathStr(@TypeOf(arg), arg); ...body...; break :os_X_blk result; }
 /// Uses callback pattern for automatic semicolon handling
+/// Note: Uses toPathStr to handle PyValue args from eval() - extracts string from any type
 fn pathBlock(comptime name: []const u8, comptime body: []const u8, comptime result: []const u8) H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -21,10 +22,12 @@ fn pathBlock(comptime name: []const u8, comptime body: []const u8, comptime resu
             if (args.len == 0) return error.UnsupportedSyntax;
             try self.withInlineBlock(name, args, struct {
                 fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    // _path is safe because it's block-scoped (inside the labeled block)
-                    try c.emit("const _path = ");
+                    // Use toPathStr to extract path string from any type (including PyValue from eval)
+                    try c.emit("const _path = runtime.container_dispatch.toPathStr(@TypeOf(");
                     try c.genExpr(a[0]);
-                    try c.emit("; " ++ body);
+                    try c.emit("), ");
+                    try c.genExpr(a[0]);
+                    try c.emit("); " ++ body);
                     try c.emitFmt("break :{s} " ++ result, .{label});
                 }
             }.emit);

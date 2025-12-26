@@ -1055,6 +1055,43 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // Check if this is a PyValue callable (from runtime.eval of lambda or VM fallback)
+        // PyValue callables need to use .call() method with PyValue array argument
+        // Check pyvalue_vars FIRST - this is tracked during assignment codegen (more reliable)
+        // Then fall back to type inference (for cases where type inference caught it)
+        const is_pyvalue_callable = self.pyvalue_vars.contains(raw_func_name) or blk: {
+            const func_type = self.type_inferrer.getScopedVar(raw_func_name) orelse
+                self.type_inferrer.var_types.get(raw_func_name);
+            if (func_type) |ft| {
+                break :blk (ft == .pyvalue or ft == .unknown);
+            }
+            break :blk false;
+        };
+        if (is_pyvalue_callable) {
+            // PyValue callable: check(Foo()) -> check.call(&.{runtime.PyValue.from(Foo())})
+            try self.emit("(try ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+            try self.emit(".call(&.{");
+
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                // Wrap argument in PyValue.from() for non-PyValue types
+                try self.emit("runtime.PyValue.from(");
+                try genExpr(self, arg);
+                try self.emit(")");
+            }
+
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                try self.emit("runtime.PyValue.from(");
+                try genExpr(self, kwarg.value);
+                try self.emit(")");
+            }
+
+            try self.emit("}))");
+            return;
+        }
+
         // Check if this is an error-returning callable used directly (function pointer, not PyCallable)
         // This happens when iterating over mixed tuples like (pow, operator.pow)
         // Both return error unions but are function pointers, called directly without .call()

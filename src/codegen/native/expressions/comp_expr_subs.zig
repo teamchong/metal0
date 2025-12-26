@@ -330,6 +330,34 @@ fn genBuiltinCallWithSubs(
         try self.emit("blk_ba: { const _n: usize = @intCast(");
         try genExprWithSubs(self, c.args[0], subs);
         try self.emit("); const _buf = try __global_allocator.alloc(u8, _n); @memset(_buf, 0); break :blk_ba _buf; }");
+    } else if (std.mem.eql(u8, func_name, "id") and c.args.len == 1) {
+        // id(x) in comprehension - returns memory address as integer with substitution
+        try self.emit("@as(i64, @intCast(@intFromPtr(&(");
+        try genExprWithSubs(self, c.args[0], subs);
+        try self.emit("))))");
+    } else if (std.mem.eql(u8, func_name, "isinstance") and c.args.len == 2) {
+        // isinstance(obj, Type) in comprehension - check type at compile time
+        // Get the type name being checked
+        if (c.args[1] == .name) {
+            const type_name = c.args[1].name.id;
+            // Generate: (@TypeOf(obj) == Type or @TypeOf(obj) == *Type or @TypeOf(obj) == *const Type)
+            try self.emit("(@TypeOf(");
+            try genExprWithSubs(self, c.args[0], subs);
+            try self.emit(") == ");
+            try self.emit(type_name);
+            try self.emit(" or @TypeOf(");
+            try genExprWithSubs(self, c.args[0], subs);
+            try self.emit(") == *");
+            try self.emit(type_name);
+            try self.emit(" or @TypeOf(");
+            try genExprWithSubs(self, c.args[0], subs);
+            try self.emit(") == *const ");
+            try self.emit(type_name);
+            try self.emit(")");
+        } else {
+            // Fallback for tuple of types - just emit false for now
+            try self.emit("false");
+        }
     } else {
         // Fallback: generate call with substituted args
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);

@@ -1626,12 +1626,16 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // For variables assigned from VM fallback, emit discard to suppress unused warnings
             // VM fallback variables are referenced by name in subsequent eval() strings,
             // not as Zig identifiers, so Zig sees them as unused
+            // Also track as pyvalue_vars for callable dispatch at call sites
             if (is_first_assignment and self.needsVMFallback(assign.value.*)) {
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
+                // Track as pyvalue_var for .call() generation at call sites
+                const pyvalue_key = try self.arena.allocator().dupe(u8, var_name);
+                try self.pyvalue_vars.put(pyvalue_key, {});
             }
 
             // Also emit discards for variables USED in VM fallback RHS expressions

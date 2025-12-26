@@ -4,6 +4,7 @@ const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
 const pytype = @import("pytype.zig");
+const cpython = @import("../cpython.zig");
 
 /// PyValue - Runtime-typed value for dynamic attributes
 /// Uses tagged union for type safety
@@ -618,6 +619,29 @@ pub const PyValue = union(enum) {
                     // Convert array pointer to slice
                     return .{ .string = value[0..arr_info.len] };
                 }
+            }
+            // Handle *cpython.PyObject - extract actual Python value
+            if (ptr_info.child == cpython.PyObject) {
+                const obj: *cpython.PyObject = value;
+                // Check bool BEFORE int (PyBoolObject inherits from PyLongObject)
+                if (cpython.PyBool_Check(obj)) {
+                    const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
+                    return .{ .bool = bool_obj.ob_digit != 0 };
+                }
+                if (cpython.PyLong_Check(obj)) {
+                    const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(obj));
+                    return .{ .int = @intCast(long_obj.ob_digit) };
+                }
+                if (cpython.PyFloat_Check(obj)) {
+                    const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(obj));
+                    return .{ .float = float_obj.ob_fval };
+                }
+                if (cpython.PyUnicode_Check(obj)) {
+                    // Get string value - for now return empty, proper impl needs allocator
+                    return .{ .string = "" };
+                }
+                // Unknown PyObject type - store as ptr
+                return .{ .ptr = @ptrCast(@constCast(value)) };
             }
             // Handle pointer to class instance (struct with __vtable__ or dunder methods)
             if (@typeInfo(ptr_info.child) == .@"struct") {

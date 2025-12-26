@@ -434,7 +434,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         try self.emit("{\n");
         self.indent();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __lazy_iter_{d} = try @This().{s}(__global_allocator);\n", .{ lazy_iter_id, lazy_attr_name.? });
+        try self.emitFmt("const __lazy_iter_{d} = try @This().{s}(__global_allocator);\n", .{ lazy_iter_id, lazy_attr_name.? });
     }
 
     // Check iter type first to determine if we need inline for
@@ -455,7 +455,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
     // If using lazy wrapper, iterate over the captured variable
     if (needs_lazy_wrapper) {
-        try self.output.writer(self.allocator).print("__lazy_iter_{d}", .{lazy_iter_id});
+        try self.emitFmt("__lazy_iter_{d}", .{lazy_iter_id});
     } else if (container_traits.isList(iter_type)) {
         // Check if this is a slice subscript - slices return []T directly, not ArrayList
         const is_slice = if (iter == .subscript) blk: {
@@ -511,7 +511,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
     // Use unique temp variable for tuple
     const unique_id = self.output.items.len;
-    try self.output.writer(self.allocator).print(") |__tuple_{d}__| {{\n", .{unique_id});
+    try self.emitFmt(") |__tuple_{d}__| {{\n", .{unique_id});
 
     self.indent();
     try self.pushScope();
@@ -534,7 +534,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         const is_used = varUsedInBody(body, var_name);
         if (std.mem.eql(u8, var_name, "_") or !is_used) {
             // Discard pattern or unused variable - explicitly discard the value
-            try self.output.writer(self.allocator).print("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+            try self.emitFmt("_ = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
         } else {
             // Check if variable is hoisted (used after loop) - use assignment not declaration
             // Also check if reassigned later in the loop body - need `var` not `const`
@@ -546,7 +546,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
             if (is_hoisted) {
                 // Already declared at function level - just assign using original name
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try self.emitVarName(var_name);
             } else {
                 // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
                 const shadows_outer_scope = self.isDeclared(var_name) or
@@ -576,19 +576,19 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                 } else {
                     try self.emit("const ");
                 }
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
+                try self.emitIdent(decl_name);
 
                 // Track this variable for post-generation discard check
                 try declared_vars.append(self.allocator, decl_name);
                 emit_name = decl_name;
             }
-            try self.output.writer(self.allocator).print(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
+            try self.emitFmt(" = __tuple_{d}__.@\"{d}\";\n", .{ unique_id, i });
 
             // Emit discard to prevent "unused variable" errors - safe because Zig allows _ = &x; even if x is used
             // This handles cases where AST shows usage but codegen uses VM fallback (e.g., f.method() -> runtime.eval("f.method()"))
             try self.emitIndent();
             try self.emit("_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), emit_name);
+            try self.emitIdent(emit_name);
             try self.emit(";\n");
 
             // Mark the variable as declared so reassignment won't redeclare it
@@ -815,7 +815,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         if (!is_type_tuple and !is_heterogeneous_tuple and !has_callable_elements and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
             try self.emitIndent();
             try self.emit("var ");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emitVarName(var_name);
             // Determine loop variable type - use concrete type to avoid comptime_int issues
             // For tuples of all ints, use i64. For booleans, use bool. For strings, use []const u8.
             // String literals have length-encoded types (e.g., *const [0:0]u8, *const [1:0]u8)
@@ -892,7 +892,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 // Generate: const pow_op = <element>;
                 try self.emitIndent();
                 try self.emit("const ");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try self.emitVarName(var_name);
                 try self.emit(" = ");
                 try self.genExpr(tuple_elt);
                 try self.emit(";\n");
@@ -901,7 +901,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 // (e.g., fill_type(b'-') -> runtime.eval("fill_type(b'-')") doesn't reference Zig's variable)
                 try self.emitIndent();
                 try self.emit("_ = &");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try self.emitVarName(var_name);
                 try self.emit(";\n");
 
                 // Generate body
@@ -928,7 +928,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emitIndent();
         try self.emit("inline for (");
         try self.genExpr(for_stmt.iter.*);
-        try self.output.writer(self.allocator).print(") |__m{d}_loop_val| {{\n", .{loop_var_id});
+        try self.emitFmt(") |__m{d}_loop_val| {{\n", .{loop_var_id});
 
         self.indent();
         try self.pushScope();

@@ -1124,12 +1124,16 @@ pub fn trackVariableMetadata(
     const lambda_mod = @import("../../expressions/lambda.zig");
 
     // Track closure factories: make_adder = lambda x: lambda y: x + y
-    if (assign.value.* == .lambda and assign.value.lambda.body.* == .lambda) {
+    // IMPORTANT: Only track if lambda was NOT generated via VM fallback
+    // VM fallback lambdas are stored as PyValue, not as function pointers/closure structs
+    const used_vm_fallback = self.needsVMFallback(assign.value.*);
+    if (assign.value.* == .lambda and assign.value.lambda.body.* == .lambda and !used_vm_fallback) {
         try lambda_closure.markAsClosureFactory(self, var_name);
     }
 
     // Track simple closures: x = 10; f = lambda y: y + x (captures outer variable)
-    if (assign.value.* == .lambda) {
+    // IMPORTANT: Skip if VM fallback was used - the variable holds PyValue, not closure
+    if (assign.value.* == .lambda and !used_vm_fallback) {
         // Check if this lambda captures outer variables
         if (lambda_mod.lambdaCapturesVars(self, assign.value.lambda)) {
             // This lambda generated a closure struct, mark it

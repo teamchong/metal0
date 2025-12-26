@@ -929,10 +929,14 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
     // Need @constCast because self is *const Child, and parent method may expect mutable pointer
     // Need @ptrCast because self is *Child but parent method expects *Parent
     // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
+    // Use var_renames to handle cases where self is renamed (e.g., __self in init)
+    const self_var = self.var_renames.get("self") orelse "self";
     try self.emit(parent_class);
     try self.emit(".");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_name);
-    try self.emit("(@ptrCast(@constCast(self))");
+    try self.emit("(@ptrCast(@constCast(");
+    try self.emit(self_var);
+    try self.emit("))");
 
     // Add remaining arguments
     for (call.args) |arg| {

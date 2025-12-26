@@ -265,12 +265,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
         // Special handling for codegen-only modules (e.g., logic_table)
         // These modules have dispatch handlers but no runtime library - dispatch.zig handles them
+        // IMPORTANT: Check if module also has a runtime library (in registry with zig_runtime/c_library)
+        // Modules like 'unittest' have BOTH dispatch handlers AND a runtime library
         if (module_functions.hasCodegenDispatch(mod_name)) {
-            // Track as imported (so needsVMFallback returns false), but don't generate any import code
-            const mod_copy = try self.arena.allocator().dupe(u8, mod_name);
-            try self.imported_modules.put(mod_copy, {});
-            try emitted_module_consts.put(mod_name, {});
-            continue;
+            // Check if this module also needs a runtime import
+            const needs_runtime_import = if (self.import_registry.lookup(mod_name)) |info|
+                (info.strategy == .zig_runtime or info.strategy == .c_library)
+            else
+                false;
+
+            if (!needs_runtime_import) {
+                // Pure codegen module - track as imported but don't generate import code
+                const mod_copy = try self.arena.allocator().dupe(u8, mod_name);
+                try self.imported_modules.put(mod_copy, {});
+                try emitted_module_consts.put(mod_name, {});
+                continue;
+            }
+            // Fall through to emit the runtime import
         }
 
         try emitted_module_consts.put(mod_name, {});
