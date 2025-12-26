@@ -324,6 +324,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         return genGenericClassDef(self, class);
     }
 
+    // Handle @logic_table decorated classes - generate batch functions for GPU/SIMD
+    const logic_table_class = @import("../../logic_table_class.zig");
+    if (logic_table_class.hasLogicTableDecorator(class)) {
+        return logic_table_class.genLogicTableClass(self, class);
+    }
+
     // Track nested class names for instance detection and heap allocation
     // Only add to nested_class_names if inside a function (current_function_name is set)
     // Module-level classes should NOT be in nested_class_names

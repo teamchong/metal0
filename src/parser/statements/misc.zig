@@ -570,13 +570,17 @@ pub fn parseDecorated(self: *Parser) ParseError!ast.Node {
     // Parse the decorated function/class
     var decorated_node = try self.parseStatement();
 
-    // Attach decorators to function definition
+    // Attach decorators to function or class definition
     if (decorated_node == .function_def) {
         const decorators_slice = try decorators.toOwnedSlice(self.allocator);
         decorators = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
         decorated_node.function_def.decorators = decorators_slice;
+    } else if (decorated_node == .class_def) {
+        const decorators_slice = try decorators.toOwnedSlice(self.allocator);
+        decorators = std.ArrayList(ast.Node){}; // Reset so errdefer doesn't double-free
+        decorated_node.class_def.decorators = decorators_slice;
     } else {
-        // If not a function, just free the decorators
+        // If not a function or class, just free the decorators
         for (decorators.items) |*d| {
             d.deinit(self.allocator);
         }

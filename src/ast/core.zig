@@ -165,6 +165,8 @@ pub const Node = union(enum) {
         metaclass: ?[]const u8 = null,
         /// Type parameters for Generic[T, U, ...] classes
         type_params: [][]const u8 = &[_][]const u8{},
+        /// Decorators (e.g., @logic_table, @dataclass)
+        decorators: []Node = &[_]Node{},
     };
 
     pub const Return = struct {
