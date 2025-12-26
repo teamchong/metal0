@@ -42,7 +42,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     }
 
     // Compile source to bytecode at compile time
-    const program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
+    var program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
         // If bytecode compilation fails, fall back to runtime eval
         std.debug.print("comptime eval fallback for '{s}': {}\n", .{ eval_source, err });
         try emitConst(self, "try runtime.eval(__global_allocator, \"");
@@ -50,11 +50,7 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
         try emitConst(self, "\")");
         return;
     };
-    defer {
-        // Free the instructions and constants since we've serialized them
-        self.allocator.free(program.instructions);
-        self.allocator.free(program.constants);
-    }
+    defer program.deinit();
 
     // Generate unique identifier for this bytecode blob
     const blob_id = self.comptime_evals.count();

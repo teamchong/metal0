@@ -674,8 +674,27 @@ pub fn build(b: *std.Build) void {
     const run_frame_tests = b.addRunArtifact(frame_tests);
     const run_vm_tests = b.addRunArtifact(vm_tests);
 
+    // AST compiler tests (requires runtime and ast imports)
+    const ast_mod = b.createModule(.{
+        .root_source_file = b.path("src/ast.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const ast_compiler_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/codegen/bytecode.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ast_compiler_tests.root_module.addImport("runtime", runtime);
+    ast_compiler_tests.root_module.addImport("ast", ast_mod);
+    const run_ast_compiler_tests = b.addRunArtifact(ast_compiler_tests);
+
     const bytecode_test_step = b.step("test-bytecode", "Run bytecode VM tests");
     bytecode_test_step.dependOn(&run_opcode_tests.step);
     bytecode_test_step.dependOn(&run_frame_tests.step);
     bytecode_test_step.dependOn(&run_vm_tests.step);
+    bytecode_test_step.dependOn(&run_ast_compiler_tests.step);
 }
