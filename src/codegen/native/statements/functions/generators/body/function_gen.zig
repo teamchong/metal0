@@ -1528,10 +1528,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     const has_known_parent_for_discard = if (self.current_class_name) |ccn| self.getParentClassName(ccn) != null else true;
 
     // For regular methods: skip first param (self), start from index 1
-    // For static/class methods: start from index 0
-    // For implicit classmethods (__new__, etc.): skip first param (cls), start from index 1
-    //   NOTE: The cls param is not generated in the signature (replaced with _: std.mem.Allocator)
-    const start_param_idx = if (method.args.len > 0 and (!is_staticmethod and !is_classmethod or is_implicit_classmethod)) @as(usize, 1) else @as(usize, 0);
+    // For classmethods (including implicit): skip first param (cls), start from index 1
+    //   NOTE: The cls param is not generated in the signature (skipped for classmethods)
+    // For staticmethods: start from index 0 (all params are generated)
+    const start_param_idx = if (method.args.len > 0 and !is_staticmethod) @as(usize, 1) else @as(usize, 0);
     for (method.args[start_param_idx..]) |arg| {
         // Skip if param was made anonymous in the signature.
         // For classes without known parent, params only used in super() calls are made anonymous.

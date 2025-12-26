@@ -530,19 +530,51 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // This is needed because:
             // 1. try/except is processed inside main() later (Phase 7)
             // 2. Zig doesn't allow function definitions inside catch blocks
-            // 3. Python pattern: try: import X except: def X(): pass
+            // 3. Python pattern: try: from X import func except: def func(): pass
+            //
+            // IMPORTANT: Only hoist if the import will FAIL (module doesn't have the function)
+            // If import succeeds, the try body will create a const that would shadow the hoisted function
             const try_node = stmt.try_stmt;
+
+            // Check if try body has an import_from - if so, check what's being imported
+            var imported_names = std.StringHashMap(void).init(self.allocator);
+            defer imported_names.deinit();
+
+            for (try_node.body) |try_body_stmt| {
+                if (try_body_stmt == .import_from) {
+                    const imp = try_body_stmt.import_from;
+                    // Check if module exists and has the imported names
+                    const mod_name = imp.module;
+                    const mod_info = self.import_registry.lookup(mod_name);
+                    if (mod_info != null) {
+                        // Module exists - the import will succeed for its exported functions
+                        // Mark all imported names as "will succeed"
+                        for (imp.names) |name| {
+                            try imported_names.put(name, {});
+                        }
+                    }
+                }
+            }
+
             for (try_node.handlers) |handler| {
                 for (handler.body) |h_stmt| {
                     if (h_stmt == .function_def) {
-                        // Generate function at module level (before main)
-                        self.recordLineMappingForName(h_stmt.function_def.name);
+                        const func_name = h_stmt.function_def.name;
+                        // Only hoist if this function name is NOT being successfully imported
+                        if (imported_names.contains(func_name)) {
+                            // Import will succeed - don't hoist, the import will provide the function
+                            // BUT: mark it so the handler body skips generating it
+                            try self.module_level_vars.put(func_name, {});
+                            continue;
+                        }
+                        // Import will fail - hoist the fallback function
+                        self.recordLineMappingForName(func_name);
                         try statements.genFunctionDef(self, h_stmt.function_def);
                         try self.emit("\n");
                         self.func_local_uses.clearRetainingCapacity();
                         // Mark as hoisted so we skip it in the handler body later
                         // Use module_level_vars (not hoisted_vars) since hoisted_vars gets cleared before main()
-                        try self.module_level_vars.put(h_stmt.function_def.name, {});
+                        try self.module_level_vars.put(func_name, {});
                     }
                 }
             }

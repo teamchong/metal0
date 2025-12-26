@@ -76,6 +76,24 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             const output = b.getBodyAndClear();
             try self.output.appendSlice(self.allocator, output);
         }
+    } else {
+        // Module not in registry - use VM fallback for dynamic import
+        // This handles frozen modules (__phello__, etc.) and other dynamic imports
+        // import foo.bar.baz as spam -> spam = eval("import foo.bar.baz; foo.bar.baz")
+        const b = try self.getBuilder();
+        try b.writeIndent();
+        // Check if variable was hoisted (e.g., for imports inside with blocks)
+        // Hoisted variables use assignment, non-hoisted use const declaration
+        if (!self.hoisted_vars.contains(alias)) {
+            try b.write("const ");
+        }
+        try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
+        // Generate eval that imports and returns the module
+        // Use the last part of the module path as the value to return
+        try b.writeFmt(" = runtime.PyValue.from(try runtime.eval(__global_allocator, \"import {s}; {s}\"));\n", .{ module_name, module_name });
+
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
     }
 }
 

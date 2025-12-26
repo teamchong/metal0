@@ -551,6 +551,18 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
             // Recurse into if/else bodies (pass through skip_var)
             try hoistWithBodyVarsSkipping(self, stmt.if_stmt.body, skip_var);
             try hoistWithBodyVarsSkipping(self, stmt.if_stmt.else_body, skip_var);
+        } else if (stmt == .import_stmt) {
+            // Import statement inside with body - hoist the alias variable
+            // e.g., `import foo.bar as baz` creates variable `baz`
+            const import_s = stmt.import_stmt;
+            const var_name = import_s.asname orelse import_s.module;
+            if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+                try self.emitIndent();
+                try self.emit("var ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                try self.emit(": runtime.PyValue = undefined;\n");
+                try self.hoisted_vars.put(var_name, {});
+            }
         }
     }
 }
