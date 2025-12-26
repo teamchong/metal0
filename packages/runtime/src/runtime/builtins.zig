@@ -142,6 +142,8 @@ pub const sum = agg_mod.sum;
 pub const sorted = agg_mod.sorted;
 pub const reversed = agg_mod.reversed;
 pub const filterTruthy = agg_mod.filterTruthy;
+pub const filter = agg_mod.filter;
+pub const iterBuiltin = agg_mod.iterBuiltin;
 
 /// Conversion functions (hex, oct, bin, int with base, round, ord, chr)
 pub const conv_mod = @import("builtins/conversion.zig");
@@ -318,6 +320,8 @@ pub const compile = types_mod.compile;
 pub const exec = types_mod.exec;
 pub const structPackNoArgs = types_mod.structPackNoArgs;
 pub const structPackIntoNoArgs = types_mod.structPackIntoNoArgs;
+pub const filterNoArgs = types_mod.filterNoArgs;
+pub const mapNoArgs = types_mod.mapNoArgs;
 pub const CompareOp = types_mod.CompareOp;
 pub const bigIntDivmod = types_mod.bigIntDivmod;
 pub const bigIntCompare = types_mod.bigIntCompare;

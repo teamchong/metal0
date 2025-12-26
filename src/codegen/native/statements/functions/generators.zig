@@ -27,6 +27,57 @@ pub const hasCPythonOnlyDecorator = test_skip.hasCPythonOnlyDecorator;
 pub const hasSkipUnlessCPythonModule = test_skip.hasSkipUnlessCPythonModule;
 pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
 
+/// Check if an AST node references any name from the given hashmap
+/// Used to determine if __alloc will be used via lazy attr calls
+fn nodeReferencesAnyName(node: ast.Node, names: anytype) bool {
+    return switch (node) {
+        .name => |n| names.get(n.id) != null,
+        .binop => |b| nodeReferencesAnyName(b.left.*, names) or nodeReferencesAnyName(b.right.*, names),
+        .unaryop => |u| nodeReferencesAnyName(u.operand.*, names),
+        .call => |c| blk: {
+            if (nodeReferencesAnyName(c.func.*, names)) break :blk true;
+            for (c.args) |arg| {
+                if (nodeReferencesAnyName(arg, names)) break :blk true;
+            }
+            break :blk false;
+        },
+        .attribute => |a| nodeReferencesAnyName(a.value.*, names),
+        .subscript => |s| blk: {
+            if (nodeReferencesAnyName(s.value.*, names)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| break :blk nodeReferencesAnyName(idx.*, names),
+                .slice => |rng| {
+                    if (rng.lower) |l| if (nodeReferencesAnyName(l.*, names)) break :blk true;
+                    if (rng.upper) |u| if (nodeReferencesAnyName(u.*, names)) break :blk true;
+                    if (rng.step) |st| if (nodeReferencesAnyName(st.*, names)) break :blk true;
+                    break :blk false;
+                },
+            }
+        },
+        .if_expr => |i| nodeReferencesAnyName(i.condition.*, names) or nodeReferencesAnyName(i.body.*, names) or nodeReferencesAnyName(i.orelse_value.*, names),
+        .list => |l| blk: {
+            for (l.elts) |e| {
+                if (nodeReferencesAnyName(e, names)) break :blk true;
+            }
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| {
+                if (nodeReferencesAnyName(e, names)) break :blk true;
+            }
+            break :blk false;
+        },
+        .compare => |cmp| blk: {
+            if (nodeReferencesAnyName(cmp.left.*, names)) break :blk true;
+            for (cmp.comparators) |c| {
+                if (nodeReferencesAnyName(c, names)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 /// Generate function definition
 pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenError!void {
     // Check if this function was hoisted as a DynamicClosure (from if/else block)
@@ -1542,6 +1593,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                             try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !std.ArrayListUnmanaged(__ClassClosureType_{d}) {{\n", .{idx});
                             self.indent();
 
+                            // NOTE: __alloc is always used in this listcomp case (in __result.append)
+                            // so we don't need to emit a discard
+
                             // Check cache
                             try self.emitIndent();
                             try self.output.writer(self.allocator).print("if (__{s}_cache) |cached| return cached;\n", .{attr_name});
@@ -1656,22 +1710,18 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                         // Generate: threadlocal var __<attr>_cache: ?<type> = null;
                         try self.emitIndent();
-                        try self.output.writer(self.allocator).print("threadlocal var __{s}_cache: ?{s} = null;\n", .{ attr_name, zig_type });
+                        try self.emitFmt("threadlocal var __{s}_cache: ?{s} = null;\n", .{ attr_name, zig_type });
 
                         // Generate: pub fn <attr>(__alloc: std.mem.Allocator) !<type>
                         try self.emitIndent();
                         try self.emit("pub fn ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
-                        try self.output.writer(self.allocator).print("(__alloc: std.mem.Allocator) !{s} {{\n", .{zig_type});
+                        try self.emitIdent(attr_name);
+                        try self.emitFmt("(__alloc: std.mem.Allocator) !{s} {{\n", .{zig_type});
                         self.indent();
-
-                        // Discard allocator if unused (some lazy attrs don't need allocation)
-                        try self.emitIndent();
-                        try self.emit("_ = __alloc;\n");
 
                         // Check cache
                         try self.emitIndent();
-                        try self.output.writer(self.allocator).print("if (__{s}_cache) |cached| return cached;\n", .{attr_name});
+                        try self.emitFmt("if (__{s}_cache) |cached| return cached;\n", .{attr_name});
 
                         // CRITICAL: Re-populate var_renames with ALL lazy attr mappings
                         var lazy_iter = lazy_attrs.iterator();
@@ -1688,7 +1738,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
 
                         // Cache and return
                         try self.emitIndent();
-                        try self.output.writer(self.allocator).print("__{s}_cache = __result;\n", .{attr_name});
+                        try self.emitFmt("__{s}_cache = __result;\n", .{attr_name});
+
+                        // Only emit __alloc discard if the value doesn't reference any lazy attrs
+                        // (which would use __alloc via (try X(__alloc)) pattern)
+                        if (!nodeReferencesAnyName(value_node.*, &lazy_attrs)) {
+                            try self.emitIndent();
+                            try self.emit("_ = __alloc;\n");
+                        }
+
                         try self.emitIndent();
                         try self.emit("return __result;\n");
 
@@ -1703,7 +1761,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     try self.emit("// Class-level attribute\n");
                     try self.emitIndent();
                     try self.emit("pub const ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                    try self.emitIdent(attr_name);
                     try self.emit(" = ");
                     try self.genExpr(assign.value.*);
                     try self.emit(";\n");

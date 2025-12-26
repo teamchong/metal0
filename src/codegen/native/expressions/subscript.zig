@@ -263,7 +263,23 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     }
                     try self.emit(")");
                 } else {
-                    try self.emit("__base[");
+                    // Check for struct slicing (e.g., sys.version_info[:2])
+                    // Named tuples like VersionInfo need .toArray() for slicing
+                    const needs_to_array = blk: {
+                        if (subscript.value.* == .attribute) {
+                            const attr = subscript.value.attribute;
+                            if (std.mem.eql(u8, attr.attr, "version_info")) {
+                                break :blk true;
+                            }
+                        }
+                        break :blk false;
+                    };
+
+                    if (needs_to_array) {
+                        try self.emit("__base.toArray()[");
+                    } else {
+                        try self.emit("__base[");
+                    }
                     if (slice.lower) |lower| {
                         const needs_cast = blk: {
                             const lt = self.type_inferrer.inferExpr(lower.*) catch .unknown;
@@ -285,7 +301,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genExpr(self, upper.*);
                         if (needs_cast) try self.emit("))");
                     } else {
-                        try self.emit("__base.len");
+                        if (needs_to_array) {
+                            try self.emit("__base.toArray().len");
+                        } else {
+                            try self.emit("__base.len");
+                        }
                     }
                     try self.emit("]");
                 }
@@ -622,6 +642,32 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
         },
         .slice => |slice_range| {
             // Slicing: a[start:end] or a[start:end:step]
+
+            // Handle struct slicing for named tuples like sys.version_info
+            // Python: sys.version_info[:2] returns (3, 12) - slice first 2 elements
+            // Zig: VersionInfo struct has .toArray() method for slicing support
+            if (subscript.value.* == .attribute) {
+                const attr = subscript.value.attribute;
+                if (std.mem.eql(u8, attr.attr, "version_info")) {
+                    // Use .toArray() for slicing support
+                    try genExpr(self, subscript.value.*);
+                    try self.emit(".toArray()[");
+                    // Emit slice bounds
+                    if (slice_range.lower) |lower| {
+                        try genExpr(self, lower.*);
+                    } else {
+                        try self.emit("0");
+                    }
+                    try self.emit("..");
+                    if (slice_range.upper) |upper| {
+                        try genExpr(self, upper.*);
+                    }
+                    // Note: step is not supported for array slicing, ignore if present
+                    try self.emit("]");
+                    return;
+                }
+            }
+
             const value_type = try self.type_inferrer.inferExpr(subscript.value.*);
 
             const has_step = slice_range.step != null;

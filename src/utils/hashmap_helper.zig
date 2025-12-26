@@ -35,3 +35,7 @@ pub const WyhashStringContext = struct {
 pub fn StringHashMap(comptime V: type) type {
     return std.ArrayHashMap([]const u8, V, WyhashStringContext, true);
 }
+
+/// Fast string hash set with wyhash (stores keys only, no values)
+/// Use this for tracking sets of string names.
+pub const StringHashSet = std.ArrayHashMap([]const u8, void, WyhashStringContext, true);

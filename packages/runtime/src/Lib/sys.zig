@@ -16,12 +16,23 @@ pub const platform = switch (builtin.os.tag) {
 };
 
 /// Version info tuple (3, 12, 0)
+/// Python: sys.version_info is a named tuple (major, minor, micro, releaselevel, serial)
 pub const VersionInfo = struct {
     major: i32,
     minor: i32,
     micro: i32,
     releaselevel: []const u8 = "final",
     serial: i32 = 0,
+
+    /// Convert to array for slicing support (Python: version_info[:2])
+    /// Returns [major, minor, micro] as i64 array (most common use case)
+    pub fn toArray(self: @This()) [3]i64 {
+        return .{
+            @intCast(self.major),
+            @intCast(self.minor),
+            @intCast(self.micro),
+        };
+    }
 };
 
 pub const version_info = VersionInfo{
