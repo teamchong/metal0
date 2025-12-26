@@ -1438,6 +1438,10 @@ pub const NativeCodegen = struct {
                     const attr = call.func.attribute;
                     if (attr.value.* == .name) {
                         const var_name = attr.value.name.id;
+                        // Imported modules are always known at compile time - let dispatch handle them
+                        if (self.import_aliases.contains(var_name)) {
+                            return false;
+                        }
                         // If receiver type is uncertain, we can't statically dispatch
                         if (self.isVarUncertain(var_name)) {
                             return true;
@@ -1498,6 +1502,14 @@ pub const NativeCodegen = struct {
                     const var_name = attr.value.name.id;
                     // Special cases: 'self' is always certain within a class
                     if (std.mem.eql(u8, var_name, "self")) {
+                        return false;
+                    }
+                    // Imported modules are always known at compile time - let dispatch handle them
+                    // This prevents os.curdir, math.pi etc from falling back to VM
+                    if (self.imported_modules.contains(var_name)) {
+                        return false;
+                    }
+                    if (self.import_aliases.contains(var_name)) {
                         return false;
                     }
                     if (self.isVarUncertain(var_name)) {
