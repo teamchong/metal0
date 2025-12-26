@@ -39,6 +39,6 @@ pub fn genObject(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     // Generate a unique object using a struct that has unique identity per call
     // In Python, object() returns a base object that can be used as a sentinel
-    // We use runtime.createObject() which returns a unique *PyObject
-    try self.emit("runtime.createObject()");
+    // Wrap with PyValue.from() since createObject() returns *PyObject
+    try self.emit("runtime.PyValue.from(runtime.createObject())");
 }

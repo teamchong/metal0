@@ -69,7 +69,7 @@ pub fn genUnpack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         for (fmt, 0..) |c, i| {
             const ty = getPackType(c);
             if (c == 'f' or c == 'd') {
-                try self.emitFmt("const _val{d}: {s} = std.mem.bytesToValue({s}, _data[_pos..][0..{s}])); _pos += {s}; ", .{ i, ty, ty, getUnpackSize(c), getUnpackSize(c) });
+                try self.emitFmt("const _val{d}: {s} = std.mem.bytesToValue({s}, _data[_pos..][0..{s}]); _pos += {s}; ", .{ i, ty, ty, getUnpackSize(c), getUnpackSize(c) });
             } else {
                 try self.emitFmt("const _val{d}: i64 = @intCast(std.mem.bytesToValue({s}, _data[_pos..][0..{s}])); _pos += {s}; ", .{ i, ty, getUnpackSize(c), getUnpackSize(c) });
             }

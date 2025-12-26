@@ -1646,8 +1646,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Skip the LHS variable (already handled above)
                     if (std.mem.eql(u8, rhs_name, var_name)) continue;
                     // Check if it's a local variable in this function scope
-                    if (self.func_local_vars.contains(rhs_name) or self.pending_discards.contains(rhs_name)) {
-                        const rhs_actual_name = self.var_renames.get(rhs_name) orelse rhs_name;
+                    // ALSO check isDeclared to ensure variable wasn't discarded in tuple unpacking
+                    const rhs_actual_name = self.var_renames.get(rhs_name) orelse rhs_name;
+                    if ((self.func_local_vars.contains(rhs_name) or self.pending_discards.contains(rhs_name)) and self.isDeclared(rhs_actual_name)) {
                         try self.emitIndent();
                         try self.emit("_ = &");
                         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), rhs_actual_name);

@@ -2611,6 +2611,11 @@ pub const NativeCodegen = struct {
             // when we're at function level (outside the loop)
             if (!self.symbol_table.isDeclaredInCurrentScope(var_name)) continue;
 
+            // Skip variables that were DISCARDED during tuple unpacking
+            // These variables are in pending_discards but were never actually declared
+            // Example: `r, w = os.pipe()` where `r` is unused → discarded, not declared
+            if (!self.isDeclared(emit_name)) continue;
+
             // Count occurrences of the variable name as a complete identifier
             // If count <= 1, variable is only used in its own assignment (unused)
             // Skip occurrences inside string literals (e.g., VM fallback strings like "lhs.split()")

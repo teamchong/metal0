@@ -172,6 +172,76 @@ pub const GetSetDescriptorType = struct {
 /// Type for wrapper descriptors
 pub const WrapperDescriptorType = MethodDescriptorType;
 
+/// DynamicClassAttribute - route attribute access on a class to __getattr__.
+///
+/// This is a descriptor, used to define attributes that act differently when
+/// accessed through an instance and through a class. Instance access remains
+/// normal, but access to an attribute through a class will be routed to the
+/// class's __getattr__ method.
+///
+/// Mirrors: CPython types.DynamicClassAttribute
+pub const DynamicClassAttribute = struct {
+    const Self = @This();
+
+    fget: ?*const fn (*anyopaque) anyerror!*anyopaque = null,
+    fset: ?*const fn (*anyopaque, *anyopaque) anyerror!void = null,
+    fdel: ?*const fn (*anyopaque) anyerror!void = null,
+    doc: ?[]const u8 = null,
+    overwrite_doc: bool = false,
+
+    /// Create a DynamicClassAttribute with a getter function
+    pub fn init(fget: ?*const fn (*anyopaque) anyerror!*anyopaque) Self {
+        return .{
+            .fget = fget,
+        };
+    }
+
+    /// Get the value (instance access)
+    pub fn get(self: Self, instance: *anyopaque) anyerror!*anyopaque {
+        if (self.fget) |fget_fn| {
+            return fget_fn(instance);
+        }
+        return error.AttributeError;
+    }
+
+    /// Set the value (instance access)
+    pub fn set(self: Self, instance: *anyopaque, value: *anyopaque) anyerror!void {
+        if (self.fset) |fset_fn| {
+            return fset_fn(instance, value);
+        }
+        return error.AttributeError;
+    }
+
+    /// Delete the value (instance access)
+    pub fn delete(self: Self, instance: *anyopaque) anyerror!void {
+        if (self.fdel) |fdel_fn| {
+            return fdel_fn(instance);
+        }
+        return error.AttributeError;
+    }
+
+    /// Create a new DynamicClassAttribute with a getter
+    pub fn getter(self: Self, fget: *const fn (*anyopaque) anyerror!*anyopaque) Self {
+        var copy = self;
+        copy.fget = fget;
+        return copy;
+    }
+
+    /// Create a new DynamicClassAttribute with a setter
+    pub fn setter(self: Self, fset: *const fn (*anyopaque, *anyopaque) anyerror!void) Self {
+        var copy = self;
+        copy.fset = fset;
+        return copy;
+    }
+
+    /// Create a new DynamicClassAttribute with a deleter
+    pub fn deleter(self: Self, fdel: *const fn (*anyopaque) anyerror!void) Self {
+        var copy = self;
+        copy.fdel = fdel;
+        return copy;
+    }
+};
+
 // ============================================================================
 // Class and Object Types
 // ============================================================================

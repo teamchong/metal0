@@ -756,7 +756,17 @@ pub fn emitVarDeclaration(
     // EXCEPTION: If value expression already produces PyValue (e.g., binop with uncertain operands),
     // don't wrap again - the expression already returns PyValue type
     const expr_produces_pyvalue = if (value_expr) |expr| binopProducesPyValue(self, expr) else false;
-    const needs_pyvalue_wrap = !expr_produces_pyvalue and (type_traits.isUnknown(value_type) or
+    // EXCEPTION: String concatenation always produces []const u8, never needs PyValue wrapping
+    // even if operand types are unknown (e.g., function parameters)
+    const is_string_concat = if (value_expr) |expr| blk: {
+        if (expr == .binop and expr.binop.op == .Add) {
+            const left_type = self.type_inferrer.inferExpr(expr.binop.left.*) catch .unknown;
+            const right_type = self.type_inferrer.inferExpr(expr.binop.right.*) catch .unknown;
+            break :blk string_traits.isString(left_type) or string_traits.isString(right_type);
+        }
+        break :blk false;
+    } else false;
+    const needs_pyvalue_wrap = !expr_produces_pyvalue and !is_string_concat and (type_traits.isUnknown(value_type) or
         (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
     if (needs_pyvalue_wrap) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");

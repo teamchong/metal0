@@ -135,6 +135,33 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
             continue;
         }
 
+        // Check if element is a local class type name - needs PyValue wrapping
+        // In Python, class objects are values that can be passed around.
+        // In Zig, types are not values, so we wrap with vtable pointer.
+        if (elem == .name) {
+            const name = elem.name.id;
+            // Check all places where local class definitions are tracked:
+            // 1. hoisted_local_classes - classes hoisted to module level
+            // 2. nested_class_aliases - aliased class names
+            // 3. nested_class_defs - inline class definitions within functions
+            const is_local_class = self.hoisted_local_classes.contains(name) or
+                self.nested_class_aliases.contains(name) or
+                self.nested_class_defs.contains(name);
+            if (is_local_class) {
+                // Get the resolved Zig name (might be aliased)
+                // For nested_class_defs, use the original name as Zig name
+                const zig_name = self.hoisted_local_classes.get(name) orelse
+                    self.nested_class_aliases.get(name) orelse
+                    name;
+                // Wrap as PyValue with vtable pointer
+                // This allows class objects to be passed as values in Python
+                try self.emit("runtime.PyValue{ .ptr = @ptrCast(&");
+                try self.emit(zig_name);
+                try self.emit(".__vtable__) }");
+                continue;
+            }
+        }
+
         // Capture the element expression
         const operand = try self.captureExpr(elem);
 

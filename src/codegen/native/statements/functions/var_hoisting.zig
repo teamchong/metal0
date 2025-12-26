@@ -959,12 +959,20 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
             try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), shadow_name);
             actual_name = shadow_name;
         }
+        // Also track method-shadowing renames (e.g., "stop" -> "stop_")
+        // This ensures body code uses the same renamed identifier
+        if (zig_keywords.wouldShadowMethod(actual_name)) {
+            const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_", .{actual_name});
+            if (!self.var_renames.contains(escaped.name)) {
+                try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), renamed);
+            }
+            actual_name = renamed;
+        }
 
         try self.emitIndent();
         try self.emit("var ");
-        // Use writeLocalVarName to be consistent with expression usage
-        // This handles both keyword escaping AND method shadowing (e.g., "format" -> "format_")
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+        // Use escaped name directly since we already computed and tracked the rename
+        try self.emit(actual_name);
 
         if (escaped.init_expr) |init| {
             // Check for self-reference: `line = line.strip()` where init references the variable being declared
@@ -1114,9 +1122,11 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
 
         try self.emit(" = undefined;\n");
         // Add discard to prevent "unused variable" errors when body is skipped
+        // Use writeLocalVarName (not writeEscapedIdent) to match the variable declaration
+        // which also renames method-shadowing names like "stop" -> "stop_"
         try self.emitIndent();
         try self.emit("_ = &");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), escaped.name);
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
         try self.emit(";\n");
 
         // Add this var to safe_vars for subsequent hoisted vars
