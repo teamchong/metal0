@@ -13,6 +13,7 @@ const zig_keywords = @import("utils.zig_keywords");
 const signature_utils = @import("functions/generators/signature.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const module_functions = @import("../dispatch/module_functions.zig");
 
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
@@ -63,18 +64,20 @@ pub fn detectOptionalImportPattern(try_node: ast.Node.Try, codegen: *NativeCodeg
                                     switch (info.strategy) {
                                         .unsupported => break :blk false, // Explicitly marked as unsupported
                                         .zig_runtime, .c_library => {
-                                            // Must have either direct_import or zig_import path
+                                            // Must have either direct_import or zig_import path OR codegen dispatch
                                             const has_path = info.direct_import != null or info.zig_import != null;
-                                            if (!has_path) {
+                                            const has_codegen_dispatch = module_functions.hasCodegenDispatch(module_name);
+                                            if (!has_path and !has_codegen_dispatch) {
                                                 // FAIL FAST: Module in registry but no implementation!
                                                 std.debug.print("\n[FATAL] Module '{s}' in import_registry with strategy={s} but NO implementation paths!\n", .{ module_name, @tagName(info.strategy) });
                                                 std.debug.print("  direct_import = {any}\n", .{info.direct_import});
                                                 std.debug.print("  zig_import = {any}\n", .{info.zig_import});
+                                                std.debug.print("  has_codegen_dispatch = {}\n", .{has_codegen_dispatch});
                                                 std.debug.print("  This indicates registry corruption or missing module implementation.\n", .{});
                                                 std.debug.print("  Either implement the module or mark it as .unsupported in registry.\n\n", .{});
                                                 @panic("Import registry has module without valid implementation!");
                                             }
-                                            break :blk has_path;
+                                            break :blk has_path or has_codegen_dispatch;
                                         },
                                         .compile_python => break :blk true, // Will be compiled
                                     }

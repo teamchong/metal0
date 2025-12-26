@@ -778,6 +778,12 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "tokenizer", tokenizer_mod.Funcs }, // Also support direct "from metal0 import tokenizer" alias
 });
 
+/// Check if a module has codegen-level dispatch (handled at compile time, not runtime)
+/// Used to prevent panicking for modules that don't need runtime paths
+pub fn hasCodegenDispatch(module_name: []const u8) bool {
+    return ModuleMap.has(module_name);
+}
+
 /// Try to dispatch module function call (e.g., json.loads, os.getcwd)
 /// Returns true if dispatched successfully
 pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
