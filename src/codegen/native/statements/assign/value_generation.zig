@@ -163,9 +163,14 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
 
-            // Track for potential discard emission (avoid unused variable errors in Zig)
+            // Emit immediate discard for tuple unpacking variables
+            // This is more reliable than relying on pending_discards occurrence counting,
+            // especially when variables are referenced in runtime.eval() string literals
             if (is_first_assignment and !is_pointer_deref) {
-                try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, decl_name));
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name);
+                try self.emit(";\n");
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small
@@ -465,9 +470,13 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
             }
 
-            // Track for potential discard emission (avoid unused variable errors in Zig)
+            // Emit immediate discard for list unpacking variables
+            // This is more reliable than relying on pending_discards occurrence counting
             if (is_first_assignment and !is_pointer_deref) {
-                try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, decl_name2));
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name2);
+                try self.emit(";\n");
             }
         } else if (target == .subscript) {
             // Handle subscript targets: rshape[n], lslices[n] = big, small

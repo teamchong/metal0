@@ -1868,33 +1868,37 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     // Build array of argument values in parameter order
                     // Start from position after positional arguments
                     const start_pos = call.args.len;
-                    var remaining_params = sig.total_params - start_pos;
-                    var emitted_count: usize = 0;
 
-                    // For each remaining parameter position, find matching keyword arg or emit null
-                    // Note: Don't check allocator_was_emitted here - the comma after allocator
-                    // was already emitted at line 1713 if there are keyword args
-                    for (sig.param_names[start_pos..]) |param_name| {
-                        if (emitted_count > 0 or call.args.len > 0) try self.emit(", ");
+                    // Bounds check: only process if there are remaining params to fill
+                    if (start_pos < sig.total_params and start_pos < sig.param_names.len) {
+                        var remaining_params = sig.total_params - start_pos;
+                        var emitted_count: usize = 0;
 
-                        // Find keyword argument with this parameter name
-                        var found = false;
-                        for (call.keyword_args) |kwarg| {
-                            if (std.mem.eql(u8, kwarg.name, param_name)) {
-                                try genExpr(self, kwarg.value);
-                                found = true;
-                                break;
+                        // For each remaining parameter position, find matching keyword arg or emit null
+                        // Note: Don't check allocator_was_emitted here - the comma after allocator
+                        // was already emitted at line 1713 if there are keyword args
+                        for (sig.param_names[start_pos..]) |param_name| {
+                            if (emitted_count > 0 or call.args.len > 0) try self.emit(", ");
+
+                            // Find keyword argument with this parameter name
+                            var found = false;
+                            for (call.keyword_args) |kwarg| {
+                                if (std.mem.eql(u8, kwarg.name, param_name)) {
+                                    try genExpr(self, kwarg.value);
+                                    found = true;
+                                    break;
+                                }
                             }
-                        }
 
-                        // No matching keyword arg - use null for default parameter
-                        if (!found) {
-                            try self.emit("null");
-                        }
+                            // No matching keyword arg - use null for default parameter
+                            if (!found) {
+                                try self.emit("null");
+                            }
 
-                        emitted_count += 1;
-                        remaining_params -= 1;
-                        if (remaining_params == 0) break;
+                            emitted_count += 1;
+                            remaining_params -= 1;
+                            if (remaining_params == 0) break;
+                        }
                     }
                 } else {
                     // No function signature available - emit keyword args in order (fallback)
