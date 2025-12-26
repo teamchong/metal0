@@ -21,14 +21,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // Unary operation helpers - auto-closing patterns
 // ============================================
@@ -42,15 +34,15 @@ fn emitMethodCall(self: *NativeCodegen, operand: ZigValue, method: []const u8) C
             try s.emitZigValue(ctx.o);
         }
     }.f);
-    try emitConst(self, ".");
-    try emitConst(self, method);
-    try emitConst(self, "()");
+    try self.emit(".");
+    try self.emit(method);
+    try self.emit("()");
 }
 
 /// Emit negation: -(operand)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitNegate(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "-");
+    try self.emit("-");
     const Ctx = struct { o: ZigValue };
     try self.withParensCtx(Ctx{ .o = operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -62,7 +54,7 @@ fn emitNegate(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
 /// Emit logical not: !(operand)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitLogicalNot(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "!");
+    try self.emit("!");
     const Ctx = struct { o: ZigValue };
     try self.withParensCtx(Ctx{ .o = operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -74,12 +66,12 @@ fn emitLogicalNot(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
 /// Emit runtime function with allocator: runtime.func(operand, __global_allocator)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimeUnary(self: *NativeCodegen, func: []const u8, operand: ZigValue) CodegenError!void {
-    try emitConst(self, func);
+    try self.emit(func);
     const Ctx = struct { o: ZigValue };
     try self.withParensCtx(Ctx{ .o = operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emitZigValue(ctx.o);
-            try emitConst(s, ", __global_allocator");
+            try s.emit(", __global_allocator");
         }
     }.f);
 }
@@ -87,22 +79,22 @@ fn emitRuntimeUnary(self: *NativeCodegen, func: []const u8, operand: ZigValue) C
 /// Emit bool-to-int with prefix: prefix@as(i64, @intFromBool(operand))suffix
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitBoolToInt(self: *NativeCodegen, prefix: []const u8, operand: ZigValue, suffix: []const u8) CodegenError!void {
-    try emitConst(self, prefix);
-    try emitConst(self, "@as(i64, @intFromBool");
+    try self.emit(prefix);
+    try self.emit("@as(i64, @intFromBool");
     const Ctx = struct { o: ZigValue };
     try self.withParensCtx(Ctx{ .o = operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emitZigValue(ctx.o);
         }
     }.f);
-    try emitConst(self, ")");
-    try emitConst(self, suffix);
+    try self.emit(")");
+    try self.emit(suffix);
 }
 
 /// Emit runtime.toBool wrapper: !runtime.toBool(operand)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitNotToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "!runtime.toBool");
+    try self.emit("!runtime.toBool");
     const Ctx = struct { o: ZigValue };
     try self.withParensCtx(Ctx{ .o = operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -129,23 +121,23 @@ fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
 
     if (string_traits.isString(operand_type)) {
         // String: not "abc" -> len == 0
-        try emitConst(self, "(");
+        try self.emit("(");
         try self.emitZigValue(operand);
-        try emitConst(self, ").len == 0");
+        try self.emit(").len == 0");
     } else if (container_traits.isList(operand_type)) {
         // List: not lst -> !runtime.toBool(lst)
         try emitNotToBool(self, operand);
     } else if (container_traits.isTuple(operand_type)) {
         // Tuple: not tup -> len == 0
-        try emitConst(self, "(@typeInfo(@TypeOf(");
+        try self.emit("(@typeInfo(@TypeOf(");
         try self.emitZigValue(operand);
-        try emitConst(self, ")).@\"struct\".fields.len == 0)");
+        try self.emit(")).@\"struct\".fields.len == 0)");
     } else if (shared.isEmptyTuple(unaryop.operand.*)) {
         // Empty tuple literal: not () -> true
-        try emitConst(self, "true");
+        try self.emit("true");
     } else if (unaryop.operand.* == .tuple) {
         // Non-empty tuple literal: not (1,2) -> false
-        try emitConst(self, "false");
+        try self.emit("false");
     } else if (type_traits.isBoolean(operand_type) or type_traits.isIntegral(operand_type) or type_traits.isFloating(operand_type)) {
         // Primitives: not x -> !x
         try emitLogicalNot(self, operand);
@@ -287,7 +279,7 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
 
     // Default: simple bitwise invert with i64 cast
     const operand = try self.captureExpr(unaryop.operand.*);
-    try emitConst(self, "~@as(i64, ");
+    try self.emit("~@as(i64, ");
     try self.emitZigValue(operand);
-    try emitConst(self, ")");
+    try self.emit(")");
 }

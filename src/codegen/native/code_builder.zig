@@ -31,14 +31,6 @@ const std = @import("std");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 
-// Helper for simple constant output
-fn emitConst(codegen: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try codegen.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try codegen.output.appendSlice(codegen.allocator, output);
-}
-
 /// Fluent code builder for common patterns
 pub const CodeBuilder = struct {
     codegen: *NativeCodegen,
@@ -50,20 +42,20 @@ pub const CodeBuilder = struct {
     /// Emit code with automatic indentation
     pub fn line(self: *CodeBuilder, code: []const u8) CodegenError!*CodeBuilder {
         try self.codegen.emitIndent();
-        try emitConst(self.codegen, code);
-        try emitConst(self.codegen, "\n");
+        try self.codegen.emit(code);
+        try self.codegen.emit("\n");
         return self;
     }
 
     /// Emit code without newline
     pub fn write(self: *CodeBuilder, code: []const u8) CodegenError!*CodeBuilder {
-        try emitConst(self.codegen, code);
+        try self.codegen.emit(code);
         return self;
     }
 
     /// Start a block with opening brace
     pub fn beginBlock(self: *CodeBuilder) CodegenError!*CodeBuilder {
-        try emitConst(self.codegen, " {\n");
+        try self.codegen.emit(" {\n");
         self.codegen.indent();
         return self;
     }
@@ -72,7 +64,7 @@ pub const CodeBuilder = struct {
     pub fn endBlock(self: *CodeBuilder) CodegenError!*CodeBuilder {
         self.codegen.dedent();
         try self.codegen.emitIndent();
-        try emitConst(self.codegen, "}\n");
+        try self.codegen.emit("}\n");
         return self;
     }
 
@@ -86,7 +78,7 @@ pub const CodeBuilder = struct {
         try buf.writer(self.codegen.allocator).print(format, args);
         const code = try buf.toOwnedSlice(self.codegen.allocator);
         defer self.codegen.allocator.free(code);
-        try emitConst(self.codegen, code);
+        try self.codegen.emit(code);
         return self;
     }
 

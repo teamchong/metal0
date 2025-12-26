@@ -17,15 +17,6 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 const collections = @import("../../expressions/collections.zig");
 const widenTupleTypes = collections.widenTupleTypes;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// PyValue method names for binary operations (must match arithmetic.zig)
 const PyValueMethods = std.StaticStringMap(void).initComptime(.{
     .{ "Add", {} },
@@ -78,11 +69,11 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     // Blocks that construct tuples/lists from error union results handle 'try' inside the block
     // Adding 'try' here would double-wrap and cause "expected error union" errors
     try self.emitIndent();
-    try emitConst(self,"const ");
-    try emitConst(self,tmp_name);
-    try emitConst(self," = ");
+    try self.emit("const ");
+    try self.emit(tmp_name);
+    try self.emit(" = ");
     try self.genExpr(assign.value.*);
-    try emitConst(self,";\n");
+    try self.emit(";\n");
 
     // Generate: const a = __unpack_tmp_N.@"0";  (for tuples)
     // or:       const a = __unpack_tmp_N[0];    (for lists/arrays)
@@ -155,12 +146,12 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             try self.emitIndent();
             if (is_first_assignment and !is_pointer_deref) {
-                try emitConst(self,"const ");
+                try self.emit("const ");
                 try self.declareVar(var_name);
             }
             // Use writeLocalVarName to handle keywords AND method shadowing
             if (is_pointer_deref) {
-                try emitConst(self,actual_name);
+                try self.emit(actual_name);
             } else {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name);
             }
@@ -211,7 +202,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 // Dynamic attribute: use __dict__.put()
                 // Generate the base object (e.g., 'a' for a.x, 'self' for self.x)
                 if (self.inside_defer) {
-                    try emitConst(self,"@constCast(&");
+                    try self.emit("@constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
                     if (is_list_type) {
@@ -219,9 +210,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
                     }
-                    try emitConst(self,")) catch unreachable;\n");
+                    try self.emit(")) catch unreachable;\n");
                 } else {
-                    try emitConst(self,"try @constCast(&");
+                    try self.emit("try @constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
                     if (is_list_type) {
@@ -229,7 +220,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
                     }
-                    try emitConst(self,"));\n");
+                    try self.emit("));\n");
                 }
             } else {
                 // Static attribute: direct field assignment
@@ -247,8 +238,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
 
             // Generate: const __nested_unpack_N = __unpack_tmp_M[i];
             try self.emitIndent();
-            try emitConst(self,"const ");
-            try emitConst(self,nested_tmp);
+            try self.emit("const ");
+            try self.emit(nested_tmp);
             if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
@@ -269,7 +260,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     const is_first_assignment = !self.isDeclared(var_name);
                     try self.emitIndent();
                     if (is_first_assignment) {
-                        try emitConst(self,"const ");
+                        try self.emit("const ");
                         try self.declareVar(var_name);
                     }
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
@@ -286,8 +277,8 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             const nested_tmp = try self.freshName("nested_unpack");
 
             try self.emitIndent();
-            try emitConst(self,"const ");
-            try emitConst(self,nested_tmp);
+            try self.emit("const ");
+            try self.emit(nested_tmp);
             if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
@@ -307,7 +298,7 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     const is_first_assignment = !self.isDeclared(var_name);
                     try self.emitIndent();
                     if (is_first_assignment) {
-                        try emitConst(self,"const ");
+                        try self.emit("const ");
                         try self.declareVar(var_name);
                     }
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
@@ -358,9 +349,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 // Skip discard pattern
                 if (std.mem.eql(u8, var_name, "_")) continue;
                 try self.emitIndent();
-                try emitConst(self, "_ = &");
+                try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                try emitConst(self, ";\n");
+                try self.emit(";\n");
             }
         }
     }
@@ -382,9 +373,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     // Add 'try' only if value is a function call that returns an error union
     // (blocks that construct lists from error union results are NOT error unions themselves)
     try self.emitIndent();
-    try emitConst(self,"const ");
-    try emitConst(self,tmp_name);
-    try emitConst(self," = ");
+    try self.emit("const ");
+    try self.emit(tmp_name);
+    try self.emit(" = ");
     const is_call = assign.value.* == .call;
     // Only add 'try' if it's a call AND the return type is NOT a plain tuple/list
     // Tuples/lists returned from blocks don't need 'try' even if constructed from error union results
@@ -392,10 +383,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     const returns_tuple_or_list = source_tag == .tuple or source_tag == .list;
     const needs_try = is_call and !returns_tuple_or_list;
     if (needs_try) {
-        try emitConst(self,"try ");
+        try self.emit("try ");
     }
     try self.genExpr(assign.value.*);
-    try emitConst(self,";\n");
+    try self.emit(";\n");
 
     // Generate: const a = __unpack_tmp_N.@"0";  (for tuples)
     // or:       const a = __unpack_tmp_N[0];    (for lists/arrays)
@@ -457,12 +448,12 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
 
             try self.emitIndent();
             if (is_first_assignment and !is_pointer_deref) {
-                try emitConst(self,"const ");
+                try self.emit("const ");
                 try self.declareVar(var_name);
             }
             // Use writeLocalVarName to handle keywords AND method shadowing
             if (is_pointer_deref) {
-                try emitConst(self,actual_name);
+                try self.emit(actual_name);
             } else {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name2);
             }
@@ -512,7 +503,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 // Dynamic attribute: use __dict__.put()
                 // Generate the base object (e.g., 'a' for a.x, 'self' for self.x)
                 if (self.inside_defer) {
-                    try emitConst(self,"@constCast(&");
+                    try self.emit("@constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
                     if (is_list_type) {
@@ -520,9 +511,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
                     }
-                    try emitConst(self,")) catch unreachable;\n");
+                    try self.emit(")) catch unreachable;\n");
                 } else {
-                    try emitConst(self,"try @constCast(&");
+                    try self.emit("try @constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
                     if (is_list_type) {
@@ -530,7 +521,7 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
                     }
-                    try emitConst(self,"));\n");
+                    try self.emit("));\n");
                 }
             } else {
                 // Static attribute: direct field assignment
@@ -581,9 +572,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 // Skip discard pattern
                 if (std.mem.eql(u8, var_name, "_")) continue;
                 try self.emitIndent();
-                try emitConst(self, "_ = &");
+                try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                try emitConst(self, ";\n");
+                try self.emit(";\n");
             }
         }
     }
@@ -613,7 +604,7 @@ pub fn emitVarDeclaration(
         // Just emit variable name for assignment
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-        try emitConst(self," = ");
+        try self.emit(" = ");
         return false; // No wrapper opened
     }
 
@@ -668,8 +659,8 @@ pub fn emitVarDeclaration(
     // If so, this is a pointer assignment inside a try block helper - no const/var prefix needed
     // Example: p_attr.* = ... (assigning through pointer, not declaring new variable)
     if (std.mem.endsWith(u8, actual_name, ".*")) {
-        try emitConst(self,actual_name);
-        try emitConst(self," = ");
+        try self.emit(actual_name);
+        try self.emit(" = ");
         return false; // No wrapper opened
     }
 
@@ -703,9 +694,9 @@ pub fn emitVarDeclaration(
     const needs_var = is_arraylist or is_mutated or is_mutable_collection or is_iterator or is_listcomp or is_dict or is_python_array;
 
     if (needs_var) {
-        try emitConst(self,"var ");
+        try self.emit("var ");
     } else {
-        try emitConst(self,"const ");
+        try self.emit("const ");
     }
 
     // Use writeLocalVarName to handle keywords AND method shadowing
@@ -732,7 +723,7 @@ pub fn emitVarDeclaration(
 
     // BigInt needs explicit type annotation to declare variable as BigInt even if first value is a small int
     if (is_bigint) {
-        try emitConst(self,": runtime.BigInt = ");
+        try self.emit(": runtime.BigInt = ");
         return false; // No wrapper opened
     }
 
@@ -757,12 +748,12 @@ pub fn emitVarDeclaration(
     const needs_pyvalue_wrap = !expr_produces_pyvalue and (type_traits.isUnknown(value_type) or
         (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
     if (needs_pyvalue_wrap) {
-        try emitConst(self,": runtime.PyValue = runtime.PyValue.from(");
+        try self.emit(": runtime.PyValue = runtime.PyValue.from(");
         return true; // Wrapper opened - caller must close with ")"
     }
     // If expression produces PyValue, emit type annotation without wrapper
     if (expr_produces_pyvalue) {
-        try emitConst(self,": runtime.PyValue = ");
+        try self.emit(": runtime.PyValue = ");
         return false; // No wrapper opened
     }
 
@@ -770,11 +761,11 @@ pub fn emitVarDeclaration(
     // - closures can't be coerced to function pointers
     // - callables like operator.mod are different struct types (OperatorMod, OperatorPow, etc.), not PyCallable
     if (!type_traits.isUnknown(value_type) and !is_dict and !is_dictcomp and !is_dict_type and !is_arraylist and !is_list and !is_tuple and !is_closure and !is_function and !is_callable and !is_counter and !is_deque and !is_class_instance and !is_int) {
-        try emitConst(self,": ");
+        try self.emit(": ");
         try value_type.toZigType(self.allocator, &self.output);
     }
 
-    try emitConst(self," = ");
+    try self.emit(" = ");
     return false; // No wrapper opened
 }
 
@@ -817,14 +808,14 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         } else "i64";
         defer if (var_type != null and var_type.? == .array) self.allocator.free(elem_type_str);
 
-        try emitConst(self,"[_]");
-        try emitConst(self,elem_type_str);
-        try emitConst(self,"{");
+        try self.emit("[_]");
+        try self.emit(elem_type_str);
+        try self.emit("{");
         for (list.elts, 0..) |elem, i| {
-            if (i > 0) try emitConst(self,", ");
+            if (i > 0) try self.emit(", ");
             try genExpr(self, elem);
         }
-        try emitConst(self,"};\n");
+        try self.emit("};\n");
         return;
     }
 
@@ -857,12 +848,12 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     if (has_predeclared_type) {
         // Variable already has a type - use .{} to inherit the declared type instead of creating a new struct type
         if (wrapper_opened) {
-            try emitConst(self,".{}");  // No semicolon - caller will close wrapper and add semicolon
+            try self.emit(".{}");  // No semicolon - caller will close wrapper and add semicolon
         } else {
-            try emitConst(self,".{};\n");
+            try self.emit(".{};\n");
         }
     } else {
-        try emitConst(self,"std.ArrayListUnmanaged(");
+        try self.emit("std.ArrayListUnmanaged(");
         // Generate element type
         // For unknown element types (*runtime.PyObject), use runtime.PyValue to support
         // heterogeneous elements (e.g., vararg loop class instantiation)
@@ -873,11 +864,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
             "runtime.PyValue"
         else
             type_buf.items;
-        try emitConst(self,type_str);
+        try self.emit(type_str);
         if (wrapper_opened) {
-            try emitConst(self,"){}");  // No semicolon - caller will close wrapper and add semicolon
+            try self.emit("){}");  // No semicolon - caller will close wrapper and add semicolon
         } else {
-            try emitConst(self,"){};\n");
+            try self.emit("){};\n");
         }
     }
 
@@ -893,30 +884,30 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     // Append elements
     for (list.elts) |elem| {
         try self.emitIndent();
-        try emitConst(self,"try ");
+        try self.emit("try ");
         const actual_name = self.var_renames.get(var_name) orelse var_name;
-        try emitConst(self,actual_name);
-        try emitConst(self,".append(__global_allocator, ");
+        try self.emit(actual_name);
+        try self.emit(".append(__global_allocator, ");
 
         // For tuples in pre-declared ArrayLists (with struct element type),
         // generate named field syntax: .{ .@"0" = val1, .@"1" = val2 }
         if (has_predeclared_type and elem == .tuple) {
-            try emitConst(self,".{ ");
+            try self.emit(".{ ");
             for (elem.tuple.elts, 0..) |tuple_elem, i| {
-                if (i > 0) try emitConst(self,", ");
+                if (i > 0) try self.emit(", ");
                 try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{i});
                 try self.genExpr(tuple_elem);
             }
-            try emitConst(self," }");
+            try self.emit(" }");
         } else if (is_callable_list) {
             // Wrap non-PyCallable elements for callable lists
             const this_type = try self.type_inferrer.inferExpr(elem);
             try genCallableElement(self, elem, this_type);
         } else if (is_pyvalue_list) {
             // Wrap element in PyValue for heterogeneous lists
-            try emitConst(self,"try runtime.PyValue.fromAlloc(__global_allocator, ");
+            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
             try self.genExpr(elem);
-            try emitConst(self,")");
+            try self.emit(")");
         } else if (elem_type == .unified_int) {
             // Wrap elements in UnifiedInt for lists that contain mixed int sizes
             // e.g., [324, 2**31] - 324 is i64 but list type is UnifiedInt
@@ -927,9 +918,9 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
                 try self.genExpr(elem);
             } else if (this_tag == .int) {
                 // Wrap i64 literal/expression in UnifiedInt
-                try emitConst(self,"runtime.UnifiedInt.fromI64(");
+                try self.emit("runtime.UnifiedInt.fromI64(");
                 try self.genExpr(elem);
-                try emitConst(self,")");
+                try self.emit(")");
             } else {
                 // Other types - emit directly and let Zig handle coercion
                 try self.genExpr(elem);
@@ -937,7 +928,7 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         } else {
             try self.genExpr(elem);
         }
-        try emitConst(self,");\n");
+        try self.emit(");\n");
     }
 
     // Track this variable as ArrayList for len() generation
@@ -960,20 +951,20 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) 
         },
         .function => {
             // Lambda or function - wrap using fromAny for type erasure
-            try emitConst(self,"runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
             try self.genExpr(elem);
-            try emitConst(self,"), ");
+            try self.emit("), ");
             try self.genExpr(elem);
-            try emitConst(self,")");
+            try self.emit(")");
         },
         .class_instance => {
             // Class used as constructor - wrap in PyCallable
             const class_name = elem_type.class_instance;
-            try emitConst(self,"runtime.builtins.PyCallable.fromAny(@TypeOf(");
-            try emitConst(self,class_name);
-            try emitConst(self,".init), ");
-            try emitConst(self,class_name);
-            try emitConst(self,".init)");
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.emit(class_name);
+            try self.emit(".init), ");
+            try self.emit(class_name);
+            try self.emit(".init)");
         },
         else => {
             // Unknown callable type - try to wrap it generically
@@ -982,20 +973,20 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) 
                 const name = elem.name.id;
                 // Check if it's a known class in class_fields
                 if (self.type_inferrer.class_fields.contains(name)) {
-                    try emitConst(self,"runtime.builtins.PyCallable.fromAny(@TypeOf(");
-                    try emitConst(self,name);
-                    try emitConst(self,".init), ");
-                    try emitConst(self,name);
-                    try emitConst(self,".init)");
+                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
+                    try self.emit(name);
+                    try self.emit(".init), ");
+                    try self.emit(name);
+                    try self.emit(".init)");
                     return;
                 }
             }
             // Fallback - wrap using fromAny for type erasure
-            try emitConst(self,"runtime.builtins.PyCallable.fromAny(@TypeOf(");
+            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
             try self.genExpr(elem);
-            try emitConst(self,"), ");
+            try self.emit("), ");
             try self.genExpr(elem);
-            try emitConst(self,")");
+            try self.emit(")");
         },
     }
 }
@@ -1015,20 +1006,20 @@ pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
     // Generate concat with all parts at once
     // At module level (scope 0), we can't use 'try' - use 'catch unreachable' instead
     if (at_module_level) {
-        try emitConst(self,"(std.mem.concat(");
+        try self.emit("(std.mem.concat(");
     } else {
-        try emitConst(self,"try std.mem.concat(");
+        try self.emit("try std.mem.concat(");
     }
-    try emitConst(self,alloc_name);
-    try emitConst(self,", u8, &[_][]const u8{ ");
+    try self.emit(alloc_name);
+    try self.emit(", u8, &[_][]const u8{ ");
     for (parts.items, 0..) |part, i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         try self.genExpr(part);
     }
     if (at_module_level) {
-        try emitConst(self," }) catch unreachable);\n");
+        try self.emit(" }) catch unreachable);\n");
     } else {
-        try emitConst(self," });\n");
+        try self.emit(" });\n");
     }
 
     // Add defer cleanup

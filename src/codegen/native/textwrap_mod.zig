@@ -12,22 +12,6 @@ const dedentBody = "; var _min_indent: usize = std.math.maxInt(usize); var _line
 const indentBody = "; var _result = std.ArrayListUnmanaged(u8){}; var _lines_iter = std.mem.splitSequence(u8, _text, \"\\n\"); var _first = true; while (_lines_iter.next()) |line| { if (!_first) _result.append(__global_allocator, '\\n') catch continue; _first = false; _result.appendSlice(__global_allocator, _prefix) catch continue; _result.appendSlice(__global_allocator, line) catch continue; } break :__m_indent _result.items; }";
 const shortenBody = "); if (_text.len <= _width) break :__m_shorten _text; if (_width <= 3) break :__m_shorten \"...\"; var _result = __global_allocator.alloc(u8, _width) catch break :__m_shorten _text; @memcpy(_result[0.._width-3], _text[0.._width-3]); @memcpy(_result[_width-3..], \"...\"); break :__m_shorten _result; }";
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // Note: These static string maps cannot use dynamic IDs from nextNameId()
 // They are compile-time constants, so we use descriptive static labels instead
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
@@ -39,13 +23,13 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genWidth(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try emitConst(self, "; const _width: usize = ");
+    try self.emit("; const _width: usize = ");
     if (args.len > 1) {
-        try emitConst(self, "@intCast(");
+        try self.emit("@intCast(");
         try self.genExpr(args[1]);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "70");
+        try self.emit("70");
     }
 }
 
@@ -53,10 +37,10 @@ fn genWrap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     try self.withInlineBlock("wrap", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const _text = ");
+            try c.emit("const _text = ");
             try c.genExpr(a[0]);
             try genWidth(c, a);
-            try emitFmtConst(c, "; var _lines = std.ArrayListUnmanaged([]const u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); _lines.append(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _lines.items", .{label});
+            try c.emitFmt("; var _lines = std.ArrayListUnmanaged([]const u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); _lines.append(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _lines.items", .{label});
         }
     }.emit);
 }
@@ -65,10 +49,10 @@ fn genFill(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     try self.withInlineBlock("fill", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const _text = ");
+            try c.emit("const _text = ");
             try c.genExpr(a[0]);
             try genWidth(c, a);
-            try emitFmtConst(c, "; var _result = std.ArrayListUnmanaged(u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); if (_start > 0) _result.append(__global_allocator, '\\n') catch continue; _result.appendSlice(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _result.items", .{label});
+            try c.emitFmt("; var _result = std.ArrayListUnmanaged(u8){{}}; var _start: usize = 0; while (_start < _text.len) {{ const _end = @min(_start + _width, _text.len); if (_start > 0) _result.append(__global_allocator, '\\n') catch continue; _result.appendSlice(__global_allocator, _text[_start.._end]) catch continue; _start = _end; }} break :{s} _result.items", .{label});
         }
     }.emit);
 }

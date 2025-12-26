@@ -21,21 +21,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // Arithmetic helper functions - auto-closing patterns
 // ============================================
@@ -44,9 +29,9 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitExprBoolCoerced(self: *NativeCodegen, expr: ast.Node, is_bool: bool) CodegenError!void {
     if (is_bool) {
-        try emitConst(self, "@as(i64, @intFromBool");
+        try self.emit("@as(i64, @intFromBool");
         try self.emitParens(expr);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         try genExpr(self, expr);
     }
@@ -56,13 +41,13 @@ fn emitExprBoolCoerced(self: *NativeCodegen, expr: ast.Node, is_bool: bool) Code
 /// NOTE: func string should include opening paren and any prefix args with trailing comma
 /// Example: "runtime.pyFloorDiv(__global_allocator, " generates: pyFloorDiv(__global_allocator, left, right)
 fn emitBinaryCall(self: *NativeCodegen, func: []const u8, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitConst(self, func);
+    try self.emit(func);
     // Don't use withParensCtx - func string already has opening paren if needed
     // Just emit the two arguments and closing paren
     try genExpr(self, left);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try genExpr(self, right);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate power operation
@@ -83,23 +68,23 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
         const exp = binop.right.constant.value.int;
         if (exp >= 20) {
             const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
-            try emitConst(self, "runtime.unified_int_ops.pow");
+            try self.emit("runtime.unified_int_ops.pow");
             try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
                 pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                    try emitConst(s, "runtime.unified_int_ops.fromI64");
+                    try s.emit("runtime.unified_int_ops.fromI64");
                     const Inner = struct { e: ast.Node, ib: bool };
                     try s.withParensCtx(Inner{ .e = ctx.b.left.*, .ib = ctx.lb }, struct {
                         pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                             try emitExprBoolCoerced(si, inner.e, inner.ib);
                         }
                     }.g);
-                    try emitConst(s, ", @as(u32, @intCast");
+                    try s.emit(", @as(u32, @intCast");
                     try s.withParensCtx(Inner{ .e = ctx.b.right.*, .ib = ctx.rb }, struct {
                         pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                             try emitExprBoolCoerced(si, inner.e, inner.ib);
                         }
                     }.g);
-                    try emitConst(s, "), __global_allocator");
+                    try s.emit("), __global_allocator");
                 }
             }.f);
             return;
@@ -107,12 +92,12 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 
         // Case 2: Small constant positive integer exponent - use i64 fast path
         const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
-        try emitConst(self, "std.math.pow");
+        try self.emit("std.math.pow");
         try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                try emitConst(s, "i64, ");
+                try s.emit("i64, ");
                 try emitExprBoolCoerced(s, ctx.b.left.*, ctx.lb);
-                try emitConst(s, ", ");
+                try s.emit(", ");
                 try emitExprBoolCoerced(s, ctx.b.right.*, ctx.rb);
             }
         }.f);
@@ -143,33 +128,33 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 
     if (needs_complex_support) {
         // pyPow handles negative base with non-integer exponent -> complex
-        try emitConst(self, "(try runtime.builtins.pyPow(");
+        try self.emit("(try runtime.builtins.pyPow(");
 
         // Convert base to f64
         if (left_is_int) {
-            try emitConst(self, "@as(f64, @floatFromInt(");
+            try self.emit("@as(f64, @floatFromInt(");
             try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else {
-            try emitConst(self, "@as(f64, ");
+            try self.emit("@as(f64, ");
             try genExpr(self, binop.left.*);
-            try emitConst(self, ")");
+            try self.emit(")");
         }
 
-        try emitConst(self, ", ");
+        try self.emit(", ");
 
         // Convert exponent to f64
         if (right_is_int) {
-            try emitConst(self, "@as(f64, @floatFromInt(");
+            try self.emit("@as(f64, @floatFromInt(");
             try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else {
-            try emitConst(self, "@as(f64, ");
+            try self.emit("@as(f64, ");
             try genExpr(self, binop.right.*);
-            try emitConst(self, ")");
+            try self.emit(")");
         }
 
-        try emitConst(self, "))");
+        try self.emit("))");
         return;
     }
 
@@ -177,12 +162,12 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     // This handles cases like pow(-0.0, 1.0) which should return f64, not PyPowResult
     if (right_is_float) {
         const Ctx2 = struct { b: ast.Node.BinOp };
-        try emitConst(self, "std.math.pow");
+        try self.emit("std.math.pow");
         try self.withParensCtx(Ctx2{ .b = binop }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx2) CodegenError!void {
-                try emitConst(s, "f64, ");
+                try s.emit("f64, ");
                 try genExpr(s, ctx.b.left.*);
-                try emitConst(s, ", ");
+                try s.emit(", ");
                 try genExpr(s, ctx.b.right.*);
             }
         }.f);
@@ -191,23 +176,23 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 
     // Case 4: Runtime integer exponent - use f64 for safety (no complex needed since int exp)
     const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
-    try emitConst(self, "std.math.pow");
+    try self.emit("std.math.pow");
     try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try emitConst(s, "f64, @as(f64, @floatFromInt");
+            try s.emit("f64, @as(f64, @floatFromInt");
             const Inner = struct { e: ast.Node, ib: bool };
             try s.withParensCtx(Inner{ .e = ctx.b.left.*, .ib = ctx.lb }, struct {
                 pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                     try emitExprBoolCoerced(si, inner.e, inner.ib);
                 }
             }.g);
-            try emitConst(s, "), @as(f64, @floatFromInt");
+            try s.emit("), @as(f64, @floatFromInt");
             try s.withParensCtx(Inner{ .e = ctx.b.right.*, .ib = ctx.rb }, struct {
                 pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                     try emitExprBoolCoerced(si, inner.e, inner.ib);
                 }
             }.g);
-            try emitConst(s, ")");
+            try s.emit(")");
         }
     }.f);
 }
@@ -218,7 +203,7 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     // Check if this is Path / string (path join)
     if (left_type == .path) {
         try genExpr(self, binop.left.*);
-        try emitConst(self, ".join");
+        try self.emit(".join");
         try self.emitParens(binop.right.*);
         return;
     }
@@ -231,29 +216,29 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
         const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
         try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                try emitConst(s, "@as(f64, @floatFromInt");
+                try s.emit("@as(f64, @floatFromInt");
                 const Inner = struct { e: ast.Node, ib: bool };
                 try s.withParensCtx(Inner{ .e = ctx.b.left.*, .ib = ctx.lb }, struct {
                     pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                         try emitExprBoolCoerced(si, inner.e, inner.ib);
                     }
                 }.g);
-                try emitConst(s, ") / @as(f64, @floatFromInt");
+                try s.emit(") / @as(f64, @floatFromInt");
                 try s.withParensCtx(Inner{ .e = ctx.b.right.*, .ib = ctx.rb }, struct {
                     pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                         try emitExprBoolCoerced(si, inner.e, inner.ib);
                     }
                 }.g);
-                try emitConst(s, ")");
+                try s.emit(")");
             }
         }.f);
     } else {
         const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
-        try emitConst(self, "try runtime.divideFloat");
+        try self.emit("try runtime.divideFloat");
         try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
                 try emitExprBoolCoerced(s, ctx.b.left.*, ctx.lb);
-                try emitConst(s, ", ");
+                try s.emit(", ");
                 try emitExprBoolCoerced(s, ctx.b.right.*, ctx.rb);
             }
         }.f);
@@ -264,23 +249,23 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 /// Uses auto-close patterns to guarantee matching parentheses
 pub fn genMatMulOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
     if (type_traits.isClassInstance(left_type) or type_traits.isUnknown(left_type)) {
-        try emitConst(self, "try ");
+        try self.emit("try ");
         try genExpr(self, binop.left.*);
-        try emitConst(self, ".__matmul__(__global_allocator, ");
+        try self.emit(".__matmul__(__global_allocator, ");
         try genExpr(self, binop.right.*);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else if (type_traits.isClassInstance(right_type) or type_traits.isUnknown(right_type)) {
-        try emitConst(self, "try ");
+        try self.emit("try ");
         try genExpr(self, binop.right.*);
-        try emitConst(self, ".__rmatmul__(__global_allocator, ");
+        try self.emit(".__rmatmul__(__global_allocator, ");
         try genExpr(self, binop.left.*);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "try ");
+        try self.emit("try ");
         try genExpr(self, binop.left.*);
-        try emitConst(self, ".__matmul__(__global_allocator, ");
+        try self.emit(".__matmul__(__global_allocator, ");
         try genExpr(self, binop.right.*);
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
@@ -293,18 +278,18 @@ pub fn genFloorDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nat
             try emitBinaryCall(self, "runtime.pyFloorDiv(__global_allocator, ", binop.left.*, binop.right.*);
         },
         .python_floored => {
-            try emitConst(self, "@floor");
+            try self.emit("@floor");
             try self.emitBinOp(binop.left.*, " / ", binop.right.*);
         },
         .zig_native => {
             const left_is_bool = type_traits.isBoolean(left_type);
             const right_is_bool = type_traits.isBoolean(right_type);
             const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
-            try emitConst(self, "@divFloor");
+            try self.emit("@divFloor");
             try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
                 pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
                     try emitExprBoolCoerced(s, ctx.b.left.*, ctx.lb);
-                    try emitConst(s, ", ");
+                    try s.emit(", ");
                     try emitExprBoolCoerced(s, ctx.b.right.*, ctx.rb);
                 }
             }.f);
@@ -332,11 +317,11 @@ pub fn genModOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
             const left_is_bool = type_traits.isBoolean(left_type);
             const right_is_bool = type_traits.isBoolean(right_type);
             const Ctx = struct { b: ast.Node.BinOp, lb: bool, rb: bool };
-            try emitConst(self, "@mod");
+            try self.emit("@mod");
             try self.withParensCtx(Ctx{ .b = binop, .lb = left_is_bool, .rb = right_is_bool }, struct {
                 pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
                     try emitExprBoolCoerced(s, ctx.b.left.*, ctx.lb);
-                    try emitConst(s, ", ");
+                    try s.emit(", ");
                     try emitExprBoolCoerced(s, ctx.b.right.*, ctx.rb);
                 }
             }.f);
@@ -352,59 +337,59 @@ pub fn genLargeShiftOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
-    try emitConst(self, "runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
+    try self.emit("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
     try self.emitZigValue(left_operand);
-    try emitConst(self, "), @as(u32, @intCast(");
+    try self.emit("), @as(u32, @intCast(");
     try self.emitZigValue(right_operand);
-    try emitConst(self, ")), ");
-    try emitConst(self, alloc_name);
-    try emitConst(self, ")");
+    try self.emit(")), ");
+    try self.emit(alloc_name);
+    try self.emit(")");
 }
 
 /// Generate dict merge operation (Python 3.9+)
 pub fn genDictMerge(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try emitFmtConst(self, "(dmerge_{d}: {{\n", .{label_id});
+    try self.emitFmt("(dmerge_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try emitConst(self, "var __merged = @TypeOf(");
+    try self.emit("var __merged = @TypeOf(");
     try collection_ops.genExprWrapped(self, binop.left.*);
-    try emitConst(self, "){};\n");
+    try self.emit("){};\n");
 
     try self.emitIndent();
-    try emitConst(self, "var __left_iter = ");
+    try self.emit("var __left_iter = ");
     try collection_ops.genExprWrapped(self, binop.left.*);
-    try emitConst(self, ".iterator();\n");
+    try self.emit(".iterator();\n");
     try self.emitIndent();
-    try emitConst(self, "while (__left_iter.next()) |entry| {\n");
+    try self.emit("while (__left_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try emitConst(self, "try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try emitConst(self, "}\n");
+    try self.emit("}\n");
 
     try self.emitIndent();
-    try emitConst(self, "var __right_iter = ");
+    try self.emit("var __right_iter = ");
     try collection_ops.genExprWrapped(self, binop.right.*);
-    try emitConst(self, ".iterator();\n");
+    try self.emit(".iterator();\n");
     try self.emitIndent();
-    try emitConst(self, "while (__right_iter.next()) |entry| {\n");
+    try self.emit("while (__right_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try emitConst(self, "try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try emitConst(self, "}\n");
+    try self.emit("}\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :dmerge_{d} __merged;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try emitConst(self, "})");
+    try self.emit("})");
 }
 
 /// Generate simple binary operations (+, -, *, &, |, ^, <<, >>)
@@ -443,17 +428,17 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
         try self.withParensCtx(Ctx{ .b = binop, .li = left_is_int, .ri = right_is_int }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
                 if (ctx.li) {
-                    try emitConst(s, "@as(f64, @floatFromInt");
+                    try s.emit("@as(f64, @floatFromInt");
                     try s.emitParens(ctx.b.left.*);
-                    try emitConst(s, ")");
+                    try s.emit(")");
                 } else {
                     try collection_ops.genExprWrapped(s, ctx.b.left.*);
                 }
-                try emitConst(s, " * ");
+                try s.emit(" * ");
                 if (ctx.ri) {
-                    try emitConst(s, "@as(f64, @floatFromInt");
+                    try s.emit("@as(f64, @floatFromInt");
                     try s.emitParens(ctx.b.right.*);
-                    try emitConst(s, ")");
+                    try s.emit(")");
                 } else {
                     try collection_ops.genExprWrapped(s, ctx.b.right.*);
                 }
@@ -466,9 +451,9 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
         const Ctx = struct { b: ast.Node.BinOp };
         try self.withParensCtx(Ctx{ .b = binop }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                try emitConst(s, "runtime.toFloat");
+                try s.emit("runtime.toFloat");
                 try s.emitParens(ctx.b.left.*);
-                try emitConst(s, " * runtime.toFloat");
+                try s.emit(" * runtime.toFloat");
                 try s.emitParens(ctx.b.right.*);
             }
         }.f);
@@ -512,32 +497,32 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             // Cast left operand if needed
             if (ctx.lb) {
-                try emitConst(s, "@as(i64, @intFromBool");
+                try s.emit("@as(i64, @intFromBool");
                 try s.emitParens(ctx.b.left.*);
-                try emitConst(s, ")");
+                try s.emit(")");
             } else if (ctx.lu and ctx.nc) {
-                try emitConst(s, "@as(i64, @intCast");
+                try s.emit("@as(i64, @intCast");
                 try s.emitParens(ctx.b.left.*);
-                try emitConst(s, ")");
+                try s.emit(")");
             } else {
                 try collection_ops.genExprWrapped(s, ctx.b.left.*);
             }
 
-            try emitConst(s, ctx.op);
+            try s.emit(ctx.op);
 
             // For shift operations, the RHS must be u6 for i64
             if (ctx.shift) {
-                try emitConst(s, "@as(u6, @intCast(@mod(");
+                try s.emit("@as(u6, @intCast(@mod(");
                 try s.genExpr(ctx.b.right.*);
-                try emitConst(s, ", 64)))");
+                try s.emit(", 64)))");
             } else if (ctx.rb) {
-                try emitConst(s, "@as(i64, @intFromBool");
+                try s.emit("@as(i64, @intFromBool");
                 try s.emitParens(ctx.b.right.*);
-                try emitConst(s, ")");
+                try s.emit(")");
             } else if (ctx.ru and ctx.nc) {
-                try emitConst(s, "@as(i64, @intCast");
+                try s.emit("@as(i64, @intCast");
                 try s.emitParens(ctx.b.right.*);
-                try emitConst(s, ")");
+                try s.emit(")");
             } else {
                 try collection_ops.genExprWrapped(s, ctx.b.right.*);
             }

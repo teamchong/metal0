@@ -16,113 +16,95 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // Format operation helpers - auto-closing patterns
 // ============================================
 
 /// Emit format block open: fmt_N: { var __fmt_buf_N = ...; const __writer_N = ...;
 fn emitFormatBlockOpen(self: *NativeCodegen, label_id: usize, alloc_name: []const u8) CodegenError!void {
-    try emitFmtConst(self, "fmt_{d}: {{\n", .{label_id});
-    try emitFmtConst(self, "var __fmt_buf_{d} = std.ArrayListUnmanaged(u8)", .{label_id});
-    try emitConst(self, "{};\n");
-    try emitFmtConst(self, "const __writer_{d} = __fmt_buf_{d}.writer({s});\n", .{ label_id, label_id, alloc_name });
+    try self.emitFmt("fmt_{d}: {{\n", .{label_id});
+    try self.emitFmt("var __fmt_buf_{d} = std.ArrayListUnmanaged(u8)", .{label_id});
+    try self.emit("{};\n");
+    try self.emitFmt("const __writer_{d} = __fmt_buf_{d}.writer({s});\n", .{ label_id, label_id, alloc_name });
 }
 
 /// Emit format block close: break :fmt_N __fmt_buf_N.toOwnedSlice(alloc) catch unreachable; }
 fn emitFormatBlockClose(self: *NativeCodegen, label_id: usize, alloc_name: []const u8) CodegenError!void {
-    try emitFmtConst(self, "break :fmt_{d} __fmt_buf_{d}.toOwnedSlice({s}) catch unreachable;\n}}", .{ label_id, label_id, alloc_name });
+    try self.emitFmt("break :fmt_{d} __fmt_buf_{d}.toOwnedSlice({s}) catch unreachable;\n}}", .{ label_id, label_id, alloc_name });
 }
 
 /// Emit runtime.formatInt(expr, base)
 fn emitFormatInt(self: *NativeCodegen, expr: ast.Node, spec_char: u8) CodegenError!void {
-    try emitConst(self, "runtime.formatInt(");
+    try self.emit("runtime.formatInt(");
     try genExpr(self, expr);
     switch (spec_char) {
-        'x' => try emitConst(self, ", .hex_lower)"),
-        'X' => try emitConst(self, ", .hex_upper)"),
-        else => try emitConst(self, ", .octal)"), // 'o'
+        'x' => try self.emit(", .hex_lower)"),
+        'X' => try self.emit(", .hex_upper)"),
+        else => try self.emit(", .octal)"), // 'o'
     }
 }
 
 /// Emit runtime.builtins.pyRepr(alloc, expr) catch unreachable
 fn emitPyRepr(self: *NativeCodegen, expr: ast.Node, alloc_name: []const u8) CodegenError!void {
-    try emitFmtConst(self, "(runtime.builtins.pyRepr({s}, ", .{alloc_name});
+    try self.emitFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
     try genExpr(self, expr);
-    try emitConst(self, ") catch unreachable)");
+    try self.emit(") catch unreachable)");
 }
 
 /// Emit @as(i64, @intFromBool(expr))
 fn emitBoolToI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i64, @intFromBool(");
+    try self.emit("@as(i64, @intFromBool(");
     try genExpr(self, expr);
-    try emitConst(self, "))");
+    try self.emit("))");
 }
 
 /// Emit runtime pyStringFormat for variable format strings
 fn emitRuntimePyStringFormat(self: *NativeCodegen, label_id: usize, alloc_name: []const u8, left: ast.Node, right: ast.Node) CodegenError!void {
-    try emitFmtConst(self, "fmt_{d}: {{\n", .{label_id});
-    try emitFmtConst(self, "break :fmt_{d} try runtime.pyStringFormat({s}, ", .{ label_id, alloc_name });
+    try self.emitFmt("fmt_{d}: {{\n", .{label_id});
+    try self.emitFmt("break :fmt_{d} try runtime.pyStringFormat({s}, ", .{ label_id, alloc_name });
     try genExpr(self, left);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try genExpr(self, right);
-    try emitConst(self, ");\n}");
+    try self.emit(");\n}");
 }
 
 /// Emit escaped character for Zig format string
 fn emitEscapedChar(self: *NativeCodegen, c: u8) CodegenError!void {
     switch (c) {
-        '{' => try emitConst(self, "{{"),
-        '}' => try emitConst(self, "}}"),
-        '"' => try emitConst(self, "\\\""),
-        '\\' => try emitConst(self, "\\\\"),
-        '\n' => try emitConst(self, "\\n"),
-        '\r' => try emitConst(self, "\\r"),
-        '\t' => try emitConst(self, "\\t"),
-        else => try emitFmtConst(self, "{c}", .{c}),
+        '{' => try self.emit("{{"),
+        '}' => try self.emit("}}"),
+        '"' => try self.emit("\\\""),
+        '\\' => try self.emit("\\\\"),
+        '\n' => try self.emit("\\n"),
+        '\r' => try self.emit("\\r"),
+        '\t' => try self.emit("\\t"),
+        else => try self.emitFmt("{c}", .{c}),
     }
 }
 
 /// Emit Zig format specifier for Python format spec
 fn emitZigFormatSpec(self: *NativeCodegen, fspec: FormatSpec, fallback_fmt_char: u8) CodegenError!void {
     switch (fspec.spec_char) {
-        'd', 'i' => try emitConst(self, "{any}"),
-        's' => try emitConst(self, "{s}"),
+        'd', 'i' => try self.emit("{any}"),
+        's' => try self.emit("{s}"),
         'f' => {
             if (fspec.precision) |p| {
-                try emitFmtConst(self, "{{d:.{d}}}", .{p});
+                try self.emitFmt("{{d:.{d}}}", .{p});
             } else {
-                try emitConst(self, "{d}");
+                try self.emit("{d}");
             }
         },
-        'g', 'G' => try emitConst(self, "{d}"),
-        'e', 'E' => try emitConst(self, "{e}"),
-        'x', 'X', 'o' => try emitConst(self, "{s}"),
-        'r' => try emitConst(self, "{s}"),
-        '%' => try emitConst(self, "%"),
+        'g', 'G' => try self.emit("{d}"),
+        'e', 'E' => try self.emit("{e}"),
+        'x', 'X', 'o' => try self.emit("{s}"),
+        'r' => try self.emit("{s}"),
+        '%' => try self.emit("%"),
         else => {
-            try emitFmtConst(self, "{c}", .{fallback_fmt_char});
-            try emitFmtConst(self, "{c}", .{fspec.spec_char});
+            try self.emitFmt("{c}", .{fallback_fmt_char});
+            try self.emitFmt("{c}", .{fspec.spec_char});
         },
     }
 }
-
-
-
 
 /// Parse a Python format specifier like "%.0f", "%5.2f", "%d"
 /// Returns the format type char and the number of characters consumed
@@ -229,7 +211,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         if (format_str) |fmt| {
             // Parse format string and match with tuple elements
             // Use catch unreachable since we're often inside non-error contexts like panic args
-            try emitFmtConst(self, "__writer_{d}.print(\"", .{label_id});
+            try self.emitFmt("__writer_{d}.print(\"", .{label_id});
             // Convert Python format to Zig format
             var i: usize = 0;
             while (i < fmt.len) {
@@ -242,7 +224,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     i += 1;
                 }
             }
-            try emitConst(self, "\", .{");
+            try self.emit("\", .{");
             // Track which format specs need special handling
             var elem_idx: usize = 0;
             var fmt_idx: usize = 0;
@@ -254,7 +236,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         fmt_idx += fspec2.consumed;
                         continue;
                     }
-                    if (elem_idx > 0) try emitConst(self, ", ");
+                    if (elem_idx > 0) try self.emit(", ");
                     if (elem_idx < tuple.elts.len) {
                         // For hex/octal formats, wrap in runtime.formatInt to handle bool
                         if (fspec2.spec_char == 'x' or fspec2.spec_char == 'X' or fspec2.spec_char == 'o') {
@@ -283,7 +265,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     fmt_idx += 1;
                 }
             }
-            try emitConst(self, "}) catch unreachable;\n");
+            try self.emit("}) catch unreachable;\n");
         }
         // Note: else case (variable format string) is handled early with return
     } else {
@@ -301,7 +283,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             }
 
             // Parse format string for output
-            try emitFmtConst(self, "__writer_{d}.print(\"", .{label_id});
+            try self.emitFmt("__writer_{d}.print(\"", .{label_id});
             i = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
@@ -313,7 +295,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     i += 1;
                 }
             }
-            try emitConst(self, "\", .{");
+            try self.emit("\", .{");
             // For hex/octal formats, wrap value in runtime.formatInt
             if (main_fspec.spec_char == 'x' or main_fspec.spec_char == 'X' or main_fspec.spec_char == 'o') {
                 try emitFormatInt(self, binop.right.*, main_fspec.spec_char);
@@ -343,7 +325,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             } else {
                 try genExpr(self, binop.right.*);
             }
-            try emitConst(self, "}) catch unreachable;\n");
+            try self.emit("}) catch unreachable;\n");
         }
         // Note: else case (variable format string) is handled early with return
     }

@@ -20,27 +20,11 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 const shared = @import("shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// Emit binary operator string (DRY helper)
 /// NOTE: Only use for operators that have direct Zig equivalents!
 /// Pow, Mod, FloorDiv need special handling (std.math.pow, @mod, @divFloor)
 fn emitBinOp(self: *NativeCodegen, op: ast.Operator) CodegenError!void {
-    try emitConst(self,BinOpStrings.get(@tagName(op)) orelse " ? ");
+    try self.emit(BinOpStrings.get(@tagName(op)) orelse " ? ");
 }
 
 /// Check if name is a frame field (DRY helper)
@@ -53,14 +37,14 @@ fn isFrameField(name: []const u8, frame_fields: []const []const u8) bool {
 fn emitInt(self: *NativeCodegen, val: anytype) CodegenError!void {
     var buf: [32]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{val}) catch return error.OutOfMemory;
-    try emitConst(self,slice);
+    try self.emit(slice);
 }
 
 /// Emit float literal (DRY helper)
 fn emitFloat(self: *NativeCodegen, f: f64) CodegenError!void {
     var buf: [64]u8 = undefined;
     const slice = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return error.OutOfMemory;
-    try emitConst(self,slice);
+    try self.emit(slice);
 }
 
 /// Get Zig type string for a variable in async function context (Two-Flow aware)
@@ -414,45 +398,45 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     }
 
     // 1. Generate State enum
-    try emitConst(self,"const ");
-    try emitConst(self,name);
-    try emitConst(self,"_State = enum { start");
+    try self.emit("const ");
+    try self.emit(name);
+    try self.emit("_State = enum { start");
     for (await_points, 0..) |_, i| {
-        try emitConst(self,", await_");
+        try self.emit(", await_");
         try emitInt(self, i);
     }
-    try emitConst(self,", done };\n\n");
+    try self.emit(", done };\n\n");
 
     // 2. Generate Frame struct
-    try emitConst(self,"const ");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame = struct {\n");
-    try emitConst(self,"    state: ");
-    try emitConst(self,name);
-    try emitConst(self,"_State = .start,\n");
+    try self.emit("const ");
+    try self.emit(name);
+    try self.emit("_Frame = struct {\n");
+    try self.emit("    state: ");
+    try self.emit(name);
+    try self.emit("_State = .start,\n");
 
     // Add parameters as fields (Two-Flow: use inferred types)
     for (func.args) |arg| {
-        try emitConst(self,"    ");
-        try emitConst(self,arg.name);
-        try emitConst(self,": ");
-        try emitConst(self,getAsyncVarType(self, name, arg.name));
-        try emitConst(self,",\n");
+        try self.emit("    ");
+        try self.emit(arg.name);
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
+        try self.emit(",\n");
     }
 
     // Add timer_id for sleep awaits and child frames for task awaits
     for (await_points) |point| {
         if (point.await_type == .sleep) {
-            try emitConst(self,"    __timer_");
+            try self.emit("    __timer_");
             try emitInt(self, point.index);
-            try emitConst(self,": u64 = 0,\n");
+            try self.emit(": u64 = 0,\n");
         } else if (point.await_type == .task) {
             if (point.callee_name) |callee| {
-                try emitConst(self,"    __child_frame_");
+                try self.emit("    __child_frame_");
                 try emitInt(self, point.index);
-                try emitConst(self,": ?*");
-                try emitConst(self,callee);
-                try emitConst(self,"_Frame = null,\n");
+                try self.emit(": ?*");
+                try self.emit(callee);
+                try self.emit("_Frame = null,\n");
             }
         }
     }
@@ -462,23 +446,23 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     for (await_points) |point| {
         if (point.await_type != .gather) {
             if (point.target_var) |var_name| {
-                try emitConst(self,"    ");
-                try emitConst(self,var_name);
-                try emitConst(self,": ");
-                try emitConst(self,getAsyncVarType(self, name, var_name));
-                try emitConst(self," = ");
+                try self.emit("    ");
+                try self.emit(var_name);
+                try self.emit(": ");
+                try self.emit(getAsyncVarType(self, name, var_name));
+                try self.emit(" = ");
                 // Default value based on type
                 const var_type = getAsyncVarType(self, name, var_name);
                 if (std.mem.eql(u8, var_type, "runtime.PyValue")) {
-                    try emitConst(self,"runtime.PyValue.none()");
+                    try self.emit("runtime.PyValue.none()");
                 } else if (std.mem.eql(u8, var_type, "f64")) {
-                    try emitConst(self,"0.0");
+                    try self.emit("0.0");
                 } else if (std.mem.eql(u8, var_type, "bool")) {
-                    try emitConst(self,"false");
+                    try self.emit("false");
                 } else {
-                    try emitConst(self,"0");
+                    try self.emit("0");
                 }
-                try emitConst(self,",\n");
+                try self.emit(",\n");
             }
         }
     }
@@ -496,37 +480,37 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
             }
         }
         if (!already_added) {
-            try emitConst(self,"    ");
-            try emitConst(self,var_name);
+            try self.emit("    ");
+            try self.emit(var_name);
             // Special handling for common async patterns
             if (std.mem.eql(u8, var_name, "tasks")) {
                 // Use the actual callee name from list comprehension
                 if (tasks_callee) |callee| {
-                    try emitConst(self,": std.ArrayListUnmanaged(*");
-                    try emitConst(self,callee);
-                    try emitConst(self,"_Frame) = .{},\n");
+                    try self.emit(": std.ArrayListUnmanaged(*");
+                    try self.emit(callee);
+                    try self.emit("_Frame) = .{},\n");
                 } else {
-                    try emitConst(self,": std.ArrayListUnmanaged(*anyopaque) = .{},\n");
+                    try self.emit(": std.ArrayListUnmanaged(*anyopaque) = .{},\n");
                 }
             } else if (std.mem.eql(u8, var_name, "start") or std.mem.eql(u8, var_name, "elapsed") or std.mem.eql(u8, var_name, "end")) {
-                try emitConst(self,": f64 = 0,\n");
+                try self.emit(": f64 = 0,\n");
             } else {
                 // Two-Flow: use inferred type for local variables
-                try emitConst(self,": ");
+                try self.emit(": ");
                 const var_type = getAsyncVarType(self, name, var_name);
-                try emitConst(self,var_type);
-                try emitConst(self," = ");
+                try self.emit(var_type);
+                try self.emit(" = ");
                 // Default value based on type
                 if (std.mem.eql(u8, var_type, "runtime.PyValue")) {
-                    try emitConst(self,"runtime.PyValue.none()");
+                    try self.emit("runtime.PyValue.none()");
                 } else if (std.mem.eql(u8, var_type, "f64")) {
-                    try emitConst(self,"0.0");
+                    try self.emit("0.0");
                 } else if (std.mem.eql(u8, var_type, "bool")) {
-                    try emitConst(self,"false");
+                    try self.emit("false");
                 } else {
-                    try emitConst(self,"0");
+                    try self.emit("0");
                 }
-                try emitConst(self,",\n");
+                try self.emit(",\n");
             }
         }
     }
@@ -536,14 +520,14 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
     for (await_points) |point| {
         if (point.await_type == .gather) {
             if (point.target_var) |var_name| {
-                try emitConst(self,"    ");
-                try emitConst(self,var_name);
+                try self.emit("    ");
+                try self.emit(var_name);
                 // For gather, the result is a list - use element type from inference
                 const elem_type = getAsyncVarType(self, name, var_name);
                 if (std.mem.eql(u8, elem_type, "runtime.PyValue")) {
-                    try emitConst(self,": std.ArrayListUnmanaged(runtime.PyValue) = .{},\n");
+                    try self.emit(": std.ArrayListUnmanaged(runtime.PyValue) = .{},\n");
                 } else {
-                    try emitConst(self,": std.ArrayListUnmanaged(i64) = .{},\n");
+                    try self.emit(": std.ArrayListUnmanaged(i64) = .{},\n");
                 }
             }
         }
@@ -551,64 +535,64 @@ pub fn genAsyncStateMachine(self: *NativeCodegen, func: ast.Node.FunctionDef) Co
 
     // Add result field - Two-Flow: use inferred return type
     const result_type = getAsyncReturnType(self, func);
-    try emitConst(self,"    __result: ");
-    try emitConst(self,result_type);
-    try emitConst(self," = ");
+    try self.emit("    __result: ");
+    try self.emit(result_type);
+    try self.emit(" = ");
     if (std.mem.eql(u8, result_type, "runtime.PyValue")) {
-        try emitConst(self,"runtime.PyValue.none()");
+        try self.emit("runtime.PyValue.none()");
     } else if (std.mem.eql(u8, result_type, "f64")) {
-        try emitConst(self,"0.0");
+        try self.emit("0.0");
     } else if (std.mem.eql(u8, result_type, "bool")) {
-        try emitConst(self,"false");
+        try self.emit("false");
     } else {
-        try emitConst(self,"0");
+        try self.emit("0");
     }
-    try emitConst(self,",\n");
-    try emitConst(self,"};\n\n");
+    try self.emit(",\n");
+    try self.emit("};\n\n");
 
     // 3. Generate poll function - Two-Flow: use inferred return type
-    try emitConst(self,"fn ");
-    try emitConst(self,name);
-    try emitConst(self,"_poll(frame: *");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame) ?");
-    try emitConst(self,result_type);
-    try emitConst(self," {\n");
-    try emitConst(self,"    switch (frame.state) {\n");
+    try self.emit("fn ");
+    try self.emit(name);
+    try self.emit("_poll(frame: *");
+    try self.emit(name);
+    try self.emit("_Frame) ?");
+    try self.emit(result_type);
+    try self.emit(" {\n");
+    try self.emit("    switch (frame.state) {\n");
 
     // Generate state handlers
     try genStateHandlers(self, func, await_points, local_vars, tasks_callee);
 
-    try emitConst(self,"    }\n");
-    try emitConst(self,"}\n\n");
+    try self.emit("    }\n");
+    try self.emit("}\n\n");
 
     // 4. Generate spawn function that returns frame (Two-Flow: use inferred types)
-    try emitConst(self,"fn ");
-    try emitConst(self,name);
-    try emitConst(self,"_async(");
+    try self.emit("fn ");
+    try self.emit(name);
+    try self.emit("_async(");
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self,", ");
-        try emitConst(self,arg.name);
-        try emitConst(self,": ");
-        try emitConst(self,getAsyncVarType(self, name, arg.name));
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.name);
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
     }
-    try emitConst(self,") !*");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame {\n");
-    try emitConst(self,"    const frame = try __global_allocator.create(");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame);\n");
-    try emitConst(self,"    frame.* = .{\n");
+    try self.emit(") !*");
+    try self.emit(name);
+    try self.emit("_Frame {\n");
+    try self.emit("    const frame = try __global_allocator.create(");
+    try self.emit(name);
+    try self.emit("_Frame);\n");
+    try self.emit("    frame.* = .{\n");
     for (func.args) |arg| {
-        try emitConst(self,"        .");
-        try emitConst(self,arg.name);
-        try emitConst(self," = ");
-        try emitConst(self,arg.name);
-        try emitConst(self,",\n");
+        try self.emit("        .");
+        try self.emit(arg.name);
+        try self.emit(" = ");
+        try self.emit(arg.name);
+        try self.emit(",\n");
     }
-    try emitConst(self,"    };\n");
-    try emitConst(self,"    return frame;\n");
-    try emitConst(self,"}\n\n");
+    try self.emit("    };\n");
+    try self.emit("    return frame;\n");
+    try self.emit("}\n\n");
 }
 
 fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_points: []const AwaitPoint, local_vars: []const []const u8, tasks_callee: ?[]const u8) CodegenError!void {
@@ -632,7 +616,7 @@ fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_poin
     }
 
     // Start state - execute until first await
-    try emitConst(self,"        .start => {\n");
+    try self.emit("        .start => {\n");
 
     var current_await: usize = 0;
     var ended_with_return = false;
@@ -643,29 +627,29 @@ fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_poin
         if (containsAwait(stmt)) {
             // Generate code to initiate the await, then transition
             try genCodeBeforeAwait(self, stmt, await_points[current_await]);
-            try emitConst(self,"            frame.state = .await_");
+            try self.emit("            frame.state = .await_");
             try emitInt(self, current_await);
-            try emitConst(self,";\n");
-            try emitConst(self,"            return null; // yield\n");
-            try emitConst(self,"        },\n");
+            try self.emit(";\n");
+            try self.emit("            return null; // yield\n");
+            try self.emit("        },\n");
 
             // Generate await state handler
-            try emitConst(self,"        .await_");
+            try self.emit("        .await_");
             try emitInt(self, current_await);
-            try emitConst(self," => {\n");
+            try self.emit(" => {\n");
             try genAwaitCheck(self, await_points[current_await], await_points, tasks_callee);
 
             current_await += 1;
         } else if (stmt == .return_stmt) {
-            try emitConst(self,"            frame.__result = ");
+            try self.emit("            frame.__result = ");
             if (stmt.return_stmt.value) |val| {
                 try genFrameExpr(self, val.*);
             } else {
-                try emitConst(self,"0");
+                try self.emit("0");
             }
-            try emitConst(self,";\n");
-            try emitConst(self,"            frame.state = .done;\n");
-            try emitConst(self,"            return frame.__result;\n");
+            try self.emit(";\n");
+            try self.emit("            frame.state = .done;\n");
+            try self.emit("            return frame.__result;\n");
             ended_with_return = true;
         } else {
             // Generate non-await statement with frame prefix for local vars
@@ -674,15 +658,15 @@ fn genStateHandlers(self: *NativeCodegen, func: ast.Node.FunctionDef, await_poin
 
         // After processing last statement, close the state if not a return
         if (stmt_idx == func.body.len - 1 and !ended_with_return) {
-            try emitConst(self,"            frame.state = .done;\n");
-            try emitConst(self,"            return frame.__result;\n");
+            try self.emit("            frame.state = .done;\n");
+            try self.emit("            return frame.__result;\n");
         }
     }
 
-    try emitConst(self,"        },\n");
+    try self.emit("        },\n");
 
     // Done state
-    try emitConst(self,"        .done => return frame.__result,\n");
+    try self.emit("        .done => return frame.__result,\n");
 }
 
 fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []const []const u8) CodegenError!void {
@@ -694,18 +678,18 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                 if (call.func.* == .name) {
                     const func_name = call.func.*.name.id;
                     if (std.mem.eql(u8, func_name, "print")) {
-                        try emitConst(self,"            ");
-                        try emitConst(self,"runtime.print(\"{s}\\n\", .{");
+                        try self.emit("            ");
+                        try self.emit("runtime.print(\"{s}\\n\", .{");
                         if (call.args.len > 0) {
                             try genExprInFrame(self, call.args[0], frame_fields);
                         }
-                        try emitConst(self,"});\n");
+                        try self.emit("});\n");
                         return;
                     }
                 }
             }
             // Fallback - generate using normal codegen (may have issues with frame vars)
-            try emitConst(self,"            ");
+            try self.emit("            ");
             try self.generateStmt(stmt);
         },
         .assign => |assign| {
@@ -724,29 +708,29 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
 
             if (is_frame_field) {
                 // Assignment to frame field
-                try emitConst(self,"            frame.");
-                try emitConst(self,target_name.?);
-                try emitConst(self," = ");
+                try self.emit("            frame.");
+                try self.emit(target_name.?);
+                try self.emit(" = ");
                 try genExprInFrame(self, assign.value.*, frame_fields);
-                try emitConst(self,";\n");
+                try self.emit(";\n");
             } else if (target_name != null) {
                 // Local variable - emit with frame-aware expression
-                try emitConst(self,"            const ");
-                try emitConst(self,target_name.?);
-                try emitConst(self," = ");
+                try self.emit("            const ");
+                try self.emit(target_name.?);
+                try self.emit(" = ");
                 try genExprInFrame(self, assign.value.*, frame_fields);
-                try emitConst(self,";\n");
+                try self.emit(";\n");
             } else {
                 // Fallback to normal codegen
-                try emitConst(self,"            ");
+                try self.emit("            ");
                 try self.generateStmt(stmt);
             }
         },
         .for_stmt => |for_stmt| {
             // Generate for loop with frame variable access
-            try emitConst(self,"            {\n");
-            try emitConst(self,"                var __i: i64 = 0;\n");
-            try emitConst(self,"                while (__i < ");
+            try self.emit("            {\n");
+            try self.emit("                var __i: i64 = 0;\n");
+            try self.emit("                while (__i < ");
             // Extract range end
             if (for_stmt.iter.* == .call) {
                 const call = for_stmt.iter.*.call;
@@ -754,65 +738,65 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                     try genExprInFrame(self, call.args[0], frame_fields);
                 }
             }
-            try emitConst(self,") : (__i += 1) {\n");
+            try self.emit(") : (__i += 1) {\n");
             // Bind loop variable
             if (for_stmt.target.* == .name) {
-                try emitConst(self,"                    const ");
-                try emitConst(self,for_stmt.target.*.name.id);
-                try emitConst(self," = __i;\n");
+                try self.emit("                    const ");
+                try self.emit(for_stmt.target.*.name.id);
+                try self.emit(" = __i;\n");
             }
             // Generate body with frame prefix
             for (for_stmt.body) |body_stmt| {
                 try genStatementInFrameNested(self, body_stmt, frame_fields);
             }
-            try emitConst(self,"                }\n");
-            try emitConst(self,"            }\n");
+            try self.emit("                }\n");
+            try self.emit("            }\n");
         },
         .aug_assign => |aug| {
             if (aug.target.* == .name) {
                 const target_name = aug.target.*.name.id;
                 const is_field = isFrameField(target_name, frame_fields);
                 const prefix: []const u8 = if (is_field) "frame." else "";
-                try emitConst(self,"            ");
-                try emitConst(self,prefix);
-                try emitConst(self,target_name);
-                try emitConst(self," = ");
+                try self.emit("            ");
+                try self.emit(prefix);
+                try self.emit(target_name);
+                try self.emit(" = ");
                 // Handle special operators that need function calls
                 if (aug.op == .Pow) {
-                    try emitConst(self,"std.math.pow(i64, ");
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("std.math.pow(i64, ");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else if (aug.op == .Mod) {
                     // Use runtime.OperatorMod for proper Python modulo semantics (floored)
-                    try emitConst(self,"runtime.OperatorMod{}.call(");
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("runtime.OperatorMod{}.call(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
                     // Use runtime.OperatorFloordiv for proper Python floor division
-                    try emitConst(self,"runtime.OperatorFloordiv{}.call(");
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("runtime.OperatorFloordiv{}.call(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else {
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
+                    try self.emit(prefix);
+                    try self.emit(target_name);
                     try emitBinOp(self, aug.op);
-                    try emitConst(self,"(");
+                    try self.emit("(");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 }
             }
         },
         else => {
-            try emitConst(self,"            ");
+            try self.emit("            ");
             try self.generateStmt(stmt);
         },
     }
@@ -829,11 +813,11 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
         .assign => |assign| {
             if (assign.targets.len > 0 and assign.targets[0] == .name) {
                 const target_name = assign.targets[0].name.id;
-                try emitConst(self,indent);
-                try emitConst(self,target_name);
-                try emitConst(self," = ");
+                try self.emit(indent);
+                try self.emit(target_name);
+                try self.emit(" = ");
                 try genExprInFrame(self, assign.value.*, frame_fields);
-                try emitConst(self,";\n");
+                try self.emit(";\n");
             }
         },
         .aug_assign => |aug| {
@@ -841,46 +825,46 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
                 const target_name = aug.target.*.name.id;
                 const is_field = isFrameField(target_name, frame_fields);
                 const prefix: []const u8 = if (is_field) "frame." else "";
-                try emitConst(self,indent);
-                try emitConst(self,prefix);
-                try emitConst(self,target_name);
-                try emitConst(self," = ");
+                try self.emit(indent);
+                try self.emit(prefix);
+                try self.emit(target_name);
+                try self.emit(" = ");
                 // Handle special operators that need function calls
                 if (aug.op == .Pow) {
-                    try emitConst(self,"std.math.pow(i64, ");
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("std.math.pow(i64, ");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else if (aug.op == .Mod) {
                     // Use runtime.OperatorMod for proper Python modulo semantics (floored)
-                    try emitConst(self,"runtime.OperatorMod{}.call(");
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("runtime.OperatorMod{}.call(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
                     // Use runtime.OperatorFloordiv for proper Python floor division
-                    try emitConst(self,"runtime.OperatorFloordiv{}.call(");
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("runtime.OperatorFloordiv{}.call(");
+                    try self.emit(prefix);
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else {
-                    try emitConst(self,prefix);
-                    try emitConst(self,target_name);
+                    try self.emit(prefix);
+                    try self.emit(target_name);
                     try emitBinOp(self, aug.op);
-                    try emitConst(self,"(");
+                    try self.emit("(");
                     try genExprInFrame(self, aug.value.*, frame_fields);
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 }
             }
         },
         else => {
-            try emitConst(self,indent);
+            try self.emit(indent);
             try self.generateStmt(stmt);
         },
     }
@@ -892,46 +876,46 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
             // Check if this is a frame field
             for (frame_fields) |field| {
                 if (std.mem.eql(u8, n.id, field)) {
-                    try emitConst(self,"frame.");
-                    try emitConst(self,n.id);
+                    try self.emit("frame.");
+                    try self.emit(n.id);
                     return;
                 }
             }
             // Not a frame field, emit as-is
-            try emitConst(self,n.id);
+            try self.emit(n.id);
         },
         .fstring => |fs| {
             // Handle f-string with frame variable interpolation
-            try emitConst(self,"(std.fmt.allocPrint(__global_allocator, \"");
+            try self.emit("(std.fmt.allocPrint(__global_allocator, \"");
             for (fs.parts) |part| {
                 switch (part) {
-                    .literal => |lit| try emitConst(self,lit),
-                    .expr, .format_expr, .conv_expr => try emitConst(self,"{any}"),
+                    .literal => |lit| try self.emit(lit),
+                    .expr, .format_expr, .conv_expr => try self.emit("{any}"),
                 }
             }
-            try emitConst(self,"\", .{");
+            try self.emit("\", .{");
             var first = true;
             for (fs.parts) |part| {
                 switch (part) {
                     .literal => {},
                     .expr => |e| {
-                        if (!first) try emitConst(self,", ");
+                        if (!first) try self.emit(", ");
                         first = false;
                         try genExprInFrame(self, e.node.*, frame_fields);
                     },
                     .format_expr => |fe| {
-                        if (!first) try emitConst(self,", ");
+                        if (!first) try self.emit(", ");
                         first = false;
                         try genExprInFrame(self, fe.expr.*, frame_fields);
                     },
                     .conv_expr => |ce| {
-                        if (!first) try emitConst(self,", ");
+                        if (!first) try self.emit(", ");
                         first = false;
                         try genExprInFrame(self, ce.expr.*, frame_fields);
                     },
                 }
             }
-            try emitConst(self,"}) catch \"\")");
+            try self.emit("}) catch \"\")");
         },
         .constant => |c| {
             try genConstantInFrame(self, c);
@@ -940,35 +924,35 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
             // Handle binary operations with frame variable references
             // Use runtime.OperatorMod for modulo - handles both int and float correctly
             if (bin.op == .Mod) {
-                try emitConst(self,"runtime.OperatorMod{}.call(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genExprInFrame(self, bin.left.*, frame_fields);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genExprInFrame(self, bin.right.*, frame_fields);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try emitConst(self,"std.math.pow(i64, ");
+                try self.emit("std.math.pow(i64, ");
                 try genExprInFrame(self, bin.left.*, frame_fields);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genExprInFrame(self, bin.right.*, frame_fields);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .FloorDiv) {
                 // Use runtime.OperatorFloordiv for proper Python floor division
-                try emitConst(self,"runtime.OperatorFloordiv{}.call(");
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genExprInFrame(self, bin.left.*, frame_fields);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genExprInFrame(self, bin.right.*, frame_fields);
-                try emitConst(self,")");
+                try self.emit(")");
             } else {
                 // For division with mixed types, cast to f64
                 const is_div = bin.op == .Div;
-                try emitConst(self,"(");
-                if (is_div) try emitConst(self,"@as(f64, @floatFromInt(");
+                try self.emit("(");
+                if (is_div) try self.emit("@as(f64, @floatFromInt(");
                 try genExprInFrame(self, bin.left.*, frame_fields);
-                if (is_div) try emitConst(self,"))");
+                if (is_div) try self.emit("))");
                 try emitBinOp(self, bin.op);
                 try genExprInFrame(self, bin.right.*, frame_fields);
-                try emitConst(self,")");
+                try self.emit(")");
             }
         },
         .call => |call| {
@@ -977,11 +961,11 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                 const func_name = call.func.*.name.id;
                 if (std.mem.eql(u8, func_name, "sum")) {
                     const label = try self.emitInlineBlockStart("sum");
-                    try emitConst(self,"\nvar total: i64 = 0;\nfor (");
+                    try self.emit("\nvar total: i64 = 0;\nfor (");
                     if (call.args.len > 0) {
                         try genExprInFrame(self, call.args[0], frame_fields);
                     }
-                    try emitFmtConst(self, ".items) |item| {{ total += item; }}\nbreak :{s} total;\n", .{label});
+                    try self.emitFmt(".items) |item| {{ total += item; }}\nbreak :{s} total;\n", .{label});
                     try self.emitInlineBlockEnd();
                     return;
                 }
@@ -1012,14 +996,14 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                     }
                 }
                 const label = try self.emitInlineBlockStart("comp");
-                try emitConst(self,"\n    var __comp_result = std.ArrayListUnmanaged(*");
-                try emitConst(self,fn_name);
-                try emitConst(self,"_Frame){{}};\n");
+                try self.emit("\n    var __comp_result = std.ArrayListUnmanaged(*");
+                try self.emit(fn_name);
+                try self.emit("_Frame){{}};\n");
                 // Generate for loop
                 if (comp.generators.len > 0) {
                     const gen = comp.generators[0];
-                    try emitConst(self,"    var __comp_i: i64 = 0;\n");
-                    try emitConst(self,"    while (__comp_i < ");
+                    try self.emit("    var __comp_i: i64 = 0;\n");
+                    try self.emit("    while (__comp_i < ");
                     // Extract range end
                     if (gen.iter.* == .call) {
                         const range_call = gen.iter.*.call;
@@ -1027,16 +1011,16 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                             try genExprInFrame(self, range_call.args[0], frame_fields);
                         }
                     }
-                    try emitConst(self,") : (__comp_i += 1) {\n");
+                    try self.emit(") : (__comp_i += 1) {\n");
                     // Generate element
-                    try emitConst(self,"        __comp_result.append(__global_allocator, ");
+                    try self.emit("        __comp_result.append(__global_allocator, ");
                     // comp.elt is the async function call
-                    try emitConst(self,fn_name);
-                    try emitConst(self,"_async(__comp_i)");
-                    try emitConst(self," catch unreachable) catch unreachable;\n");
-                    try emitConst(self,"    }\n");
+                    try self.emit(fn_name);
+                    try self.emit("_async(__comp_i)");
+                    try self.emit(" catch unreachable) catch unreachable;\n");
+                    try self.emit("    }\n");
                 }
-                try emitFmtConst(self, "    break :{s} __comp_result;\n", .{label});
+                try self.emitFmt("    break :{s} __comp_result;\n", .{label});
                 try self.emitInlineBlockEnd();
             } else {
                 // Fallback to regular list comp
@@ -1055,11 +1039,11 @@ fn genConstantInFrame(self: *NativeCodegen, c: ast.Node.Constant) CodegenError!v
         .int => |i| try emitInt(self, i),
         .float => |f| try emitFloat(self, f),
         .string => |s| {
-            try emitConst(self,"\"");
-            try emitConst(self,s);
-            try emitConst(self,"\"");
+            try self.emit("\"");
+            try self.emit(s);
+            try self.emit("\"");
         },
-        else => try emitConst(self,"0"),
+        else => try self.emit("0"),
     }
 }
 
@@ -1215,9 +1199,9 @@ fn genCodeBeforeAwait(self: *NativeCodegen, stmt: ast.Node, point: AwaitPoint) C
     switch (point.await_type) {
         .sleep => {
             // Register timer with netpoller
-            try emitConst(self,"            frame.__timer_");
+            try self.emit("            frame.__timer_");
             try emitInt(self, point.index);
-            try emitConst(self," = runtime.netpoller.addTimer(@as(u64, @intFromFloat(");
+            try self.emit(" = runtime.netpoller.addTimer(@as(u64, @intFromFloat(");
 
             // Extract sleep duration from the call
             if (point.expr == .call) {
@@ -1225,28 +1209,28 @@ fn genCodeBeforeAwait(self: *NativeCodegen, stmt: ast.Node, point: AwaitPoint) C
                 if (call.args.len > 0) {
                     try self.genExpr(call.args[0]);
                 } else {
-                    try emitConst(self,"0");
+                    try self.emit("0");
                 }
             }
-            try emitConst(self," * 1_000_000_000)));\n");
+            try self.emit(" * 1_000_000_000)));\n");
         },
         .task => {
             // Create child frame for the coroutine call
             if (point.callee_name) |callee| {
-                try emitConst(self,"            frame.__child_frame_");
+                try self.emit("            frame.__child_frame_");
                 try emitInt(self, point.index);
-                try emitConst(self," = ");
-                try emitConst(self,callee);
-                try emitConst(self,"_async(");
+                try self.emit(" = ");
+                try self.emit(callee);
+                try self.emit("_async(");
                 // Pass arguments to the child frame
                 if (point.expr == .call) {
                     const call = point.expr.call;
                     for (call.args, 0..) |arg, i| {
-                        if (i > 0) try emitConst(self,", ");
+                        if (i > 0) try self.emit(", ");
                         try genFrameExpr(self, arg);
                     }
                 }
-                try emitConst(self,") catch unreachable;\n");
+                try self.emit(") catch unreachable;\n");
             }
         },
         else => {},
@@ -1257,76 +1241,76 @@ fn genAwaitCheck(self: *NativeCodegen, point: AwaitPoint, await_points: []const 
     _ = await_points;
     switch (point.await_type) {
         .sleep => {
-            try emitConst(self,"            if (!runtime.netpoller.timerReady(frame.__timer_");
+            try self.emit("            if (!runtime.netpoller.timerReady(frame.__timer_");
             try emitInt(self, point.index);
-            try emitConst(self,")) return null; // still waiting\n");
+            try self.emit(")) return null; // still waiting\n");
         },
         .task => {
             // Poll child frame until complete
             if (point.callee_name) |callee| {
-                try emitConst(self,"            if (frame.__child_frame_");
+                try self.emit("            if (frame.__child_frame_");
                 try emitInt(self, point.index);
-                try emitConst(self,") |child| {\n");
-                try emitConst(self,"                if (");
-                try emitConst(self,callee);
-                try emitConst(self,"_poll(child)) |result| {\n");
+                try self.emit(") |child| {\n");
+                try self.emit("                if (");
+                try self.emit(callee);
+                try self.emit("_poll(child)) |result| {\n");
                 // Store result if this is an assignment
                 if (point.target_var) |var_name| {
-                    try emitConst(self,"                    frame.");
-                    try emitConst(self,var_name);
-                    try emitConst(self," = result;\n");
+                    try self.emit("                    frame.");
+                    try self.emit(var_name);
+                    try self.emit(" = result;\n");
                 }
-                try emitConst(self,"                    __global_allocator.destroy(child);\n");
-                try emitConst(self,"                    frame.__child_frame_");
+                try self.emit("                    __global_allocator.destroy(child);\n");
+                try self.emit("                    frame.__child_frame_");
                 try emitInt(self, point.index);
-                try emitConst(self," = null;\n");
-                try emitConst(self,"                } else return null; // child still running\n");
-                try emitConst(self,"            }\n");
+                try self.emit(" = null;\n");
+                try self.emit("                } else return null; // child still running\n");
+                try self.emit("            }\n");
             }
         },
         .gather => {
             // Poll all frames in the tasks list concurrently
-            try emitConst(self,"            var __remaining = frame.tasks.items.len;\n");
-            try emitConst(self,"            var __done = __global_allocator.alloc(bool, frame.tasks.items.len) catch unreachable;\n");
-            try emitConst(self,"            defer __global_allocator.free(__done);\n");
-            try emitConst(self,"            @memset(__done, false);\n");
+            try self.emit("            var __remaining = frame.tasks.items.len;\n");
+            try self.emit("            var __done = __global_allocator.alloc(bool, frame.tasks.items.len) catch unreachable;\n");
+            try self.emit("            defer __global_allocator.free(__done);\n");
+            try self.emit("            @memset(__done, false);\n");
             if (point.target_var) |var_name| {
-                try emitConst(self,"            frame.");
-                try emitConst(self,var_name);
-                try emitConst(self," = std.ArrayListUnmanaged(i64){};\n");
-                try emitConst(self,"            frame.");
-                try emitConst(self,var_name);
-                try emitConst(self,".ensureTotalCapacity(__global_allocator, frame.tasks.items.len) catch unreachable;\n");
-                try emitConst(self,"            for (0..frame.tasks.items.len) |_| frame.");
-                try emitConst(self,var_name);
-                try emitConst(self,".append(__global_allocator, 0) catch unreachable;\n");
+                try self.emit("            frame.");
+                try self.emit(var_name);
+                try self.emit(" = std.ArrayListUnmanaged(i64){};\n");
+                try self.emit("            frame.");
+                try self.emit(var_name);
+                try self.emit(".ensureTotalCapacity(__global_allocator, frame.tasks.items.len) catch unreachable;\n");
+                try self.emit("            for (0..frame.tasks.items.len) |_| frame.");
+                try self.emit(var_name);
+                try self.emit(".append(__global_allocator, 0) catch unreachable;\n");
             }
-            try emitConst(self,"            while (__remaining > 0) {\n");
-            try emitConst(self,"                std.Thread.yield() catch {};\n");
-            try emitConst(self,"                for (frame.tasks.items, 0..) |__frame, __idx| {\n");
-            try emitConst(self,"                    if (!__done[__idx]) {\n");
-            try emitConst(self,"                        if (");
+            try self.emit("            while (__remaining > 0) {\n");
+            try self.emit("                std.Thread.yield() catch {};\n");
+            try self.emit("                for (frame.tasks.items, 0..) |__frame, __idx| {\n");
+            try self.emit("                    if (!__done[__idx]) {\n");
+            try self.emit("                        if (");
             if (tasks_callee) |callee| {
-                try emitConst(self,callee);
+                try self.emit(callee);
             } else {
-                try emitConst(self,"worker");
+                try self.emit("worker");
             }
-            try emitConst(self,"_poll(__frame)) |__r| {\n");
+            try self.emit("_poll(__frame)) |__r| {\n");
             if (point.target_var) |var_name| {
-                try emitConst(self,"                            frame.");
-                try emitConst(self,var_name);
-                try emitConst(self,".items[__idx] = __r;\n");
+                try self.emit("                            frame.");
+                try self.emit(var_name);
+                try self.emit(".items[__idx] = __r;\n");
             }
-            try emitConst(self,"                            __done[__idx] = true;\n");
-            try emitConst(self,"                            __remaining -= 1;\n");
-            try emitConst(self,"                            __global_allocator.destroy(__frame);\n");
-            try emitConst(self,"                        }\n");
-            try emitConst(self,"                    }\n");
-            try emitConst(self,"                }\n");
-            try emitConst(self,"            }\n");
+            try self.emit("                            __done[__idx] = true;\n");
+            try self.emit("                            __remaining -= 1;\n");
+            try self.emit("                            __global_allocator.destroy(__frame);\n");
+            try self.emit("                        }\n");
+            try self.emit("                    }\n");
+            try self.emit("                }\n");
+            try self.emit("            }\n");
         },
         else => {
-            try emitConst(self,"            // Generic await - not yet implemented\n");
+            try self.emit("            // Generic await - not yet implemented\n");
         },
     }
 }
@@ -1334,44 +1318,44 @@ fn genAwaitCheck(self: *NativeCodegen, point: AwaitPoint, await_points: []const 
 fn genFrameExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     switch (node) {
         .name => |n| {
-            try emitConst(self,"frame.");
-            try emitConst(self,n.id);
+            try self.emit("frame.");
+            try self.emit(n.id);
         },
         .constant => |c| switch (c.value) {
             .int => |i| try emitInt(self, i),
-            else => try emitConst(self,"0"),
+            else => try self.emit("0"),
         },
         .binop => |bin| {
             // Use runtime.OperatorMod for proper Python modulo semantics (floored)
             if (bin.op == .Mod) {
-                try emitConst(self,"runtime.OperatorMod{}.call(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genFrameExpr(self, bin.left.*);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genFrameExpr(self, bin.right.*);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try emitConst(self,"std.math.pow(i64, ");
+                try self.emit("std.math.pow(i64, ");
                 try genFrameExpr(self, bin.left.*);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genFrameExpr(self, bin.right.*);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .FloorDiv) {
                 // Use runtime.OperatorFloordiv for proper Python floor division
-                try emitConst(self,"runtime.OperatorFloordiv{}.call(");
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genFrameExpr(self, bin.left.*);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genFrameExpr(self, bin.right.*);
-                try emitConst(self,")");
+                try self.emit(")");
             } else {
-                try emitConst(self,"(");
+                try self.emit("(");
                 try genFrameExpr(self, bin.left.*);
                 try emitBinOp(self, bin.op);
                 try genFrameExpr(self, bin.right.*);
-                try emitConst(self,")");
+                try self.emit(")");
             }
         },
-        else => try emitConst(self,"0"),
+        else => try self.emit("0"),
     }
 }
 
@@ -1381,55 +1365,55 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
     const name = func.name;
 
     // 1. Generate State enum (just start and done)
-    try emitConst(self,"const ");
-    try emitConst(self,name);
-    try emitConst(self,"_State = enum { start, done };\n\n");
+    try self.emit("const ");
+    try self.emit(name);
+    try self.emit("_State = enum { start, done };\n\n");
 
     // 2. Generate Frame struct
-    try emitConst(self,"const ");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame = struct {\n");
-    try emitConst(self,"    state: ");
-    try emitConst(self,name);
-    try emitConst(self,"_State = .start,\n");
+    try self.emit("const ");
+    try self.emit(name);
+    try self.emit("_Frame = struct {\n");
+    try self.emit("    state: ");
+    try self.emit(name);
+    try self.emit("_State = .start,\n");
 
     // Add parameters as fields (Two-Flow: use inferred types)
     for (func.args) |arg| {
-        try emitConst(self,"    ");
-        try emitConst(self,arg.name);
-        try emitConst(self,": ");
-        try emitConst(self,getAsyncVarType(self, name, arg.name));
-        try emitConst(self,",\n");
+        try self.emit("    ");
+        try self.emit(arg.name);
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
+        try self.emit(",\n");
     }
 
     // Two-Flow: use inferred return type
     const result_type = getAsyncReturnType(self, func);
-    try emitConst(self,"    __result: ");
-    try emitConst(self,result_type);
-    try emitConst(self," = ");
+    try self.emit("    __result: ");
+    try self.emit(result_type);
+    try self.emit(" = ");
     if (std.mem.eql(u8, result_type, "runtime.PyValue")) {
-        try emitConst(self,"runtime.PyValue.none()");
+        try self.emit("runtime.PyValue.none()");
     } else if (std.mem.eql(u8, result_type, "f64")) {
-        try emitConst(self,"0.0");
+        try self.emit("0.0");
     } else if (std.mem.eql(u8, result_type, "bool")) {
-        try emitConst(self,"false");
+        try self.emit("false");
     } else {
-        try emitConst(self,"0");
+        try self.emit("0");
     }
-    try emitConst(self,",\n");
-    try emitConst(self,"};\n\n");
+    try self.emit(",\n");
+    try self.emit("};\n\n");
 
     // 3. Generate poll function - executes synchronously and returns immediately
     // Two-Flow: use inferred return type
-    try emitConst(self,"fn ");
-    try emitConst(self,name);
-    try emitConst(self,"_poll(frame: *");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame) ?");
-    try emitConst(self,result_type);
-    try emitConst(self," {\n");
-    try emitConst(self,"    switch (frame.state) {\n");
-    try emitConst(self,"        .start => {\n");
+    try self.emit("fn ");
+    try self.emit(name);
+    try self.emit("_poll(frame: *");
+    try self.emit(name);
+    try self.emit("_Frame) ?");
+    try self.emit(result_type);
+    try self.emit(" {\n");
+    try self.emit("    switch (frame.state) {\n");
+    try self.emit("        .start => {\n");
 
     // Enter a scope so that codegen uses __global_allocator instead of allocator
     try self.symbol_table.pushScope();
@@ -1442,54 +1426,54 @@ fn genSyncFunction(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenErro
     // Generate function body - local vars stay local (not in frame)
     for (func.body) |stmt| {
         if (stmt == .return_stmt) {
-            try emitConst(self,"            frame.__result = ");
+            try self.emit("            frame.__result = ");
             if (stmt.return_stmt.value) |val| {
                 // Use genSyncExprInFrame - it checks if var is param (frame field) or local
                 try genSyncExprInFrame(self, val.*, func.args);
             } else {
-                try emitConst(self,"0");
+                try self.emit("0");
             }
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         } else {
             // Generate statement with frame variable access for params only
             try genSyncStatementInFrame(self, stmt, func.args, mutated_vars);
         }
     }
 
-    try emitConst(self,"            frame.state = .done;\n");
-    try emitConst(self,"            return frame.__result;\n");
-    try emitConst(self,"        },\n");
-    try emitConst(self,"        .done => return frame.__result,\n");
-    try emitConst(self,"    }\n");
-    try emitConst(self,"}\n\n");
+    try self.emit("            frame.state = .done;\n");
+    try self.emit("            return frame.__result;\n");
+    try self.emit("        },\n");
+    try self.emit("        .done => return frame.__result,\n");
+    try self.emit("    }\n");
+    try self.emit("}\n\n");
 
     // 4. Generate async spawn function (Two-Flow: use inferred types)
-    try emitConst(self,"fn ");
-    try emitConst(self,name);
-    try emitConst(self,"_async(");
+    try self.emit("fn ");
+    try self.emit(name);
+    try self.emit("_async(");
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self,", ");
-        try emitConst(self,arg.name);
-        try emitConst(self,": ");
-        try emitConst(self,getAsyncVarType(self, name, arg.name));
+        if (i > 0) try self.emit(", ");
+        try self.emit(arg.name);
+        try self.emit(": ");
+        try self.emit(getAsyncVarType(self, name, arg.name));
     }
-    try emitConst(self,") !*");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame {\n");
-    try emitConst(self,"    const frame = try __global_allocator.create(");
-    try emitConst(self,name);
-    try emitConst(self,"_Frame);\n");
-    try emitConst(self,"    frame.* = .{\n");
+    try self.emit(") !*");
+    try self.emit(name);
+    try self.emit("_Frame {\n");
+    try self.emit("    const frame = try __global_allocator.create(");
+    try self.emit(name);
+    try self.emit("_Frame);\n");
+    try self.emit("    frame.* = .{\n");
     for (func.args) |arg| {
-        try emitConst(self,"        .");
-        try emitConst(self,arg.name);
-        try emitConst(self," = ");
-        try emitConst(self,arg.name);
-        try emitConst(self,",\n");
+        try self.emit("        .");
+        try self.emit(arg.name);
+        try self.emit(" = ");
+        try self.emit(arg.name);
+        try self.emit(",\n");
     }
-    try emitConst(self,"    };\n");
-    try emitConst(self,"    return frame;\n");
-    try emitConst(self,"}\n\n");
+    try self.emit("    };\n");
+    try self.emit("    return frame;\n");
+    try self.emit("}\n\n");
 }
 
 /// Find variables that are mutated in the function body
@@ -1619,11 +1603,11 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                     }
                 }
                 if (is_param) {
-                    try emitConst(self,"            frame.");
-                    try emitConst(self,target_name);
-                    try emitConst(self," = ");
+                    try self.emit("            frame.");
+                    try self.emit(target_name);
+                    try self.emit(" = ");
                     try genSyncExprInFrame(self, assign.value.*, args);
-                    try emitConst(self,";\n");
+                    try self.emit(";\n");
                 } else {
                     // Check if variable is mutated later (method calls, aug assign)
                     var is_mutated = false;
@@ -1634,20 +1618,20 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                         }
                     }
                     // Use var for mutated variables, const for immutable
-                    try emitConst(self,"            ");
-                    try emitConst(self,if (is_mutated) "var " else "const ");
-                    try emitConst(self,target_name);
-                    try emitConst(self," = ");
+                    try self.emit("            ");
+                    try self.emit(if (is_mutated) "var " else "const ");
+                    try self.emit(target_name);
+                    try self.emit(" = ");
                     try genSyncExprInFrame(self, assign.value.*, args);
-                    try emitConst(self,";\n");
+                    try self.emit(";\n");
                 }
             }
         },
         .for_stmt => |for_stmt| {
             // Generate for loop with frame variable access
-            try emitConst(self,"            {\n");
-            try emitConst(self,"                var __i: i64 = 0;\n");
-            try emitConst(self,"                while (__i < ");
+            try self.emit("            {\n");
+            try self.emit("                var __i: i64 = 0;\n");
+            try self.emit("                while (__i < ");
             // Extract range end
             if (for_stmt.iter.* == .call) {
                 const call = for_stmt.iter.*.call;
@@ -1655,53 +1639,53 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                     try genSyncExprInFrame(self, call.args[0], args);
                 }
             }
-            try emitConst(self,") : (__i += 1) {\n");
+            try self.emit(") : (__i += 1) {\n");
             // Bind loop variable
             if (for_stmt.target.* == .name) {
-                try emitConst(self,"                    const ");
-                try emitConst(self,for_stmt.target.*.name.id);
-                try emitConst(self," = __i;\n");
+                try self.emit("                    const ");
+                try self.emit(for_stmt.target.*.name.id);
+                try self.emit(" = __i;\n");
             }
             // Generate body
             for (for_stmt.body) |body_stmt| {
                 try genSyncStatementInFrame(self, body_stmt, args, mutated_vars);
             }
-            try emitConst(self,"                }\n");
-            try emitConst(self,"            }\n");
+            try self.emit("                }\n");
+            try self.emit("            }\n");
         },
         .aug_assign => |aug| {
             if (aug.target.* == .name) {
                 const target_name = aug.target.*.name.id;
-                try emitConst(self,"            ");
-                try emitConst(self,target_name);
-                try emitConst(self," = ");
+                try self.emit("            ");
+                try self.emit(target_name);
+                try self.emit(" = ");
                 // Handle special operators that need function calls
                 if (aug.op == .Pow) {
-                    try emitConst(self,"std.math.pow(i64, ");
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("std.math.pow(i64, ");
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else if (aug.op == .Mod) {
                     // Use runtime.OperatorMod for proper Python modulo semantics (floored)
-                    try emitConst(self,"runtime.OperatorMod{}.call(");
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("runtime.OperatorMod{}.call(");
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
                     // Use runtime.OperatorFloordiv for proper Python floor division
-                    try emitConst(self,"runtime.OperatorFloordiv{}.call(");
-                    try emitConst(self,target_name);
-                    try emitConst(self,", ");
+                    try self.emit("runtime.OperatorFloordiv{}.call(");
+                    try self.emit(target_name);
+                    try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 } else {
-                    try emitConst(self,target_name);
+                    try self.emit(target_name);
                     try emitBinOp(self, aug.op);
-                    try emitConst(self,"(");
+                    try self.emit("(");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
-                    try emitConst(self,");\n");
+                    try self.emit(");\n");
                 }
             }
         },
@@ -1711,9 +1695,9 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                 const c = expr.value.*.constant;
                 if (c.value == .string) return;
             }
-            try emitConst(self,"            _ = ");
+            try self.emit("            _ = ");
             try genSyncExprInFrame(self, expr.value.*, args);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         },
         else => {},
     }
@@ -1725,59 +1709,59 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
             // Check if this is a parameter (frame field)
             for (args) |arg| {
                 if (std.mem.eql(u8, arg.name, n.id)) {
-                    try emitConst(self,"frame.");
-                    try emitConst(self,n.id);
+                    try self.emit("frame.");
+                    try self.emit(n.id);
                     return;
                 }
             }
             // Check if it's the loop variable (needs cast)
             if (std.mem.eql(u8, n.id, "i") or std.mem.eql(u8, n.id, loop_var)) {
-                try emitConst(self,"@as(i64, @intCast(");
-                try emitConst(self,n.id);
-                try emitConst(self,"))");
+                try self.emit("@as(i64, @intCast(");
+                try self.emit(n.id);
+                try self.emit("))");
                 return;
             }
             // Local variable
-            try emitConst(self,n.id);
+            try self.emit(n.id);
         },
         .constant => |c| switch (c.value) {
             .int => |i| try emitInt(self, i),
-            else => try emitConst(self,"0"),
+            else => try self.emit("0"),
         },
         .binop => |bin| {
             // Use runtime.OperatorMod for proper Python modulo semantics (floored)
             if (bin.op == .Mod) {
-                try emitConst(self,"runtime.OperatorMod{}.call(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .Pow) {
-                try emitConst(self,"std.math.pow(i64, ");
+                try self.emit("std.math.pow(i64, ");
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .FloorDiv) {
                 // Use runtime.OperatorFloordiv for proper Python floor division
-                try emitConst(self,"runtime.OperatorFloordiv{}.call(");
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try emitConst(self,")");
+                try self.emit(")");
             } else {
-                try emitConst(self,"(");
+                try self.emit("(");
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
                 try emitBinOp(self, bin.op);
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try emitConst(self,")");
+                try self.emit(")");
             }
         },
         .call => {
             // Delegate to genSyncExprInFrame for function calls
             try genSyncExprInFrame(self, node, args);
         },
-        else => try emitConst(self,"0"),
+        else => try self.emit("0"),
     }
 }
 
@@ -1787,45 +1771,45 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
             // Check if this is a parameter (frame field)
             for (args) |arg| {
                 if (std.mem.eql(u8, arg.name, n.id)) {
-                    try emitConst(self,"frame.");
-                    try emitConst(self,n.id);
+                    try self.emit("frame.");
+                    try self.emit(n.id);
                     return;
                 }
             }
             // Local variable
-            try emitConst(self,n.id);
+            try self.emit(n.id);
         },
         .constant => |c| switch (c.value) {
             .int => |i| try emitInt(self, i),
-            else => try emitConst(self,"0"),
+            else => try self.emit("0"),
         },
         .binop => |bin| {
             // Use runtime.OperatorMod for proper Python modulo semantics (floored)
             if (bin.op == .Mod) {
-                try emitConst(self,"runtime.OperatorMod{}.call(");
+                try self.emit("runtime.OperatorMod{}.call(");
                 try genSyncExprInFrame(self, bin.left.*, args);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genSyncExprInFrame(self, bin.right.*, args);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .Pow) {
-                try emitConst(self,"std.math.pow(i64, ");
+                try self.emit("std.math.pow(i64, ");
                 try genSyncExprInFrame(self, bin.left.*, args);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genSyncExprInFrame(self, bin.right.*, args);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (bin.op == .FloorDiv) {
                 // Use runtime.OperatorFloordiv for proper Python floor division
-                try emitConst(self,"runtime.OperatorFloordiv{}.call(");
+                try self.emit("runtime.OperatorFloordiv{}.call(");
                 try genSyncExprInFrame(self, bin.left.*, args);
-                try emitConst(self,", ");
+                try self.emit(", ");
                 try genSyncExprInFrame(self, bin.right.*, args);
-                try emitConst(self,")");
+                try self.emit(")");
             } else {
-                try emitConst(self,"(");
+                try self.emit("(");
                 try genSyncExprInFrame(self, bin.left.*, args);
                 try emitBinOp(self, bin.op);
                 try genSyncExprInFrame(self, bin.right.*, args);
-                try emitConst(self,")");
+                try self.emit(")");
             }
         },
         .call => |call| {
@@ -1839,14 +1823,14 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
 
                     // Check if it's a module (hashlib, time, etc.)
                     if (std.mem.eql(u8, obj_name, "hashlib")) {
-                        try emitConst(self,"hashlib.");
-                        try emitConst(self,method);
-                        try emitConst(self,"(");
+                        try self.emit("hashlib.");
+                        try self.emit(method);
+                        try self.emit("(");
                         for (call.args, 0..) |arg_expr, idx| {
-                            if (idx > 0) try emitConst(self,", ");
+                            if (idx > 0) try self.emit(", ");
                             try genSyncExprInFrame(self, arg_expr, args);
                         }
-                        try emitConst(self,")");
+                        try self.emit(")");
                         return;
                     }
 
@@ -1854,24 +1838,24 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                     // Handle specific methods that need special treatment
                     if (std.mem.eql(u8, method, "hexdigest") or std.mem.eql(u8, method, "digest")) {
                         // These return error unions - poll can't return errors, use catch
-                        try emitConst(self,"(");
-                        try emitConst(self,obj_name);
-                        try emitConst(self,".");
-                        try emitConst(self,method);
-                        try emitConst(self,"(__global_allocator) catch unreachable)");
+                        try self.emit("(");
+                        try self.emit(obj_name);
+                        try self.emit(".");
+                        try self.emit(method);
+                        try self.emit("(__global_allocator) catch unreachable)");
                         return;
                     }
 
                     // Regular method call: obj.method(args)
-                    try emitConst(self,obj_name);
-                    try emitConst(self,".");
-                    try emitConst(self,method);
-                    try emitConst(self,"(");
+                    try self.emit(obj_name);
+                    try self.emit(".");
+                    try self.emit(method);
+                    try self.emit("(");
                     for (call.args, 0..) |arg_expr, idx| {
-                        if (idx > 0) try emitConst(self,", ");
+                        if (idx > 0) try self.emit(", ");
                         try genSyncExprInFrame(self, arg_expr, args);
                     }
-                    try emitConst(self,")");
+                    try self.emit(")");
                     return;
                 }
                 // Chained method call like str(x).encode()
@@ -1886,14 +1870,14 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                     // Generate the inner call first
                     try genSyncExprInFrame(self, attr.value.*, args);
                     // Then the method
-                    try emitConst(self,".");
-                    try emitConst(self,method);
-                    try emitConst(self,"(");
+                    try self.emit(".");
+                    try self.emit(method);
+                    try self.emit("(");
                     for (call.args, 0..) |arg_expr, idx| {
-                        if (idx > 0) try emitConst(self,", ");
+                        if (idx > 0) try self.emit(", ");
                         try genSyncExprInFrame(self, arg_expr, args);
                     }
-                    try emitConst(self,")");
+                    try self.emit(")");
                     return;
                 }
             }
@@ -1903,20 +1887,20 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
 
                 if (std.mem.eql(u8, func_name, "str")) {
                     // str(x) -> std.fmt.allocPrint(__global_allocator, "{d}", .{x}) catch unreachable
-                    try emitConst(self,"(std.fmt.allocPrint(__global_allocator, \"{d}\", .{");
+                    try self.emit("(std.fmt.allocPrint(__global_allocator, \"{d}\", .{");
                     if (call.args.len > 0) {
                         try genSyncExprInFrame(self, call.args[0], args);
                     }
-                    try emitConst(self,"}) catch unreachable)");
+                    try self.emit("}) catch unreachable)");
                     return;
                 }
                 if (std.mem.eql(u8, func_name, "len")) {
                     // len(x) -> x.len or x.items.len
-                    try emitConst(self,"@as(i64, @intCast(");
+                    try self.emit("@as(i64, @intCast(");
                     if (call.args.len > 0) {
                         try genSyncExprInFrame(self, call.args[0], args);
                     }
-                    try emitConst(self,".len))");
+                    try self.emit(".len))");
                     return;
                 }
                 if (std.mem.eql(u8, func_name, "range")) {
@@ -1928,18 +1912,18 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                 }
 
                 // Generic function call
-                try emitConst(self,func_name);
-                try emitConst(self,"(");
+                try self.emit(func_name);
+                try self.emit("(");
                 for (call.args, 0..) |arg_expr, idx| {
-                    if (idx > 0) try emitConst(self,", ");
+                    if (idx > 0) try self.emit(", ");
                     try genSyncExprInFrame(self, arg_expr, args);
                 }
-                try emitConst(self,")");
+                try self.emit(")");
                 return;
             }
             // Fallback to regular codegen (shouldn't reach here)
             try self.genExpr(node);
         },
-        else => try emitConst(self,"0"),
+        else => try self.emit("0"),
     }
 }

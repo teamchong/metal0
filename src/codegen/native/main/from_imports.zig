@@ -8,16 +8,6 @@ const zig_keywords = @import("utils.zig_keywords");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 /// Check if operator function name is known
 fn isKnownOperatorFunc(name: []const u8) bool {
     const known = std.StaticStringMap(void).initComptime(.{
@@ -78,9 +68,9 @@ const OperatorWrappers = std.StaticStringMap([]const u8).initComptime(.{
 
 /// Generate wrapper function for operator module function
 fn generateOperatorWrapper(self: *NativeCodegen, name: []const u8, symbol_name: []const u8) !void {
-    try emitConst(self, "fn ");
+    try self.emit("fn ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-    try emitConst(self, OperatorWrappers.get(name) orelse "(a: anytype, b: anytype) @TypeOf(a) { _ = b; return a; }\n");
+    try self.emit(OperatorWrappers.get(name) orelse "(a: anytype, b: anytype) @TypeOf(a) { _ = b; return a; }\n");
 }
 
 /// Generate from-import symbol re-exports with deduplication
@@ -200,11 +190,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 if (generated_symbols.contains(symbol_name)) continue;
 
                 // Generate: const symbol_name = os.path.function_name;
-                try emitConst(self, "const ");
+                try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-                try emitConst(self, " = os.path.");
+                try self.emit(" = os.path.");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name);
-                try emitConst(self, ";\n");
+                try self.emit(";\n");
                 try generated_symbols.put(symbol_name, {});
             }
             continue;
@@ -262,11 +252,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     };
                     for (testbuffer_exports) |exp| {
                         if (generated_symbols.contains(exp.name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp.name);
-                        try emitConst(self, " = ");
-                        try emitConst(self, exp.value);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp.name);
+                        try self.emit(" = ");
+                        try self.emit(exp.value);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp.name, {});
                         // Register in module_level_funcs to prevent shadowing in try-except
                         try self.module_level_funcs.put(exp.name, {});
@@ -301,11 +291,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
                 // Generate get_feature_macros function - returns comptime struct for dead code elimination
                 if (std.mem.eql(u8, name, "get_feature_macros")) {
-                    try emitConst(self, "fn ");
+                    try self.emit("fn ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-                    try emitConst(self, "() runtime.FeatureMacros {\n");
-                    try emitConst(self, "    return runtime.FeatureMacros{};\n");
-                    try emitConst(self, "}\n");
+                    try self.emit("() runtime.FeatureMacros {\n");
+                    try self.emit("    return runtime.FeatureMacros{};\n");
+                    try self.emit("}\n");
                     try generated_symbols.put(symbol_name, {});
                 } else {
                     // Other _testcapi functions - register for dispatch
@@ -343,11 +333,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     };
                     for (stringprep_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, " = stringprep.");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = stringprep.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
                 }
@@ -377,11 +367,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     // Expand all contextlib exports for star import
                     for (contextlib_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, " = contextlib.");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = contextlib.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
                 } else {
@@ -400,11 +390,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         }
                     }
                     if (is_known) {
-                        try emitConst(self, "const ");
+                        try self.emit("const ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-                        try emitConst(self, " = contextlib.");
-                        try emitConst(self, name);
-                        try emitConst(self, ";\n");
+                        try self.emit(" = contextlib.");
+                        try self.emit(name);
+                        try self.emit(";\n");
                         try generated_symbols.put(symbol_name, {});
                     }
                 }
@@ -440,11 +430,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     // Expand all itertools exports for star import
                     for (itertools_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, " = itertools.");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = itertools.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
                 } else {
@@ -462,11 +452,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         }
                     }
                     if (is_known) {
-                        try emitConst(self, "const ");
+                        try self.emit("const ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-                        try emitConst(self, " = itertools.");
-                        try emitConst(self, name);
-                        try emitConst(self, ";\n");
+                        try self.emit(" = itertools.");
+                        try self.emit(name);
+                        try self.emit(";\n");
                         try generated_symbols.put(symbol_name, {});
                     }
                 }
@@ -503,11 +493,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     };
                     for (sys_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, " = sys.");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = sys.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
                 }
@@ -534,11 +524,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     };
                     for (subprocess_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, " = subprocess.");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = subprocess.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
                 }
@@ -579,11 +569,11 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     };
                     for (abc_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
-                        try emitConst(self, "const ");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, " = collections.abc.");
-                        try emitConst(self, exp_name);
-                        try emitConst(self, ";\n");
+                        try self.emit("const ");
+                        try self.emit(exp_name);
+                        try self.emit(" = collections.abc.");
+                        try self.emit(exp_name);
+                        try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
                     }
                 }
@@ -625,9 +615,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     if (generated_symbols.contains(symbol_name)) continue;
                     // Generate: const symbol_name = &[_][]const u8{}; for stub module imports
                     // Empty array is safer than null - can be iterated without type errors
-                    try emitConst(self, "const ");
+                    try self.emit("const ");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-                    try emitConst(self, ": []const []const u8 = &[_][]const u8{};\n");
+                    try self.emit(": []const []const u8 = &[_][]const u8{};\n");
                     try generated_symbols.put(symbol_name, {});
                     // Track for local variable shadowing prevention
                     try self.module_level_from_imports.put(symbol_name, {});
@@ -645,9 +635,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     name;
                 if (generated_symbols.contains(symbol_name)) continue;
                 // Generate: const symbol_name = null; for unavailable modules
-                try emitConst(self, "const ");
+                try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-                try emitConst(self, ": ?*anyopaque = null;\n");
+                try self.emit(": ?*anyopaque = null;\n");
                 try generated_symbols.put(symbol_name, {});
                 // Track for local variable shadowing prevention
                 try self.module_level_from_imports.put(symbol_name, {});
@@ -685,36 +675,36 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
                 // For json.loads, generate a wrapper function that accepts string literals
                 if (std.mem.eql(u8, from_imp.module, "json") and std.mem.eql(u8, name, "loads")) {
-                    try emitConst(self, "fn ");
-                    try emitConst(self, symbol_name);
-                    try emitConst(self, "(json_str: []const u8, allocator: std.mem.Allocator) !*runtime.PyObject {\n");
-                    try emitConst(self, "    const json_str_obj = try runtime.PyString.create(__global_allocator, json_str);\n");
-                    try emitConst(self, "    defer runtime.decref(json_str_obj, allocator);\n");
-                    try emitConst(self, "    return try runtime.json.loads(json_str_obj, allocator);\n");
-                    try emitConst(self, "}\n");
+                    try self.emit("fn ");
+                    try self.emit(symbol_name);
+                    try self.emit("(json_str: []const u8, allocator: std.mem.Allocator) !*runtime.PyObject {\n");
+                    try self.emit("    const json_str_obj = try runtime.PyString.create(__global_allocator, json_str);\n");
+                    try self.emit("    defer runtime.decref(json_str_obj, allocator);\n");
+                    try self.emit("    return try runtime.json.loads(json_str_obj, allocator);\n");
+                    try self.emit("}\n");
                     try generated_symbols.put(symbol_name, {});
                     continue; // Skip const generation for this one
                 }
 
                 // For pickle.loads, generate a wrapper function that accepts bytes and allocator
                 if (std.mem.eql(u8, from_imp.module, "pickle") and std.mem.eql(u8, name, "loads")) {
-                    try emitConst(self, "fn ");
-                    try emitConst(self, symbol_name);
-                    try emitConst(self, "(data: []const u8, allocator: std.mem.Allocator) !*runtime.PyObject {\n");
-                    try emitConst(self, "    return try runtime.pickle.loads(data, allocator);\n");
-                    try emitConst(self, "}\n");
+                    try self.emit("fn ");
+                    try self.emit(symbol_name);
+                    try self.emit("(data: []const u8, allocator: std.mem.Allocator) !*runtime.PyObject {\n");
+                    try self.emit("    return try runtime.pickle.loads(data, allocator);\n");
+                    try self.emit("}\n");
                     try generated_symbols.put(symbol_name, {});
                     continue; // Skip const generation for this one
                 }
 
                 // For pickle.dumps, generate a wrapper function
                 if (std.mem.eql(u8, from_imp.module, "pickle") and std.mem.eql(u8, name, "dumps")) {
-                    try emitConst(self, "fn ");
-                    try emitConst(self, symbol_name);
-                    try emitConst(self, "(obj: anytype, protocol: anytype) []const u8 {\n");
-                    try emitConst(self, "    _ = protocol; // Protocol not used in simplified implementation\n");
-                    try emitConst(self, "    return runtime.json.dumpsValue(obj, __global_allocator) catch \"\";\n");
-                    try emitConst(self, "}\n");
+                    try self.emit("fn ");
+                    try self.emit(symbol_name);
+                    try self.emit("(obj: anytype, protocol: anytype) []const u8 {\n");
+                    try self.emit("    _ = protocol; // Protocol not used in simplified implementation\n");
+                    try self.emit("    return runtime.json.dumpsValue(obj, __global_allocator) catch \"\";\n");
+                    try self.emit("}\n");
                     try generated_symbols.put(symbol_name, {});
                     continue; // Skip const generation for this one
                 }
@@ -763,9 +753,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 }
             }
 
-            try emitConst(self, "const ");
+            try self.emit("const ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
-            try emitConst(self, " = ");
+            try self.emit(" = ");
 
             // Normal case: use module const reference
             // For simple module names (no dots), use writeLocalVarName to match module import generation
@@ -775,9 +765,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             } else {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), from_imp.module);
             }
-            try emitConst(self, ".");
-            try emitConst(self, name);
-            try emitConst(self, ";\n");
+            try self.emit(".");
+            try self.emit(name);
+            try self.emit(";\n");
             try generated_symbols.put(symbol_name, {});
             // Track const for discard emission (prevents "unused constant" errors)
             try const_symbols.put(symbol_name, {});
@@ -791,7 +781,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
     }
 
     if (self.from_imports.items.len > 0) {
-        try emitConst(self, "\n");
+        try self.emit("\n");
     }
 
     // Emit discards for all const symbols to suppress "unused constant" errors
@@ -799,13 +789,13 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
     // or the code path using them is conditionally compiled
     // Note: Must use comptime block since module-level doesn't allow bare statements
     if (const_symbols.count() > 0) {
-        try emitConst(self, "comptime {\n");
+        try self.emit("comptime {\n");
         var const_iter = const_symbols.iterator();
         while (const_iter.next()) |entry| {
-            try emitConst(self, "    _ = &");
+            try self.emit("    _ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.key_ptr.*);
-            try emitConst(self, ";\n");
+            try self.emit(";\n");
         }
-        try emitConst(self, "}\n");
+        try self.emit("}\n");
     }
 }

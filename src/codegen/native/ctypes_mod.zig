@@ -6,14 +6,6 @@ const ast = @import("analysis.ast");
 const m = @import("mod_helper.zig");
 const H = m.H;
 
-// Helper for simple constant output
-fn emitConst(self: *m.NativeCodegen, val: []const u8) m.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // === Comptime generators for C type conversions ===
 
 /// Generate ctypes integer type: @as(runtime.ctypes.@"type_name", @intCast(arg))
@@ -104,54 +96,54 @@ fn genCDLL(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
         const output = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output);
     }
-    if (args.len > 0) try self.genExpr(args[0]) else try emitConst(self, "\"\"");
-    try emitConst(self, ") catch unreachable)");
+    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
+    try self.emit(") catch unreachable)");
 }
 
 fn genCBool(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@as(runtime.ctypes.@\"c_bool\", ");
+        try self.emit("@as(runtime.ctypes.@\"c_bool\", ");
         try self.genExpr(args[0]);
-        try emitConst(self, " != 0)");
-    } else try emitConst(self, "@as(runtime.ctypes.@\"c_bool\", false)");
+        try self.emit(" != 0)");
+    } else try self.emit("@as(runtime.ctypes.@\"c_bool\", false)");
 }
 
 fn genCChar(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@as(runtime.ctypes.@\"c_char\", @truncate(@as(usize, @intCast(");
+        try self.emit("@as(runtime.ctypes.@\"c_char\", @truncate(@as(usize, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "))))");
-    } else try emitConst(self, "@as(runtime.ctypes.@\"c_char\", 0)");
+        try self.emit("))))");
+    } else try self.emit("@as(runtime.ctypes.@\"c_char\", 0)");
 }
 
 fn genCVoidP(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@as(runtime.ctypes.@\"c_void_p\", @ptrFromInt(@as(usize, @intCast(");
+        try self.emit("@as(runtime.ctypes.@\"c_void_p\", @ptrFromInt(@as(usize, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "))))");
-    } else try emitConst(self, "@as(runtime.ctypes.@\"c_void_p\", null)");
+        try self.emit("))))");
+    } else try self.emit("@as(runtime.ctypes.@\"c_void_p\", null)");
 }
 
 fn genMemmove(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len >= 3) {
-        try emitConst(self, "runtime.ctypes.memmove(@ptrCast(");
+        try self.emit("runtime.ctypes.memmove(@ptrCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "), @ptrCast(");
+        try self.emit("), @ptrCast(");
         try self.genExpr(args[1]);
-        try emitConst(self, "), ");
+        try self.emit("), ");
         try self.genExpr(args[2]);
-        try emitConst(self, ")");
-    } else try emitConst(self, "{}");
+        try self.emit(")");
+    } else try self.emit("{}");
 }
 
 fn genMemset(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len >= 3) {
-        try emitConst(self, "runtime.ctypes.memset(@ptrCast(");
+        try self.emit("runtime.ctypes.memset(@ptrCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "), ");
+        try self.emit("), ");
         try self.genExpr(args[1]);
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try self.genExpr(args[2]);
-        try emitConst(self, ")");
-    } else try emitConst(self, "{}");
+        try self.emit(")");
+    } else try self.emit("{}");
 }

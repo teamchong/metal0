@@ -9,14 +9,6 @@ const CodegenError = h.CodegenError;
 
 const ctx_val = "struct { prec: i64 = 28, rounding: []const u8 = \"ROUND_HALF_EVEN\", Emin: i64 = -999999, Emax: i64 = 999999, capitals: i64 = 1, clamp: i64 = 0 }{}";
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Decimal", genDecimal },
     .{ "setcontext", genSetcontext },
@@ -47,116 +39,116 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genDecimal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "runtime.Decimal{ .value = 0 }");
+        try self.emit("runtime.Decimal{ .value = 0 }");
         return;
     }
-    try emitConst(self, "runtime.Decimal{ .value = ");
+    try self.emit("runtime.Decimal{ .value = ");
     if (args[0] == .constant and args[0].constant.value == .string) {
-        try emitConst(self, "std.fmt.parseFloat(f64, ");
+        try self.emit("std.fmt.parseFloat(f64, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ") catch 0");
+        try self.emit(") catch 0");
     } else if (args[0] == .constant) {
-        try emitConst(self, "@as(f64, @floatFromInt(");
+        try self.emit("@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        try emitConst(self, "))");
+        try self.emit("))");
     } else {
         try self.genExpr(args[0]);
     }
-    try emitConst(self, " }");
+    try self.emit(" }");
 }
 
 fn genSetcontext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "{}");
+    try self.emit("{}");
 }
 
 fn genGetcontext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ctx_val);
+    try self.emit(ctx_val);
 }
 
 fn genLocalcontext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ctx_val);
+    try self.emit(ctx_val);
 }
 
 fn genBasicContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ctx_val);
+    try self.emit(ctx_val);
 }
 
 fn genExtendedContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ctx_val);
+    try self.emit(ctx_val);
 }
 
 fn genDefaultContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ctx_val);
+    try self.emit(ctx_val);
 }
 
 fn genRoundCeiling(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_CEILING\"");
+    try self.emit("\"ROUND_CEILING\"");
 }
 
 fn genRoundDown(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_DOWN\"");
+    try self.emit("\"ROUND_DOWN\"");
 }
 
 fn genRoundFloor(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_FLOOR\"");
+    try self.emit("\"ROUND_FLOOR\"");
 }
 
 fn genRoundHalfDown(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_HALF_DOWN\"");
+    try self.emit("\"ROUND_HALF_DOWN\"");
 }
 
 fn genRoundHalfEven(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_HALF_EVEN\"");
+    try self.emit("\"ROUND_HALF_EVEN\"");
 }
 
 fn genRoundHalfUp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_HALF_UP\"");
+    try self.emit("\"ROUND_HALF_UP\"");
 }
 
 fn genRoundUp(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_UP\"");
+    try self.emit("\"ROUND_UP\"");
 }
 
 fn genRound05Up(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"ROUND_05UP\"");
+    try self.emit("\"ROUND_05UP\"");
 }
 
 fn genDecimalException(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"DecimalException\"");
+    try self.emit("\"DecimalException\"");
 }
 
 fn genInvalidOperation(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"InvalidOperation\"");
+    try self.emit("\"InvalidOperation\"");
 }
 
 fn genDivisionByZero(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"DivisionByZero\"");
+    try self.emit("\"DivisionByZero\"");
 }
 
 fn genOverflow(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"Overflow\"");
+    try self.emit("\"Overflow\"");
 }
 
 fn genUnderflow(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"Underflow\"");
+    try self.emit("\"Underflow\"");
 }
 
 fn genInexact(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"Inexact\"");
+    try self.emit("\"Inexact\"");
 }
 
 fn genRounded(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"Rounded\"");
+    try self.emit("\"Rounded\"");
 }
 
 fn genSubnormal(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"Subnormal\"");
+    try self.emit("\"Subnormal\"");
 }
 
 fn genFloatOperation(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"FloatOperation\"");
+    try self.emit("\"FloatOperation\"");
 }
 
 fn genClamped(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "\"Clamped\"");
+    try self.emit("\"Clamped\"");
 }

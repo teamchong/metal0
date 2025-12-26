@@ -22,21 +22,17 @@ const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
+// NOTE: emitConst/emitFmtConst are DEPRECATED - use self.emit()/self.emitFmt() instead
+// These file-level wrappers exist only for backward compatibility during migration.
 
-// Helper for simple constant output - used by all codegen modules
+// Helper for simple constant output - DEPRECATED: use self.emit() instead
 fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    return self.emit(val);
 }
 
-// Helper for formatted output - used by all codegen modules
+// Helper for formatted output - DEPRECATED: use self.emitFmt() instead
 fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
+    return self.emitFmt(fmt, args);
 }
 
 /// Emit bytecode VM fallback for uncertain/dynamic expressions
@@ -332,6 +328,9 @@ pub const NativeCodegen = struct {
 
     // Track anytype parameters in current function scope (for comprehension iteration)
     anytype_params: FnvVoidMap,
+
+    // Track parameters with None defaults (need null comparison, not false literal)
+    none_default_params: FnvVoidMap,
 
     // Track which classes have mutating methods (need var instances, not const)
     mutable_classes: FnvVoidMap,
@@ -887,6 +886,7 @@ pub const NativeCodegen = struct {
             .dict_vars = FnvVoidMap.init(aa),
             .target_dict_value_type = null,
             .anytype_params = FnvVoidMap.init(aa),
+            .none_default_params = FnvVoidMap.init(aa),
             .mutable_classes = FnvVoidMap.init(aa),
             .error_init_classes = FnvVoidMap.init(aa),
             .unittest_classes = std.ArrayList(TestClassInfo){},
@@ -1814,6 +1814,42 @@ pub const NativeCodegen = struct {
             return b.getTypePool();
         }
         return null;
+    }
+
+    // ============================================================
+    // Centralized Emit Helpers (Phase 1 Consolidation)
+    // All codegen modules should use self.emit() and self.emitFmt()
+    // instead of defining local emitConst/emitFmtConst functions.
+    // ============================================================
+
+    /// Emit a constant string to the output buffer.
+    /// This is the centralized emit method - all codegen should use self.emit().
+    pub fn emit(self: *NativeCodegen, val: []const u8) CodegenError!void {
+        const b = try self.getBuilder();
+        try b.write(val);
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+
+    /// Emit formatted output to the buffer.
+    /// This is the centralized emit method - all codegen should use self.emitFmt().
+    pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
+        const b = try self.getBuilder();
+        try b.writeFmt(fmt, args);
+        const output = b.getBodyAndClear();
+        try self.output.appendSlice(self.allocator, output);
+    }
+
+    /// Emit a variable name with proper escaping for Zig keywords and shadowing.
+    /// Use this for variable declarations and references.
+    pub fn emitVarName(self: *NativeCodegen, name: []const u8) CodegenError!void {
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name);
+    }
+
+    /// Emit an identifier with proper escaping for Zig keywords (no underscore suffix).
+    /// Use this for field names, method names, and type names only.
+    pub fn emitIdent(self: *NativeCodegen, name: []const u8) CodegenError!void {
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name);
     }
 
     /// Emit inline block with callback pattern - automatically handles labels, braces, and semicolons

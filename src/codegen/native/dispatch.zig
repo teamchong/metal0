@@ -6,22 +6,6 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 // Import specialized dispatchers
 const module_functions = @import("dispatch/module_functions.zig");
 const method_calls = @import("dispatch/method_calls.zig");
@@ -50,7 +34,7 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 // Handle numbers ABC registration: numbers.Rational.register(cls) -> no-op
                 // ABC.register() is a runtime-only concept with no meaning at compile time
                 if (std.mem.eql(u8, root_module, "numbers") and std.mem.eql(u8, func_name, "register") and NumbersAbcTypes.has(sub_module)) {
-                    try emitConst(self,"{}");
+                    try self.emit("{}");
                     return true;
                 }
 
@@ -199,19 +183,19 @@ fn generateCExtensionCall(
 
     // Generate: c_interop.callModuleFunction("module_name", "func_name", .{args...}).?
     // Use .? to unwrap optional - if null, it means Python call failed
-    try emitConst(self,"@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
-    try emitConst(self,actual_module_name);
-    try emitConst(self,"\", \"");
-    try emitConst(self,func_name);
-    try emitConst(self,"\", .{");
+    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
+    try self.emit(actual_module_name);
+    try self.emit("\", \"");
+    try self.emit(func_name);
+    try self.emit("\", .{");
 
     // Generate arguments as tuple
     for (call.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         try expressions.genExpr(self, arg);
     }
 
-    try emitConst(self,"}).?))");
+    try self.emit("}).?))");
 }
 
 /// Generate direct C library call (zero PyObject* overhead)
@@ -221,21 +205,21 @@ fn generateCLibraryCall(
     mapping: *const @import("c_interop").FunctionMapping,
 ) CodegenError!void {
     // Emit C function call
-    try emitConst(self,"c.");
-    try emitConst(self,mapping.c_name);
-    try emitConst(self,"(");
+    try self.emit("c.");
+    try self.emit(mapping.c_name);
+    try self.emit("(");
 
     // Generate arguments based on mapping
     for (mapping.arg_mappings, 0..) |arg_map, i| {
         if (i > 0) {
-            try emitConst(self,", ");
+            try self.emit(", ");
         }
 
         // Get Python argument
         if (arg_map.python_index >= call.args.len) {
             // Use default value if available
             if (arg_map.default_value) |default| {
-                try emitConst(self,default);
+                try self.emit(default);
                 continue;
             }
             return error.OutOfMemory; // Missing required argument
@@ -254,15 +238,15 @@ fn generateCLibraryCall(
                 // Pass pointer to data (e.g., array.ptr)
                 const expressions = @import("expressions.zig");
                 try expressions.genExpr(self, py_arg);
-                try emitConst(self,pp.pointer_path);
+                try self.emit(pp.pointer_path);
             },
             .custom => |code| {
                 // Custom conversion code
-                try emitConst(self,code);
-                try emitConst(self,"(");
+                try self.emit(code);
+                try self.emit("(");
                 const expressions = @import("expressions.zig");
                 try expressions.genExpr(self, py_arg);
-                try emitConst(self,")");
+                try self.emit(")");
             },
             else => {
                 // Unsupported conversion - fall back to direct
@@ -272,5 +256,5 @@ fn generateCLibraryCall(
         }
     }
 
-    try emitConst(self,")");
+    try self.emit(")");
 }

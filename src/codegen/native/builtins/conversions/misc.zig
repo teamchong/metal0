@@ -7,37 +7,29 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 /// Generate code for complex(real, imag)
 /// Creates a complex number
 pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // complex() with no args returns 0j
-        try emitConst(self, "runtime.PyComplex.create(0.0, 0.0)");
+        try self.emit("runtime.PyComplex.create(0.0, 0.0)");
         return;
     }
 
     if (args.len == 1) {
         // complex(x) - x can be a number or string
-        try emitConst(self, "runtime.PyComplex.fromValue(");
+        try self.emit("runtime.PyComplex.fromValue(");
         try self.genExpr(args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
         return;
     }
 
     // complex(real, imag)
-    try emitConst(self, "runtime.PyComplex.create(");
+    try self.emit("runtime.PyComplex.create(");
     try self.genExpr(args[0]);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try self.genExpr(args[1]);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate code for object()
@@ -48,5 +40,5 @@ pub fn genObject(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate a unique object using a struct that has unique identity per call
     // In Python, object() returns a base object that can be used as a sentinel
     // We use runtime.createObject() which returns a unique *PyObject
-    try emitConst(self, "runtime.createObject()");
+    try self.emit("runtime.createObject()");
 }

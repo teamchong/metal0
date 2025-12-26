@@ -15,22 +15,6 @@ const container_traits = @import("../../../analysis/traits/container_traits.zig"
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // Helper for indented output
 fn emitIndent(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
@@ -84,7 +68,7 @@ fn isAllocatingMethodCall(self: *NativeCodegen, node: ast.Node) bool {
 /// Generate print() function call
 pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "runtime.print(\"\\n\", .{});\n");
+        try self.emit("runtime.print(\"\\n\", .{});\n");
         return;
     }
 
@@ -99,7 +83,7 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Handle starred expressions: print(*x) -> iterate and print each element
     if (has_starred) {
-        try emitConst(self, "{\n    var __print_first = true;\n");
+        try self.emit("{\n    var __print_first = true;\n");
 
         for (args) |arg| {
             if (arg == .starred) {
@@ -107,9 +91,9 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 const starred_value = arg.starred.value.*;
                 const value_type = try self.type_inferrer.inferExpr(starred_value);
 
-                try emitConst(self, "    const __starred = ");
+                try self.emit("    const __starred = ");
                 try self.genExpr(starred_value);
-                try emitConst(self, ";\n");
+                try self.emit(";\n");
 
                 // Determine if we need .items or direct iteration
                 // Two-Flow: Include .pyvalue for uncertain container types
@@ -119,14 +103,14 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                     (container_traits.isList(value_type) or value_type == .pyvalue);
 
                 if (needs_items) {
-                    try emitConst(self, "    for (__starred.items) |__elem| {\n");
+                    try self.emit("    for (__starred.items) |__elem| {\n");
                 } else {
-                    try emitConst(self, "    for (__starred) |__elem| {\n");
+                    try self.emit("    for (__starred) |__elem| {\n");
                 }
-                try emitConst(self, "        if (!__print_first) runtime.print(\" \", .{});\n");
-                try emitConst(self, "        __print_first = false;\n");
-                try emitConst(self, "        runtime.print(\"{d}\", .{__elem});\n");
-                try emitConst(self, "    }\n");
+                try self.emit("        if (!__print_first) runtime.print(\" \", .{});\n");
+                try self.emit("        __print_first = false;\n");
+                try self.emit("        runtime.print(\"{d}\", .{__elem});\n");
+                try self.emit("    }\n");
             } else {
                 // Regular argument
                 const arg_type = try self.type_inferrer.inferExpr(arg);
@@ -134,24 +118,24 @@ pub fn genPrint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 const fmt = if (type_traits.isBoolean(arg_type)) "{s}" else arg_type.getPrintFormat();
 
                 if (type_traits.isBoolean(arg_type)) {
-                    try emitConst(self, "    if (!__print_first) runtime.print(\" \", .{});\n");
-                    try emitConst(self, "    __print_first = false;\n");
-                    try emitConst(self, "    runtime.print(\"{s}\", .{if (");
+                    try self.emit("    if (!__print_first) runtime.print(\" \", .{});\n");
+                    try self.emit("    __print_first = false;\n");
+                    try self.emit("    runtime.print(\"{s}\", .{if (");
                     try self.genExpr(arg);
-                    try emitConst(self, ") \"True\" else \"False\"});\n");
+                    try self.emit(") \"True\" else \"False\"});\n");
                 } else {
-                    try emitConst(self, "    if (!__print_first) runtime.print(\" \", .{});\n");
-                    try emitConst(self, "    __print_first = false;\n");
-                    try emitConst(self, "    runtime.print(\"");
-                    try emitConst(self, fmt);
-                    try emitConst(self, "\", .{");
+                    try self.emit("    if (!__print_first) runtime.print(\" \", .{});\n");
+                    try self.emit("    __print_first = false;\n");
+                    try self.emit("    runtime.print(\"");
+                    try self.emit(fmt);
+                    try self.emit("\", .{");
                     try self.genExpr(arg);
-                    try emitConst(self, "});\n");
+                    try self.emit("});\n");
                 }
             }
         }
 
-        try emitConst(self, "    runtime.print(\"\\n\", .{});\n}\n");
+        try self.emit("    runtime.print(\"\\n\", .{});\n}\n");
         return;
     }
 
@@ -252,55 +236,55 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try genPrintDict(self, arg);
         } else if (string_traits.isBytes(arg_type)) {
             // PyBytes - print with b'...' repr format
-            try emitConst(self, "runtime.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
+            try self.emit("runtime.print(\"{s}\", .{runtime.builtins.bytesRepr(__global_allocator, (");
             try self.genExpr(arg);
-            try emitConst(self, ").data) catch \"<bytes>\"});\n");
+            try self.emit(").data) catch \"<bytes>\"});\n");
         } else if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
             // Two-Flow: Unknown/PyValue types - use runtime printer
-            try emitConst(self, "runtime.printPyObject(");
+            try self.emit("runtime.printPyObject(");
             try self.genExpr(arg);
-            try emitConst(self, ");\n");
+            try self.emit(");\n");
         } else if (arg_type == .pyobject) {
             // C extension PyObjects - print address
             // Full string conversion requires unified type system (future work)
-            try emitConst(self, "runtime.print(\"<C extension object at {*}>\", .{");
+            try self.emit("runtime.print(\"<C extension object at {*}>\", .{");
             try self.genExpr(arg);
-            try emitConst(self, "});\n");
+            try self.emit("});\n");
         } else if (arg_type == .sqlite_row) {
             // SQLite Row - use its print method
             try self.genExpr(arg);
-            try emitConst(self, ".print();\n");
+            try self.emit(".print();\n");
         } else if (arg_type == .sqlite_rows) {
             // SQLite Rows slice - print each row on its own line (handled in for loop)
             // This case shouldn't normally be hit directly, but handle it anyway
-            try emitConst(self, "for (");
+            try self.emit("for (");
             try self.genExpr(arg);
-            try emitConst(self, ") |__row| { __row.print(); runtime.print(\"\\n\", .{}); }\n");
+            try self.emit(") |__row| { __row.print(); runtime.print(\"\\n\", .{}); }\n");
         } else if (type_traits.isBoolean(arg_type)) {
             // Print booleans as Python-style True/False
-            try emitConst(self, "runtime.print(\"{s}\", .{if (");
+            try self.emit("runtime.print(\"{s}\", .{if (");
             try self.genExpr(arg);
-            try emitConst(self, ") \"True\" else \"False\"});\n");
+            try self.emit(") \"True\" else \"False\"});\n");
         } else if (type_traits.isNone(arg_type)) {
             // Print None
-            try emitConst(self, "runtime.print(\"None\", .{});\n");
+            try self.emit("runtime.print(\"None\", .{});\n");
         } else {
             // For non-list/tuple/bool args in mixed print, use runtime.print
             // Two-Flow: unknown/pyvalue types try {s} (works for string constants)
             const fmt = if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) "{s}" else arg_type.getPrintFormat();
-            try emitConst(self, "runtime.print(\"");
-            try emitConst(self, fmt);
-            try emitConst(self, "\", .{");
+            try self.emit("runtime.print(\"");
+            try self.emit(fmt);
+            try self.emit("\", .{");
             try self.genExpr(arg);
-            try emitConst(self, "});\n");
+            try self.emit("});\n");
         }
         // Print space between args (except last)
         if (i < args.len - 1) {
-            try emitConst(self, "runtime.print(\" \", .{});\n");
+            try self.emit("runtime.print(\" \", .{});\n");
         }
     }
     // Print newline at end
-    try emitConst(self, "runtime.print(\"\\n\", .{});\n");
+    try self.emit("runtime.print(\"\\n\", .{});\n");
 }
 
 /// Generate print for list/array types
@@ -312,21 +296,21 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
     const is_arraylist = container_traits.isList(arg_type);
 
     // Generate loop to print list/array elements
-    try emitConst(self, "{\n    const __list = ");
+    try self.emit("{\n    const __list = ");
     try self.genExpr(arg);
-    try emitConst(self, ";\n    runtime.print(\"[\", .{});\n");
+    try self.emit(";\n    runtime.print(\"[\", .{});\n");
 
     // ArrayList uses .items, plain arrays and slices iterate directly
     if (is_arraylist) {
-        try emitConst(self, "    for (__list.items, 0..) |__elem, __idx| {\n");
+        try self.emit("    for (__list.items, 0..) |__elem, __idx| {\n");
     } else if (is_plain_array or is_array_slice) {
-        try emitConst(self, "    for (__list, 0..) |__elem, __idx| {\n");
+        try self.emit("    for (__list, 0..) |__elem, __idx| {\n");
     } else {
         // Default to .items for safety (covers all list-like types)
-        try emitConst(self, "    for (__list.items, 0..) |__elem, __idx| {\n");
+        try self.emit("    for (__list.items, 0..) |__elem, __idx| {\n");
     }
 
-    try emitConst(self, "        if (__idx > 0) runtime.print(\", \", .{});\n");
+    try self.emit("        if (__idx > 0) runtime.print(\", \", .{});\n");
 
     // Get element format based on element type
     const elem_fmt = if (container_traits.isList(arg_type)) blk: {
@@ -339,22 +323,22 @@ fn genPrintList(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenE
         break :blk elem_type.getPrintFormat();
     } else "{d}"; // Default to integer format
 
-    try emitConst(self, "        runtime.print(\"");
-    try emitConst(self, elem_fmt);
-    try emitConst(self, "\", .{__elem});\n    }\n    runtime.print(\"]\", .{});\n}\n");
+    try self.emit("        runtime.print(\"");
+    try self.emit(elem_fmt);
+    try self.emit("\", .{__elem});\n    }\n    runtime.print(\"]\", .{});\n}\n");
 }
 
 /// Generate print for tuple types
 fn genPrintTuple(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) CodegenError!void {
     // Generate inline print for tuple elements
-    try emitConst(self, "{\n    const __tuple = ");
+    try self.emit("{\n    const __tuple = ");
     try self.genExpr(arg);
-    try emitConst(self, ";\n    runtime.print(\"(\", .{});\n");
+    try self.emit(";\n    runtime.print(\"(\", .{});\n");
     // Get tuple type to know how many elements
     if (arg_type.tuple.len > 0) {
         for (0..arg_type.tuple.len) |elem_idx| {
             if (elem_idx > 0) {
-                try emitConst(self, "    runtime.print(\", \", .{});\n");
+                try self.emit("    runtime.print(\", \", .{});\n");
             }
             // Determine format based on element type
             const elem_type = arg_type.tuple[elem_idx];
@@ -362,43 +346,43 @@ fn genPrintTuple(self: *NativeCodegen, arg: ast.Node, arg_type: anytype) Codegen
             const fmt = if (type_traits.isBoolean(elem_type)) "{s}" else elem_type.getPrintFormat();
             if (type_traits.isBoolean(elem_type)) {
                 // Boolean elements need conditional formatting
-                try emitFmtConst(self, "    runtime.print(\"{{s}}\", .{{if (__tuple.@\"{d}\") \"True\" else \"False\"}});\n", .{elem_idx});
+                try self.emitFmt("    runtime.print(\"{{s}}\", .{{if (__tuple.@\"{d}\") \"True\" else \"False\"}});\n", .{elem_idx});
             } else {
-                try emitFmtConst(self, "    runtime.print(\"{s}\", .{{__tuple.@\"{d}\"}});\n", .{ fmt, elem_idx });
+                try self.emitFmt("    runtime.print(\"{s}\", .{{__tuple.@\"{d}\"}});\n", .{ fmt, elem_idx });
             }
         }
     }
-    try emitConst(self, "    runtime.print(\")\", .{});\n}\n");
+    try self.emit("    runtime.print(\")\", .{});\n}\n");
 }
 
 /// Generate print for dict types
 fn genPrintDict(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
     // Format native dict (HashMap) in Python format: {'key': value, ...}
     // Use comptime to detect key type and format appropriately
-    try emitConst(self, "{\n    const __dict = ");
+    try self.emit("{\n    const __dict = ");
     try self.genExpr(arg);
-    try emitConst(self, ";\n");
-    try emitConst(self, "    var __dict_iter = __dict.iterator();\n");
-    try emitConst(self, "    var __dict_idx: usize = 0;\n");
-    try emitConst(self, "    runtime.print(\"{{\", .{});\n");
-    try emitConst(self, "    while (__dict_iter.next()) |__entry| {\n");
-    try emitConst(self, "        if (__dict_idx > 0) runtime.print(\", \", .{});\n");
+    try self.emit(";\n");
+    try self.emit("    var __dict_iter = __dict.iterator();\n");
+    try self.emit("    var __dict_idx: usize = 0;\n");
+    try self.emit("    runtime.print(\"{{\", .{});\n");
+    try self.emit("    while (__dict_iter.next()) |__entry| {\n");
+    try self.emit("        if (__dict_idx > 0) runtime.print(\", \", .{});\n");
     // Use comptime to detect key type: string keys get 'quotes', int keys don't
-    try emitConst(self, "        const __key = __entry.key_ptr.*;\n");
-    try emitConst(self, "        if (comptime @typeInfo(@TypeOf(__key)) == .pointer) {\n");
-    try emitConst(self, "            runtime.print(\"'{s}': \", .{__key});\n");
-    try emitConst(self, "        } else {\n");
-    try emitConst(self, "            runtime.print(\"{d}: \", .{__key});\n");
-    try emitConst(self, "        }\n");
-    try emitConst(self, "        runtime.printValue(__entry.value_ptr.*);\n");
-    try emitConst(self, "        __dict_idx += 1;\n");
-    try emitConst(self, "    }\n");
-    try emitConst(self, "    runtime.print(\"}}\", .{});\n}\n");
+    try self.emit("        const __key = __entry.key_ptr.*;\n");
+    try self.emit("        if (comptime @typeInfo(@TypeOf(__key)) == .pointer) {\n");
+    try self.emit("            runtime.print(\"'{s}': \", .{__key});\n");
+    try self.emit("        } else {\n");
+    try self.emit("            runtime.print(\"{d}: \", .{__key});\n");
+    try self.emit("        }\n");
+    try self.emit("        runtime.printValue(__entry.value_ptr.*);\n");
+    try self.emit("        __dict_idx += 1;\n");
+    try self.emit("    }\n");
+    try self.emit("    runtime.print(\"}}\", .{});\n}\n");
 }
 
 /// Generate print with temp vars for string concatenation or allocating calls
 fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try emitConst(self, "{\n");
+    try self.emit("{\n");
     self.indent();
 
     // Create temp vars for each concatenation or allocating method call
@@ -419,14 +403,14 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
                 // Get allocator name based on scope
                 const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
 
-                try emitConst(self, "try std.mem.concat(");
-                try emitConst(self, alloc_name);
-                try emitConst(self, ", u8, &[_][]const u8{ ");
+                try self.emit("try std.mem.concat(");
+                try self.emit(alloc_name);
+                try self.emit(", u8, &[_][]const u8{ ");
                 for (parts.items, 0..) |part, j| {
-                    if (j > 0) try emitConst(self, ", ");
+                    if (j > 0) try self.emit(", ");
                     try self.genExpr(part);
                 }
-                try emitConst(self, " });\n");
+                try self.emit(" });\n");
                 try emitIndentFmt(self, "defer {s}.free(_temp{d});\n", .{ alloc_name, temp_counter });
                 temp_counter += 1;
             }
@@ -435,7 +419,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
         else if (isAllocatingMethodCall(self, arg)) {
             try emitIndentFmt(self, "const _temp{d}: []const u8 = ", .{temp_counter});
             try self.genExpr(arg);
-            try emitConst(self, ";\n");
+            try self.emit(";\n");
             try emitIndentFmt(self, "defer allocator.free(_temp{d});\n", .{temp_counter});
             temp_counter += 1;
         }
@@ -447,11 +431,11 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     // Generate format string
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
-        try emitConst(self, arg_type.getPrintFormat());
-        if (i < args.len - 1) try emitConst(self, " ");
+        try self.emit(arg_type.getPrintFormat());
+        if (i < args.len - 1) try self.emit(" ");
     }
 
-    try emitConst(self, "\\n\", .{");
+    try self.emit("\\n\", .{");
 
     // Generate arguments (use temp vars for concat and allocating calls)
     temp_counter = 0;
@@ -461,7 +445,7 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
             const left_type = try self.type_inferrer.inferExpr(arg.binop.left.*);
             const right_type = try self.type_inferrer.inferExpr(arg.binop.right.*);
             if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
-                try emitFmtConst(self, "_temp{d}", .{temp_counter});
+                try self.emitFmt("_temp{d}", .{temp_counter});
                 temp_counter += 1;
             } else {
                 try self.genExpr(arg);
@@ -469,15 +453,15 @@ fn genPrintWithTempVars(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
         }
         // Use temp var for allocating method calls
         else if (isAllocatingMethodCall(self, arg)) {
-            try emitFmtConst(self, "_temp{d}", .{temp_counter});
+            try self.emitFmt("_temp{d}", .{temp_counter});
             temp_counter += 1;
         } else {
             try self.genExpr(arg);
         }
-        if (i < args.len - 1) try emitConst(self, ", ");
+        if (i < args.len - 1) try self.emit(", ");
     }
 
-    try emitConst(self, "});\n");
+    try self.emit("});\n");
 
     self.dedent();
     try emitIndent(self, "}\n");
@@ -493,27 +477,27 @@ fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Note: bool uses {s} because formatAny() returns string
         // Two-Flow: unknown/pyvalue uses {s} - works for string constants
         const fmt = if (type_traits.isBoolean(arg_type) or type_traits.isUnknown(arg_type) or arg_type == .pyvalue) "{s}" else arg_type.getPrintFormat();
-        try emitConst(self, fmt);
-        if (i < args.len - 1) try emitConst(self, " ");
+        try self.emit(fmt);
+        if (i < args.len - 1) try self.emit(" ");
     }
 
-    try emitConst(self, "\\n\", .{");
+    try self.emit("\\n\", .{");
 
     // Generate arguments - wrap bools only, use unknowns/native types directly
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
         if (type_traits.isBoolean(arg_type)) {
-            try emitConst(self, "runtime.formatAny(");
+            try self.emit("runtime.formatAny(");
             try self.genExpr(arg);
-            try emitConst(self, ")");
+            try self.emit(")");
         } else {
             // For unknown types (module constants), use directly
             // String literals will coerce to []const u8 with {s}
             // Non-string module constants will cause compile error (limitation)
             try self.genExpr(arg);
         }
-        if (i < args.len - 1) try emitConst(self, ", ");
+        if (i < args.len - 1) try self.emit(", ");
     }
 
-    try emitConst(self, "});\n");
+    try self.emit("});\n");
 }

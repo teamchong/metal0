@@ -259,7 +259,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
     // Detect if this is an error-returning expression that needs catch {}
     // VM fallback (runtime.eval) returns error union that must be handled
-    const has_error_return = std.mem.indexOf(u8, expr_output, "runtime.eval(") != null;
+    // BUT: Block expressions { ... } are NOT error unions even if they contain runtime.eval
+    // AND: @panic returns noreturn, so catch {} after it is unreachable code
+    const contains_eval = std.mem.indexOf(u8, expr_output, "runtime.eval(") != null;
+    const is_block_expression = trimmed_start.len > 0 and trimmed_start[0] == '{' and ends_with_brace;
+    const contains_panic = std.mem.indexOf(u8, expr_output, "@panic(") != null;
+    const has_error_return = contains_eval and !is_block_expression and !contains_panic;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);

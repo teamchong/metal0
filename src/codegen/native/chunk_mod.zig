@@ -7,24 +7,6 @@ const ast = @import("analysis.ast");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output - uses h.NativeCodegen from mod_helper
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Chunk", genChunk },
     .{ "getname", genGetname },
@@ -42,11 +24,11 @@ fn genChunk(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("chunk", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const __v = ");
+                try c.emit("const __v = ");
                 try c.genExpr(a[0]);
-                try emitConst(c, "; _ = __v; break :");
-                try emitConst(c, label);
-                try emitConst(c, " .{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{0} ** 4, .chunksize = 0, .size_read = 0 }");
+                try c.emit("; _ = __v; break :");
+                try c.emit(label);
+                try c.emit(" .{ .closed = false, .align = true, .bigendian = true, .inclheader = false, .chunkname = &[_]u8{0} ** 4, .chunksize = 0, .size_read = 0 }");
             }
         }.emit);
     } else {

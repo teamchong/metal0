@@ -8,22 +8,6 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 /// Generate code for comptime eval (string literal argument)
 /// Compiles source to bytecode at compile time and embeds it in generated code
 pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!void {
@@ -45,9 +29,9 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     var program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
         // If bytecode compilation fails, fall back to runtime eval
         std.debug.print("comptime eval fallback for '{s}': {}\n", .{ eval_source, err });
-        try emitConst(self, "try runtime.eval(__global_allocator, \"");
+        try self.emit("try runtime.eval(__global_allocator, \"");
         try escapeZigString(self, eval_source);
-        try emitConst(self, "\")");
+        try self.emit("\")");
         return;
     };
     defer program.deinit();
@@ -65,46 +49,46 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     //     _vm_N.execute(&_program_N)
     // }
     const id = self.nextNameId();
-    try emitFmtConst(self, "__m{d}_eval: {{\n", .{id});
-    try emitConst(self, "    const _bytecode_");
+    try self.emitFmt("__m{d}_eval: {{\n", .{id});
+    try self.emit("    const _bytecode_");
     try emitInt(self, blob_id);
-    try emitConst(self, " = [_]u8{ ");
+    try self.emit(" = [_]u8{ ");
 
     // Serialize bytecode and emit as byte array
     const serialized = program.serialize(self.allocator) catch {
-        try emitConst(self, "// serialization failed\n");
-        try emitFmtConst(self, "break :__m{d}_eval try runtime.eval(__global_allocator, \"", .{id});
+        try self.emit("// serialization failed\n");
+        try self.emitFmt("break :__m{d}_eval try runtime.eval(__global_allocator, \"", .{id});
         try escapeZigString(self, source);
-        try emitConst(self, "\");\n}");
+        try self.emit("\");\n}");
         return;
     };
     defer self.allocator.free(serialized);
 
     for (serialized, 0..) |byte, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         try emitInt(self, byte);
     }
-    try emitConst(self, " };\n    var _program_");
+    try self.emit(" };\n    var _program_");
     try emitInt(self, blob_id);
-    try emitConst(self, " = runtime.BytecodeProgram.deserialize(__global_allocator, &_bytecode_");
+    try self.emit(" = runtime.BytecodeProgram.deserialize(__global_allocator, &_bytecode_");
     try emitInt(self, blob_id);
-    try emitConst(self, ") catch unreachable;\n    defer _program_");
+    try self.emit(") catch unreachable;\n    defer _program_");
     try emitInt(self, blob_id);
-    try emitConst(self, ".deinit();\n    var _vm_");
+    try self.emit(".deinit();\n    var _vm_");
     try emitInt(self, blob_id);
-    try emitConst(self, " = runtime.BytecodeVM.init(__global_allocator);\n    defer _vm_");
+    try self.emit(" = runtime.BytecodeVM.init(__global_allocator);\n    defer _vm_");
     try emitInt(self, blob_id);
-    try emitConst(self, ".deinit();\n");
-    try emitFmtConst(self, "    break :__m{d}_eval try _vm_", .{id});
+    try self.emit(".deinit();\n");
+    try self.emitFmt("    break :__m{d}_eval try _vm_", .{id});
     try emitInt(self, blob_id);
-    try emitConst(self, ".execute(&_program_");
+    try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try emitConst(self, ");\n}");
+    try self.emit(");\n}");
 }
 
 /// Helper to emit integer as decimal string
 fn emitInt(self: *NativeCodegen, value: anytype) CodegenError!void {
-    try emitFmtConst(self, "{d}", .{value});
+    try self.emitFmt("{d}", .{value});
 }
 
 /// Helper to escape a string for Zig string literal
@@ -135,24 +119,24 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
         // eval(source, globals, [locals])
         // Generate: try runtime.evalWithScope(__global_allocator, source, globals, locals)
-        try emitConst(self, "try runtime.evalWithScope(__global_allocator, ");
+        try self.emit("try runtime.evalWithScope(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try self.genExpr(args[1]); // globals
-        try emitConst(self, ", ");
+        try self.emit(", ");
         if (args.len >= 3) {
             try self.genExpr(args[2]); // locals
         } else {
-            try emitConst(self, "null"); // no locals, use globals as locals
+            try self.emit("null"); // no locals, use globals as locals
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         // eval(source) - no scope args
         // Generate: try runtime.eval(__global_allocator, source_code)
         // Returns *PyObject which can be a list, int, string, etc.
-        try emitConst(self, "try runtime.eval(__global_allocator, ");
+        try self.emit("try runtime.eval(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
@@ -166,22 +150,22 @@ pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
         // exec(source, globals, [locals])
         // Generate: try runtime.execWithScope(__global_allocator, source, globals, locals)
-        try emitConst(self, "try runtime.execWithScope(__global_allocator, ");
+        try self.emit("try runtime.execWithScope(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try self.genExpr(args[1]); // globals
-        try emitConst(self, ", ");
+        try self.emit(", ");
         if (args.len >= 3) {
             try self.genExpr(args[2]); // locals
         } else {
-            try emitConst(self, "null"); // no locals, use globals as locals
+            try self.emit("null"); // no locals, use globals as locals
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         // exec(source) - no scope args
         // Generate: try runtime.exec(__global_allocator, source_code)
-        try emitConst(self, "try runtime.exec(__global_allocator, ");
+        try self.emit("try runtime.exec(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }

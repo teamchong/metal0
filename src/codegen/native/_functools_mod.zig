@@ -7,24 +7,6 @@ const ast = @import("analysis.ast");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output - uses h.NativeCodegen from mod_helper
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "reduce", genReduce },
     .{ "cmp_to_key", genCmpToKey },
@@ -35,11 +17,11 @@ fn genReduce(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 2) {
         try self.withInlineBlock("red", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const __v0 = ");
+                try c.emit("const __v0 = ");
                 try c.genExpr(a[0]);
-                try emitConst(c, "; const __v1 = ");
+                try c.emit("; const __v1 = ");
                 try c.genExpr(a[1]);
-                try emitFmtConst(c, "; _ = __v1; break :{s} __v0", .{label});
+                try c.emitFmt("; _ = __v1; break :{s} __v0", .{label});
             }
         }.emit);
     } else {
@@ -52,9 +34,9 @@ fn genCmpToKey(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("ctk", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const __v = ");
+                try c.emit("const __v = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} .{{ .cmp = __v }}", .{label});
+                try c.emitFmt("; break :{s} .{{ .cmp = __v }}", .{label});
             }
         }.emit);
     } else {

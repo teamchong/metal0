@@ -5,14 +5,6 @@ const ast = @import("analysis.ast");
 const m = @import("mod_helper.zig");
 const H = m.H;
 
-// Helper for simple constant output
-fn emitConst(self: *m.NativeCodegen, val: []const u8) m.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(H).initComptime(.{
     // Constructors with optional initial value
     .{ "StringIO", genStringIO },
@@ -39,21 +31,21 @@ pub const Funcs = std.StaticStringMap(H).initComptime(.{
 
 pub fn genStringIO(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "try runtime.io.StringIO.create(__global_allocator)");
+        try self.emit("try runtime.io.StringIO.create(__global_allocator)");
     } else {
-        try emitConst(self, "try runtime.io.StringIO.createWithValue(__global_allocator, ");
+        try self.emit("try runtime.io.StringIO.createWithValue(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
 pub fn genBytesIO(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "try runtime.io.BytesIO.create(__global_allocator)");
+        try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
     } else {
-        try emitConst(self, "try runtime.io.BytesIO.createWithValue(__global_allocator, ");
+        try self.emit("try runtime.io.BytesIO.createWithValue(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
@@ -64,24 +56,24 @@ fn genOpen(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
 
 fn genTextIOWrapper(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "try runtime.io.StringIO.create(__global_allocator)");
+        try self.emit("try runtime.io.StringIO.create(__global_allocator)");
     } else {
-        try emitConst(self, "try runtime.io.StringIO.createWithValue(__global_allocator, ");
+        try self.emit("try runtime.io.StringIO.createWithValue(__global_allocator, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
 fn genFileIO(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "try runtime.io.BytesIO.create(__global_allocator)");
+        try self.emit("try runtime.io.BytesIO.create(__global_allocator)");
     } else {
-        try emitConst(self, "try runtime.io.openFile(__global_allocator, ");
+        try self.emit("try runtime.io.openFile(__global_allocator, ");
         try self.genExpr(args[0]);
         if (args.len > 1) {
-            try emitConst(self, ", ");
+            try self.emit(", ");
             try self.genExpr(args[1]);
-        } else try emitConst(self, ", \"rb\"");
-        try emitConst(self, ")");
+        } else try self.emit(", \"rb\"");
+        try self.emit(")");
     }
 }

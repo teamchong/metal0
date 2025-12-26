@@ -7,24 +7,6 @@ const ast = @import("analysis.ast");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output - uses h.NativeCodegen from mod_helper
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Element", genElement },
     .{ "SubElement", genSubElement },
@@ -41,9 +23,9 @@ fn genElement(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("el", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const tag = ");
+            try c.emit("const tag = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}", .{label});
+            try c.emitFmt("; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}", .{label});
         }
     }.emit);
 }
@@ -56,9 +38,9 @@ fn genSubElement(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("sub", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const tag = ");
+            try c.emit("const tag = ");
             try c.genExpr(a[1]);
-            try emitFmtConst(c, "; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}", .{label});
+            try c.emitFmt("; break :{s} .{{ .tag = tag, .attrib = .{{}}, .text = null, .tail = null }}", .{label});
         }
     }.emit);
 }

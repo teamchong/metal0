@@ -11,22 +11,6 @@ const container_traits = @import("../../../../../analysis/traits/container_trait
 const expr_emitter = @import("../../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // Helper for indented constant output
 fn emitIndent(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
@@ -82,7 +66,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         try emitIndent(self, "var __enum_idx: usize = 0;\n");
         try emitIndent(self, "for (");
         try self.genExpr(args[0]);
-        try emitConst(self, ") |__enum_val| {\n");
+        try self.emit(") |__enum_val| {\n");
         self.indent();
         try emitIndentFmt(self, "const {s} = .{{ __enum_idx, __enum_val }};\n", .{var_name});
         for (body) |stmt| {
@@ -162,11 +146,11 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     if (container_traits.isList(iter_type) and iterable == .list) {
         // Use emitParens auto-close helper for guaranteed bracket matching
         try self.emitParens(iterable);
-        try emitConst(self, ".items");
+        try self.emit(".items");
     } else {
         try self.genExpr(iterable);
         if (container_traits.isList(iter_type)) {
-            try emitConst(self, ".items");
+            try self.emit(".items");
         }
     }
 
@@ -180,10 +164,10 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     if (shadows_import and item_var_used) _ = em.reserveLabelId();
 
     if (!item_var_used) {
-        try emitConst(self, ") |_| {\n");
+        try self.emit(") |_| {\n");
     } else if (shadows_import) {
         // Use unique capture name to avoid shadowing module import
-        try emitFmtConst(self, ") |__loop_{s}_{d}__| {{\n", .{ item_var, enum_unique_capture_id });
+        try self.emitFmt(") |__loop_{s}_{d}__| {{\n", .{ item_var, enum_unique_capture_id });
     } else {
         const b = try self.getBuilder();
         try b.write(") |");
@@ -327,7 +311,7 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     for (args, 0..) |iterable, i| {
         try emitIndentFmt(self, "const __zip_iter_{d} = ", .{i});
         try self.genExpr(iterable);
-        try emitConst(self, ";\n");
+        try self.emit(";\n");
     }
 
     // Generate: var __zip_idx: usize = 0;

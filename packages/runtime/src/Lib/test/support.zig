@@ -93,6 +93,12 @@ pub const PythonError = error{
     NonZeroReturn,
 };
 
+/// TestFailed error type (mirrors CPython's test.support.TestFailed exception)
+/// Used to indicate test failures with custom messages
+pub const TestFailed = error{
+    TestFailed,
+};
+
 /// Result from running a Python subprocess
 pub const SubprocessResult = struct {
     returncode: i32,
@@ -148,6 +154,10 @@ pub fn import_fresh_module(comptime name: []const u8) ?type {
 
 /// Temporary directory path
 pub const TESTFN = "/tmp/metal0_test";
+
+/// Repository root path (used by CPython test suite)
+/// In AOT compilation, tests are run from project root
+pub const REPO_ROOT: []const u8 = ".";
 
 /// Create a temporary test file path with given suffix
 pub fn temp_path(suffix: []const u8) []const u8 {
@@ -298,11 +308,12 @@ pub fn is_linux() bool {
 }
 
 /// Verbose mode flag (0 = quiet, 1 = normal, 2 = verbose)
-pub var verbose: i64 = 0;
+/// Const for AOT compilation - tests don't need runtime mutability
+pub const verbose: i64 = 0;
 
-/// Set verbose mode
-pub fn set_verbose(v: i64) void {
-    verbose = v;
+/// Set verbose mode - no-op in AOT (verbose is const)
+pub fn set_verbose(_: i64) void {
+    // No-op in AOT compilation - verbose is a compile-time constant
 }
 
 /// Debug mode flag (Py_DEBUG equivalent)

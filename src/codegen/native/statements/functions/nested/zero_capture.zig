@@ -10,15 +10,6 @@ const var_tracking = @import("var_tracking.zig");
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 const signature = @import("../generators/signature.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// Generate zero-capture closure using comptime ZeroClosure
 pub fn genZeroCaptureClosure(
     self: *NativeCodegen,
@@ -52,7 +43,7 @@ pub fn genZeroCaptureClosure(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("fn {s}(", .{inner_fn_name});
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         // Check if param is used in body - if not, use _ to discard (Zig 0.15 requirement)
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
@@ -71,7 +62,7 @@ pub fn genZeroCaptureClosure(
     }
     // Handle vararg (*args) parameter
     if (func.vararg) |vararg_name| {
-        if (func.args.len > 0) try emitConst(self,", ");
+        if (func.args.len > 0) try self.emit(", ");
         const is_vararg_used = var_tracking.isParamUsedInStmts(vararg_name, func.body);
         if (is_vararg_used) {
             const unique_vararg_name = try std.fmt.allocPrint(
@@ -82,12 +73,12 @@ pub fn genZeroCaptureClosure(
             try param_renames.put(vararg_name, unique_vararg_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_vararg_name});
         } else {
-            try emitConst(self,"_: anytype");
+            try self.emit("_: anytype");
         }
     }
     // Handle kwarg (**kwargs) parameter
     if (func.kwarg) |kwarg_name| {
-        if (func.args.len > 0 or func.vararg != null) try emitConst(self,", ");
+        if (func.args.len > 0 or func.vararg != null) try self.emit(", ");
         const is_kwarg_used = var_tracking.isParamUsedInStmts(kwarg_name, func.body);
         if (is_kwarg_used) {
             const unique_kwarg_name = try std.fmt.allocPrint(
@@ -98,7 +89,7 @@ pub fn genZeroCaptureClosure(
             try param_renames.put(kwarg_name, unique_kwarg_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_kwarg_name});
         } else {
-            try emitConst(self,"_: anytype");
+            try self.emit("_: anytype");
         }
     }
     // Check if this is a generator function (contains yield) - used for return type
@@ -109,20 +100,20 @@ pub fn genZeroCaptureClosure(
     const return_type = self.type_inferrer.func_return_types.get(func.name);
     if (is_generator_func) {
         // Generators return slice of PyValue
-        try emitConst(self,") ![]runtime.PyValue {\n");
+        try self.emit(") ![]runtime.PyValue {\n");
     } else if (return_type) |rt| {
         // We have a known return type from inference - use it
-        try emitConst(self,") !");
+        try self.emit(") !");
         var type_buf = std.ArrayList(u8){};
         defer type_buf.deinit(self.allocator);
         const native_types = @import("../../../../../analysis/native_types.zig");
         try native_types.NativeType.toZigType(rt, self.allocator, &type_buf);
-        try emitConst(self,type_buf.items);
-        try emitConst(self," {\n");
+        try self.emit(type_buf.items);
+        try self.emit(" {\n");
     } else {
         // No inferred type - use anyerror!anytype pattern wouldn't work in Zig
         // Fall back to i64 but this may fail for non-integer returns
-        try emitConst(self,") !i64 {\n");
+        try self.emit(") !i64 {\n");
     }
 
     self.indent();
@@ -299,9 +290,9 @@ pub fn genZeroCaptureClosure(
         self.in_generator_function = true;
         // Initialize __gen_result ArrayList for collecting yield values
         try self.emitIndent();
-        try emitConst(self,"var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
+        try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
         try self.emitIndent();
-        try emitConst(self,"_ = &__gen_result;\n");
+        try self.emit("_ = &__gen_result;\n");
     }
     defer self.in_generator_function = saved_in_generator;
 
@@ -325,14 +316,14 @@ pub fn genZeroCaptureClosure(
             if (std.mem.eql(u8, arg.name, "_")) continue;
             // Emit discard for parameter
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             // Use renamed parameter if applicable
             if (param_renames.get(arg.name)) |renamed| {
-                try emitConst(self,renamed);
+                try self.emit(renamed);
             } else {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
             }
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -390,7 +381,7 @@ pub fn genZeroCaptureClosure(
     // For generators, return the collected results
     if (is_generator and !self.control_flow_terminated) {
         try self.emitIndent();
-        try emitConst(self,"return __gen_result.items;\n");
+        try self.emit("return __gen_result.items;\n");
     }
 
     // Free the reassigned param var names
@@ -413,14 +404,14 @@ pub fn genZeroCaptureClosure(
             try self.emitIndent();
             if (return_type) |rt| {
                 if (rt == .int or rt == .usize) {
-                    try emitConst(self,"return 0;\n");
+                    try self.emit("return 0;\n");
                 } else if (type_traits.isClassInstance(rt)) {
-                    try emitConst(self,"return undefined;\n");
+                    try self.emit("return undefined;\n");
                 } else {
-                    try emitConst(self,"return undefined;\n");
+                    try self.emit("return undefined;\n");
                 }
             } else {
-                try emitConst(self,"return 0;\n");
+                try self.emit("return 0;\n");
             }
         }
     }
@@ -444,11 +435,11 @@ pub fn genZeroCaptureClosure(
     self.dedent();
 
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"};\n");
+    try self.emit("};\n");
 
     // Create wrapper struct for the closure
     // Use the original function name so that references resolve correctly
@@ -466,7 +457,7 @@ pub fn genZeroCaptureClosure(
     }
 
     try self.emitIndent();
-    try emitConst(self,"const ");
+    try self.emit("const ");
     // Always use a unique wrapper name to avoid conflicts with:
     // 1. Imported module names (e.g., "test" shadows "import test")
     // 2. Nested class method names (e.g., closure "foo" vs class method "foo")
@@ -490,7 +481,7 @@ pub fn genZeroCaptureClosure(
         );
         defer self.allocator.free(unique_param);
 
-        try emitConst(self," = struct {\n");
+        try self.emit(" = struct {\n");
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("pub fn call(_: @This(), {s}: anytype) !{s} {{\n", .{ unique_param, return_type_str.items });
@@ -499,10 +490,10 @@ pub fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print("return try {s}.{s}({s});\n", .{ impl_name, inner_fn_name, unique_param });
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}{};\n");
+        try self.emit("}{};\n");
     } else {
         // Multiple args or has vararg - create wrapper struct with unique parameter names
         // Use a different ID for wrapper params (saved_id is already used above)
@@ -537,10 +528,10 @@ pub fn genZeroCaptureClosure(
             try param_names.append(self.allocator, vararg_param_name.?);
         }
 
-        try emitConst(self," = struct {\n");
+        try self.emit(" = struct {\n");
         self.indent();
         try self.emitIndent();
-        try emitConst(self,"pub fn call(_: @This()");
+        try self.emit("pub fn call(_: @This()");
         for (param_names.items) |unique_name| {
             // Use anytype for flexible parameter types
             try self.output.writer(self.allocator).print(", {s}: anytype", .{unique_name});
@@ -551,16 +542,16 @@ pub fn genZeroCaptureClosure(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("return try {s}.{s}(", .{ impl_name, inner_fn_name });
         for (param_names.items, 0..) |unique_name, i| {
-            if (i > 0) try emitConst(self,", ");
-            try emitConst(self,unique_name);
+            if (i > 0) try self.emit(", ");
+            try self.emit(unique_name);
         }
-        try emitConst(self,");\n");
+        try self.emit(");\n");
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}{};\n");
+        try self.emit("}{};\n");
     }
 
     // Suppress unused local constant warning for the wrapper
@@ -604,7 +595,7 @@ pub fn genZeroCaptureClosure(
         const outer_key = std.fmt.bufPrint(&outer_key_buf, "{s}:0", .{func.name}) catch func.name;
         const is_func_mutated = saved_func_local_mutations.contains(func.name) or
             saved_func_local_mutations.contains(outer_key);
-        try emitConst(self,if (is_func_mutated) "var " else "const ");
+        try self.emit(if (is_func_mutated) "var " else "const ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try self.output.writer(self.allocator).print(" = {s};\n", .{wrapper_name});
 
@@ -619,9 +610,9 @@ pub fn genZeroCaptureClosure(
 
         // Suppress unused local constant warning for the alias
         try self.emitIndent();
-        try emitConst(self,"_ = &");
+        try self.emit("_ = &");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
 
         // Mark as closure so calls use .call() syntax
         const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
@@ -667,7 +658,7 @@ pub fn genModuleLevelZeroCaptureClosure(
 
     // Generate parameters
     for (func.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         const is_used = var_tracking.isParamUsedInStmts(arg.name, func.body);
         if (is_used) {
             const unique_param_name = try std.fmt.allocPrint(
@@ -678,13 +669,13 @@ pub fn genModuleLevelZeroCaptureClosure(
             try param_renames.put(arg.name, unique_param_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_param_name});
         } else {
-            try emitConst(self,"_: anytype");
+            try self.emit("_: anytype");
         }
     }
 
     // Handle vararg
     if (func.vararg) |vararg_name| {
-        if (func.args.len > 0) try emitConst(self,", ");
+        if (func.args.len > 0) try self.emit(", ");
         const is_vararg_used = var_tracking.isParamUsedInStmts(vararg_name, func.body);
         if (is_vararg_used) {
             const unique_vararg_name = try std.fmt.allocPrint(
@@ -695,22 +686,22 @@ pub fn genModuleLevelZeroCaptureClosure(
             try param_renames.put(vararg_name, unique_vararg_name);
             try self.output.writer(self.allocator).print("{s}: anytype", .{unique_vararg_name});
         } else {
-            try emitConst(self,"_: anytype");
+            try self.emit("_: anytype");
         }
     }
 
     // Determine return type
     const return_type = self.type_inferrer.func_return_types.get(func.name);
     if (return_type) |rt| {
-        try emitConst(self,") !");
+        try self.emit(") !");
         const native_types = @import("../../../../../analysis/native_types.zig");
         var type_buf = std.ArrayList(u8){};
         defer type_buf.deinit(self.allocator);
         try native_types.NativeType.toZigType(rt, self.allocator, &type_buf);
-        try emitConst(self,type_buf.items);
-        try emitConst(self," {\n");
+        try self.emit(type_buf.items);
+        try self.emit(" {\n");
     } else {
-        try emitConst(self,") !*runtime.PyObject {\n");
+        try self.emit(") !*runtime.PyObject {\n");
     }
 
     // Generate function body
@@ -779,13 +770,13 @@ pub fn genModuleLevelZeroCaptureClosure(
         _ = self.var_renames.swapRemove(vararg_name);
     }
 
-    try emitConst(self,"    }\n");
-    try emitConst(self,"};\n\n");
+    try self.emit("    }\n");
+    try self.emit("};\n\n");
 
     // Generate wrapper type with the specified type_name
     // This wrapper calls the impl struct
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{type_name});
-    try emitConst(self,"    pub fn call(_: @This()");
+    try self.emit("    pub fn call(_: @This()");
 
     // Parameter list for wrapper
     const wrapper_id = self.name_gen.nextId();
@@ -817,26 +808,26 @@ pub fn genModuleLevelZeroCaptureClosure(
 
     // Return type for wrapper
     if (return_type) |rt| {
-        try emitConst(self,") !");
+        try self.emit(") !");
         const native_types = @import("../../../../../analysis/native_types.zig");
         var type_buf = std.ArrayList(u8){};
         defer type_buf.deinit(self.allocator);
         try native_types.NativeType.toZigType(rt, self.allocator, &type_buf);
-        try emitConst(self,type_buf.items);
-        try emitConst(self," {\n");
+        try self.emit(type_buf.items);
+        try self.emit(" {\n");
     } else {
-        try emitConst(self,") !*runtime.PyObject {\n");
+        try self.emit(") !*runtime.PyObject {\n");
     }
 
     // Call impl
     try self.output.writer(self.allocator).print("        return try {s}.{s}(", .{ impl_name, inner_fn_name });
     for (param_names.items, 0..) |pname, i| {
-        if (i > 0) try emitConst(self,", ");
-        try emitConst(self,pname);
+        if (i > 0) try self.emit(", ");
+        try self.emit(pname);
     }
-    try emitConst(self,");\n");
-    try emitConst(self,"    }\n");
-    try emitConst(self,"};\n\n");
+    try self.emit(");\n");
+    try self.emit("    }\n");
+    try self.emit("};\n\n");
 
     // Mark the function as a closure
     const func_name_copy = try self.arena.allocator().dupe(u8, func.name);

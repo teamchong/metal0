@@ -175,8 +175,18 @@ pub fn tokenizeNumber(self: *Lexer, start: usize, start_column: usize) !Token {
         const next = self.peekAhead(1);
         // Check it's not an attribute access like 1.bit_length() or ellipsis 1...
         // BUT allow 0.j as complex number (j/J suffix)
+        // AND allow 1.e+49 as scientific notation (e/E followed by sign or digit)
         const is_complex_suffix = if (next) |n| n == 'j' or n == 'J' else false;
-        const is_attr_or_ellipsis = if (next) |n| ((n >= 'a' and n <= 'z') or (n >= 'A' and n <= 'Z') or n == '_' or n == '.') and !is_complex_suffix else false;
+        const is_scientific = if (next) |n| blk: {
+            if (n == 'e' or n == 'E') {
+                const after_e = self.peekAhead(2);
+                if (after_e) |ae| {
+                    break :blk ae == '+' or ae == '-' or (ae >= '0' and ae <= '9');
+                }
+            }
+            break :blk false;
+        } else false;
+        const is_attr_or_ellipsis = if (next) |n| ((n >= 'a' and n <= 'z') or (n >= 'A' and n <= 'Z') or n == '_' or n == '.') and !is_complex_suffix and !is_scientific else false;
         if (!is_attr_or_ellipsis) {
             _ = self.advance(); // consume '.'
             // Consume any fractional digits (optional - 1. is valid)

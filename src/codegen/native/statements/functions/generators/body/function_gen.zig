@@ -46,15 +46,6 @@ const self_analyzer = @import("../../self_analyzer.zig");
 const signature = @import("../signature.zig");
 const param_analyzer = @import("../../param_analyzer.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// Info about a type check at the start of a function
 pub const TypeCheckInfo = struct {
     param_name: []const u8,
@@ -197,13 +188,13 @@ fn generateComptimeTypeDispatch(
 
     // Generate: const __T = @TypeOf(param);
     try self.emitIndent();
-    try emitConst(self,"const __T = @TypeOf(");
-    try emitConst(self,param_name);
-    try emitConst(self,");\n");
+    try self.emit("const __T = @TypeOf(");
+    try self.emit(param_name);
+    try self.emit(");\n");
 
     // Generate int/comptime_int branch
     try self.emitIndent();
-    try emitConst(self,"if (comptime @typeInfo(__T) == .int or @typeInfo(__T) == .comptime_int) {\n");
+    try self.emit("if (comptime @typeInfo(__T) == .int or @typeInfo(__T) == .comptime_int) {\n");
     self.indent();
 
     // Push scope for int branch (each comptime branch needs independent variable tracking)
@@ -214,13 +205,13 @@ fn generateComptimeTypeDispatch(
     if (has_type_changing_assign) {
         // Pattern 1: Convert param and use isClassName body
         try self.emitIndent();
-        try emitConst(self,"const ");
-        try emitConst(self,param_name);
-        try emitConst(self,"_converted = try ");
-        try emitConst(self,class_name);
-        try emitConst(self,".init(__global_allocator, ");
-        try emitConst(self,param_name);
-        try emitConst(self,", 1);\n");
+        try self.emit("const ");
+        try self.emit(param_name);
+        try self.emit("_converted = try ");
+        try self.emit(class_name);
+        try self.emit(".init(__global_allocator, ");
+        try self.emit(param_name);
+        try self.emit(", 1);\n");
 
         // Find isClassName body and emit with substitution
         try self.var_renames.put(param_name, try std.fmt.allocPrint(self.allocator, "{s}_converted", .{param_name}));
@@ -243,7 +234,7 @@ fn generateComptimeTypeDispatch(
     self.popScope();
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"} else if (comptime __T == ");
+    try self.emit("} else if (comptime __T == ");
 
     // Check if this is the current class - if so, use @This() to avoid forward reference
     const use_this = if (self.current_class_name) |current|
@@ -252,15 +243,15 @@ fn generateComptimeTypeDispatch(
         false;
 
     if (use_this) {
-        try emitConst(self,"@This() or __T == *@This() or __T == *const @This()");
+        try self.emit("@This() or __T == *@This() or __T == *const @This()");
     } else {
-        try emitConst(self,class_name);
-        try emitConst(self," or __T == *");
-        try emitConst(self,class_name);
-        try emitConst(self," or __T == *const ");
-        try emitConst(self,class_name);
+        try self.emit(class_name);
+        try self.emit(" or __T == *");
+        try self.emit(class_name);
+        try self.emit(" or __T == *const ");
+        try self.emit(class_name);
     }
-    try emitConst(self,") {\n");
+    try self.emit(") {\n");
     self.indent();
 
     // Push scope for class branch
@@ -273,7 +264,7 @@ fn generateComptimeTypeDispatch(
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"} else if (comptime @typeInfo(__T) == .float or @typeInfo(__T) == .comptime_float) {\n");
+    try self.emit("} else if (comptime @typeInfo(__T) == .float or @typeInfo(__T) == .comptime_float) {\n");
     self.indent();
     // Reset control flow flag - each comptime branch is independent
     self.control_flow_terminated = false;
@@ -298,16 +289,16 @@ fn generateComptimeTypeDispatch(
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"} else {\n");
+    try self.emit("} else {\n");
     self.indent();
 
     // Generate fallback
     try self.emitIndent();
-    try emitConst(self,"return error.NotImplemented;\n");
+    try self.emit("return error.NotImplemented;\n");
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 }
 
 /// Check if method has type-changing assignment: param = ClassName(param)
@@ -585,10 +576,10 @@ pub fn genFunctionBody(
             // Use ExcludingYield variant since yield becomes `// pass`
             if (param_analyzer.isNameUsedInBodyExcludingYield(func.body, arg.name)) continue;
             try self.emitIndent();
-            try emitConst(self,"_ = ");
+            try self.emit("_ = ");
             // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -622,9 +613,9 @@ pub fn genFunctionBody(
         if (is_anytype_arg) {
             // Emit discard for anytype param using address-of to avoid "pointless discard" error
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -634,18 +625,18 @@ pub fn genFunctionBody(
         // Only emit if vararg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(func.body, vararg_name)) {
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
     if (func.kwarg) |kwarg_name| {
         // Only emit if kwarg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(func.body, kwarg_name)) {
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -678,9 +669,9 @@ pub fn genFunctionBody(
                 if (is_param_unused) {
                     // Parameter is unused - just discard the optional value
                     try self.emitIndent();
-                    try emitConst(self,"_ = ");
-                    try emitConst(self,arg.name);
-                    try emitConst(self,"_param;\n");
+                    try self.emit("_ = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param;\n");
                 } else {
                     // Rename local variable to avoid shadowing module-level variable
                     // Use NameGen for consistent unique naming
@@ -688,31 +679,45 @@ pub fn genFunctionBody(
                     try self.var_renames.put(arg.name, renamed);
 
                     try self.emitIndent();
-                    try emitConst(self,"const ");
-                    try emitConst(self,renamed);
-                    try emitConst(self," = ");
-                    try emitConst(self,arg.name);
-                    try emitConst(self,"_param orelse ");
+                    try self.emit("const ");
+                    try self.emit(renamed);
+                    try self.emit(" = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param orelse ");
                     // Reference the original module-level variable (arg.name), not the renamed one
-                    try emitConst(self,arg.name);
-                    try emitConst(self,";\n");
+                    try self.emit(arg.name);
+                    try self.emit(";\n");
                 }
             } else {
                 if (is_param_unused) {
                     // Parameter is unused - just discard the optional value
                     try self.emitIndent();
-                    try emitConst(self,"_ = ");
-                    try emitConst(self,arg.name);
-                    try emitConst(self,"_param;\n");
+                    try self.emit("_ = ");
+                    try self.emit(arg.name);
+                    try self.emit("_param;\n");
                 } else {
+                    // Check if default is None - if so, keep the optional type
+                    const default_is_none = if (default_expr.* == .constant)
+                        default_expr.constant.value == .none
+                    else
+                        false;
+
                     try self.emitIndent();
-                    try emitConst(self,"const ");
-                    try emitConst(self,arg.name);
-                    try emitConst(self," = ");
-                    try emitConst(self,arg.name);
-                    try emitConst(self,"_param orelse ");
-                    try expressions.genExpr(self, default_expr.*);
-                    try emitConst(self,";\n");
+                    try self.emit("const ");
+                    try self.emit(arg.name);
+                    try self.emit(" = ");
+                    try self.emit(arg.name);
+                    if (default_is_none) {
+                        // Keep optional type: const limit = limit_param;
+                        try self.emit("_param;\n");
+                        // Track this param for null comparisons in `x is None`
+                        try self.none_default_params.put(arg.name, {});
+                    } else {
+                        // Unwrap with default: const x = x_param orelse <default>;
+                        try self.emit("_param orelse ");
+                        try expressions.genExpr(self, default_expr.*);
+                        try self.emit(";\n");
+                    }
                     // Declare the param so it won't be hoisted later
                     try self.declareVar(arg.name);
                 }
@@ -744,18 +749,18 @@ pub fn genFunctionBody(
             // Create a mutable copy of the parameter using NameGen for unique naming
             const mut_name = try self.name_gen.mutable(arg.name);
             try self.emitIndent();
-            try emitConst(self,"var ");
-            try emitConst(self,mut_name);
-            try emitConst(self," = ");
+            try self.emit("var ");
+            try self.emit(mut_name);
+            try self.emit(" = ");
             // Get the actual parameter name in generated code
             // For NameGen renames (module shadows), use var_renames
             // Otherwise use writeLocalVarName for method shadows (e.g., "stop" -> "stop_")
             if (self.var_renames.get(arg.name)) |renamed| {
-                try emitConst(self,renamed);
+                try self.emit(renamed);
             } else {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
             }
-            try emitConst(self,";\n");
+            try self.emit(";\n");
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, mut_name);
             // Remove from func_local_vars so expressions.zig uses var_renames lookup
@@ -790,16 +795,16 @@ pub fn genFunctionBody(
             actual_fwd_var = renamed;
         }
         try self.emitIndent();
-        try emitConst(self,"var ");
+        try self.emit("var ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
         // Use i64 as the default type for forward-declared captured variables
         // This matches the capture struct type in closure_gen.zig which uses i64 for non-self captures
-        try emitConst(self,": i64 = undefined;\n");
+        try self.emit(": i64 = undefined;\n");
         // Suppress unused variable warning (forward-declared but might not be used in all paths)
         try self.emitIndent();
-        try emitConst(self,"_ = &");
+        try self.emit("_ = &");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
         try self.forward_declared_vars.put(actual_fwd_var, {});
         // Also mark as hoisted so for-loop capture doesn't shadow
@@ -814,25 +819,25 @@ pub fn genFunctionBody(
     if (type_checks.checks.len > 0) {
         // Generate comptime type guard: if (comptime istype(@TypeOf(p1), "int") and istype(@TypeOf(p2), "int")) {
         try self.emitIndent();
-        try emitConst(self,"if (comptime ");
+        try self.emit("if (comptime ");
         for (type_checks.checks, 0..) |check, i| {
-            if (i > 0) try emitConst(self," and ");
-            try emitConst(self,"runtime.istype(@TypeOf(");
-            try emitConst(self,check.param_name);
-            try emitConst(self,"), \"");
-            try emitConst(self,check.check_type);
-            try emitConst(self,"\")");
+            if (i > 0) try self.emit(" and ");
+            try self.emit("runtime.istype(@TypeOf(");
+            try self.emit(check.param_name);
+            try self.emit("), \"");
+            try self.emit(check.check_type);
+            try self.emit("\")");
         }
-        try emitConst(self,") {\n");
+        try self.emit(") {\n");
         self.indent();
 
         // For generators, initialize __gen_result ArrayList before body
         if (self.in_generator_function) {
             try self.emitIndent();
-            try emitConst(self,"var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
+            try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
             // Suppress unused warning in case function terminates early (e.g., raise before yield)
             try self.emitIndent();
-            try emitConst(self,"_ = &__gen_result;\n");
+            try self.emit("_ = &__gen_result;\n");
         }
 
         // Generate the rest of the function body (after the type checks)
@@ -843,28 +848,28 @@ pub fn genFunctionBody(
         // For generators, return the collected results (if control flow not already terminated)
         if (self.in_generator_function and !self.control_flow_terminated) {
             try self.emitIndent();
-            try emitConst(self,"return __gen_result.items;\n");
+            try self.emit("return __gen_result.items;\n");
         }
 
         // Close the comptime if block with else returning error.TypeError
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"} else {\n");
+        try self.emit("} else {\n");
         self.indent();
         try self.emitIndent();
-        try emitConst(self,"return error.TypeError;\n");
+        try self.emit("return error.TypeError;\n");
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
     } else {
         // No type-check patterns - generate body normally
         // For generators, initialize __gen_result ArrayList before body
         if (self.in_generator_function) {
             try self.emitIndent();
-            try emitConst(self,"var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
+            try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
             // Suppress unused warning in case function terminates early (e.g., raise before yield)
             try self.emitIndent();
-            try emitConst(self,"_ = &__gen_result;\n");
+            try self.emit("_ = &__gen_result;\n");
         }
         for (func.body) |stmt| {
             try self.generateStmt(stmt);
@@ -872,7 +877,7 @@ pub fn genFunctionBody(
         // For generators, return the collected results (if control flow not already terminated)
         if (self.in_generator_function and !self.control_flow_terminated) {
             try self.emitIndent();
-            try emitConst(self,"return __gen_result.items;\n");
+            try self.emit("return __gen_result.items;\n");
         }
     }
 
@@ -1000,9 +1005,9 @@ pub fn genFunctionBody(
                 } else {
                     // Safe to append at end
                     try self.emitIndent();
-                    try emitConst(self,"_ = ");
+                    try self.emit("_ = ");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-                    try emitConst(self,";\n");
+                    try self.emit(";\n");
                 }
             }
         }
@@ -1085,7 +1090,7 @@ pub fn genAsyncFunctionBody(
     // The `allocator` alias is provided for consistency but often unused.
     // Always suppress warning since analysis can't distinguish direct vs aliased use.
     try self.emitIndent();
-    try emitConst(self,"const allocator = __global_allocator; _ = allocator;\n");
+    try self.emit("const allocator = __global_allocator; _ = allocator;\n");
 
     // Declare function parameters in the scope
     for (func.args) |arg| {
@@ -1464,9 +1469,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
         if (self_param_name) |spn| {
             try self.emitIndent();
-            try emitConst(self,"_ = &");
-            try emitConst(self,spn);
-            try emitConst(self,";\n");
+            try self.emit("_ = &");
+            try self.emit(spn);
+            try self.emit(";\n");
         }
     }
 
@@ -1483,9 +1488,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Second parameter (after self) is the comparison target
         const other_param_name = method.args[1].name;
         try self.emitIndent();
-        try emitConst(self,"_ = &");
-        try emitConst(self,other_param_name);
-        try emitConst(self,";\n");
+        try self.emit("_ = &");
+        try self.emit(other_param_name);
+        try self.emit(";\n");
     }
 
     // For __deepcopy__ and __copy__ methods, emit suppression for memo parameter
@@ -1499,9 +1504,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Only emit discard if the param is used in Python (not made anonymous in signature)
         if (param_analyzer.isNameUsedInBody(method.body, memo_param_name)) {
             try self.emitIndent();
-            try emitConst(self,"_ = &");
-            try emitConst(self,memo_param_name);
-            try emitConst(self,";\n");
+            try self.emit("_ = &");
+            try self.emit(memo_param_name);
+            try self.emit(";\n");
         }
     }
     if (is_copy_method and method.args.len > 1) {
@@ -1510,9 +1515,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // Only emit discard if the param is used in Python (not made anonymous in signature)
             if (param_analyzer.isNameUsedInBody(method.body, arg.name)) {
                 try self.emitIndent();
-                try emitConst(self,"_ = &");
-                try emitConst(self,arg.name);
-                try emitConst(self,";\n");
+                try self.emit("_ = &");
+                try self.emit(arg.name);
+                try self.emit(";\n");
             }
         }
     }
@@ -1528,9 +1533,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // If it was made anonymous, no discard needed
             if (param_analyzer.isNameUsedInBody(method.body, arg.name)) {
                 try self.emitIndent();
-                try emitConst(self,"_ = &");
+                try self.emit("_ = &");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-                try emitConst(self,";\n");
+                try self.emit(";\n");
             }
         }
     }
@@ -1564,9 +1569,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         if (is_anytype) {
             // Emit discard for anytype param using address-of to avoid "pointless discard" error
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -1576,18 +1581,18 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // Only emit if vararg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(method.body, vararg_name)) {
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
     if (method.kwarg) |kwarg_name| {
         // Only emit if kwarg IS used in Python (otherwise it was made anonymous "_:" in signature)
         if (param_analyzer.isNameUsedInBody(method.body, kwarg_name)) {
             try self.emitIndent();
-            try emitConst(self,"_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
     }
 
@@ -1731,8 +1736,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // Create a mutable copy of the parameter using NameGen for unique naming
             const mut_name = try self.name_gen.mutable(arg.name);
             try self.emitIndent();
-            try emitConst(self,"var ");
-            try emitConst(self,mut_name);
+            try self.emit("var ");
+            try self.emit(mut_name);
             // For parameters with defaults, check if default is None (null)
             // If so, we can't use @TypeOf(null) - use runtime.PyValue as a safe fallback
             if (arg.default) |default| {
@@ -1740,21 +1745,21 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                     default.constant.value == .none;
                 if (is_none_default) {
                     // None default: use runtime.PyValue which can hold null
-                    try emitConst(self,": runtime.PyValue = runtime.PyValue.from(");
-                    try emitConst(self,actual_param_name);
-                    try emitConst(self,");\n");
+                    try self.emit(": runtime.PyValue = runtime.PyValue.from(");
+                    try self.emit(actual_param_name);
+                    try self.emit(");\n");
                 } else {
                     // Non-None default: use @TypeOf(default)
-                    try emitConst(self,": @TypeOf(");
+                    try self.emit(": @TypeOf(");
                     try self.genExpr(default.*);
-                    try emitConst(self,") = ");
-                    try emitConst(self,actual_param_name);
-                    try emitConst(self,";\n");
+                    try self.emit(") = ");
+                    try self.emit(actual_param_name);
+                    try self.emit(";\n");
                 }
             } else {
-                try emitConst(self," = ");
-                try emitConst(self,actual_param_name);
-                try emitConst(self,";\n");
+                try self.emit(" = ");
+                try self.emit(actual_param_name);
+                try self.emit(";\n");
             }
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, mut_name);
@@ -1789,16 +1794,16 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             actual_fwd_var = renamed;
         }
         try self.emitIndent();
-        try emitConst(self,"var ");
+        try self.emit("var ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
         // Use i64 as the default type for forward-declared captured variables
         // This matches the capture struct type in closure_gen.zig which uses i64 for non-self captures
-        try emitConst(self,": i64 = undefined;\n");
+        try self.emit(": i64 = undefined;\n");
         // Suppress unused variable warning (forward-declared but might not be used in all paths)
         try self.emitIndent();
-        try emitConst(self,"_ = &");
+        try self.emit("_ = &");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_fwd_var);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         // Mark as forward-declared so assignment doesn't re-declare
         try self.forward_declared_vars.put(actual_fwd_var, {});
         // Also mark as hoisted so for-loop capture doesn't shadow
@@ -1818,9 +1823,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // For generator methods, initialize __gen_result ArrayList before body
         if (is_generator_method) {
             try self.emitIndent();
-            try emitConst(self,"var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
+            try self.emit("var __gen_result = std.ArrayListUnmanaged(runtime.PyValue){};\n");
             try self.emitIndent();
-            try emitConst(self,"_ = &__gen_result;\n");
+            try self.emit("_ = &__gen_result;\n");
         }
 
         // Check if this method returns an error union (__float__, __int__, __index__)
@@ -1842,7 +1847,7 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         // For generator methods, return the collected results
         if (is_generator_method and !self.control_flow_terminated) {
             try self.emitIndent();
-            try emitConst(self,"return __gen_result.items;\n");
+            try self.emit("return __gen_result.items;\n");
         }
     }
 
@@ -1922,9 +1927,9 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                 // Param not used - emit discard using the actual name in generated code
                 // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
                 try self.emitIndent();
-                try emitConst(self,"_ = ");
+                try self.emit("_ = ");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_param_name);
-                try emitConst(self,";\n");
+                try self.emit(";\n");
             }
         }
     }
@@ -1980,5 +1985,5 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 }

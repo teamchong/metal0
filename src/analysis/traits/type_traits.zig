@@ -65,6 +65,11 @@ pub fn isNone(t: NativeType) bool {
     return t == .none;
 }
 
+/// Check if type is optional (?T) - can be compared to null
+pub fn isOptional(t: NativeType) bool {
+    return t == .optional;
+}
+
 /// Check if type is unknown/dynamic
 pub fn isUnknown(t: NativeType) bool {
     return t == .unknown;

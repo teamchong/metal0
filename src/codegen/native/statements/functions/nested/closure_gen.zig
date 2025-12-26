@@ -10,15 +10,6 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
 const function_traits = @import("analysis.function_traits");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// Find the specific context manager type from return statements in body
 /// Returns the Zig type string for the context manager, or null if unknown
 fn findContextManagerTypeInBody(body: []const ast.Node) ?[]const u8 {
@@ -72,9 +63,9 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
     // Solution: Use runtime.AnyCallable vtable wrapper (same as Case 5)
     if (self.closure_vars.contains(var_name)) {
         if (is_mutated) {
-            try emitConst(self,": *runtime.AnyCallable");
+            try self.emit(": *runtime.AnyCallable");
         } else {
-            try emitConst(self,": runtime.AnyCallable");
+            try self.emit(": runtime.AnyCallable");
         }
         return;
     }
@@ -101,16 +92,16 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
         if (has_unknown_element) {
             // For mutated vars, use pointer to @TypeOf
             if (is_mutated) {
-                try emitConst(self,": *@TypeOf(");
+                try self.emit(": *@TypeOf(");
             } else {
-                try emitConst(self,": @TypeOf(");
+                try self.emit(": @TypeOf(");
             }
             if (self.var_renames.get(var_name)) |renamed| {
-                try emitConst(self,renamed);
+                try self.emit(renamed);
             } else {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
             }
-            try emitConst(self,")");
+            try self.emit(")");
             return;
         }
     }
@@ -120,9 +111,9 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
     // Wraps the function with function pointers for .call() and .__name__
     if (var_type == .unknown) {
         if (is_mutated) {
-            try emitConst(self,": *runtime.AnyCallable");
+            try self.emit(": *runtime.AnyCallable");
         } else {
-            try emitConst(self,": runtime.AnyCallable");
+            try self.emit(": runtime.AnyCallable");
         }
         return;
     }
@@ -194,14 +185,14 @@ pub fn genStandardClosure(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try emitConst(self,", ");
-        try emitConst(self," ");
+        if (i > 0) try self.emit(", ");
+        try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
         // Emit the type for this captured variable
         // Mutated vars need pointer type so closure can modify them
         try emitCapturedVarType(self, var_name, mutated_captures.contains(var_name));
     }
-    try emitConst(self," };\n");
+    try self.emit(" };\n");
 
     // Generate the inner function that takes (captures, args...)
     try self.emitIndent();
@@ -326,10 +317,10 @@ pub fn genStandardClosure(
 
         if (std.mem.eql(u8, zig_type, "void")) {
             if (var_tracking.canProduceErrors(func.body)) {
-                try emitConst(self,") anyerror!void {\n");
+                try self.emit(") anyerror!void {\n");
                 return_type_str = "anyerror!void";
             } else {
-                try emitConst(self,") void {\n");
+                try self.emit(") void {\n");
                 return_type_str = "void";
             }
         } else {
@@ -358,15 +349,15 @@ pub fn genStandardClosure(
                 try self.output.writer(self.allocator).print(") {s} {{\n", .{cm_type});
             } else {
                 // Fallback: use generic context manager type
-                try emitConst(self,") runtime.unittest.AssertRaisesContext {\n");
+                try self.emit(") runtime.unittest.AssertRaisesContext {\n");
             }
             use_typed_closure = false; // Context managers don't use TypedClosure
         } else if (closure_ret_type == .void) {
             if (var_tracking.canProduceErrors(func.body)) {
-                try emitConst(self,") anyerror!void {\n");
+                try self.emit(") anyerror!void {\n");
                 return_type_str = "anyerror!void";
             } else {
-                try emitConst(self,") void {\n");
+                try self.emit(") void {\n");
                 return_type_str = "void";
             }
         } else {
@@ -413,7 +404,6 @@ pub fn genStandardClosure(
         try self.emitIndent();
         try self.output.writer(self.allocator).print("_ = &{s};\n", .{capture_param_name});
     }
-
 
     // Create mutable local copies for parameters that are reassigned in body
     // (anytype params are const, but Python allows reassigning parameters)
@@ -615,11 +605,11 @@ pub fn genStandardClosure(
     self.dedent();
 
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"};\n");
+    try self.emit("};\n");
 
     // Add discard statements to prevent "unused local constant" errors
     // The closure impl/capture types might not be used if the closure itself isn't called
@@ -830,7 +820,7 @@ pub fn genStandardClosure(
         // Initialize captures - use renamed variable names from outer scope saved earlier
         // For mutated captures, use & to take pointer
         for (captured_vars, 0..) |var_name, i| {
-            if (i > 0) try emitConst(self,", ");
+            if (i > 0) try self.emit(", ");
             // Check saved outer renames first (for params that were renamed in outer function),
             // then fall back to current var_renames, then the original name
             const actual_name = outer_capture_renames.get(var_name) orelse
@@ -862,7 +852,7 @@ pub fn genStandardClosure(
                 }
             }
         }
-        try emitConst(self," } };\n");
+        try self.emit(" } };\n");
 
         try self.emitIndent();
         // Check if function name will be reassigned (e.g., bar = decorator(bar))
@@ -873,7 +863,7 @@ pub fn genStandardClosure(
         const outer_key = std.fmt.bufPrint(&outer_key_buf, "{s}:0", .{func.name}) catch func.name;
         const is_func_mutated = saved_func_local_mutations.contains(func.name) or
             saved_func_local_mutations.contains(outer_key);
-        try emitConst(self,if (is_func_mutated) "var " else "const ");
+        try self.emit(if (is_func_mutated) "var " else "const ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
         try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
 
@@ -951,18 +941,18 @@ pub fn emitClosureInstantiation(
 
     // Initialize captures
     for (info.captured_vars, 0..) |var_name, i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         // For captured variables, use the ORIGINAL name, not the renamed one.
         // Captured variables exist in the outer scope under their original names.
         // The var_renames may contain shadow renames from inner scopes, which
         // shouldn't apply to capture initialization.
         try self.output.writer(self.allocator).print(" .{s} = {s}", .{ var_name, var_name });
     }
-    try emitConst(self," } };\n");
+    try self.emit(" } };\n");
 
     // Create alias with original function name
     try self.emitIndent();
-    try emitConst(self,"const ");
+    try self.emit("const ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), info.alias_name);
     try self.output.writer(self.allocator).print(" = {s};\n", .{info.closure_var_name});
 
@@ -1026,13 +1016,13 @@ pub fn genNestedFunctionWithOuterCapture(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const {s} = struct {{", .{capture_type_name});
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try emitConst(self,", ");
-        try emitConst(self," ");
+        if (i > 0) try self.emit(", ");
+        try self.emit(" ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
         // Emit the type for this captured variable
         try emitCapturedVarType(self, var_name, mutated_captures.contains(var_name));
     }
-    try emitConst(self," };\n");
+    try self.emit(" };\n");
 
     // Generate the inner function that takes (captures, args...)
     try self.emitIndent();
@@ -1107,19 +1097,19 @@ pub fn genNestedFunctionWithOuterCapture(
 
         if (std.mem.eql(u8, zig_type, "void")) {
             if (var_tracking.canProduceErrors(func.body)) {
-                try emitConst(self,") anyerror!void {\n");
+                try self.emit(") anyerror!void {\n");
             } else {
-                try emitConst(self,") void {\n");
+                try self.emit(") void {\n");
             }
         } else {
             try self.output.writer(self.allocator).print(") anyerror!{s} {{\n", .{zig_type});
         }
     } else if (var_tracking.hasReturnWithValue(func.body)) {
-        try emitConst(self,") anyerror!i64 {\n");
+        try self.emit(") anyerror!i64 {\n");
     } else if (var_tracking.canProduceErrors(func.body)) {
-        try emitConst(self,") anyerror!void {\n");
+        try self.emit(") anyerror!void {\n");
     } else {
-        try emitConst(self,") void {\n");
+        try self.emit(") void {\n");
     }
 
     // Generate body with captured vars renamed to capture_param.varname
@@ -1277,11 +1267,11 @@ pub fn genNestedFunctionWithOuterCapture(
     self.dedent();
 
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"};\n");
+    try self.emit("};\n");
 
     // Create closure type using comptime helper based on arg count
     const closure_var_name = try std.fmt.allocPrint(
@@ -1321,10 +1311,10 @@ pub fn genNestedFunctionWithOuterCapture(
 
     // Arg types (skip for zero-arg closures)
     for (func.args, 0..) |_, i| {
-        if (func.args.len > 1 and i > 0) try emitConst(self,", ");
-        try emitConst(self,"i64");
+        if (func.args.len > 1 and i > 0) try self.emit(", ");
+        try self.emit("i64");
         if (func.args.len == 1 or i == func.args.len - 1) {
-            try emitConst(self,", ");
+            try self.emit(", ");
         }
     }
 
@@ -1345,7 +1335,7 @@ pub fn genNestedFunctionWithOuterCapture(
     // or use renamed variable names if applicable
     // For mutated/nonlocal captures, use & to take pointer
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         const is_mutated = mutated_captures.contains(var_name);
         // Check if this var is from outer closure's captures
         var is_outer_capture = false;
@@ -1371,7 +1361,7 @@ pub fn genNestedFunctionWithOuterCapture(
             }
         }
     }
-    try emitConst(self," } };\n");
+    try self.emit(" } };\n");
 
     // Create alias with original function name
     // Check if func.name would shadow a module-level import
@@ -1389,7 +1379,7 @@ pub fn genNestedFunctionWithOuterCapture(
     defer self.allocator.free(alias_name2);
 
     try self.emitIndent();
-    try emitConst(self,"const ");
+    try self.emit("const ");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name2);
     try self.output.writer(self.allocator).print(" = {s};\n", .{closure_var_name});
 

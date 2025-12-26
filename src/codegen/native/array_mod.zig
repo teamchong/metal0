@@ -6,22 +6,6 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 /// Get Zig type from Python array typecode
 fn getZigType(typecode: u8) []const u8 {
     return switch (typecode) {
@@ -173,21 +157,21 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 
             // Discard arguments (still need to evaluate them for side effects)
             if (a.len > 0) {
-                try emitConst(c, "runtime.discard(");
+                try c.emit("runtime.discard(");
                 try c.genExpr(a[0]);
-                try emitConst(c, ")");
+                try c.emit(")");
                 if (a.len > 1) {
                     // For initializers, populate the array from the bytes
-                    try emitConst(c, "; var __arr_init = ");
+                    try c.emit("; var __arr_init = ");
                     try genArrayStructDef(c, tc);
-                    try emitConst(c, "; __arr_init.frombytes(");
+                    try c.emit("; __arr_init.frombytes(");
                     try c.genExpr(a[1]);
-                    try emitFmtConst(c, "); break :{s} __arr_init", .{label});
+                    try c.emitFmt("); break :{s} __arr_init", .{label});
                     return;
                 }
             }
 
-            try emitFmtConst(c, "break :{s} ", .{label});
+            try c.emitFmt("break :{s} ", .{label});
             try genArrayStructDef(c, tc);
         }
     }.emit);

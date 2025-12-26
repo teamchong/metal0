@@ -12,24 +12,6 @@ const BinOpStrings = shared.BinOpStrings;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
-
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 
@@ -43,7 +25,7 @@ pub fn genExprWithSubs(
         .name => |n| {
             // Check if this name should be substituted
             if (subs.get(n.id)) |sub_name| {
-                try emitConst(self, sub_name);
+                try self.emit(sub_name);
             } else {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
             }
@@ -51,25 +33,25 @@ pub fn genExprWithSubs(
         .binop => |b| {
             // Use @mod for modulo to handle signed integers properly
             if (b.op == .Mod) {
-                try emitConst(self, "@mod(");
+                try self.emit("@mod(");
                 try genExprWithSubs(self, b.left.*, subs);
-                try emitConst(self, ", ");
+                try self.emit(", ");
                 try genExprWithSubs(self, b.right.*, subs);
-                try emitConst(self, ")");
+                try self.emit(")");
             } else if (b.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try emitConst(self, "std.math.pow(i64, ");
+                try self.emit("std.math.pow(i64, ");
                 try genExprWithSubs(self, b.left.*, subs);
-                try emitConst(self, ", ");
+                try self.emit(", ");
                 try genExprWithSubs(self, b.right.*, subs);
-                try emitConst(self, ")");
+                try self.emit(")");
             } else if (b.op == .FloorDiv) {
                 // Floor division uses @divFloor for Python semantics
-                try emitConst(self, "@divFloor(");
+                try self.emit("@divFloor(");
                 try genExprWithSubs(self, b.left.*, subs);
-                try emitConst(self, ", ");
+                try self.emit(", ");
                 try genExprWithSubs(self, b.right.*, subs);
-                try emitConst(self, ")");
+                try self.emit(")");
             } else if (b.op == .LShift or b.op == .RShift) {
                 // Bit shifts need RHS cast to u6 (Zig requires unsigned shift amount)
                 // Uses auto-close pattern for outer parens
@@ -89,10 +71,10 @@ pub fn genExprWithSubs(
                 }, struct {
                     pub fn f(_: *NativeCodegen, ctx: ShiftCtx) CodegenError!void {
                         try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
-                        try emitConst(ctx.s, ctx.op_str);
-                        try emitConst(ctx.s, "@as(u6, @intCast(@mod(");
+                        try ctx.s.emit(ctx.op_str);
+                        try ctx.s.emit("@as(u6, @intCast(@mod(");
                         try genExprWithSubs(ctx.s, ctx.right, ctx.sb);
-                        try emitConst(ctx.s, ", 64)))");
+                        try ctx.s.emit(", 64)))");
                     }
                 }.f);
             } else {
@@ -113,7 +95,7 @@ pub fn genExprWithSubs(
                 }, struct {
                     pub fn f(_: *NativeCodegen, ctx: BinOpCtx) CodegenError!void {
                         try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
-                        try emitConst(ctx.s, ctx.op_str);
+                        try ctx.s.emit(ctx.op_str);
                         try genExprWithSubs(ctx.s, ctx.right, ctx.sb);
                     }
                 }.f);
@@ -129,23 +111,23 @@ pub fn genExprWithSubs(
         },
         .list => |l| {
             // Handle list literals with substitution
-            try emitConst(self, "list_");
+            try self.emit("list_");
             const list_id = self.output.items.len;
             try self.output.writer(self.allocator).print("{d}: {{\n", .{list_id});
             self.indent();
             try self.emitIndent();
-            try emitConst(self, "var _list = std.ArrayListUnmanaged(i64){};\n");
+            try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
             for (l.elts) |elt| {
                 try self.emitIndent();
-                try emitConst(self, "try _list.append(__global_allocator, ");
+                try self.emit("try _list.append(__global_allocator, ");
                 try genExprWithSubs(self, elt, subs);
-                try emitConst(self, ");\n");
+                try self.emit(");\n");
             }
             try self.emitIndent();
             try self.output.writer(self.allocator).print("break :list_{d} _list;\n", .{list_id});
             self.dedent();
             try self.emitIndent();
-            try emitConst(self, "}");
+            try self.emit("}");
         },
         .subscript => |sub| {
             try genSubscriptWithSubs(self, sub, subs);
@@ -171,7 +153,7 @@ pub fn genExprWithSubs(
                 .pfx = prefix,
             }, struct {
                 pub fn f(_: *NativeCodegen, ctx: UnaryCtx) CodegenError!void {
-                    try emitConst(ctx.s, ctx.pfx);
+                    try ctx.s.emit(ctx.pfx);
                     try genExprWithSubs(ctx.s, ctx.operand, ctx.sb);
                 }
             }.f);
@@ -179,18 +161,18 @@ pub fn genExprWithSubs(
         .attribute => |a| {
             // Handle attribute access with substitution: x.attr
             try genExprWithSubs(self, a.value.*, subs);
-            try emitConst(self, ".");
+            try self.emit(".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), a.attr);
         },
         .tuple => |t| {
             // Handle tuple with substitution - use named fields for struct compatibility
-            try emitConst(self, ".{ ");
+            try self.emit(".{ ");
             for (t.elts, 0..) |elt, idx| {
-                if (idx > 0) try emitConst(self, ", ");
+                if (idx > 0) try self.emit(", ");
                 try self.output.writer(self.allocator).print(".@\"{d}\" = ", .{idx});
                 try genExprWithSubs(self, elt, subs);
             }
-            try emitConst(self, " }");
+            try self.emit(" }");
         },
         .if_expr => |ie| {
             try genIfExprWithSubs(self, ie, subs);
@@ -239,14 +221,14 @@ fn genCallWithSubs(
     } else if (c.func.* == .attribute) {
         // Attribute call (e.g., random.sample, struct.unpack_from)
         try genExprWithSubs(self, c.func.*, subs);
-        try emitConst(self, "(");
+        try self.emit("(");
         var first_arg = true;
         for (c.args) |arg| {
-            if (!first_arg) try emitConst(self, ", ");
+            if (!first_arg) try self.emit(", ");
             first_arg = false;
             try genExprWithSubs(self, arg, subs);
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     } else if (c.func.* == .name) {
         try genBuiltinCallWithSubs(self, c, subs);
     } else {
@@ -268,25 +250,25 @@ fn genSimpleCallWithSubs(
         // Use renamed name if available (for closures that shadow imports)
         const output_name = self.var_renames.get(func_name) orelse func_name;
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
-        try emitConst(self, ".call(");
+        try self.emit(".call(");
         var first = true;
         for (c.args) |arg| {
-            if (!first) try emitConst(self, ", ");
+            if (!first) try self.emit(", ");
             first = false;
             try genExprWithSubs(self, arg, subs);
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         // Simple local function - generate with substituted arguments
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-        try emitConst(self, "(__global_allocator, ");
+        try self.emit("(__global_allocator, ");
         var first = true;
         for (c.args) |arg| {
-            if (!first) try emitConst(self, ", ");
+            if (!first) try self.emit(", ");
             first = false;
             try genExprWithSubs(self, arg, subs);
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
@@ -300,65 +282,65 @@ fn genBuiltinCallWithSubs(
 
     if (std.mem.eql(u8, func_name, "bool") and c.args.len == 1) {
         // bool(x) in comprehension - use runtime.toBool with substitution
-        try emitConst(self, "runtime.toBool(");
+        try self.emit("runtime.toBool(");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else if (std.mem.eql(u8, func_name, "int") and c.args.len >= 1) {
         // int(x) or int(x, base) in comprehension - cast with substitution
-        try emitConst(self, "@as(i64, @intCast(");
+        try self.emit("@as(i64, @intCast(");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, "))");
+        try self.emit("))");
     } else if (std.mem.eql(u8, func_name, "str") and c.args.len == 1) {
         // str(x) in comprehension - use runtime.format with substitution
-        try emitConst(self, "runtime.format(\"{}\", .{");
+        try self.emit("runtime.format(\"{}\", .{");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, "})");
+        try self.emit("})");
     } else if (std.mem.eql(u8, func_name, "len") and c.args.len == 1) {
         // len(x) in comprehension - use .len with substitution
-        try emitConst(self, "@as(i64, @intCast((");
+        try self.emit("@as(i64, @intCast((");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, ").len))");
+        try self.emit(").len))");
     } else if (std.mem.eql(u8, func_name, "abs") and c.args.len == 1) {
         // abs(x) in comprehension - use @abs with substitution
-        try emitConst(self, "@abs(");
+        try self.emit("@abs(");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else if (std.mem.eql(u8, func_name, "float") and c.args.len == 1) {
         // float(x) in comprehension - use runtime.floatBuiltinCall with substitution
-        try emitConst(self, "(runtime.floatBuiltinCall(");
+        try self.emit("(runtime.floatBuiltinCall(");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, ", .{}) catch 0.0)");
+        try self.emit(", .{}) catch 0.0)");
     } else if (std.mem.eql(u8, func_name, "complex") and c.args.len >= 1) {
         // complex(x) or complex(x, y) in comprehension - use runtime.PyComplex.create
-        try emitConst(self, "runtime.PyComplex.create(");
+        try self.emit("runtime.PyComplex.create(");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, ", ");
+        try self.emit(", ");
         if (c.args.len >= 2) {
             try genExprWithSubs(self, c.args[1], subs);
         } else {
-            try emitConst(self, "0.0");
+            try self.emit("0.0");
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     } else if (std.mem.eql(u8, func_name, "bytes") and c.args.len > 0) {
         try genBytesCallWithSubs(self, c, subs);
     } else if ((std.mem.eql(u8, func_name, "set") or std.mem.eql(u8, func_name, "frozenset")) and c.args.len == 1) {
         try genSetCallWithSubs(self, c, subs);
     } else if (std.mem.eql(u8, func_name, "bytearray") and c.args.len > 0) {
         // bytearray(n) in comprehension - allocates n zero-filled bytes
-        try emitConst(self, "blk_ba: { const _n: usize = @intCast(");
+        try self.emit("blk_ba: { const _n: usize = @intCast(");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, "); const _buf = try __global_allocator.alloc(u8, _n); @memset(_buf, 0); break :blk_ba _buf; }");
+        try self.emit("); const _buf = try __global_allocator.alloc(u8, _n); @memset(_buf, 0); break :blk_ba _buf; }");
     } else {
         // Fallback: generate call with substituted args
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-        try emitConst(self, "(");
+        try self.emit("(");
         var first_arg = true;
         for (c.args) |arg| {
-            if (!first_arg) try emitConst(self, ", ");
+            if (!first_arg) try self.emit(", ");
             first_arg = false;
             try genExprWithSubs(self, arg, subs);
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     }
 }
 
@@ -371,25 +353,25 @@ fn genBytesCallWithSubs(
     // Special case: bytes([x]) in comprehension needs substitution for list elements
     if (c.args[0] == .list and c.args[0].list.elts.len == 1) {
         // bytes([x]) -> &[_]u8{@intCast(x)} for single element
-        try emitConst(self, "&[_]u8{@intCast(");
+        try self.emit("&[_]u8{@intCast(");
         try genExprWithSubs(self, c.args[0].list.elts[0], subs);
-        try emitConst(self, ")}");
+        try self.emit(")}");
     } else {
         // General case: generate list with substitution
         const label = try self.emitInlineBlockStart("blk");
-        try emitConst(self, "var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
+        try self.emit("var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
         if (c.args[0] == .list) {
             for (c.args[0].list.elts) |elt| {
-                try emitConst(self, "try _bytes_list.append(__global_allocator, @intCast(");
+                try self.emit("try _bytes_list.append(__global_allocator, @intCast(");
                 try genExprWithSubs(self, elt, subs);
-                try emitConst(self, ")); ");
+                try self.emit(")); ");
             }
         } else {
-            try emitConst(self, "for ((");
+            try self.emit("for ((");
             try genExprWithSubs(self, c.args[0], subs);
-            try emitConst(self, ").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
+            try self.emit(").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
         }
-        try emitFmtConst(self, "break :{s} _bytes_list.items; ", .{label});
+        try self.emitFmt("break :{s} _bytes_list.items; ", .{label});
         try self.emitInlineBlockEnd();
     }
 }
@@ -402,35 +384,35 @@ fn genSetCallWithSubs(
 ) CodegenError!void {
     // Generate: set_blk: { var _set = ...; for (<arg>) |_item| { try _set.put(_item, {}); } break :set_blk _set; }
     const label = try self.emitInlineBlockStart("set");
-    try emitConst(self, "\n");
+    try self.emit("\n");
     self.indent();
     try self.emitIndent();
-    try emitConst(self, "var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
+    try self.emit("var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
 
     // Check if arg is a list literal - iterate over elements
     if (c.args[0] == .list) {
         const list_elts = c.args[0].list.elts;
         for (list_elts) |elt| {
             try self.emitIndent();
-            try emitConst(self, "try _set.put(");
+            try self.emit("try _set.put(");
             try genExprWithSubs(self, elt, subs);
-            try emitConst(self, ", {});\n");
+            try self.emit(", {});\n");
         }
     } else {
         // General case - iterate over the expression
         try self.emitIndent();
-        try emitConst(self, "for (");
+        try self.emit("for (");
         try genExprWithSubs(self, c.args[0], subs);
-        try emitConst(self, ") |_item| {\n");
+        try self.emit(") |_item| {\n");
         self.indent();
         try self.emitIndent();
-        try emitConst(self, "try _set.put(_item, {});\n");
+        try self.emit("try _set.put(_item, {});\n");
         self.dedent();
         try self.emitIndent();
-        try emitConst(self, "}\n");
+        try self.emit("}\n");
     }
     try self.emitIndent();
-    try emitFmtConst(self, "break :{s} _set;\n", .{label});
+    try self.emitFmt("break :{s} _set;\n", .{label});
     self.dedent();
     try self.emitIndent();
     try self.emitInlineBlockEnd();
@@ -446,29 +428,29 @@ fn genSubscriptWithSubs(
         .slice => |sr| {
             // It's a slice - generate slice with substitutions
             const label = try self.emitInlineBlockStart("slice");
-            try emitConst(self, "const __s = ");
+            try self.emit("const __s = ");
             try genExprWithSubs(self, sub.value.*, subs);
-            try emitConst(self, "; const __start = @min(");
+            try self.emit("; const __start = @min(");
             if (sr.lower) |lower| {
                 try genExprWithSubs(self, lower.*, subs);
             } else {
-                try emitConst(self, "0");
+                try self.emit("0");
             }
-            try emitConst(self, ", __s.len); const __end = @min(");
+            try self.emit(", __s.len); const __end = @min(");
             if (sr.upper) |upper| {
                 try genExprWithSubs(self, upper.*, subs);
             } else {
-                try emitConst(self, "__s.len");
+                try self.emit("__s.len");
             }
-            try emitFmtConst(self, ", __s.len); break :{s} if (__start < __end) __s[__start..__end] else \"\"; ", .{label});
+            try self.emitFmt(", __s.len); break :{s} if (__start < __end) __s[__start..__end] else \"\"; ", .{label});
             try self.emitInlineBlockEnd();
         },
         .index => |idx| {
             // Simple index with substitution
             try genExprWithSubs(self, sub.value.*, subs);
-            try emitConst(self, "[");
+            try self.emit("[");
             try genExprWithSubs(self, idx.*, subs);
-            try emitConst(self, "]");
+            try self.emit("]");
         },
     }
 }
@@ -483,25 +465,25 @@ fn genIfExprWithSubs(
     // Check condition type - need to convert non-bool to bool
     const cond_type = self.type_inferrer.inferExpr(ie.condition.*) catch .unknown;
 
-    try emitConst(self, "(if (");
+    try self.emit("(if (");
     if (type_traits.isIntegral(cond_type) or type_traits.isFloating(cond_type)) {
         // Integer/float condition - check != 0
         try genExprWithSubs(self, ie.condition.*, subs);
-        try emitConst(self, " != 0");
+        try self.emit(" != 0");
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try emitConst(self, "runtime.pyTruthy(");
+        try self.emit("runtime.pyTruthy(");
         try genExprWithSubs(self, ie.condition.*, subs);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         // Boolean or other type - use directly
         try genExprWithSubs(self, ie.condition.*, subs);
     }
-    try emitConst(self, ") ");
+    try self.emit(") ");
     try genExprWithSubs(self, ie.body.*, subs);
-    try emitConst(self, " else ");
+    try self.emit(" else ");
     try genExprWithSubs(self, ie.orelse_value.*, subs);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate comparison with substitutions
@@ -558,7 +540,7 @@ fn genCompareWithSubs(
                         .GtEq => " >= ",
                         else => " == ", // Fallback (shouldn't reach here)
                     };
-                    try emitConst(ctx.s, op_str);
+                    try ctx.s.emit(op_str);
                     try genExprWithSubs(ctx.s, ctx.comparators[idx], ctx.sb);
                 }
             }

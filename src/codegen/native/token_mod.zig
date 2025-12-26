@@ -7,24 +7,6 @@ const ast = @import("analysis.ast");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output - uses h.NativeCodegen from mod_helper
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ENDMARKER", genEndmarker },
     .{ "NAME", genName },
@@ -132,9 +114,9 @@ fn genIsterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("isterminal", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const x = ");
+                try c.emit("const x = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} x < 256; ", .{label});
+                try c.emitFmt("; break :{s} x < 256; ", .{label});
             }
         }.emit);
     } else {
@@ -147,9 +129,9 @@ fn genIsnonterminal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!voi
     if (args.len > 0) {
         try self.withInlineBlock("isnonterminal", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const x = ");
+                try c.emit("const x = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} x >= 256; ", .{label});
+                try c.emitFmt("; break :{s} x >= 256; ", .{label});
             }
         }.emit);
     } else {
@@ -162,9 +144,9 @@ fn genIseof(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("iseof", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const x = ");
+                try c.emit("const x = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} x == 0; ", .{label});
+                try c.emitFmt("; break :{s} x == 0; ", .{label});
             }
         }.emit);
     } else {

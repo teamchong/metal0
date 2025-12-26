@@ -9,28 +9,12 @@ const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
 pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // str() with no args returns empty string
-        try emitConst(self,"\"\"");
+        try self.emit("\"\"");
         return;
     }
 
@@ -76,39 +60,39 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (arg_type == .bigint) {
         // BigInt needs special formatting via toDecimalString
-        try emitFmtConst(self, "str_{d}: {{\n", .{str_label_id});
-        try emitFmtConst(self, "break :str_{d} (", .{str_label_id});
+        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
+        try self.emitFmt("break :str_{d} (", .{str_label_id});
         try self.genExpr(args[0]);
-        try emitFmtConst(self, ").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
+        try self.emitFmt(").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
         return;
     } else if (type_traits.isIntegral(arg_type)) {
         // FAST PATH: Use stack buffer for int->str conversion (common in hot loops)
         // Stack buffer: i64 max is 19 digits + sign + null = 21 bytes, use 32 for safety
-        try emitFmtConst(self, "str_{d}: {{\n", .{str_label_id});
-        try emitFmtConst(self, "var __str_stack_{d}: [32]u8 = undefined;\n", .{str_label_id});
-        try emitFmtConst(self, "break :str_{d} std.fmt.bufPrint(&__str_stack_{d}, \"{{}}\", .{{", .{ str_label_id, str_label_id });
+        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
+        try self.emitFmt("var __str_stack_{d}: [32]u8 = undefined;\n", .{str_label_id});
+        try self.emitFmt("break :str_{d} std.fmt.bufPrint(&__str_stack_{d}, \"{{}}\", .{{", .{ str_label_id, str_label_id });
         try self.genExpr(args[0]);
-        try emitConst(self,"}) catch unreachable;\n}");
+        try self.emit("}) catch unreachable;\n}");
         return;
     } else if (type_traits.isFloating(arg_type) and !is_float_error_union) {
         // Use runtime formatFloat which handles NaN/Inf properly (Python: str(nan) == "nan" not "-nan")
-        try emitConst(self,"(try runtime.formatFloat(");
+        try self.emit("(try runtime.formatFloat(");
         try self.genExpr(args[0]);
-        try emitFmtConst(self, ", {s}))", .{alloc_name});
+        try self.emitFmt(", {s}))", .{alloc_name});
         return;
     } else if (type_traits.isBoolean(arg_type)) {
         // Python bool to string: True/False - no allocation needed!
-        try emitConst(self,"(if (");
+        try self.emit("(if (");
         try self.genExpr(args[0]);
-        try emitConst(self,") \"True\" else \"False\")");
+        try self.emit(") \"True\" else \"False\")");
         return;
     } else if (container_traits.isTuple(arg_type)) {
         // For tuples: use Python-style (a, b, c) format
-        try emitConst(self,"(try runtime.builtins.tupleRepr(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.builtins.tupleRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
         return;
     }
 
@@ -135,18 +119,18 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (dunder_info.has_str and args[0] == .name) {
         if (self.inside_try_body and !self.in_assert_raises_context) {
             // In try block (not assertRaises) - propagate errors with try
-            try emitConst(self,"(try ");
+            try self.emit("(try ");
             try self.genExpr(args[0]);
-            try emitConst(self,".__str__())");
+            try self.emit(".__str__())");
         } else if (self.in_assert_raises_context) {
             // In assertRaises - return error union as-is for expectError()
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(args[0]);
-            try emitConst(self,".__str__())");
+            try self.emit(".__str__())");
         } else {
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(args[0]);
-            try emitConst(self,".__str__() catch \"\")");
+            try self.emit(".__str__() catch \"\")");
         }
         return;
     }
@@ -155,18 +139,18 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (dunder_info.has_repr and args[0] == .name) {
         if (self.inside_try_body and !self.in_assert_raises_context) {
             // In try block (not assertRaises) - propagate errors with try
-            try emitConst(self,"(try ");
+            try self.emit("(try ");
             try self.genExpr(args[0]);
-            try emitConst(self,".__repr__())");
+            try self.emit(".__repr__())");
         } else if (self.in_assert_raises_context) {
             // In assertRaises - return error union as-is for expectError()
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(args[0]);
-            try emitConst(self,".__repr__())");
+            try self.emit(".__repr__())");
         } else {
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(args[0]);
-            try emitConst(self,".__repr__() catch \"\")");
+            try self.emit(".__repr__() catch \"\")");
         }
         return;
     }
@@ -185,16 +169,16 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_c_pyobject) {
         // Use runtime.pyObjToStr for C API PyObject types
-        try emitFmtConst(self, "(try runtime.pyObjToStr({s}, ", .{alloc_name});
+        try self.emitFmt("(try runtime.pyObjToStr({s}, ", .{alloc_name});
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
     } else {
         // For unknown types: use pyStr which handles tuples/structs with Python formatting
-        try emitConst(self,"(try runtime.builtins.pyStr(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.builtins.pyStr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
     }
 }
 
@@ -203,7 +187,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // bytes() with no args returns empty bytes
-        try emitConst(self,"\"\"");
+        try self.emit("\"\"");
         return;
     }
 
@@ -228,23 +212,23 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
         var em = self.exprEmitter();
         const bytes_label_id = em.reserveLabelId();
-        try emitFmtConst(self, "bytes_{d}: {{\n", .{bytes_label_id});
-        try emitFmtConst(self, "const _len: usize = @intCast(", .{});
+        try self.emitFmt("bytes_{d}: {{\n", .{bytes_label_id});
+        try self.emitFmt("const _len: usize = @intCast(", .{});
         try self.genExpr(args[0]);
-        try emitConst(self,");\n");
-        try emitFmtConst(self, "const _buf = try {s}.alloc(u8, _len);\n", .{alloc_name});
-        try emitConst(self,"@memset(_buf, 0);\n");
-        try emitFmtConst(self, "break :bytes_{d} _buf;\n", .{bytes_label_id});
-        try emitConst(self,"}");
+        try self.emit(");\n");
+        try self.emitFmt("const _buf = try {s}.alloc(u8, _len);\n", .{alloc_name});
+        try self.emit("@memset(_buf, 0);\n");
+        try self.emitFmt("break :bytes_{d} _buf;\n", .{bytes_label_id});
+        try self.emit("}");
         return;
     }
 
     // Two-Flow: For unknown/PyValue types, use runtime bytes conversion
     // bytes() doesn't need allocator - just converts value to bytes representation
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        try emitConst(self,"runtime.builtins.bytes(");
+        try self.emit("runtime.builtins.bytes(");
         try self.genExpr(args[0]);
-        try emitConst(self,")");
+        try self.emit(")");
         return;
     }
 
@@ -257,7 +241,7 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         // bytearray() with no args returns empty byte array
-        try emitConst(self,"\"\"");
+        try self.emit("\"\"");
         return;
     }
 
@@ -282,25 +266,25 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
         var em = self.exprEmitter();
         const bytearray_label_id = em.reserveLabelId();
-        try emitFmtConst(self, "bytearray_{d}: {{\n", .{bytearray_label_id});
-        try emitFmtConst(self, "const _len: usize = @intCast(", .{});
+        try self.emitFmt("bytearray_{d}: {{\n", .{bytearray_label_id});
+        try self.emitFmt("const _len: usize = @intCast(", .{});
         try self.genExpr(args[0]);
-        try emitConst(self,");\n");
-        try emitFmtConst(self, "const _buf = {s}.alloc(u8, _len) catch unreachable;\n", .{alloc_name});
-        try emitConst(self,"@memset(_buf, 0);\n");
-        try emitFmtConst(self, "break :bytearray_{d} _buf;\n", .{bytearray_label_id});
-        try emitConst(self,"}");
+        try self.emit(");\n");
+        try self.emitFmt("const _buf = {s}.alloc(u8, _len) catch unreachable;\n", .{alloc_name});
+        try self.emit("@memset(_buf, 0);\n");
+        try self.emitFmt("break :bytearray_{d} _buf;\n", .{bytearray_label_id});
+        try self.emit("}");
         return;
     }
 
     // Two-Flow: For unknown/PyValue types, use runtime bytearray conversion
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         const alloc_name = if (self.symbol_table.currentScopeLevel() > 0) "__global_allocator" else "allocator";
-        try emitConst(self,"(try runtime.builtins.bytearray(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.builtins.bytearray(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
         return;
     }
 
@@ -312,7 +296,7 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// memoryview provides a view into a buffer - in Zig, treated as []const u8
 pub fn genMemoryview(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"\"\"");
+        try self.emit("\"\"");
         return;
     }
 
@@ -338,33 +322,33 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (string_traits.isString(arg_type)) {
         var em = self.exprEmitter();
         const repr_label_id = em.reserveLabelId();
-        try emitFmtConst(self, "repr_{d}: {{\n", .{repr_label_id});
-        try emitFmtConst(self, "var __repr_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_label_id});
-        try emitFmtConst(self, "try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
-        try emitFmtConst(self, "try __repr_buf_{d}.appendSlice({s}, ", .{ repr_label_id, alloc_name });
+        try self.emitFmt("repr_{d}: {{\n", .{repr_label_id});
+        try self.emitFmt("var __repr_buf_{d} = std.ArrayList(u8){{}};\n", .{repr_label_id});
+        try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
+        try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, ", .{ repr_label_id, alloc_name });
         try self.genExpr(args[0]);
-        try emitConst(self,");\n");
-        try emitFmtConst(self, "try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
-        try emitFmtConst(self, "break :repr_{d} try __repr_buf_{d}.toOwnedSlice({s});\n", .{ repr_label_id, repr_label_id, alloc_name });
-        try emitConst(self,"}");
+        try self.emit(");\n");
+        try self.emitFmt("try __repr_buf_{d}.appendSlice({s}, \"'\");\n", .{ repr_label_id, alloc_name });
+        try self.emitFmt("break :repr_{d} try __repr_buf_{d}.toOwnedSlice({s});\n", .{ repr_label_id, repr_label_id, alloc_name });
+        try self.emit("}");
         return;
     }
 
     // For bools: True/False
     if (type_traits.isBoolean(arg_type)) {
-        try emitConst(self,"(if (");
+        try self.emit("(if (");
         try self.genExpr(args[0]);
-        try emitConst(self,") \"True\" else \"False\")");
+        try self.emit(") \"True\" else \"False\")");
         return;
     }
 
     // For tuples: use Python-style (a, b, c) format
     if (container_traits.isTuple(arg_type)) {
-        try emitConst(self,"(try runtime.builtins.tupleRepr(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.builtins.tupleRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
         return;
     }
 
@@ -385,21 +369,21 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For integers, use pyRepr which handles anytype params correctly
     // (closures generate anytype parameters whose actual type may differ from inference)
     if (type_traits.isIntegral(arg_type)) {
-        try emitConst(self,"(try runtime.builtins.pyRepr(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.builtins.pyRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
         return;
     }
 
     // For floats, use runtime.builtins.pyRepr which handles nan/inf correctly
     if (type_traits.isFloating(arg_type) and !is_float_error_union) {
-        try emitConst(self,"(try runtime.builtins.pyRepr(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.builtins.pyRepr(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,"))");
+        try self.emit("))");
         return;
     }
 
@@ -407,22 +391,22 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (arg_type == .bigint) {
         var em = self.exprEmitter();
         const repr_num_label_id = em.reserveLabelId();
-        try emitFmtConst(self, "repr_num_{d}: {{\n", .{repr_num_label_id});
-        try emitFmtConst(self, "var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
-        try emitFmtConst(self, "try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });
+        try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
+        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
+        try self.emitFmt("try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });
         try self.genExpr(args[0]);
-        try emitFmtConst(self, ").toDecimalString({s}));\n", .{alloc_name});
-        try emitFmtConst(self, "break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
-        try emitConst(self,"}");
+        try self.emitFmt(").toDecimalString({s}));\n", .{alloc_name});
+        try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
+        try self.emit("}");
         return;
     }
 
     // For unknown types: use pyRepr which handles tuples/structs with Python formatting
-    try emitConst(self,"(try runtime.builtins.pyRepr(");
-    try emitConst(self,alloc_name);
-    try emitConst(self,", ");
+    try self.emit("(try runtime.builtins.pyRepr(");
+    try self.emit(alloc_name);
+    try self.emit(", ");
     try self.genExpr(args[0]);
-    try emitConst(self,"))");
+    try self.emit("))");
 }
 
 /// Generate code for ascii(obj)
@@ -430,7 +414,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// but escape non-ASCII characters using \x, \u, or \U escapes
 pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"\"\"");
+        try self.emit("\"\"");
         return;
     }
 
@@ -440,22 +424,22 @@ pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: Check for uncertain types first
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Use runtime ascii for uncertain types
-        try emitConst(self,"runtime.asciiRepr(");
+        try self.emit("runtime.asciiRepr(");
         try self.genExpr(args[0]);
-        try emitConst(self,")");
+        try self.emit(")");
         return;
     }
 
     if (string_traits.isString(arg_type)) {
         // For strings, wrap in quotes and escape non-ASCII
-        try emitConst(self,"runtime.asciiStr(");
+        try self.emit("runtime.asciiStr(");
         try self.genExpr(args[0]);
-        try emitConst(self,")");
+        try self.emit(")");
     } else {
         // For other types, get repr first
-        try emitConst(self,"runtime.asciiRepr(");
+        try self.emit("runtime.asciiRepr(");
         try self.genExpr(args[0]);
-        try emitConst(self,")");
+        try self.emit(")");
     }
 }
 
@@ -463,7 +447,7 @@ pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Returns value.__format__(format_spec)
 pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"\"\"");
+        try self.emit("\"\"");
         return;
     }
 
@@ -477,27 +461,27 @@ pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // format(value) - use default format spec
         if (is_uncertain) {
             // For uncertain types, use runtime format
-            try emitConst(self,"(try runtime.pyFormat(");
-            try emitConst(self,alloc_name);
-            try emitConst(self,", ");
+            try self.emit("(try runtime.pyFormat(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
             try self.genExpr(args[0]);
-            try emitConst(self,", \"\"))");
+            try self.emit(", \"\"))");
         } else {
-            try emitConst(self,"std.fmt.allocPrint(");
-            try emitConst(self,alloc_name);
-            try emitConst(self,", \"{any}\", .{");
+            try self.emit("std.fmt.allocPrint(");
+            try self.emit(alloc_name);
+            try self.emit(", \"{any}\", .{");
             try self.genExpr(args[0]);
-            try emitConst(self,"}) catch \"\"");
+            try self.emit("}) catch \"\"");
         }
     } else {
         // format(value, format_spec)
         // Use runtime.pyFormat for proper Python format handling
-        try emitConst(self,"(try runtime.pyFormat(");
-        try emitConst(self,alloc_name);
-        try emitConst(self,", ");
+        try self.emit("(try runtime.pyFormat(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try emitConst(self,", ");
+        try self.emit(", ");
         try self.genExpr(args[1]);
-        try emitConst(self,"))");
+        try self.emit("))");
     }
 }

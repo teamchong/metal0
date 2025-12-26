@@ -27,14 +27,6 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "expand", genExpand },
 });
 
-// Helper for simple constant output
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("sre", args, struct {
@@ -53,55 +45,55 @@ fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
             }
         }.emit);
     } else {
-        try emitConst(self, ".{ .pattern = \"\", .flags = 0, .groups = 0 }");
+        try self.emit(".{ .pattern = \"\", .flags = 0, .groups = 0 }");
     }
 }
 
 fn genCodesize(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 4)");
+    try self.emit("@as(i32, 4)");
 }
 
 fn genMagic(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 20171005)");
+    try self.emit("@as(i32, 20171005)");
 }
 
 fn genGetlower(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try emitConst(self, "@as(i32, 0)");
+        try self.emit("@as(i32, 0)");
     }
 }
 
 fn genGetcodesizeFunc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 4)");
+    try self.emit("@as(i32, 4)");
 }
 
 fn genMatch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "null");
+    try self.emit("null");
 }
 
 fn genFullmatch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "null");
+    try self.emit("null");
 }
 
 fn genSearch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "null");
+    try self.emit("null");
 }
 
 fn genFindall(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "&[_][]const u8{}");
+    try self.emit("&[_][]const u8{}");
 }
 
 fn genFinditer(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "&[_]@TypeOf(null){}");
+    try self.emit("&[_]@TypeOf(null){}");
 }
 
 fn genSub(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 1) {
         try self.genExpr(args[1]);
     } else {
-        try emitConst(self, "\"\"");
+        try self.emit("\"\"");
     }
 }
 
@@ -121,38 +113,38 @@ fn genSubn(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
             try self.output.appendSlice(self.allocator, output);
         }
     } else {
-        try emitConst(self, ".{ \"\", @as(i64, 0) }");
+        try self.emit(".{ \"\", @as(i64, 0) }");
     }
 }
 
 fn genSplit(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "&[_][]const u8{}");
+    try self.emit("&[_][]const u8{}");
 }
 
 fn genGroup(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"\"");
+    try self.emit("\"\"");
 }
 
 fn genGroups(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{}");
+    try self.emit(".{}");
 }
 
 fn genGroupdict(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{}");
+    try self.emit(".{}");
 }
 
 fn genStart(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i64, 0)");
+    try self.emit("@as(i64, 0)");
 }
 
 fn genEnd(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i64, 0)");
+    try self.emit("@as(i64, 0)");
 }
 
 fn genSpan(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ @as(i64, 0), @as(i64, 0) }");
+    try self.emit(".{ @as(i64, 0), @as(i64, 0) }");
 }
 
 fn genExpand(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"\"");
+    try self.emit("\"\"");
 }

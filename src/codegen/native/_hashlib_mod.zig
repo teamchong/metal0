@@ -6,22 +6,6 @@ const ast = @import("analysis.ast");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "new", genNew },
     .{ "openssl_md5", genOpensslMd5 },
@@ -45,90 +29,90 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, ".{ .name = \"sha256\", .digest_size = 32 }");
+        try self.emit(".{ .name = \"sha256\", .digest_size = 32 }");
         return;
     }
     try self.withInlineBlock("new", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const name = ");
+            try c.emit("const name = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}", .{label});
+            try c.emitFmt("; break :{s} .{{ .name = name, .digest_size = if (std.mem.eql(u8, name, \"md5\")) @as(u8, 16) else if (std.mem.eql(u8, name, \"sha1\")) @as(u8, 20) else if (std.mem.eql(u8, name, \"sha256\")) @as(u8, 32) else if (std.mem.eql(u8, name, \"sha384\")) @as(u8, 48) else if (std.mem.eql(u8, name, \"sha512\")) @as(u8, 64) else @as(u8, 32) }}", .{label});
         }
     }.emit);
 }
 
 fn genOpensslMd5(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"md5\", .digest_size = 16 }");
+    try self.emit(".{ .name = \"md5\", .digest_size = 16 }");
 }
 
 fn genOpensslSha1(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha1\", .digest_size = 20 }");
+    try self.emit(".{ .name = \"sha1\", .digest_size = 20 }");
 }
 
 fn genOpensslSha224(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha224\", .digest_size = 28 }");
+    try self.emit(".{ .name = \"sha224\", .digest_size = 28 }");
 }
 
 fn genOpensslSha256(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha256\", .digest_size = 32 }");
+    try self.emit(".{ .name = \"sha256\", .digest_size = 32 }");
 }
 
 fn genOpensslSha384(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha384\", .digest_size = 48 }");
+    try self.emit(".{ .name = \"sha384\", .digest_size = 48 }");
 }
 
 fn genOpensslSha512(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha512\", .digest_size = 64 }");
+    try self.emit(".{ .name = \"sha512\", .digest_size = 64 }");
 }
 
 fn genOpensslSha3_224(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha3_224\", .digest_size = 28 }");
+    try self.emit(".{ .name = \"sha3_224\", .digest_size = 28 }");
 }
 
 fn genOpensslSha3_256(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha3_256\", .digest_size = 32 }");
+    try self.emit(".{ .name = \"sha3_256\", .digest_size = 32 }");
 }
 
 fn genOpensslSha3_384(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha3_384\", .digest_size = 48 }");
+    try self.emit(".{ .name = \"sha3_384\", .digest_size = 48 }");
 }
 
 fn genOpensslSha3_512(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"sha3_512\", .digest_size = 64 }");
+    try self.emit(".{ .name = \"sha3_512\", .digest_size = 64 }");
 }
 
 fn genOpensslShake128(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"shake_128\", .digest_size = 0 }");
+    try self.emit(".{ .name = \"shake_128\", .digest_size = 0 }");
 }
 
 fn genOpensslShake256(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .name = \"shake_256\", .digest_size = 0 }");
+    try self.emit(".{ .name = \"shake_256\", .digest_size = 0 }");
 }
 
 fn genPbkdf2Hmac(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "&[_]u8{} ** 32");
+    try self.emit("&[_]u8{} ** 32");
 }
 
 fn genScrypt(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "&[_]u8{} ** 64");
+    try self.emit("&[_]u8{} ** 64");
 }
 
 fn genHmacDigest(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "&[_]u8{} ** 32");
+    try self.emit("&[_]u8{} ** 32");
 }
 
 fn genCompareDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        try emitConst(self, "std.mem.eql(u8, ");
+        try self.emit("std.mem.eql(u8, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try self.genExpr(args[1]);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genOpensslMdMethNames(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "&[_][]const u8{ \"md5\", \"sha1\", \"sha224\", \"sha256\", \"sha384\", \"sha512\", \"sha3_224\", \"sha3_256\", \"sha3_384\", \"sha3_512\", \"shake_128\", \"shake_256\", \"blake2b\", \"blake2s\" }");
+    try self.emit("&[_][]const u8{ \"md5\", \"sha1\", \"sha224\", \"sha256\", \"sha384\", \"sha512\", \"sha3_224\", \"sha3_256\", \"sha3_384\", \"sha3_512\", \"shake_128\", \"shake_256\", \"blake2b\", \"blake2s\" }");
 }

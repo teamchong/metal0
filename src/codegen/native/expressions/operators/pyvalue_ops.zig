@@ -15,34 +15,26 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // PyValue operation helpers - auto-closing patterns
 // ============================================
 
 /// Emit operand wrapped in runtime.PyValue.from(), with comptime literal casting if needed
 fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.PyValue.from(");
+    try self.emit("runtime.PyValue.from(");
     if (isComptimeLiteral(expr)) {
         // Cast comptime literal to concrete type
         if (isComptimeFloat(expr)) {
-            try emitConst(self, "@as(f64, ");
+            try self.emit("@as(f64, ");
         } else {
-            try emitConst(self, "@as(i64, ");
+            try self.emit("@as(i64, ");
         }
         try self.emitZigValue(operand);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         try self.emitZigValue(operand);
     }
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// PyValue method names for binary operations
@@ -167,8 +159,8 @@ pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             try emitPyValueFrom(ctx.s, ctx.l, ctx.lo);
         }
     }.f);
-    try emitConst(self, ".");
-    try emitConst(self, method_name);
+    try self.emit(".");
+    try self.emit(method_name);
     const RightCtx = struct { s: *NativeCodegen, r: ast.Node, ro: ZigValue };
     try self.withParensCtx(RightCtx{ .s = self, .r = binop.right.*, .ro = right_operand }, struct {
         pub fn f(_: *NativeCodegen, ctx: RightCtx) CodegenError!void {

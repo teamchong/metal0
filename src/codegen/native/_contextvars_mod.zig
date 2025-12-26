@@ -6,22 +6,6 @@ const ast = @import("analysis.ast");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "context_var", genContextVar },
     .{ "context", genContext },
@@ -36,46 +20,46 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genContextVar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, ".{ .name = \"\", .default = null }");
+        try self.emit(".{ .name = \"\", .default = null }");
         return;
     }
     try self.withInlineBlock("cvi", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const __v = ");
+            try c.emit("const __v = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} .{{ .name = __v, .default = null }}", .{label});
+            try c.emitFmt("; break :{s} .{{ .name = __v, .default = null }}", .{label});
         }
     }.emit);
 }
 
 fn genContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{}");
+    try self.emit(".{}");
 }
 
 fn genToken(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .var = null, .old_value = null, .used = false }");
+    try self.emit(".{ .var = null, .old_value = null, .used = false }");
 }
 
 fn genCopyContext(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{}");
+    try self.emit(".{}");
 }
 
 fn genGet(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "null");
+    try self.emit("null");
 }
 
 fn genSet(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .var = null, .old_value = null, .used = false }");
+    try self.emit(".{ .var = null, .old_value = null, .used = false }");
 }
 
 fn genReset(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "{}");
+    try self.emit("{}");
 }
 
 fn genRun(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "null");
+    try self.emit("null");
 }
 
 fn genCopy(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{}");
+    try self.emit(".{}");
 }

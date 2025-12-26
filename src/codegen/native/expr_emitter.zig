@@ -33,22 +33,6 @@ const producesBlockExpression = @import("expressions.zig").producesBlockExpressi
 
 pub const CodegenError = @import("main/core.zig").CodegenError;
 
-// Helper for simple constant output
-fn emitConst(codegen: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try codegen.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try codegen.output.appendSlice(codegen.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(codegen: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try codegen.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try codegen.output.appendSlice(codegen.allocator, output);
-}
-
 /// Expression emitter with safe wrapping utilities
 pub const ExprEmitter = struct {
     codegen: *NativeCodegen,
@@ -56,9 +40,9 @@ pub const ExprEmitter = struct {
     /// Emit expression wrapped in parentheses
     /// Use when expression result needs to be used with operators/methods
     pub fn wrap(self: *ExprEmitter, expr: ast.Node) CodegenError!void {
-        try emitConst(self.codegen, "(");
+        try self.codegen.emit("(");
         try genExpr(self.codegen, expr);
-        try emitConst(self.codegen, ")");
+        try self.codegen.emit(")");
     }
 
     /// Callback-style paren wrapping - guarantees closing paren
@@ -69,9 +53,9 @@ pub const ExprEmitter = struct {
         ctx: anytype,
         comptime body_fn: fn (@TypeOf(ctx), *NativeCodegen) CodegenError!void,
     ) CodegenError!void {
-        try emitConst(self.codegen, "(");
+        try self.codegen.emit("(");
         try body_fn(ctx, self.codegen);
-        try emitConst(self.codegen, ")");
+        try self.codegen.emit(")");
     }
 
     /// Callback-style paren wrapping with custom open/close strings
@@ -83,9 +67,9 @@ pub const ExprEmitter = struct {
         ctx: anytype,
         comptime body_fn: fn (@TypeOf(ctx), *NativeCodegen) CodegenError!void,
     ) CodegenError!void {
-        try emitConst(self.codegen, open);
+        try self.codegen.emit(open);
         try body_fn(ctx, self.codegen);
-        try emitConst(self.codegen, close);
+        try self.codegen.emit(close);
     }
 
     /// Emit expression only wrapped if it produces a block expression
@@ -114,25 +98,25 @@ pub const ExprEmitter = struct {
     /// Pattern: (( - must be completed with endCatch()
     /// This ensures .method() binds to the result, not the handler
     pub fn startCatch(self: *ExprEmitter) CodegenError!void {
-        try emitConst(self.codegen, "((");
+        try self.codegen.emit("((");
     }
 
     /// Complete the catch expression started with startCatch()
     /// Emits: ) catch handler)
     pub fn endCatch(self: *ExprEmitter, comptime handler: []const u8) CodegenError!void {
-        try emitConst(self.codegen, ") catch ");
-        try emitConst(self.codegen, handler);
-        try emitConst(self.codegen, ")");
+        try self.codegen.emit(") catch ");
+        try self.codegen.emit(handler);
+        try self.codegen.emit(")");
     }
 
     /// Emit a full expression with catch handler (convenience method)
     /// Emits: ((expr) catch handler)
     pub fn emitWithCatch(self: *ExprEmitter, expr: ast.Node, comptime handler: []const u8) CodegenError!void {
-        try emitConst(self.codegen, "((");
+        try self.codegen.emit("((");
         try genExpr(self.codegen, expr);
-        try emitConst(self.codegen, ") catch ");
-        try emitConst(self.codegen, handler);
-        try emitConst(self.codegen, ")");
+        try self.codegen.emit(") catch ");
+        try self.codegen.emit(handler);
+        try self.codegen.emit(")");
     }
 
     /// Create a labeled block with a temp variable for the expression
@@ -148,9 +132,9 @@ pub const ExprEmitter = struct {
         self.codegen.block_label_counter += 1;
 
         // Emit block start with temp variable
-        try emitFmtConst(self.codegen, "({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
+        try self.codegen.emitFmt("({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
         try genExpr(self.codegen, expr);
-        try emitConst(self.codegen, "; ");
+        try self.codegen.emit("; ");
 
         return LabeledBlock{
             .emitter = self,
@@ -168,7 +152,7 @@ pub const ExprEmitter = struct {
         const label_id = self.codegen.block_label_counter;
         self.codegen.block_label_counter += 1;
 
-        try emitFmtConst(self.codegen, "({s}_{d}: {{ ", .{ prefix, label_id });
+        try self.codegen.emitFmt("({s}_{d}: {{ ", .{ prefix, label_id });
 
         return LabeledBlock{
             .emitter = self,
@@ -186,9 +170,9 @@ pub const ExprEmitter = struct {
         ctx: anytype,
         comptime emitInner: fn(@TypeOf(ctx), *NativeCodegen) CodegenError!void,
     ) CodegenError!void {
-        try emitConst(self.codegen, "((");
+        try self.codegen.emit("((");
         try emitInner(ctx, self.codegen);
-        try emitConst(self.codegen, ")) catch @panic(\"OOM\"))");
+        try self.codegen.emit(")) catch @panic(\"OOM\"))");
     }
 
     /// Emit code wrapped with custom catch handler using callback
@@ -199,11 +183,11 @@ pub const ExprEmitter = struct {
         ctx: anytype,
         comptime emitInner: fn(@TypeOf(ctx), *NativeCodegen) CodegenError!void,
     ) CodegenError!void {
-        try emitConst(self.codegen, "((");
+        try self.codegen.emit("((");
         try emitInner(ctx, self.codegen);
-        try emitConst(self.codegen, ") catch ");
-        try emitConst(self.codegen, handler);
-        try emitConst(self.codegen, ")");
+        try self.codegen.emit(") catch ");
+        try self.codegen.emit(handler);
+        try self.codegen.emit(")");
     }
 
     /// Emit a labeled block with callback pattern (auto-closes)
@@ -284,9 +268,9 @@ pub const ExprEmitter = struct {
         self.codegen.block_label_counter += 1;
 
         // Emit block start with mutable temp variable
-        try emitFmtConst(self.codegen, "({s}_{d}: {{ var {s} = ", .{ prefix, label_id, temp_var });
+        try self.codegen.emitFmt("({s}_{d}: {{ var {s} = ", .{ prefix, label_id, temp_var });
         try genExpr(self.codegen, expr);
-        try emitConst(self.codegen, "; ");
+        try self.codegen.emit("; ");
 
         var block = LabeledBlock{
             .emitter = self,
@@ -307,7 +291,7 @@ pub const ExprEmitter = struct {
         const label_id = self.codegen.block_label_counter;
         self.codegen.block_label_counter += 1;
 
-        try emitFmtConst(self.codegen, "({s}_{d}: {{ ", .{ prefix, label_id });
+        try self.codegen.emitFmt("({s}_{d}: {{ ", .{ prefix, label_id });
 
         return LabeledBlock{
             .emitter = self,
@@ -337,26 +321,26 @@ pub const LabeledBlock = struct {
 
     /// Emit a break with a formatted value
     pub fn breakWithFmt(self: *LabeledBlock, comptime fmt: []const u8, args: anytype) CodegenError!void {
-        try emitFmtConst(self.emitter.codegen, "break :{s}_{d} ", .{ self.prefix, self.label_id });
-        try emitFmtConst(self.emitter.codegen, fmt, args);
+        try self.emitter.codegen.emitFmt("break :{s}_{d} ", .{ self.prefix, self.label_id });
+        try self.emitter.codegen.emitFmt(fmt, args);
     }
 
     /// Emit a break with an expression
     pub fn breakWithExpr(self: *LabeledBlock, expr: ast.Node) CodegenError!void {
-        try emitFmtConst(self.emitter.codegen, "break :{s}_{d} ", .{ self.prefix, self.label_id });
+        try self.emitter.codegen.emitFmt("break :{s}_{d} ", .{ self.prefix, self.label_id });
         try genExpr(self.emitter.codegen, expr);
     }
 
     /// Emit a break with a raw string value
     pub fn breakWith(self: *LabeledBlock, value: []const u8) CodegenError!void {
-        try emitFmtConst(self.emitter.codegen, "break :{s}_{d} {s}", .{ self.prefix, self.label_id, value });
+        try self.emitter.codegen.emitFmt("break :{s}_{d} {s}", .{ self.prefix, self.label_id, value });
     }
 
     /// Start a break statement, emitting just "break :label_N "
     /// Use this when the break value is complex and needs multiple emit calls
     /// Must be followed by emitting the value, then calling close()
     pub fn startBreak(self: *LabeledBlock) CodegenError!void {
-        try emitFmtConst(self.emitter.codegen, "break :{s}_{d} ", .{ self.prefix, self.label_id });
+        try self.emitter.codegen.emitFmt("break :{s}_{d} ", .{ self.prefix, self.label_id });
     }
 
     /// Get the codegen instance for complex emissions inside the block
@@ -366,23 +350,23 @@ pub const LabeledBlock = struct {
 
     /// Emit code inside the block (before break)
     pub fn emit(self: *LabeledBlock, s: []const u8) CodegenError!void {
-        try emitConst(self.emitter.codegen, s);
+        try self.emitter.codegen.emit(s);
     }
 
     /// Emit formatted code inside the block
     pub fn emitFmt(self: *LabeledBlock, comptime fmt: []const u8, args: anytype) CodegenError!void {
-        try emitFmtConst(self.emitter.codegen, fmt, args);
+        try self.emitter.codegen.emitFmt(fmt, args);
     }
 
     /// Close the labeled block
     /// Must be called to complete the block
     pub fn close(self: *LabeledBlock) CodegenError!void {
-        try emitConst(self.emitter.codegen, "; })");
+        try self.emitter.codegen.emit("; })");
     }
 
     /// Close with just the block end (no semicolon before)
     pub fn closeRaw(self: *LabeledBlock) CodegenError!void {
-        try emitConst(self.emitter.codegen, " })");
+        try self.emitter.codegen.emit(" })");
     }
 
     /// Emit an AST expression node inside the block
@@ -397,7 +381,7 @@ pub const LabeledBlock = struct {
         ctx: anytype,
         comptime emitValue: fn(@TypeOf(ctx), *NativeCodegen) CodegenError!void,
     ) CodegenError!void {
-        try emitFmtConst(self.emitter.codegen, "break :{s}_{d} ", .{ self.prefix, self.label_id });
+        try self.emitter.codegen.emitFmt("break :{s}_{d} ", .{ self.prefix, self.label_id });
         try emitValue(ctx, self.emitter.codegen);
     }
 
@@ -417,9 +401,9 @@ pub const LabeledBlock = struct {
         const label_id = self.emitter.codegen.block_label_counter;
         self.emitter.codegen.block_label_counter += 1;
 
-        try emitFmtConst(self.emitter.codegen, "({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
+        try self.emitter.codegen.emitFmt("({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
         try genExpr(self.emitter.codegen, expr);
-        try emitConst(self.emitter.codegen, "; ");
+        try self.emitter.codegen.emit("; ");
 
         return LabeledBlock{
             .emitter = self.emitter,
@@ -438,9 +422,9 @@ pub const LabeledBlock = struct {
         const label_id = self.emitter.codegen.block_label_counter;
         self.emitter.codegen.block_label_counter += 1;
 
-        try emitFmtConst(self.emitter.codegen, "({s}_{d}: {{ var {s} = ", .{ prefix, label_id, temp_var });
+        try self.emitter.codegen.emitFmt("({s}_{d}: {{ var {s} = ", .{ prefix, label_id, temp_var });
         try genExpr(self.emitter.codegen, expr);
-        try emitConst(self.emitter.codegen, "; ");
+        try self.emitter.codegen.emit("; ");
 
         return LabeledBlock{
             .emitter = self.emitter,

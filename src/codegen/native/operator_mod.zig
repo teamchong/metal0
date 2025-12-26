@@ -6,14 +6,6 @@ const h = @import("mod_helper.zig");
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Arithmetic
     .{ "add", h.binop(" + ", "@as(i64, 0)") }, .{ "sub", h.binop(" - ", "@as(i64, 0)") },
@@ -58,9 +50,9 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn divOp(self: *NativeCodegen, args: []ast.Node, comptime builtin: []const u8, comptime default: []const u8, comptime pre: []const u8, comptime mid: []const u8, comptime suf: []const u8) CodegenError!void {
-    if (args.len == 0) { try emitConst(self, builtin); return; }
-    if (args.len < 2) { try emitConst(self, default); return; }
-    try emitConst(self, pre); try self.genExpr(args[0]); try emitConst(self, mid); try self.genExpr(args[1]); try emitConst(self, suf);
+    if (args.len == 0) { try self.emit(builtin); return; }
+    if (args.len < 2) { try self.emit(default); return; }
+    try self.emit(pre); try self.genExpr(args[0]); try self.emit(mid); try self.genExpr(args[1]); try self.emit(suf);
 }
 fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try divOp(self, args, "(runtime.builtins.OperatorTruediv{})", "@as(f64, 0.0)", "(@as(f64, @floatFromInt(", ")) / @as(f64, @floatFromInt(", ")))");
@@ -73,26 +65,26 @@ fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "runtime.builtins.OperatorPow{}");
+        try self.emit("runtime.builtins.OperatorPow{}");
         return;
     }
     if (args.len < 2) {
-        try emitConst(self, "@as(f64, 1.0)");
+        try self.emit("@as(f64, 1.0)");
         return;
     }
     // Use runtime.Lib.operator.pow for complex number support
     // This returns PyPowResult which PyValue.from() can convert to PyValue
     // Python: pow(-2.0, 0.5) returns complex, not float
-    try emitConst(self, "(try runtime.Lib.operator.pow(");
+    try self.emit("(try runtime.Lib.operator.pow(");
     try self.genExpr(args[0]);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try self.genExpr(args[1]);
-    try emitConst(self, "))");
+    try self.emit("))");
 }
 fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, comptime default: []const u8) CodegenError!void {
-    if (args.len < 2) { try emitConst(self, default); return; }
+    if (args.len < 2) { try self.emit(default); return; }
     const both_bool = (args[0] == .constant and args[0].constant.value == .bool) and (args[1] == .constant and args[1].constant.value == .bool);
-    try emitConst(self, if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try emitConst(self, op); try emitConst(self, if (both_bool) "" else "&"); try self.genExpr(args[1]); try emitConst(self, ")");
+    try self.emit(if (both_bool) "(" else "(&"); try self.genExpr(args[0]); try self.emit(op); try self.emit(if (both_bool) "" else "&"); try self.genExpr(args[1]); try self.emit(")");
 }
 fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " == ", "false"); }
 fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " != ", "true"); }

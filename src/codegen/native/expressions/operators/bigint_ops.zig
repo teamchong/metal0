@@ -17,51 +17,43 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // BigInt operation helpers - auto-closing patterns
 // ============================================
 
 /// Emit runtime.bigint_ops.fromInt(allocator, value)
 fn emitBigIntFromInt(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.bigint_ops.fromInt(__global_allocator, ");
+    try self.emit("runtime.bigint_ops.fromInt(__global_allocator, ");
     try self.emitZigValue(operand);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value)))
 fn emitBigIntFromIntCast(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
+    try self.emit("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
     try self.emitZigValue(operand);
-    try emitConst(self, ")))");
+    try self.emit(")))");
 }
 
 /// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value))
 fn emitBigIntFromI64Cast(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
+    try self.emit("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
     try self.emitZigValue(operand);
-    try emitConst(self, "))");
+    try self.emit("))");
 }
 
 /// Emit shift operand: @as(usize, @intCast(value))
 fn emitShiftOperand(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "@as(usize, @intCast(");
+    try self.emit("@as(usize, @intCast(");
     try self.emitZigValue(operand);
-    try emitConst(self, "))");
+    try self.emit("))");
 }
 
 /// Emit pow exponent: @as(u32, @intCast(value))
 fn emitPowExponent(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "@as(u32, @intCast(");
+    try self.emit("@as(u32, @intCast(");
     try self.emitZigValue(operand);
-    try emitConst(self, "))");
+    try self.emit("))");
 }
 
 /// BigInt method names for standard binary operations (left.method(&right, allocator))
@@ -327,8 +319,8 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
 
     // Emit: runtime.bigint_ops.xxx(left, right, allocator)
     // Uses auto-close pattern for guaranteed bracket matching
-    try emitConst(self, "runtime.bigint_ops.");
-    try emitConst(self, runtime_fn);
+    try self.emit("runtime.bigint_ops.");
+    try self.emit(runtime_fn);
     const Ctx = struct {
         s: *NativeCodegen,
         lt: NativeType,
@@ -348,7 +340,7 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
         pub fn f(si: *NativeCodegen, ctx: Ctx) CodegenError!void {
             // Emit left operand (convert to BigInt if needed)
             try emitBigIntOperandValue(ctx.s, ctx.lt, ctx.lo);
-            try emitConst(si, ", ");
+            try si.emit(", ");
 
             // For shift/pow operations, right operand is a primitive (usize/u32)
             if (ctx.op == .LShift or ctx.op == .RShift) {
@@ -360,7 +352,7 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
                 try emitBigIntOperandValue(ctx.s, ctx.rt, ctx.ro);
             }
 
-            try emitConst(si, ", __global_allocator");
+            try si.emit(", __global_allocator");
         }
     }.f);
 }
@@ -374,26 +366,26 @@ pub fn emitBigIntOperand(self: *NativeCodegen, op_type: NativeType, node: *const
     } else if (op_type == .int) {
         if (op_type.int.needsBigInt()) {
             // Large int (i128) - use fromInt128
-            try emitConst(self, "runtime.bigint_ops.fromInt(");
-            try emitConst(self, alloc_name);
-            try emitConst(self, ", @as(i64, @intCast(");
+            try self.emit("runtime.bigint_ops.fromInt(");
+            try self.emit(alloc_name);
+            try self.emit(", @as(i64, @intCast(");
             try genExpr(self, node.*);
-            try emitConst(self, ")))");
+            try self.emit(")))");
         } else {
             // Normal i64
-            try emitConst(self, "runtime.bigint_ops.fromInt(");
-            try emitConst(self, alloc_name);
-            try emitConst(self, ", ");
+            try self.emit("runtime.bigint_ops.fromInt(");
+            try self.emit(alloc_name);
+            try self.emit(", ");
             try genExpr(self, node.*);
-            try emitConst(self, ")");
+            try self.emit(")");
         }
     } else {
         // Unknown type - try to convert as i64
-        try emitConst(self, "runtime.bigint_ops.fromInt(");
-        try emitConst(self, alloc_name);
-        try emitConst(self, ", @as(i64, ");
+        try self.emit("runtime.bigint_ops.fromInt(");
+        try self.emit(alloc_name);
+        try self.emit(", @as(i64, ");
         try genExpr(self, node.*);
-        try emitConst(self, "))");
+        try self.emit("))");
     }
 }
 

@@ -20,37 +20,29 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // Collection operation helpers - auto-closing patterns
 // ============================================
 
 /// Emit runtime function call with allocator: runtime.func(alloc, arg1, arg2)
 fn emitRuntimeCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.ZigValue, arg2: builder_mod.ZigValue) CodegenError!void {
-    try emitConst(self, func);
-    try emitConst(self, "(__global_allocator, ");
+    try self.emit(func);
+    try self.emit("(__global_allocator, ");
     try self.emitZigValue(arg1);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try self.emitZigValue(arg2);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Emit runtime function call: runtime.func(arg1, arg2)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.ZigValue, arg2: builder_mod.ZigValue) CodegenError!void {
-    try emitConst(self, func);
+    try self.emit(func);
     const Ctx = struct { a1: builder_mod.ZigValue, a2: builder_mod.ZigValue };
     try self.withParensCtx(Ctx{ .a1 = arg1, .a2 = arg2 }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emitZigValue(ctx.a1);
-            try emitConst(s, ", ");
+            try s.emit(", ");
             try s.emitZigValue(ctx.a2);
         }
     }.f);
@@ -59,14 +51,14 @@ fn emitCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.ZigValue,
 /// Emit count as usize cast: @as(usize, @intCast(count))
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitCountAsUsize(self: *NativeCodegen, count: builder_mod.ZigValue) CodegenError!void {
-    try emitConst(self, "@as(usize, @intCast");
+    try self.emit("@as(usize, @intCast");
     const Ctx = struct { c: builder_mod.ZigValue };
     try self.withParensCtx(Ctx{ .c = count }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emitZigValue(ctx.c);
         }
     }.f);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Check if a list will be generated as a fixed array (constant + homogeneous)
@@ -138,20 +130,20 @@ pub fn genStringConcat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
 
     // Generate single concat call with all parts
     if (at_module_level) {
-        try emitConst(self, "(std.mem.concat(");
+        try self.emit("(std.mem.concat(");
     } else {
-        try emitConst(self, "try std.mem.concat(");
+        try self.emit("try std.mem.concat(");
     }
-    try emitConst(self, alloc_name);
-    try emitConst(self, ", u8, &[_][]const u8{ ");
+    try self.emit(alloc_name);
+    try self.emit(", u8, &[_][]const u8{ ");
     for (parts.items, 0..) |part, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         try genExpr(self, part);
     }
     if (at_module_level) {
-        try emitConst(self, " }) catch unreachable)");
+        try self.emit(" }) catch unreachable)");
     } else {
-        try emitConst(self, " })");
+        try self.emit(" })");
     }
 }
 
@@ -163,13 +155,13 @@ pub fn genBytesConcat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
-    try emitConst(self, "(runtime.builtins.PyBytes.concat(");
-    try emitConst(self, alloc_name);
-    try emitConst(self, ", ");
+    try self.emit("(runtime.builtins.PyBytes.concat(");
+    try self.emit(alloc_name);
+    try self.emit(", ");
     try self.emitZigValue(left_operand);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try self.emitZigValue(right_operand);
-    try emitConst(self, ") catch @panic(\"OOM\"))");
+    try self.emit(") catch @panic(\"OOM\"))");
 }
 
 /// Generate list/array concatenation
@@ -200,7 +192,7 @@ pub fn genListConcat(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nat
 
     if (needs_runtime) {
         // Use runtime concatenation for non-comptime values
-        try emitConst(self, "try ");
+        try self.emit("try ");
         try emitRuntimeCall2(self, "runtime.concatRuntime", left_operand, right_operand);
     } else {
         // List/array concatenation: use runtime.concat which handles both
@@ -216,7 +208,7 @@ pub fn genTupleConcat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!
 
     // Tuple concatenation: use comptime tuple concat (++)
     try self.emitZigValue(left_operand);
-    try emitConst(self, " ++ ");
+    try self.emit(" ++ ");
     try self.emitZigValue(right_operand);
 }
 
@@ -226,11 +218,11 @@ pub fn genStringRepeat(self: *NativeCodegen, str_expr: ast.Node, count_expr: ast
     const str_operand = try self.captureExpr(str_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try emitConst(self, "runtime.strRepeat(__global_allocator, ");
+    try self.emit("runtime.strRepeat(__global_allocator, ");
     try self.emitZigValue(str_operand);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try emitCountAsUsize(self, count_operand);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate bytes repetition: b"ab" * 3
@@ -239,11 +231,11 @@ pub fn genBytesRepeat(self: *NativeCodegen, bytes_expr: ast.Node, count_expr: as
     const bytes_operand = try self.captureExpr(bytes_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try emitConst(self, "(runtime.builtins.PyBytes.repeat(__global_allocator, ");
+    try self.emit("(runtime.builtins.PyBytes.repeat(__global_allocator, ");
     try self.emitZigValue(bytes_operand);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try emitCountAsUsize(self, count_operand);
-    try emitConst(self, ") catch @panic(\"OOM\"))");
+    try self.emit(") catch @panic(\"OOM\"))");
 }
 
 /// Generate list repetition: [1, 2] * 3
@@ -252,7 +244,7 @@ pub fn genListRepeat(self: *NativeCodegen, list_expr: ast.Node, count_expr: ast.
     const list_operand = try self.captureExpr(list_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try emitConst(self, "try ");
+    try self.emit("try ");
     try emitRuntimeCall2(self, "runtime.repeatRuntime", list_operand, count_operand);
 }
 
@@ -262,11 +254,11 @@ pub fn genTupleRepeat(self: *NativeCodegen, tuple_expr: ast.Node, count_expr: as
     const tuple_operand = try self.captureExpr(tuple_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try emitConst(self, "runtime.tupleRepeat(__global_allocator, ");
+    try self.emit("runtime.tupleRepeat(__global_allocator, ");
     try self.emitZigValue(tuple_operand);
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try emitCountAsUsize(self, count_operand);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate slice/list repetition with dynamic count
@@ -274,13 +266,13 @@ pub fn genSliceRepeatDynamic(self: *NativeCodegen, list_expr: ast.Node, count_ex
     // Capture count operand as ZigValue
     const count_operand = try self.captureExpr(count_expr);
 
-    try emitConst(self, "runtime.sliceRepeatDynamic(__global_allocator, ");
+    try self.emit("runtime.sliceRepeatDynamic(__global_allocator, ");
     // Constant homogeneous list literals produce fixed arrays - use & to coerce to slice
     // Complex or dynamic lists produce ArrayList - use .items
     if (willGenerateAsFixedArray(list_expr)) {
         // Fixed array literal - use & to get slice
         const list_operand = try self.captureExpr(list_expr);
-        try emitConst(self, "&");
+        try self.emit("&");
         try self.emitZigValue(list_operand);
     } else if (producesBlockExpression(list_expr)) {
         const list_operand = try self.captureExpr(list_expr);
@@ -290,15 +282,15 @@ pub fn genSliceRepeatDynamic(self: *NativeCodegen, list_expr: ast.Node, count_ex
                 try s.emitZigValue(ctx.o);
             }
         }.f);
-        try emitConst(self, ".items");
+        try self.emit(".items");
     } else {
         const list_operand = try self.captureExpr(list_expr);
         try self.emitZigValue(list_operand);
-        try emitConst(self, ".items");
+        try self.emit(".items");
     }
-    try emitConst(self, ", ");
+    try self.emit(", ");
     try emitCountAsUsize(self, count_operand);
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate unknown type * int multiplication with type dispatch
@@ -311,8 +303,8 @@ pub fn genUnknownMultiply(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenEr
     // For string * n with n < 0, return empty string; for numeric types, just multiply
     try blk.emit("; ");
     try blk.startBreak();
-    try emitConst(self, "if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(");
-    try emitConst(self, alloc_name);
-    try emitConst(self, ", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs");
+    try self.emit("if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(");
+    try self.emit(alloc_name);
+    try self.emit(", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs");
     try blk.close();
 }

@@ -9,14 +9,6 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 /// Generate the error handling suffix for failable float operations.
 /// Inside try blocks, use "try" to propagate errors to handlers.
 /// Inside assertRaises context, return error union as-is for expectError to check.
@@ -33,18 +25,18 @@ fn emitFloatErrorHandling(self: *NativeCodegen, expr_start: []const u8, expr_end
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             if (ctx.assert_raises) {
                 // Inside assertRaises - return error union as-is for expectError to check
-                try emitConst(s, ctx.es);
-                try emitConst(s, ctx.ee);
+                try s.emit(ctx.es);
+                try s.emit(ctx.ee);
             } else if (ctx.try_body) {
                 // Inside try block - propagate errors up
-                try emitConst(s, "try ");
-                try emitConst(s, ctx.es);
-                try emitConst(s, ctx.ee);
+                try s.emit("try ");
+                try s.emit(ctx.es);
+                try s.emit(ctx.ee);
             } else {
                 // Outside try block - catch and return default
-                try emitConst(s, ctx.es);
-                try emitConst(s, ctx.ee);
-                try emitConst(s, " catch 0.0");
+                try s.emit(ctx.es);
+                try s.emit(ctx.ee);
+                try s.emit(" catch 0.0");
             }
         }
     }.f);
@@ -87,11 +79,11 @@ fn getSpecialFloatLiteral(str: []const u8) ?[]const u8 {
 pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // float() with no args returns 0.0
     if (args.len == 0) {
-        try emitConst(self, "@as(f64, 0.0)");
+        try self.emit("@as(f64, 0.0)");
         return;
     }
     if (args.len != 1) {
-        try emitConst(self, "@as(f64, 0.0)");
+        try self.emit("@as(f64, 0.0)");
         return;
     }
 
@@ -122,34 +114,34 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             const str_val = args[0].constant.value.string;
             // Handle special float values (inf, nan, etc.) case-insensitively
             if (getSpecialFloatLiteral(str_val)) |zig_const| {
-                try emitConst(self, zig_const);
+                try self.emit(zig_const);
                 return;
             }
             // Try to parse as a numeric literal at comptime
             // Strip leading + for Zig compatibility (Zig doesn't accept "+123")
             const parse_str = if (str_val.len > 0 and str_val[0] == '+') str_val[1..] else str_val;
             if (std.fmt.parseFloat(f64, parse_str)) |_| {
-                try emitConst(self, "@as(f64, ");
-                try emitConst(self, parse_str);
-                try emitConst(self, ")");
+                try self.emit("@as(f64, ");
+                try self.emit(parse_str);
+                try self.emit(")");
                 return;
             } else |_| {}
         }
         // For non-literal strings, use runtime float parsing (handles Unicode digits)
         if (self.in_assert_raises_context) {
             // Inside assertRaises - return error union as-is for expectError to check
-            try emitConst(self, "(runtime.parseFloatStr(");
+            try self.emit("(runtime.parseFloatStr(");
             try self.genExpr(args[0]);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else if (self.inside_try_body) {
             // Use parseFloatStr which sets proper error message for except handlers
-            try emitConst(self, "(try runtime.parseFloatStr(");
+            try self.emit("(try runtime.parseFloatStr(");
             try self.genExpr(args[0]);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else {
-            try emitConst(self, "(runtime.parseFloatWithUnicode(");
+            try self.emit("(runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);
-            try emitConst(self, ") catch 0.0)");
+            try self.emit(") catch 0.0)");
         }
         return;
     }
@@ -161,31 +153,31 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Use runtime fallback instead which handles all types
         if (args[0] == .name) {
             if (self.in_assert_raises_context) {
-                try emitConst(self, "(runtime.floatBuiltinCall(");
+                try self.emit("(runtime.floatBuiltinCall(");
                 try self.genExpr(args[0]);
-                try emitConst(self, ", .{}))");
+                try self.emit(", .{}))");
             } else if (self.inside_try_body) {
-                try emitConst(self, "(try runtime.floatBuiltinCall(");
+                try self.emit("(try runtime.floatBuiltinCall(");
                 try self.genExpr(args[0]);
-                try emitConst(self, ", .{}))");
+                try self.emit(", .{}))");
             } else {
-                try emitConst(self, "(runtime.floatBuiltinCall(");
+                try self.emit("(runtime.floatBuiltinCall(");
                 try self.genExpr(args[0]);
-                try emitConst(self, ", .{}) catch 0.0)");
+                try self.emit(", .{}) catch 0.0)");
             }
             return;
         }
-        try emitConst(self, "@as(f64, @floatFromInt(");
+        try self.emit("@as(f64, @floatFromInt(");
         try self.genExpr(args[0]);
-        try emitConst(self, "))");
+        try self.emit("))");
         return;
     }
 
     // Cast bool to float (True -> 1.0, False -> 0.0)
     if (type_traits.isBoolean(arg_type)) {
-        try emitConst(self, "@as(f64, @floatFromInt(@intFromBool(");
+        try self.emit("@as(f64, @floatFromInt(@intFromBool(");
         try self.genExpr(args[0]);
-        try emitConst(self, ")))");
+        try self.emit(")))");
         return;
     }
 
@@ -211,17 +203,17 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use runtime.floatBuiltinCall which handles both cases via @hasDecl
     if (has_magic_method and args[0] == .name) {
         if (self.in_assert_raises_context) {
-            try emitConst(self, "(runtime.floatBuiltinCall(");
+            try self.emit("(runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            try emitConst(self, ", .{}))");
+            try self.emit(", .{}))");
         } else if (self.inside_try_body) {
-            try emitConst(self, "(try runtime.floatBuiltinCall(");
+            try self.emit("(try runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            try emitConst(self, ", .{}))");
+            try self.emit(", .{}))");
         } else {
-            try emitConst(self, "(runtime.floatBuiltinCall(");
+            try self.emit("(runtime.floatBuiltinCall(");
             try self.genExpr(args[0]);
-            try emitConst(self, ", .{}) catch 0.0)");
+            try self.emit(", .{}) catch 0.0)");
         }
         return;
     }
@@ -229,33 +221,33 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For strings, use runtime.parseFloatWithUnicode (handles Unicode digits)
     if (string_traits.isString(arg_type)) {
         if (self.in_assert_raises_context) {
-            try emitConst(self, "(runtime.parseFloatStr(");
+            try self.emit("(runtime.parseFloatStr(");
             try self.genExpr(args[0]);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else if (self.inside_try_body) {
-            try emitConst(self, "(try runtime.parseFloatWithUnicode(");
+            try self.emit("(try runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else {
-            try emitConst(self, "(runtime.parseFloatWithUnicode(");
+            try self.emit("(runtime.parseFloatWithUnicode(");
             try self.genExpr(args[0]);
-            try emitConst(self, ") catch 0.0)");
+            try self.emit(") catch 0.0)");
         }
         return;
     }
 
     // Generic fallback for unknown types - use runtime.floatBuiltinCall which handles all types
     if (self.in_assert_raises_context) {
-        try emitConst(self, "(runtime.floatBuiltinCall(");
+        try self.emit("(runtime.floatBuiltinCall(");
         try self.genExpr(args[0]);
-        try emitConst(self, ", .{}))");
+        try self.emit(", .{}))");
     } else if (self.inside_try_body) {
-        try emitConst(self, "(try runtime.floatBuiltinCall(");
+        try self.emit("(try runtime.floatBuiltinCall(");
         try self.genExpr(args[0]);
-        try emitConst(self, ", .{}))");
+        try self.emit(", .{}))");
     } else {
-        try emitConst(self, "(runtime.floatBuiltinCall(");
+        try self.emit("(runtime.floatBuiltinCall(");
         try self.genExpr(args[0]);
-        try emitConst(self, ", .{}) catch 0.0)");
+        try self.emit(", .{}) catch 0.0)");
     }
 }

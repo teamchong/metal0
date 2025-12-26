@@ -4,14 +4,6 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");
 
-// Helper for simple constant output
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "setlocale", genSetlocale },
     .{ "localeconv", genLocaleconv },
@@ -48,39 +40,39 @@ fn genSetlocale(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 1) {
         try self.genExpr(args[1]);
     } else {
-        try emitConst(self, "\"C\"");
+        try self.emit("\"C\"");
     }
 }
 
 fn genLocaleconv(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ .decimal_point = \".\", .thousands_sep = \"\", .grouping = \"\", .int_curr_symbol = \"\", .currency_symbol = \"\", .mon_decimal_point = \"\", .mon_thousands_sep = \"\", .mon_grouping = \"\", .positive_sign = \"\", .negative_sign = \"\", .int_frac_digits = 127, .frac_digits = 127, .p_cs_precedes = 127, .p_sep_by_space = 127, .n_cs_precedes = 127, .n_sep_by_space = 127, .p_sign_posn = 127, .n_sign_posn = 127 }");
+    try self.emit(".{ .decimal_point = \".\", .thousands_sep = \"\", .grouping = \"\", .int_curr_symbol = \"\", .currency_symbol = \"\", .mon_decimal_point = \"\", .mon_thousands_sep = \"\", .mon_grouping = \"\", .positive_sign = \"\", .negative_sign = \"\", .int_frac_digits = 127, .frac_digits = 127, .p_cs_precedes = 127, .p_sep_by_space = 127, .n_cs_precedes = 127, .n_sep_by_space = 127, .p_sign_posn = 127, .n_sign_posn = 127 }");
 }
 
 fn genGetlocale(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ \"C\", null }");
+    try self.emit(".{ \"C\", null }");
 }
 
 fn genGetdefaultlocale(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ \"en_US\", \"UTF-8\" }");
+    try self.emit(".{ \"en_US\", \"UTF-8\" }");
 }
 
 fn genGetpreferredencoding(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"UTF-8\"");
+    try self.emit("\"UTF-8\"");
 }
 
 fn genNlLanginfo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"\"");
+    try self.emit("\"\"");
 }
 
 fn genStrcoll(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 2) {
-        try emitConst(self, "std.mem.order(u8, ");
+        try self.emit("std.mem.order(u8, ");
         try self.genExpr(args[0]);
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try self.genExpr(args[1]);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "std.math.Order.eq");
+        try self.emit("std.math.Order.eq");
     }
 }
 
@@ -88,90 +80,90 @@ fn genStrxfrm(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try emitConst(self, "\"\"");
+        try self.emit("\"\"");
     }
 }
 
 fn genLcCtype(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 0)");
+    try self.emit("@as(i32, 0)");
 }
 
 fn genLcCollate(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 1)");
+    try self.emit("@as(i32, 1)");
 }
 
 fn genLcTime(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 2)");
+    try self.emit("@as(i32, 2)");
 }
 
 fn genLcNumeric(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 3)");
+    try self.emit("@as(i32, 3)");
 }
 
 fn genLcMonetary(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 4)");
+    try self.emit("@as(i32, 4)");
 }
 
 fn genLcMessages(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 5)");
+    try self.emit("@as(i32, 5)");
 }
 
 fn genLcAll(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 6)");
+    try self.emit("@as(i32, 6)");
 }
 
 fn genCodeset(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 14)");
+    try self.emit("@as(i32, 14)");
 }
 
 fn genDTFmt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 1)");
+    try self.emit("@as(i32, 1)");
 }
 
 fn genDFmt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 2)");
+    try self.emit("@as(i32, 2)");
 }
 
 fn genTFmt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 3)");
+    try self.emit("@as(i32, 3)");
 }
 
 fn genRadixchar(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 65536)");
+    try self.emit("@as(i32, 65536)");
 }
 
 fn genThousep(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 65537)");
+    try self.emit("@as(i32, 65537)");
 }
 
 fn genYesexpr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 52)");
+    try self.emit("@as(i32, 52)");
 }
 
 fn genNoexpr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 53)");
+    try self.emit("@as(i32, 53)");
 }
 
 fn genCrncystr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 65538)");
+    try self.emit("@as(i32, 65538)");
 }
 
 fn genEra(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 45)");
+    try self.emit("@as(i32, 45)");
 }
 
 fn genEraDTFmt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 46)");
+    try self.emit("@as(i32, 46)");
 }
 
 fn genEraDFmt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 47)");
+    try self.emit("@as(i32, 47)");
 }
 
 fn genEraTFmt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 48)");
+    try self.emit("@as(i32, 48)");
 }
 
 fn genAltDigits(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 49)");
+    try self.emit("@as(i32, 49)");
 }

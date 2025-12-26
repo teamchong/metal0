@@ -10,22 +10,6 @@ const type_traits = @import("../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../analysis/traits/container_traits.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// Python type/constant names to Zig code
 /// IMPORTANT: These are TYPE references, not constructor calls.
 /// Constructor calls like `complex(1, 2)` are handled by genCall -> builtins.genComplex
@@ -137,7 +121,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
 
             // Handle 'self' -> '__self' in nested class methods to avoid shadowing
             if (std.mem.eql(u8, name_to_use, "self") and self.method_nesting_depth > 0) {
-                try emitConst(self,"__self");
+                try self.emit("__self");
                 return;
             }
 
@@ -146,7 +130,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
 
             // Handle 'self' in methods - emit as-is, NOT as runtime.builtins.self
             if (std.mem.eql(u8, name_to_use, "self") and self.inside_method_with_self) {
-                try emitConst(self,"self");
+                try self.emit("self");
                 return;
             }
 
@@ -163,9 +147,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
 
                 if (is_first_param) {
                     if (self.method_nesting_depth > 0) {
-                        try emitConst(self,"__self");
+                        try self.emit("__self");
                     } else {
-                        try emitConst(self,"self");
+                        try self.emit("self");
                     }
                     return;
                 }
@@ -174,19 +158,19 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Handle Python builtin constants
             if (std.mem.eql(u8, name_to_use, "Ellipsis")) {
                 // Python Ellipsis constant - emit void value (like ellipsis_literal)
-                try emitConst(self,"@as(void, {})");
+                try self.emit("@as(void, {})");
                 return;
             }
 
             // Handle Python type names as type values
             if (PyTypeNames.get(name_to_use)) |zig_code| {
-                try emitConst(self,zig_code);
+                try self.emit(zig_code);
             } else if (isPythonExceptionType(name_to_use)) {
                 // Python exception types - emit as integer enum value for storage in lists/tuples
                 // E.g., ValueError -> @intFromEnum(runtime.ExceptionTypeId.ValueError)
-                try emitConst(self,"@intFromEnum(runtime.ExceptionTypeId.");
-                try emitConst(self,name_to_use);
-                try emitConst(self,")");
+                try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
+                try self.emit(name_to_use);
+                try self.emit(")");
             } else if (isBuiltinFunction(name_to_use) and !self.func_local_vars.contains(name_to_use)) {
                 // Builtin functions as first-class values: len, callable, etc.
                 // For structs with .call() method (like pow), emit function pointer: &runtime.builtins.pow.call
@@ -194,10 +178,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // For function-like builtins, emit as-is: runtime.builtins.len
                 if (std.mem.eql(u8, name_to_use, "pow")) {
                     // pow is a struct with .call() method - emit function pointer
-                    try emitConst(self,"&runtime.builtins.pow.call");
+                    try self.emit("&runtime.builtins.pow.call");
                 } else {
-                    try emitConst(self,"runtime.builtins.");
-                    try emitConst(self,name_to_use);
+                    try self.emit("runtime.builtins.");
+                    try self.emit(name_to_use);
                 }
             } else if (self.closure_vars.contains(n.id)) {
                 // Closure variable - use the renamed version (e.g., f -> __closure_f_0)
@@ -226,10 +210,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // Inside a class: check if this name matches the current class name
                 // In Zig, you can't refer to a struct by name from inside it - use @This() instead
                 if (std.mem.eql(u8, name_to_use, class_name)) {
-                    try emitConst(self,"@This()");
+                    try self.emit("@This()");
                 } else if (std.mem.eql(u8, name_to_use, "__class__")) {
                     // Python __class__ refers to the current class - use @This() in Zig
-                    try emitConst(self,"@This()");
+                    try self.emit("@This()");
                 } else {
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
                     if (self.nested_class_names.contains(name_to_use)) {
@@ -268,7 +252,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
         .ellipsis_literal => {
             // Python Ellipsis literal (...)
             // Emit void value to avoid "unused variable" warnings
-            try emitConst(self,"@as(void, {})");
+            try self.emit("@as(void, {})");
         },
         .starred => |s| {
             // Starred expression: *expr
@@ -298,25 +282,25 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
 fn genSliceExpr(self: *NativeCodegen, sl: ast.Node.SliceRange) CodegenError!void {
     // For multi-dim subscripts like arr[1:, 2], generate a slice struct
     // We represent it as a struct with optional start/stop/step fields
-    try emitConst(self,".{ .start = ");
+    try self.emit(".{ .start = ");
     if (sl.lower) |l| {
         try genExpr(self, l.*);
     } else {
-        try emitConst(self,"null");
+        try self.emit("null");
     }
-    try emitConst(self,", .stop = ");
+    try self.emit(", .stop = ");
     if (sl.upper) |u| {
         try genExpr(self, u.*);
     } else {
-        try emitConst(self,"null");
+        try self.emit("null");
     }
-    try emitConst(self,", .step = ");
+    try self.emit(", .step = ");
     if (sl.step) |s| {
         try genExpr(self, s.*);
     } else {
-        try emitConst(self,"null");
+        try self.emit("null");
     }
-    try emitConst(self," }");
+    try self.emit(" }");
 }
 
 /// Generate yield expression - currently emits null as placeholder
@@ -327,7 +311,7 @@ fn genYield(self: *NativeCodegen, y: ast.Node.Yield) CodegenError!void {
     if (y.value) |val| {
         try genExpr(self, val.*);
     } else {
-        try emitConst(self,"null");
+        try self.emit("null");
     }
 }
 
@@ -348,13 +332,13 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
 
     // Generate: (label: { target = value; break :label target; })
     const label = try self.emitInlineBlockStart("walrus");
-    try emitConst(self," ");
-    try emitConst(self,target_name);
-    try emitConst(self," = ");
+    try self.emit(" ");
+    try self.emit(target_name);
+    try self.emit(" = ");
     try genExpr(self, ne.value.*);
-    try emitFmtConst(self, "; break :{s} ", .{label});
-    try emitConst(self,target_name);
-    try emitConst(self,"; ");
+    try self.emitFmt("; break :{s} ", .{label});
+    try self.emit(target_name);
+    try self.emit("; ");
     try self.emitInlineBlockEnd();
 }
 
@@ -378,72 +362,72 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     const cond_is_boolop = ie.condition.* == .boolop;
     const cond_is_compare = ie.condition.* == .compare;
 
-    try emitConst(self,"(if (");
+    try self.emit("(if (");
     if (cond_is_boolop or cond_is_compare) {
         // Boolean operations and comparisons generate bool directly, use as-is
         try genExpr(self, ie.condition.*);
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try emitConst(self,"runtime.pyTruthy(");
+        try self.emit("runtime.pyTruthy(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,")");
+        try self.emit(")");
     } else if (cond_type == .optional) {
         // Optional type - check for non-null
         try genExpr(self, ie.condition.*);
-        try emitConst(self," != null");
+        try self.emit(" != null");
     } else if (type_traits.isIntegral(cond_type)) {
         // Integer type - Python truthiness: non-zero is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,") != 0");
+        try self.emit(") != 0");
     } else if (type_traits.isFloating(cond_type)) {
         // Float type - Python truthiness: non-zero is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,") != 0.0");
+        try self.emit(") != 0.0");
     } else if (string_traits.isString(cond_type)) {
         // String type - Python truthiness: non-empty is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,").len != 0");
+        try self.emit(").len != 0");
     } else if (container_traits.isList(cond_type)) {
         // List type - Python truthiness: non-empty is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,").items.len != 0");
+        try self.emit(").items.len != 0");
     } else if (container_traits.isDict(cond_type)) {
         // Dict type - Python truthiness: non-empty is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,").count() != 0");
+        try self.emit(").count() != 0");
     } else if (container_traits.isSet(cond_type)) {
         // Set type - Python truthiness: non-empty is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,").count() != 0");
+        try self.emit(").count() != 0");
     } else if (container_traits.isTuple(cond_type)) {
         // Tuple type - Python truthiness: non-empty is true
-        try emitConst(self,"@typeInfo(@TypeOf(");
+        try self.emit("@typeInfo(@TypeOf(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,")).@\"struct\".fields.len != 0");
+        try self.emit(")).@\"struct\".fields.len != 0");
     } else if (string_traits.isBytes(cond_type)) {
         // Bytes type - Python truthiness: non-empty is true
-        try emitConst(self,"(");
+        try self.emit("(");
         try genExpr(self, ie.condition.*);
-        try emitConst(self,").len != 0");
+        try self.emit(").len != 0");
     } else {
         // Boolean or other type - use directly
         try genExpr(self, ie.condition.*);
     }
-    try emitConst(self,") ");
-    if (needs_int_cast) try emitConst(self,"@as(i64, ");
+    try self.emit(") ");
+    if (needs_int_cast) try self.emit("@as(i64, ");
     try genExpr(self, ie.body.*);
-    if (needs_int_cast) try emitConst(self,")");
-    try emitConst(self," else ");
-    if (needs_int_cast) try emitConst(self,"@as(i64, ");
+    if (needs_int_cast) try self.emit(")");
+    try self.emit(" else ");
+    if (needs_int_cast) try self.emit("@as(i64, ");
     try genExpr(self, ie.orelse_value.*);
-    if (needs_int_cast) try emitConst(self,")");
-    try emitConst(self,")");
+    if (needs_int_cast) try self.emit(")");
+    try self.emit(")");
 }
 
 /// Check if an expression involves runtime values (not comptime-evaluable)
@@ -522,12 +506,12 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
 
     // For regular coroutine calls: await expr → wait for green thread and get result
     const label = try self.emitInlineBlockStart("await");
-    try emitConst(self,"\n");
-    try emitConst(self,"    const __thread = ");
+    try self.emit("\n");
+    try self.emit("    const __thread = ");
     try genExpr(self, await_node.value.*);
-    try emitConst(self,";\n");
-    try emitConst(self,"    runtime.scheduler.?.wait(__thread);\n");
-    try emitConst(self,"    const __result = __thread.result orelse unreachable;\n");
+    try self.emit(";\n");
+    try self.emit("    runtime.scheduler.?.wait(__thread);\n");
+    try self.emit("    const __result = __thread.result orelse unreachable;\n");
     try self.output.writer(self.allocator).print("    break :{s} @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{ label, result_type });
     try self.emitInlineBlockEnd();
 }
@@ -588,13 +572,13 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
 
     if (all_literals) {
         // Simple case: just concatenate literals (but process Python escape sequences)
-        try emitConst(self,"\"");
+        try self.emit("\"");
         for (fstring.parts) |part| {
             const lit = part.literal;
             // Process Python escape sequences like \N{name}, \xNN, \uNNNN
             try constants.emitPythonEscapedString(self, lit);
         }
-        try emitConst(self,"\"");
+        try self.emit("\"");
         return;
     }
 
@@ -668,25 +652,25 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
 
-                try emitConst(self,"(try runtime.pyFormat(__global_allocator, ");
+                try self.emit("(try runtime.pyFormat(__global_allocator, ");
                 try genExpr(self, fe.expr.*);
-                try emitConst(self,", ");
+                try self.emit(", ");
 
                 // Check if format spec has nested expressions (PEP 701)
                 if (fe.format_spec_parts) |spec_parts| {
                     // Build format spec dynamically from parts
                     // We need to use type-appropriate format specifiers
-                    try emitConst(self,"(try std.fmt.allocPrint(__global_allocator, \"");
+                    try self.emit("(try std.fmt.allocPrint(__global_allocator, \"");
                     // Build format string for the parts with type-aware specifiers
                     for (spec_parts) |spec_part| {
                         switch (spec_part) {
                             .literal => |lit| {
                                 for (lit) |c| {
                                     switch (c) {
-                                        '"' => try emitConst(self,"\\\""),
-                                        '\\' => try emitConst(self,"\\\\"),
-                                        '{' => try emitConst(self,"{{"),
-                                        '}' => try emitConst(self,"}}"),
+                                        '"' => try self.emit("\\\""),
+                                        '\\' => try self.emit("\\\\"),
+                                        '{' => try self.emit("{{"),
+                                        '}' => try self.emit("}}"),
                                         else => try self.output.append(self.allocator, c),
                                     }
                                 }
@@ -695,44 +679,44 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                                 // Determine format specifier based on expression type
                                 const expr_type = try self.type_inferrer.inferExpr(e.*);
                                 switch (expr_type) {
-                                    .string => try emitConst(self,"{s}"),
-                                    .int => try emitConst(self,"{d}"),
-                                    .float => try emitConst(self,"{d}"),
-                                    else => try emitConst(self,"{any}"),
+                                    .string => try self.emit("{s}"),
+                                    .int => try self.emit("{d}"),
+                                    .float => try self.emit("{d}"),
+                                    else => try self.emit("{any}"),
                                 }
                             },
                         }
                     }
-                    try emitConst(self,"\", .{");
+                    try self.emit("\", .{");
                     // Now generate the expression values
                     var first = true;
                     for (spec_parts) |spec_part| {
                         switch (spec_part) {
                             .literal => {},
                             .expr => |e| {
-                                if (!first) try emitConst(self,", ");
+                                if (!first) try self.emit(", ");
                                 first = false;
                                 try genExpr(self, e.*);
                             },
                         }
                     }
-                    try emitConst(self,"}))");
+                    try self.emit("}))");
                 } else {
                     // Simple format spec - use literal string
-                    try emitConst(self,"\"");
+                    try self.emit("\"");
                     for (fe.format_spec) |c| {
                         switch (c) {
-                            '"' => try emitConst(self,"\\\""),
-                            '\\' => try emitConst(self,"\\\\"),
-                            '\n' => try emitConst(self,"\\\\n"), // double-escape for Zig literal
-                            '\r' => try emitConst(self,"\\\\r"),
-                            '\t' => try emitConst(self,"\\\\t"),
+                            '"' => try self.emit("\\\""),
+                            '\\' => try self.emit("\\\\"),
+                            '\n' => try self.emit("\\\\n"), // double-escape for Zig literal
+                            '\r' => try self.emit("\\\\r"),
+                            '\t' => try self.emit("\\\\t"),
                             else => try self.output.append(self.allocator, c),
                         }
                     }
-                    try emitConst(self,"\"");
+                    try self.emit("\"");
                 }
-                try emitConst(self,"))");
+                try self.emit("))");
 
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 try args_list.append(self.allocator, expr_code);

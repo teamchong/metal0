@@ -7,22 +7,6 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 /// Check if an expression is uncertain (needs PyValue operations)
 /// Two-Flow: routes uncertain values to PyValue extraction
 fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
@@ -45,7 +29,7 @@ fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     if (isExprUncertain(self, expr)) {
         try self.genExpr(expr);
-        try emitConst(self, ".asString()");
+        try self.emit(".asString()");
     } else {
         try self.genExpr(expr);
     }
@@ -57,7 +41,7 @@ fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         const id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_open: {{ @panic(\"open() requires at least 1 argument\"); }})", .{id});
+        try self.emitFmt("(__m{d}_open: {{ @panic(\"open() requires at least 1 argument\"); }})", .{id});
         return;
     }
 
@@ -79,30 +63,30 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Generate Zig code for file opening
     const id = self.nextNameId();
-    try emitFmtConst(self, "__m{d}_open: {{\n", .{id});
-    try emitConst(self, "    const __filename = ");
+    try self.emitFmt("__m{d}_open: {{\n", .{id});
+    try self.emit("    const __filename = ");
     // Two-Flow: Extract string from PyValue if filename is uncertain
     try emitStringExpr(self, filename);
-    try emitConst(self, ";\n");
+    try self.emit(";\n");
 
     // Determine if read or write mode
     const is_write = std.mem.indexOf(u8, mode_str, "w") != null or
         std.mem.indexOf(u8, mode_str, "a") != null;
 
     if (is_write) {
-        try emitConst(self, "    const __file = try std.fs.cwd().createFile(__filename, .{});\n");
+        try self.emit("    const __file = try std.fs.cwd().createFile(__filename, .{});\n");
     } else {
-        try emitConst(self, "    const __file = try std.fs.cwd().openFile(__filename, .{});\n");
+        try self.emit("    const __file = try std.fs.cwd().openFile(__filename, .{});\n");
     }
-    try emitFmtConst(self, "    break :__m{d}_open try runtime.PyFile.create(__global_allocator, __file, ", .{id});
+    try self.emitFmt("    break :__m{d}_open try runtime.PyFile.create(__global_allocator, __file, ", .{id});
 
     if (mode) |m| {
         // Two-Flow: Extract string from PyValue if mode is uncertain
         try emitStringExpr(self, m);
     } else {
-        try emitConst(self, "\"r\"");
+        try self.emit("\"r\"");
     }
-    try emitConst(self, ");\n}");
+    try self.emit(");\n}");
 }
 
 /// Generate code for input([prompt]) - read line from stdin
@@ -110,23 +94,23 @@ pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 1) {
         const id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_input: {{ @panic(\"input() takes at most 1 argument\"); }})", .{id});
+        try self.emitFmt("(__m{d}_input: {{ @panic(\"input() takes at most 1 argument\"); }})", .{id});
         return;
     }
-    try emitConst(self, "runtime.builtins.input(__global_allocator, ");
+    try self.emit("runtime.builtins.input(__global_allocator, ");
     if (args.len == 1) {
         // Two-Flow: Extract string from PyValue if prompt is uncertain
         try emitStringExpr(self, args[0]);
     } else {
-        try emitConst(self, "\"\"");
+        try self.emit("\"\"");
     }
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate code for breakpoint() - drop into debugger
 pub fn genBreakpoint(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try emitConst(self, "runtime.builtins.breakpoint()");
+    try self.emit("runtime.builtins.breakpoint()");
 }
 
 /// Generate code for print(*args, sep=" ", end="\\n", file=sys.stdout, flush=False)
@@ -154,46 +138,46 @@ pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args
 
     // If no keyword args, use simple print for efficiency
     if (sep_expr == null and end_expr == null and file_expr == null) {
-        try emitConst(self, "runtime.builtins.print(__global_allocator, &.{");
+        try self.emit("runtime.builtins.print(__global_allocator, &.{");
         for (args, 0..) |arg, i| {
-            if (i > 0) try emitConst(self, ", ");
+            if (i > 0) try self.emit(", ");
             try self.genExpr(arg);
         }
-        try emitConst(self, "})");
+        try self.emit("})");
         return;
     }
 
     // Use printWithOptions for keyword args
-    try emitConst(self, "runtime.builtins.printWithOptions(__global_allocator, &.{");
+    try self.emit("runtime.builtins.printWithOptions(__global_allocator, &.{");
     for (args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         try self.genExpr(arg);
     }
-    try emitConst(self, "}, ");
+    try self.emit("}, ");
 
     // sep argument
     if (sep_expr) |sep| {
         try self.genExpr(sep);
     } else {
-        try emitConst(self, "\" \"");
+        try self.emit("\" \"");
     }
-    try emitConst(self, ", ");
+    try self.emit(", ");
 
     // end argument
     if (end_expr) |end| {
         try self.genExpr(end);
     } else {
-        try emitConst(self, "\"\\n\"");
+        try self.emit("\"\\n\"");
     }
-    try emitConst(self, ", ");
+    try self.emit(", ");
 
     // file argument (null for stdout)
     if (file_expr) |file| {
         try self.genExpr(file);
     } else {
-        try emitConst(self, "null");
+        try self.emit("null");
     }
-    try emitConst(self, ")");
+    try self.emit(")");
 }
 
 /// Generate code for aiter(async_iterable) - async iterator
@@ -201,7 +185,7 @@ pub fn genPrintWithKeywords(self: *NativeCodegen, args: []ast.Node, keyword_args
 pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         const id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_aiter: {{ @panic(\"aiter() takes exactly one argument\"); }})", .{id});
+        try self.emitFmt("(__m{d}_aiter: {{ @panic(\"aiter() takes exactly one argument\"); }})", .{id});
         return;
     }
     // For now, just return the object (which should have __aiter__)
@@ -213,12 +197,12 @@ pub fn genAiter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_anext: {{ @panic(\"anext() missing required argument\"); }})", .{id});
+        try self.emitFmt("(__m{d}_anext: {{ @panic(\"anext() missing required argument\"); }})", .{id});
         return;
     }
     // For now, call __anext__ on the object
     try self.genExpr(args[0]);
-    try emitConst(self, ".__anext__()");
+    try self.emit(".__anext__()");
 }
 
 // ============================================================================
@@ -231,7 +215,7 @@ pub fn genAnext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_staticmethod: {{ @panic(\"staticmethod requires an argument\"); }})", .{id});
+        try self.emitFmt("(__m{d}_staticmethod: {{ @panic(\"staticmethod requires an argument\"); }})", .{id});
         return;
     }
     try self.genExpr(args[0]);
@@ -242,7 +226,7 @@ pub fn genStaticmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 pub fn genClassmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_classmethod: {{ @panic(\"classmethod requires an argument\"); }})", .{id});
+        try self.emitFmt("(__m{d}_classmethod: {{ @panic(\"classmethod requires an argument\"); }})", .{id});
         return;
     }
     try self.genExpr(args[0]);
@@ -251,25 +235,25 @@ pub fn genClassmethod(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
 /// property(fget=None, fset=None, fdel=None, doc=None) - create property descriptor
 /// In AOT, creates a property struct with getter/setter/deleter
 pub fn genProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try emitConst(self, ".{ .fget = ");
+    try self.emit(".{ .fget = ");
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
-        try emitConst(self, "null");
+        try self.emit("null");
     }
-    try emitConst(self, ", .fset = ");
+    try self.emit(", .fset = ");
     if (args.len > 1) {
         try self.genExpr(args[1]);
     } else {
-        try emitConst(self, "null");
+        try self.emit("null");
     }
-    try emitConst(self, ", .fdel = ");
+    try self.emit(", .fdel = ");
     if (args.len > 2) {
         try self.genExpr(args[2]);
     } else {
-        try emitConst(self, "null");
+        try self.emit("null");
     }
-    try emitConst(self, " }");
+    try self.emit(" }");
 }
 
 // ============================================================================
@@ -279,17 +263,17 @@ pub fn genProperty(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// help([object]) - display help (no-op in compiled code)
 pub fn genHelp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try emitConst(self, "{}"); // void
+    try self.emit("{}"); // void
 }
 
 /// exit([code]) - exit the interpreter
 pub fn genExit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "std.process.exit(@intCast(");
+        try self.emit("std.process.exit(@intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "))");
+        try self.emit("))");
     } else {
-        try emitConst(self, "std.process.exit(0)");
+        try self.emit("std.process.exit(0)");
     }
 }
 
@@ -301,17 +285,17 @@ pub fn genQuit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// license() - display license (no-op in compiled code)
 pub fn genLicense(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try emitConst(self, "{}"); // void
+    try self.emit("{}"); // void
 }
 
 /// credits() - display credits (no-op in compiled code)
 pub fn genCredits(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try emitConst(self, "{}"); // void
+    try self.emit("{}"); // void
 }
 
 /// copyright() - display copyright (no-op in compiled code)
 pub fn genCopyright(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
-    try emitConst(self, "{}"); // void
+    try self.emit("{}"); // void
 }

@@ -8,14 +8,6 @@ const NativeType = @import("../../analysis/native_types.zig").NativeType;
 const type_traits = @import("../../analysis/traits/type_traits.zig");
 const container_traits = @import("../../analysis/traits/container_traits.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
@@ -33,7 +25,7 @@ pub const Funcs = std.StaticStringMap(ModuleHandler).initComptime(.{
 /// Parses JSON and returns a PyObject (dict/list/etc)
 pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try emitConst(self, "@compileError(\"json.loads() requires exactly 1 argument\")");
+        try self.emit("@compileError(\"json.loads() requires exactly 1 argument\")");
         return;
     }
 
@@ -46,11 +38,11 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (type_traits.isUnknown(arg_type)) {
         // Already a PyObject - pass directly to json.loads
-        try emitConst(self, "try runtime.json.loads(");
+        try self.emit("try runtime.json.loads(");
         try self.genExpr(args[0]);
-        try emitConst(self, ", ");
-        try emitConst(self, alloc_name);
-        try emitConst(self, ")");
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(")");
     } else {
         // String literal or native string - wrap in PyString first
         const id = self.nextNameId();
@@ -73,7 +65,7 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Handles conversion from native dict/list to PyObject
 pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
-        try emitConst(self, "@compileError(\"json.dumps() requires exactly 1 argument\")");
+        try self.emit("@compileError(\"json.dumps() requires exactly 1 argument\")");
         return;
     }
 
@@ -92,11 +84,11 @@ pub fn genJsonDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try genJsonDumpsList(self, args[0], arg_type.list.*);
     } else {
         // Native Zig value (string, int, bool, null) - use dumpsValue
-        try emitConst(self, "try runtime.json.dumpsValue(");
+        try self.emit("try runtime.json.dumpsValue(");
         try self.genExpr(args[0]);
-        try emitConst(self, ", ");
-        try emitConst(self, alloc_name);
-        try emitConst(self, ")");
+        try self.emit(", ");
+        try self.emit(alloc_name);
+        try self.emit(")");
     }
 }
 

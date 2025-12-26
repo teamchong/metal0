@@ -16,14 +16,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // UnifiedInt/Complex operation helpers - auto-closing patterns
 // ============================================
@@ -38,15 +30,15 @@ fn emitUnifiedIntBinaryOp(
     right_operand: ZigValue,
     right_type: NativeType,
 ) CodegenError!void {
-    try emitConst(self, "runtime.unified_int_ops.");
-    try emitConst(self, func);
+    try self.emit("runtime.unified_int_ops.");
+    try self.emit(func);
     const Ctx = struct { s: *NativeCodegen, lo: ZigValue, lt: NativeType, ro: ZigValue, rt: NativeType };
     try self.withParensCtx(Ctx{ .s = self, .lo = left_operand, .lt = left_type, .ro = right_operand, .rt = right_type }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try emitAsUnifiedInt(ctx.s, ctx.lo, ctx.lt);
-            try emitConst(s, ", ");
+            try s.emit(", ");
             try emitAsUnifiedInt(ctx.s, ctx.ro, ctx.rt);
-            try emitConst(s, ", __global_allocator");
+            try s.emit(", __global_allocator");
         }
     }.f);
 }
@@ -60,20 +52,20 @@ fn emitUnifiedIntShiftOp(
     left_type: NativeType,
     right_operand: ZigValue,
 ) CodegenError!void {
-    try emitConst(self, "runtime.unified_int_ops.");
-    try emitConst(self, func);
+    try self.emit("runtime.unified_int_ops.");
+    try self.emit(func);
     const Ctx = struct { s: *NativeCodegen, lo: ZigValue, lt: NativeType, ro: ZigValue };
     try self.withParensCtx(Ctx{ .s = self, .lo = left_operand, .lt = left_type, .ro = right_operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try emitAsUnifiedInt(ctx.s, ctx.lo, ctx.lt);
-            try emitConst(s, ", @as(u32, @intCast");
+            try s.emit(", @as(u32, @intCast");
             const Inner = struct { o: ZigValue };
             try s.withParensCtx(Inner{ .o = ctx.ro }, struct {
                 pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
                     try si.emitZigValue(inner.o);
                 }
             }.g);
-            try emitConst(s, "), __global_allocator");
+            try s.emit("), __global_allocator");
         }
     }.f);
 }
@@ -89,8 +81,8 @@ fn emitComplexBinaryOp(
     right_type: NativeType,
 ) CodegenError!void {
     try emitAsComplex(self, left_operand, left_type);
-    try emitConst(self, ".");
-    try emitConst(self, method);
+    try self.emit(".");
+    try self.emit(method);
     const Ctx = struct { s: *NativeCodegen, ro: ZigValue, rt: NativeType };
     try self.withParensCtx(Ctx{ .s = self, .ro = right_operand, .rt = right_type }, struct {
         pub fn f(_: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -130,7 +122,7 @@ fn emitAsUnifiedInt(self: *NativeCodegen, operand: ZigValue, t: NativeType) Code
         try self.emitZigValue(operand);
     } else if (t == .bigint) {
         // BigInt -> UnifiedInt.fromBigInt (no allocation needed)
-        try emitConst(self, "runtime.UnifiedInt.fromBigInt");
+        try self.emit("runtime.UnifiedInt.fromBigInt");
         const Ctx = struct { o: ZigValue };
         try self.withParensCtx(Ctx{ .o = operand }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -139,24 +131,24 @@ fn emitAsUnifiedInt(self: *NativeCodegen, operand: ZigValue, t: NativeType) Code
         }.f);
     } else if (t == .int or t == .usize) {
         // i64/usize -> UnifiedInt.fromI64 (no allocation needed)
-        try emitConst(self, "runtime.unified_int_ops.fromI64");
+        try self.emit("runtime.unified_int_ops.fromI64");
         const Ctx = struct { o: ZigValue };
         try self.withParensCtx(Ctx{ .o = operand }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                try emitConst(s, "@as(i64, ");
+                try s.emit("@as(i64, ");
                 try s.emitZigValue(ctx.o);
-                try emitConst(s, ")");
+                try s.emit(")");
             }
         }.f);
     } else {
         // Unknown - try to convert as i64
-        try emitConst(self, "runtime.unified_int_ops.fromI64");
+        try self.emit("runtime.unified_int_ops.fromI64");
         const Ctx = struct { o: ZigValue };
         try self.withParensCtx(Ctx{ .o = operand }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                try emitConst(s, "@as(i64, ");
+                try s.emit("@as(i64, ");
                 try s.emitZigValue(ctx.o);
-                try emitConst(s, ")");
+                try s.emit(")");
             }
         }.f);
     }
@@ -189,11 +181,11 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         .Div => {
             // Python division always returns float
             // Convert UnifiedInt to f64 via toF64()
-            try emitConst(self, "(runtime.unified_int_ops.toF64(");
+            try self.emit("(runtime.unified_int_ops.toF64(");
             try emitAsUnifiedInt(self, left_operand, left_type);
-            try emitConst(self, ") / runtime.unified_int_ops.toF64(");
+            try self.emit(") / runtime.unified_int_ops.toF64(");
             try emitAsUnifiedInt(self, right_operand, right_type);
-            try emitConst(self, "))");
+            try self.emit("))");
         },
         else => {
             // Unsupported UnifiedInt op - use VM fallback for drop-in CPython replacement
@@ -210,14 +202,14 @@ fn emitAsComplex(self: *NativeCodegen, operand: ZigValue, t: NativeType) Codegen
         try self.emitZigValue(operand);
     } else if (t == .float) {
         // float -> complex with real part
-        try emitConst(self, "runtime.PyComplex.create(");
+        try self.emit("runtime.PyComplex.create(");
         try self.emitZigValue(operand);
-        try emitConst(self, ", 0.0)");
+        try self.emit(", 0.0)");
     } else {
         // int/bool -> complex with real part
-        try emitConst(self, "runtime.PyComplex.create(@as(f64, @floatFromInt(");
+        try self.emit("runtime.PyComplex.create(@as(f64, @floatFromInt(");
         try self.emitZigValue(operand);
-        try emitConst(self, ")), 0.0)");
+        try self.emit(")), 0.0)");
     }
 }
 

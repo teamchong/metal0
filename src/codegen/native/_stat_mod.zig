@@ -71,184 +71,168 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "FILE_ATTRIBUTE_VIRTUAL", genFILEATTRIBUTEVIRTUAL },
 });
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // File type constants
 fn genSIFMT(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o170000)");
+    try self.emit("@as(u32, 0o170000)");
 }
 
 fn genSIFDIR(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o040000)");
+    try self.emit("@as(u32, 0o040000)");
 }
 
 fn genSIFCHR(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o020000)");
+    try self.emit("@as(u32, 0o020000)");
 }
 
 fn genSIFBLK(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o060000)");
+    try self.emit("@as(u32, 0o060000)");
 }
 
 fn genSIFREG(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o100000)");
+    try self.emit("@as(u32, 0o100000)");
 }
 
 fn genSIFIFO(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o010000)");
+    try self.emit("@as(u32, 0o010000)");
 }
 
 fn genSIFLNK(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o120000)");
+    try self.emit("@as(u32, 0o120000)");
 }
 
 fn genSIFSOCK(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o140000)");
+    try self.emit("@as(u32, 0o140000)");
 }
 
 // Permission bits
 fn genSISUID(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o4000)");
+    try self.emit("@as(u32, 0o4000)");
 }
 
 fn genSISGID(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o2000)");
+    try self.emit("@as(u32, 0o2000)");
 }
 
 fn genSISVTX(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o1000)");
+    try self.emit("@as(u32, 0o1000)");
 }
 
 fn genSIRWXU(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o700)");
+    try self.emit("@as(u32, 0o700)");
 }
 
 fn genSIRUSR(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o400)");
+    try self.emit("@as(u32, 0o400)");
 }
 
 fn genSIWUSR(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o200)");
+    try self.emit("@as(u32, 0o200)");
 }
 
 fn genSIXUSR(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o100)");
+    try self.emit("@as(u32, 0o100)");
 }
 
 fn genSIRWXG(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o070)");
+    try self.emit("@as(u32, 0o070)");
 }
 
 fn genSIRGRP(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o040)");
+    try self.emit("@as(u32, 0o040)");
 }
 
 fn genSIWGRP(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o020)");
+    try self.emit("@as(u32, 0o020)");
 }
 
 fn genSIXGRP(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o010)");
+    try self.emit("@as(u32, 0o010)");
 }
 
 fn genSIRWXO(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o007)");
+    try self.emit("@as(u32, 0o007)");
 }
 
 fn genSIROTH(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o004)");
+    try self.emit("@as(u32, 0o004)");
 }
 
 fn genSIWOTH(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o002)");
+    try self.emit("@as(u32, 0o002)");
 }
 
 fn genSIXOTH(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 0o001)");
+    try self.emit("@as(u32, 0o001)");
 }
 
 // Type test functions
 fn genSISDIR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o040000)");
+        try self.emit(" & 0o170000) == 0o040000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genSISCHR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o020000)");
+        try self.emit(" & 0o170000) == 0o020000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genSISBLK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o060000)");
+        try self.emit(" & 0o170000) == 0o060000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genSISREG(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o100000)");
+        try self.emit(" & 0o170000) == 0o100000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genSISFIFO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o010000)");
+        try self.emit(" & 0o170000) == 0o010000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genSISLNK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o120000)");
+        try self.emit(" & 0o170000) == 0o120000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
 fn genSISSOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "((");
+        try self.emit("((");
         try self.genExpr(args[0]);
-        try emitConst(self, " & 0o170000) == 0o140000)");
+        try self.emit(" & 0o170000) == 0o140000)");
     } else {
-        try emitConst(self, "false");
+        try self.emit("false");
     }
 }
 
@@ -258,126 +242,126 @@ fn genSIMODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.withParensCtx(args[0], struct {
             pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
                 try s.genExpr(arg);
-                try emitConst(s, " & 0o7777");
+                try s.emit(" & 0o7777");
             }
         }.f);
     } else {
-        try emitConst(self, "@as(u32, 0)");
+        try self.emit("@as(u32, 0)");
     }
 }
 
 fn genFilemode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self, "\"----------\"");
+        try self.emit("\"----------\"");
         return;
     }
     try self.withInlineBlock("fm", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const mode = ");
+            try c.emit("const mode = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :{s} &perm", .{label});
+            try c.emitFmt("; var perm: [10]u8 = \"----------\".*; if ((mode & 0o170000) == 0o040000) perm[0] = 'd'; if ((mode & 0o400) != 0) perm[1] = 'r'; if ((mode & 0o200) != 0) perm[2] = 'w'; if ((mode & 0o100) != 0) perm[3] = 'x'; if ((mode & 0o040) != 0) perm[4] = 'r'; if ((mode & 0o020) != 0) perm[5] = 'w'; if ((mode & 0o010) != 0) perm[6] = 'x'; if ((mode & 0o004) != 0) perm[7] = 'r'; if ((mode & 0o002) != 0) perm[8] = 'w'; if ((mode & 0o001) != 0) perm[9] = 'x'; break :{s} &perm", .{label});
         }
     }.emit);
 }
 
 // stat_result field indices
 fn genSTMODE(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 0)");
+    try self.emit("@as(i32, 0)");
 }
 
 fn genSTINO(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 1)");
+    try self.emit("@as(i32, 1)");
 }
 
 fn genSTDEV(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 2)");
+    try self.emit("@as(i32, 2)");
 }
 
 fn genSTNLINK(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 3)");
+    try self.emit("@as(i32, 3)");
 }
 
 fn genSTUID(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 4)");
+    try self.emit("@as(i32, 4)");
 }
 
 fn genSTGID(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 5)");
+    try self.emit("@as(i32, 5)");
 }
 
 fn genSTSIZE(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 6)");
+    try self.emit("@as(i32, 6)");
 }
 
 fn genSTATIME(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 7)");
+    try self.emit("@as(i32, 7)");
 }
 
 fn genSTMTIME(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 8)");
+    try self.emit("@as(i32, 8)");
 }
 
 fn genSTCTIME(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(i32, 9)");
+    try self.emit("@as(i32, 9)");
 }
 
 // Windows file attributes
 fn genFILEATTRIBUTEARCHIVE(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 32)");
+    try self.emit("@as(u32, 32)");
 }
 
 fn genFILEATTRIBUTECOMPRESSED(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 2048)");
+    try self.emit("@as(u32, 2048)");
 }
 
 fn genFILEATTRIBUTEDEVICE(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 64)");
+    try self.emit("@as(u32, 64)");
 }
 
 fn genFILEATTRIBUTEDIRECTORY(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 16)");
+    try self.emit("@as(u32, 16)");
 }
 
 fn genFILEATTRIBUTEENCRYPTED(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 16384)");
+    try self.emit("@as(u32, 16384)");
 }
 
 fn genFILEATTRIBUTEHIDDEN(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 2)");
+    try self.emit("@as(u32, 2)");
 }
 
 fn genFILEATTRIBUTENORMAL(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 128)");
+    try self.emit("@as(u32, 128)");
 }
 
 fn genFILEATTRIBUTENOTCONTENTINDEXED(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 8192)");
+    try self.emit("@as(u32, 8192)");
 }
 
 fn genFILEATTRIBUTEOFFLINE(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 4096)");
+    try self.emit("@as(u32, 4096)");
 }
 
 fn genFILEATTRIBUTEREADONLY(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 1)");
+    try self.emit("@as(u32, 1)");
 }
 
 fn genFILEATTRIBUTEREPARSEPOINT(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 1024)");
+    try self.emit("@as(u32, 1024)");
 }
 
 fn genFILEATTRIBUTESPARSEFILE(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 512)");
+    try self.emit("@as(u32, 512)");
 }
 
 fn genFILEATTRIBUTESYSTEM(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 4)");
+    try self.emit("@as(u32, 4)");
 }
 
 fn genFILEATTRIBUTETEMPORARY(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 256)");
+    try self.emit("@as(u32, 256)");
 }
 
 fn genFILEATTRIBUTEVIRTUAL(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    try emitConst(self, "@as(u32, 65536)");
+    try self.emit("@as(u32, 65536)");
 }

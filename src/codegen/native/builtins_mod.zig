@@ -12,31 +12,15 @@ const expr_emitter = @import("expr_emitter.zig");
 const type_checks = @import("builtins/conversions/type_checks.zig");
 const dynamic_attrs = @import("builtins/dynamic_attrs.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // Comptime generators
 fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) h.H {
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len > 0) {
-                try emitConst(self, "(try std.fmt.allocPrint(__global_allocator, \"" ++ prefix ++ "{" ++ fmt ++ "}\", .{");
+                try self.emit("(try std.fmt.allocPrint(__global_allocator, \"" ++ prefix ++ "{" ++ fmt ++ "}\", .{");
                 try self.genExpr(args[0]);
-                try emitConst(self, "}))");
-            } else try emitConst(self, "\"" ++ default ++ "\"");
+                try self.emit("}))");
+            } else try self.emit("\"" ++ default ++ "\"");
         }
     }.f;
 }
@@ -45,13 +29,13 @@ fn sideEffect(self: *NativeCodegen, args: []ast.Node, comptime default: []const 
     if (args.len >= 1 and args[0] == .call) {
         try self.withInlineBlock("side", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "_ = ");
+                try c.emit("_ = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} " ++ default, .{label});
+                try c.emitFmt("; break :{s} " ++ default, .{label});
             }
         }.emit);
     } else {
-        try emitConst(self, default);
+        try self.emit(default);
     }
 }
 
@@ -111,48 +95,48 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 pub fn genSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // slice(stop) or slice(start, stop) or slice(start, stop, step)
-    try emitConst(self, ".{ .start = ");
+    try self.emit(".{ .start = ");
     if (args.len >= 2) {
-        try emitConst(self, "@as(?i64, ");
+        try self.emit("@as(?i64, ");
         try expressions.genExpr(self, args[0]);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "@as(?i64, null)");
+        try self.emit("@as(?i64, null)");
     }
-    try emitConst(self, ", .stop = ");
+    try self.emit(", .stop = ");
     if (args.len >= 1) {
-        try emitConst(self, "@as(?i64, ");
+        try self.emit("@as(?i64, ");
         if (args.len == 1) {
             try expressions.genExpr(self, args[0]);
         } else {
             try expressions.genExpr(self, args[1]);
         }
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "@as(?i64, null)");
+        try self.emit("@as(?i64, null)");
     }
-    try emitConst(self, ", .step = ");
+    try self.emit(", .step = ");
     if (args.len >= 3) {
-        try emitConst(self, "@as(?i64, ");
+        try self.emit("@as(?i64, ");
         try expressions.genExpr(self, args[2]);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "@as(?i64, null)");
+        try self.emit("@as(?i64, null)");
     }
-    try emitConst(self, " }");
+    try self.emit(" }");
 }
 
 pub fn genSuper(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     _ = args;
     if (self.current_class_name) |current_class| {
         if (self.getParentClassName(current_class)) |parent_class| {
-            try emitConst(self, "@as(*const ");
-            try emitConst(self, parent_class);
-            try emitConst(self, ", @ptrCast(__self))");
+            try self.emit("@as(*const ");
+            try self.emit(parent_class);
+            try self.emit(", @ptrCast(__self))");
             return;
         }
     }
     var em = self.exprEmitter();
     const id = em.reserveLabelId();
-    try emitFmtConst(self, "super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
+    try self.emitFmt("super_{d}: {{ break :super_{d} .{{}}; }}", .{ id, id });
 }

@@ -10,22 +10,6 @@ const container_traits = @import("../../../analysis/traits/container_traits.zig"
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../expr_emitter.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
 /// String method codegen patterns for map(str.method, items)
 const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
     .{ "strip", "const __mapped = std.mem.trim(u8, __map_item, \" \\t\\r\\n\");\n" },
@@ -53,43 +37,43 @@ const TypeConvPatterns = std.StaticStringMap([]const u8).initComptime(.{
 /// Returns an iterable range object (PyObject list)
 pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"(try runtime.builtins.range(__global_allocator, 0, 0, 1))");
+        try self.emit("(try runtime.builtins.range(__global_allocator, 0, 0, 1))");
         return;
     }
 
     // Generate runtime.builtins.range(allocator, start, stop, step)
     // Wrap each arg in @as(i64, @intCast(...)) to handle usize loop variables
-    try emitConst(self,"(try runtime.builtins.range(__global_allocator, ");
+    try self.emit("(try runtime.builtins.range(__global_allocator, ");
     if (args.len == 1) {
         // range(stop) -> range(0, stop, 1)
-        try emitConst(self,"0, @as(i64, @intCast(");
+        try self.emit("0, @as(i64, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self,")), 1");
+        try self.emit(")), 1");
     } else if (args.len == 2) {
         // range(start, stop) -> range(start, stop, 1)
-        try emitConst(self,"@as(i64, @intCast(");
+        try self.emit("@as(i64, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self,")), @as(i64, @intCast(");
+        try self.emit(")), @as(i64, @intCast(");
         try self.genExpr(args[1]);
-        try emitConst(self,")), 1");
+        try self.emit(")), 1");
     } else {
         // range(start, stop, step)
-        try emitConst(self,"@as(i64, @intCast(");
+        try self.emit("@as(i64, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self,")), @as(i64, @intCast(");
+        try self.emit(")), @as(i64, @intCast(");
         try self.genExpr(args[1]);
-        try emitConst(self,")), @as(i64, @intCast(");
+        try self.emit(")), @as(i64, @intCast(");
         try self.genExpr(args[2]);
-        try emitConst(self,"))");
+        try self.emit("))");
     }
-    try emitConst(self,"))");
+    try self.emit("))");
 }
 
 /// Generate code for enumerate(iterable)
 /// Returns: list of (index, value) tuples
 pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"@as(*anyopaque, null)");
+        try self.emit("@as(*anyopaque, null)");
         return;
     }
 
@@ -99,40 +83,40 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate block that builds list of (index, value) tuples
     // Two-Flow: Use runtime.iterSlice for universal handling (ArrayList, PyValue, slice, etc.)
     const enum_id = self.nextNameId();
-    try emitFmtConst(self, "(__m{d}_enum: {{\n", .{enum_id});
+    try self.emitFmt("(__m{d}_enum: {{\n", .{enum_id});
     self.indent();
     try self.emitIndent();
-    try emitConst(self,"const __enum_iterable = ");
+    try self.emit("const __enum_iterable = ");
     try self.genExpr(iterable);
-    try emitConst(self,";\n");
+    try self.emit(";\n");
     try self.emitIndent();
     // runtime.iterSlice handles all iterable types: ArrayList→.items, PyValue→.list/.tuple, slice→slice
-    try emitConst(self,"const __enum_slice = runtime.iterSlice(__enum_iterable);\n");
+    try self.emit("const __enum_slice = runtime.iterSlice(__enum_iterable);\n");
     try self.emitIndent();
-    try emitConst(self,"var __enum_result = std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{i64, @TypeOf(__enum_slice[0])})){};\n");
+    try self.emit("var __enum_result = std.ArrayListUnmanaged(std.meta.Tuple(&[_]type{i64, @TypeOf(__enum_slice[0])})){};\n");
     try self.emitIndent();
-    try emitConst(self,"var __enum_idx: i64 = ");
+    try self.emit("var __enum_idx: i64 = ");
     if (start) |s| {
         try self.genExpr(s);
     } else {
-        try emitConst(self,"0");
+        try self.emit("0");
     }
-    try emitConst(self,";\n");
+    try self.emit(";\n");
     try self.emitIndent();
-    try emitConst(self,"for (__enum_slice) |__enum_item| {\n");
+    try self.emit("for (__enum_slice) |__enum_item| {\n");
     self.indent();
     try self.emitIndent();
-    try emitConst(self,"__enum_result.append(__global_allocator, .{__enum_idx, __enum_item}) catch unreachable;\n");
+    try self.emit("__enum_result.append(__global_allocator, .{__enum_idx, __enum_item}) catch unreachable;\n");
     try self.emitIndent();
-    try emitConst(self,"__enum_idx += 1;\n");
+    try self.emit("__enum_idx += 1;\n");
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
     try self.emitIndent();
-    try emitFmtConst(self, "break :__m{d}_enum __enum_result;\n", .{enum_id});
+    try self.emitFmt("break :__m{d}_enum __enum_result;\n", .{enum_id});
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"})");
+    try self.emit("})");
 }
 
 /// Generate code for zip(iter1, iter2, ...)
@@ -140,7 +124,7 @@ pub fn genEnumerate(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Note: zip() in for-loops is optimized by for_special.zig
 pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
-        try emitConst(self,"std.ArrayListUnmanaged(struct{}){}");
+        try self.emit("std.ArrayListUnmanaged(struct{}){}");
         return;
     }
 
@@ -148,7 +132,7 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
-    try emitFmtConst(self, "zip_{d}: {{\n", .{label_id});
+    try self.emitFmt("zip_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store each iterable with runtime.iterSlice for universal handling
@@ -157,50 +141,50 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __zip_arg_{d} = runtime.iterSlice(", .{i});
         try self.genExpr(arg);
-        try emitConst(self,");\n");
+        try self.emit(");\n");
     }
 
     // Calculate minimum length
     try self.emitIndent();
-    try emitConst(self,"const __zip_len = @min(");
+    try self.emit("const __zip_len = @min(");
     for (0..args.len) |i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print("__zip_arg_{d}.len", .{i});
     }
-    try emitConst(self,");\n");
+    try self.emit(");\n");
 
     // Create result list - use anytype tuple struct
     try self.emitIndent();
-    try emitConst(self,"var __zip_result = std.ArrayListUnmanaged(struct { ");
+    try self.emit("var __zip_result = std.ArrayListUnmanaged(struct { ");
     for (0..args.len) |i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print("@\"{d}\": @TypeOf(__zip_arg_{d}[0])", .{ i, i });
     }
-    try emitConst(self," }){};\n");
+    try self.emit(" }){};\n");
 
     // Iterate and build tuples
     try self.emitIndent();
-    try emitConst(self,"var __zip_i: usize = 0;\n");
+    try self.emit("var __zip_i: usize = 0;\n");
     try self.emitIndent();
-    try emitConst(self,"while (__zip_i < __zip_len) : (__zip_i += 1) {\n");
+    try self.emit("while (__zip_i < __zip_len) : (__zip_i += 1) {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try emitConst(self,"try __zip_result.append(__global_allocator, .{ ");
+    try self.emit("try __zip_result.append(__global_allocator, .{ ");
     for (0..args.len) |i| {
-        if (i > 0) try emitConst(self,", ");
+        if (i > 0) try self.emit(", ");
         // Use named field initialization (.@"0" = val) for structs with named fields
         try self.output.writer(self.allocator).print(".@\"{d}\" = __zip_arg_{d}[__zip_i]", .{ i, i });
     }
-    try emitConst(self," });\n");
+    try self.emit(" });\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
     try self.output.writer(self.allocator).print("break :zip_{d} __zip_result;\n", .{label_id});
     try self.emitIndent();
-    try emitConst(self,"}");
+    try self.emit("}");
 }
 
 /// Check if an iterable expression is uncertain (needs PyValue)
@@ -230,7 +214,7 @@ fn isIterableUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 /// Two-Flow: routes uncertain iterables to PyValue.pySum()
 pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"return error.TypeError");
+        try self.emit("return error.TypeError");
         return;
     }
 
@@ -238,7 +222,7 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (isIterableUncertain(self, args[0])) {
         // Route to PyValue.pySum() for runtime type safety
         try self.genExpr(args[0]);
-        try emitConst(self,".pySum()");
+        try self.emit(".pySum()");
         return;
     }
 
@@ -260,27 +244,27 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const needs_wrap = producesBlockExpression(args[0]);
 
     const sum_id = self.nextNameId();
-    try emitFmtConst(self, "__m{d}_sum: {{\n", .{sum_id});
+    try self.emitFmt("__m{d}_sum: {{\n", .{sum_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
-        try emitConst(self,"const __iterable = ");
+        try self.emit("const __iterable = ");
         try self.genExpr(args[0]);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
     }
-    try emitConst(self,"var total: i64 = 0;\n");
-    try emitConst(self,"for (");
+    try self.emit("var total: i64 = 0;\n");
+    try self.emit("for (");
     if (needs_wrap) {
-        try emitConst(self,"__iterable.items");
+        try self.emit("__iterable.items");
     } else {
         try self.genExpr(args[0]);
         // ArrayList needs .items for iteration, arrays don't
         if (!is_array_var) {
-            try emitConst(self,".items");
+            try self.emit(".items");
         }
     }
-    try emitConst(self,") |item| { total += item; }\n");
-    try emitFmtConst(self, "break :__m{d}_sum total;\n", .{sum_id});
-    try emitConst(self,"}");
+    try self.emit(") |item| { total += item; }\n");
+    try self.emitFmt("break :__m{d}_sum total;\n", .{sum_id});
+    try self.emit("}");
 }
 
 /// Generate code for all(iterable)
@@ -288,7 +272,7 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: routes uncertain iterables to PyValue.pyAll()
 pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"return error.TypeError");
+        try self.emit("return error.TypeError");
         return;
     }
 
@@ -296,7 +280,7 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (isIterableUncertain(self, args[0])) {
         // Route to PyValue.pyAll() for runtime type safety
         try self.genExpr(args[0]);
-        try emitConst(self,".pyAll()");
+        try self.emit(".pyAll()");
         return;
     }
 
@@ -310,25 +294,25 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const needs_wrap = producesBlockExpression(args[0]);
 
     const all_id = self.nextNameId();
-    try emitFmtConst(self, "__m{d}_all: {{\n", .{all_id});
+    try self.emitFmt("__m{d}_all: {{\n", .{all_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
-        try emitConst(self,"const __iterable = ");
+        try self.emit("const __iterable = ");
         try self.genExpr(args[0]);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
     }
-    try emitConst(self,"for (");
+    try self.emit("for (");
     if (needs_wrap) {
-        try emitConst(self,"__iterable.items");
+        try self.emit("__iterable.items");
     } else {
         try self.genExpr(args[0]);
-        try emitConst(self,".items");
+        try self.emit(".items");
     }
-    try emitConst(self,") |item| {\n");
-    try emitFmtConst(self, "if (item == 0) break :__m{d}_all false;\n", .{all_id});
-    try emitConst(self,"}\n");
-    try emitFmtConst(self, "break :__m{d}_all true;\n", .{all_id});
-    try emitConst(self,"}");
+    try self.emit(") |item| {\n");
+    try self.emitFmt("if (item == 0) break :__m{d}_all false;\n", .{all_id});
+    try self.emit("}\n");
+    try self.emitFmt("break :__m{d}_all true;\n", .{all_id});
+    try self.emit("}");
 }
 
 /// Generate code for any(iterable)
@@ -336,7 +320,7 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Two-Flow: routes uncertain iterables to PyValue.pyAny()
 pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"return error.TypeError");
+        try self.emit("return error.TypeError");
         return;
     }
 
@@ -344,7 +328,7 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (isIterableUncertain(self, args[0])) {
         // Route to PyValue.pyAny() for runtime type safety
         try self.genExpr(args[0]);
-        try emitConst(self,".pyAny()");
+        try self.emit(".pyAny()");
         return;
     }
 
@@ -365,21 +349,21 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const is_arraylist = (args[0] == .genexp or args[0] == .listcomp);
     const needs_wrap = producesBlockExpression(args[0]);
 
-    try emitFmtConst(self, "__m{d}_any: {{\n", .{any_id});
+    try self.emitFmt("__m{d}_any: {{\n", .{any_id});
     // If block expression, create temp variable first
     if (needs_wrap) {
-        try emitConst(self,"const __iterable = ");
+        try self.emit("const __iterable = ");
         try self.genExpr(args[0]);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
     }
-    try emitConst(self,"for (");
+    try self.emit("for (");
     if (needs_wrap) {
         if (is_arraylist) {
             // genexp/listcomp produce ArrayList - need .items
-            try emitConst(self,"__iterable.items");
+            try self.emit("__iterable.items");
         } else {
             // List/tuple/dict literals produce fixed arrays - iterate directly
-            try emitConst(self,"__iterable");
+            try self.emit("__iterable");
         }
     } else if (is_list_literal) {
         // Fixed array from list literal - iterate directly
@@ -387,21 +371,21 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         // ArrayList variable - need .items
         try self.genExpr(args[0]);
-        try emitConst(self,".items");
+        try self.emit(".items");
     }
-    try emitConst(self,") |item| {\n");
+    try self.emit(") |item| {\n");
     // Use comptime type check for truthy semantics - bool vs int
-    try emitFmtConst(self, "if (@TypeOf(item) == bool) {{ if (item) break :__m{d}_any true; }} else {{ if (item != 0) break :__m{d}_any true; }}\n", .{ any_id, any_id });
-    try emitConst(self,"}\n");
-    try emitFmtConst(self, "break :__m{d}_any false;\n", .{any_id});
-    try emitConst(self,"}");
+    try self.emitFmt("if (@TypeOf(item) == bool) {{ if (item) break :__m{d}_any true; }} else {{ if (item != 0) break :__m{d}_any true; }}\n", .{ any_id, any_id });
+    try self.emit("}\n");
+    try self.emitFmt("break :__m{d}_any false;\n", .{any_id});
+    try self.emit("}");
 }
 
 /// Generate code for sorted(iterable)
 /// Returns sorted copy
 pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try emitConst(self,"return error.TypeError");
+        try self.emit("return error.TypeError");
         return;
     }
 
@@ -415,13 +399,13 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const alloc_name = "__global_allocator";
 
     const sorted_id = self.nextNameId();
-    try emitFmtConst(self, "__m{d}_sorted: {{\n", .{sorted_id});
-    try emitFmtConst(self, "const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
+    try self.emitFmt("__m{d}_sorted: {{\n", .{sorted_id});
+    try self.emitFmt("const __sorted_copy = try {s}.dupe(i64, ", .{alloc_name});
     try self.genExpr(args[0]);
-    try emitConst(self,");\n");
-    try emitConst(self,"std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
-    try emitFmtConst(self, "break :__m{d}_sorted __sorted_copy;\n", .{sorted_id});
-    try emitConst(self,"}");
+    try self.emit(");\n");
+    try self.emit("std.mem.sort(i64, __sorted_copy, {}, comptime std.sort.asc(i64));\n");
+    try self.emitFmt("break :__m{d}_sorted __sorted_copy;\n", .{sorted_id});
+    try self.emit("}");
 }
 
 /// Generate code for reversed(iterable)
@@ -429,7 +413,7 @@ pub fn genSorted(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len != 1) {
         // Wrong number of args - emit error for assertRaises compatibility
-        try emitConst(self,"return error.TypeError");
+        try self.emit("return error.TypeError");
         return;
     }
 
@@ -454,19 +438,19 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (is_dict) {
         // For dicts, reversed() returns reversed keys
         const rev_dict_id = self.nextNameId();
-        try emitFmtConst(self, "__m{d}_rev_dict: {{\n", .{rev_dict_id});
-        try emitConst(self,"const _raw_iterable = ");
+        try self.emitFmt("__m{d}_rev_dict: {{\n", .{rev_dict_id});
+        try self.emit("const _raw_iterable = ");
         try self.genExpr(args[0]);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         if (at_module_level) {
-            try emitConst(self,"const _iterable = _raw_iterable;\n");
+            try self.emit("const _iterable = _raw_iterable;\n");
         } else {
-            try emitConst(self,"const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
+            try self.emit("const _iterable = if (@typeInfo(@TypeOf(_raw_iterable)) == .error_union) try _raw_iterable else _raw_iterable;\n");
         }
-        try emitFmtConst(self, "const __reversed_copy = {s}{s}.dupe([]const u8, _iterable.keys()){s};\n", .{ try_prefix, alloc_name, catch_suffix });
-        try emitConst(self,"std.mem.reverse([]const u8, __reversed_copy);\n");
-        try emitFmtConst(self, "break :__m{d}_rev_dict __reversed_copy;\n", .{rev_dict_id});
-        try emitConst(self,"}");
+        try self.emitFmt("const __reversed_copy = {s}{s}.dupe([]const u8, _iterable.keys()){s};\n", .{ try_prefix, alloc_name, catch_suffix });
+        try self.emit("std.mem.reverse([]const u8, __reversed_copy);\n");
+        try self.emitFmt("break :__m{d}_rev_dict __reversed_copy;\n", .{rev_dict_id});
+        try self.emit("}");
         return;
     }
 
@@ -496,21 +480,21 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // }
 
     const rev_id = self.nextNameId();
-    try emitFmtConst(self, "__m{d}_rev: {{\n", .{rev_id});
-    try emitConst(self,"const _rev_input = ");
+    try self.emitFmt("__m{d}_rev: {{\n", .{rev_id});
+    try self.emit("const _rev_input = ");
     try self.genExpr(args[0]);
-    try emitConst(self,";\n");
+    try self.emit(";\n");
     // Use container_dispatch helper - handles PyBytes (.data), ArrayList (.items), arrays, slices
-    try emitConst(self,"const _rev_slice = runtime.container_dispatch.getSlice(@TypeOf(_rev_input), _rev_input);\n");
-    try emitFmtConst(self, "const __reversed_copy = {s}{s}.dupe({s}, _rev_slice){s};\n", .{ try_prefix, alloc_name, elem_zig_type, catch_suffix });
-    try emitFmtConst(self, "std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
+    try self.emit("const _rev_slice = runtime.container_dispatch.getSlice(@TypeOf(_rev_input), _rev_input);\n");
+    try self.emitFmt("const __reversed_copy = {s}{s}.dupe({s}, _rev_slice){s};\n", .{ try_prefix, alloc_name, elem_zig_type, catch_suffix });
+    try self.emitFmt("std.mem.reverse({s}, __reversed_copy);\n", .{elem_zig_type});
     if (is_bytes) {
         // Wrap result in PyBytes for bytes input
-        try emitFmtConst(self, "break :__m{d}_rev runtime.builtins.PyBytes.init(__reversed_copy);\n", .{rev_id});
+        try self.emitFmt("break :__m{d}_rev runtime.builtins.PyBytes.init(__reversed_copy);\n", .{rev_id});
     } else {
-        try emitFmtConst(self, "break :__m{d}_rev __reversed_copy;\n", .{rev_id});
+        try self.emitFmt("break :__m{d}_rev __reversed_copy;\n", .{rev_id});
     }
-    try emitConst(self,"}");
+    try self.emit("}");
 }
 
 /// Generate code for map(func, iterable)
@@ -519,7 +503,7 @@ pub fn genReversed(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         const map_err_id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_map_err: {{ @panic(\"map() requires 2 arguments\"); }})", .{map_err_id});
+        try self.emitFmt("(__m{d}_map_err: {{ @panic(\"map() requires 2 arguments\"); }})", .{map_err_id});
         return;
     }
 
@@ -541,33 +525,33 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (std.mem.eql(u8, type_name, "str")) {
                 const pattern = StrMethodPatterns.get(method_name) orelse "const __mapped = __map_item; // unsupported str method\n";
                 const map_str_id = self.nextNameId();
-                try emitFmtConst(self, "__m{d}_map_str: {{\n", .{map_str_id});
+                try self.emitFmt("__m{d}_map_str: {{\n", .{map_str_id});
                 self.indent();
                 try self.emitIndent();
-                try emitConst(self,"var __map_result = std.ArrayListUnmanaged([]const u8){};\n");
+                try self.emit("var __map_result = std.ArrayListUnmanaged([]const u8){};\n");
                 try self.emitIndent();
-                try emitConst(self,"const __map_iterable = ");
+                try self.emit("const __map_iterable = ");
                 try self.genExpr(iterable);
-                try emitConst(self,";\n");
+                try self.emit(";\n");
                 try self.emitIndent();
                 if (needs_items) {
-                    try emitConst(self,"for (__map_iterable.items) |__map_item| {\n");
+                    try self.emit("for (__map_iterable.items) |__map_item| {\n");
                 } else {
-                    try emitConst(self,"for (__map_iterable) |__map_item| {\n");
+                    try self.emit("for (__map_iterable) |__map_item| {\n");
                 }
                 self.indent();
                 try self.emitIndent();
-                try emitConst(self,pattern);
+                try self.emit(pattern);
                 try self.emitIndent();
-                try emitConst(self,"__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
+                try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
                 self.dedent();
                 try self.emitIndent();
-                try emitConst(self,"}\n");
+                try self.emit("}\n");
                 try self.emitIndent();
-                try emitFmtConst(self, "break :__m{d}_map_str __map_result;\n", .{map_str_id});
+                try self.emitFmt("break :__m{d}_map_str __map_result;\n", .{map_str_id});
                 self.dedent();
                 try self.emitIndent();
-                try emitConst(self,"}");
+                try self.emit("}");
                 return;
             }
         }
@@ -579,33 +563,33 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (TypeConvResultTypes.get(func_name)) |result_type| {
             const conv_pattern = TypeConvPatterns.get(func_name) orelse "const __mapped = __map_item;\n";
             const map_conv_id = self.nextNameId();
-            try emitFmtConst(self, "__m{d}_map_conv: {{\n", .{map_conv_id});
+            try self.emitFmt("__m{d}_map_conv: {{\n", .{map_conv_id});
             self.indent();
             try self.emitIndent();
-            try emitFmtConst(self, "var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{result_type});
+            try self.emitFmt("var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{result_type});
             try self.emitIndent();
-            try emitConst(self,"const __map_iterable = ");
+            try self.emit("const __map_iterable = ");
             try self.genExpr(iterable);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
             try self.emitIndent();
             if (needs_items) {
-                try emitConst(self,"for (__map_iterable.items) |__map_item| {\n");
+                try self.emit("for (__map_iterable.items) |__map_item| {\n");
             } else {
-                try emitConst(self,"for (__map_iterable) |__map_item| {\n");
+                try self.emit("for (__map_iterable) |__map_item| {\n");
             }
             self.indent();
             try self.emitIndent();
-            try emitConst(self,conv_pattern);
+            try self.emit(conv_pattern);
             try self.emitIndent();
-            try emitConst(self,"__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
+            try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
             self.dedent();
             try self.emitIndent();
-            try emitConst(self,"}\n");
+            try self.emit("}\n");
             try self.emitIndent();
-            try emitFmtConst(self, "break :__m{d}_map_conv __map_result;\n", .{map_conv_id});
+            try self.emitFmt("break :__m{d}_map_conv __map_result;\n", .{map_conv_id});
             self.dedent();
             try self.emitIndent();
-            try emitConst(self,"}");
+            try self.emit("}");
             return;
         }
     }
@@ -621,19 +605,19 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const zig_result_type = type_buf.items;
 
         const map_lambda_id = self.nextNameId();
-        try emitFmtConst(self, "(__m{d}_map_lambda: {{\n", .{map_lambda_id});
+        try self.emitFmt("(__m{d}_map_lambda: {{\n", .{map_lambda_id});
         self.indent();
         try self.emitIndent();
-        try emitFmtConst(self, "var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{zig_result_type});
+        try self.emitFmt("var __map_result = std.ArrayListUnmanaged({s}){{}};\n", .{zig_result_type});
         try self.emitIndent();
-        try emitConst(self,"const __map_iterable = ");
+        try self.emit("const __map_iterable = ");
         try self.genExpr(iterable);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         try self.emitIndent();
         if (needs_items) {
-            try emitConst(self,"for (__map_iterable.items) |__map_item| {\n");
+            try self.emit("for (__map_iterable.items) |__map_item| {\n");
         } else {
-            try emitConst(self,"for (__map_iterable) |__map_item| {\n");
+            try self.emit("for (__map_iterable) |__map_item| {\n");
         }
         self.indent();
         try self.emitIndent();
@@ -646,25 +630,25 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.var_renames.put(param_name, "__map_item");
             defer _ = self.var_renames.swapRemove(param_name);
 
-            try emitConst(self,"const __mapped = ");
+            try self.emit("const __mapped = ");
             try self.genExpr(lambda.body.*);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         } else {
-            try emitConst(self,"const __mapped = ");
+            try self.emit("const __mapped = ");
             try self.genExpr(lambda.body.*);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
 
         try self.emitIndent();
-        try emitConst(self,"__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
+        try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
         try self.emitIndent();
-        try emitFmtConst(self, "break :__m{d}_map_lambda __map_result;\n", .{map_lambda_id});
+        try self.emitFmt("break :__m{d}_map_lambda __map_result;\n", .{map_lambda_id});
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"})");
+        try self.emit("})");
         return;
     }
 
@@ -672,36 +656,36 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For unknown functions, we store the iterable first, then infer from first element
     // Use iterSlice to handle all iterable types (ArrayList, PyValue, slice, etc.)
     const map_fallback_id = self.nextNameId();
-    try emitFmtConst(self, "(__m{d}_map: {{\n", .{map_fallback_id});
+    try self.emitFmt("(__m{d}_map: {{\n", .{map_fallback_id});
     self.indent();
     try self.emitIndent();
-    try emitConst(self,"const __map_iterable = ");
+    try self.emit("const __map_iterable = ");
     try self.genExpr(iterable);
-    try emitConst(self,";\n");
+    try self.emit(";\n");
     try self.emitIndent();
     // Use iterSlice for universal iterable handling (ArrayList, PyValue, slice, etc.)
-    try emitConst(self,"const __map_slice = runtime.iterSlice(__map_iterable);\n");
+    try self.emit("const __map_slice = runtime.iterSlice(__map_iterable);\n");
     try self.emitIndent();
-    try emitConst(self,"const __map_func = ");
+    try self.emit("const __map_func = ");
     try self.genExpr(func);
-    try emitConst(self,";\n");
+    try self.emit(";\n");
     try self.emitIndent();
-    try emitConst(self,"var __map_result = std.ArrayListUnmanaged(@TypeOf(__map_func(__map_slice[0]))){};\n");
+    try self.emit("var __map_result = std.ArrayListUnmanaged(@TypeOf(__map_func(__map_slice[0]))){};\n");
     try self.emitIndent();
-    try emitConst(self,"for (__map_slice) |__map_item| {\n");
+    try self.emit("for (__map_slice) |__map_item| {\n");
     self.indent();
     try self.emitIndent();
-    try emitConst(self,"const __mapped = __map_func(__map_item);\n");
+    try self.emit("const __mapped = __map_func(__map_item);\n");
     try self.emitIndent();
-    try emitConst(self,"__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
+    try self.emit("__map_result.append(__global_allocator, __mapped) catch unreachable;\n");
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
     try self.emitIndent();
-    try emitFmtConst(self, "break :__m{d}_map __map_result;\n", .{map_fallback_id});
+    try self.emitFmt("break :__m{d}_map __map_result;\n", .{map_fallback_id});
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"})");
+    try self.emit("})");
 }
 
 /// Generate code for filter(func, iterable)
@@ -756,9 +740,9 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For strings, create a stateful StringIterator
     if (string_traits.isString(arg_type)) {
-        try emitConst(self,"runtime.builtins.strIterator(");
+        try self.emit("runtime.builtins.strIterator(");
         try self.genExpr(args[0]);
-        try emitConst(self,")");
+        try self.emit(")");
         return;
     }
 
@@ -772,16 +756,16 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         if (is_arraylist) {
             // ArrayList variable: use .items to get slice
-            try emitConst(self,"runtime.iterators.iter(i64, ");
+            try self.emit("runtime.iterators.iter(i64, ");
             try self.genExpr(args[0]);
-            try emitConst(self,".items)");
+            try self.emit(".items)");
         } else {
             // Use container_dispatch helper to reduce monomorphization
-            try emitConst(self,"runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(");
+            try self.emit("runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(");
             try self.genExpr(args[0]);
-            try emitConst(self,"), ");
+            try self.emit("), ");
             try self.genExpr(args[0]);
-            try emitConst(self,"))");
+            try self.emit("))");
         }
         return;
     }
@@ -794,9 +778,9 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (std.mem.eql(u8, func_name, "range")) {
                 // iter(range(...)) - range returns *PyObject (PyList)
                 // Wrap in PyValue.from to match __iter__ return type
-                try emitConst(self,"runtime.PyValue.from(");
+                try self.emit("runtime.PyValue.from(");
                 try self.genExpr(args[0]);
-                try emitConst(self,")");
+                try self.emit(")");
                 return;
             }
         }
@@ -804,11 +788,11 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For unknown types, use container_dispatch helper to reduce monomorphization
     // Replaces inline @typeInfo/@hasField checks with centralized helper
-    try emitConst(self,"runtime.container_dispatch.toIterSlice(@TypeOf(");
+    try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
     try self.genExpr(args[0]);
-    try emitConst(self,"), ");
+    try self.emit("), ");
     try self.genExpr(args[0]);
-    try emitConst(self,")");
+    try self.emit(")");
 }
 
 /// Generate code for next(iterator, [default])
@@ -823,7 +807,7 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     if (type_traits.isClassInstance(arg_type)) {
         try self.genExpr(args[0]);
-        try emitConst(self,".__next__()");
+        try self.emit(".__next__()");
         return;
     }
 
@@ -833,18 +817,18 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         else => false,
     };
     if (is_list_iterator) {
-        try emitConst(self,"(");
+        try self.emit("(");
         try self.genExpr(args[0]);
-        try emitConst(self,".next() catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\") })");
+        try self.emit(".next() catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\") })");
         return;
     }
 
     // For StringIterator and other stateful iterators, pass pointer for mutation
     // The runtime.builtins.next() returns an error union, wrap with try/catch
     // Use catch to convert StopIteration/TypeError to panic (matches Python semantics)
-    try emitConst(self,"(runtime.builtins.next(&");
+    try self.emit("(runtime.builtins.next(&");
     try self.genExpr(args[0]);
-    try emitConst(self,") catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\"), error.TypeError => @panic(\"TypeError: object is not an iterator\") })");
+    try self.emit(") catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\"), error.TypeError => @panic(\"TypeError: object is not an iterator\") })");
 }
 
 // Built-in functions implementation status:

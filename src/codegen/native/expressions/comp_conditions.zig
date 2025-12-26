@@ -10,16 +10,6 @@ const zig_keywords = @import("utils.zig_keywords");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const operator_traits = @import("../../../analysis/traits/operator_traits.zig");
@@ -40,7 +30,7 @@ pub fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node, unique_id: usiz
             if (shadows_import) {
                 // Use unique capture name to avoid shadowing imported module
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}__", .{ var_name, unique_id });
-                try emitConst(self, mangled_name);
+                try self.emit(mangled_name);
                 return mangled_name;
             } else {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -86,9 +76,9 @@ pub fn genComprehensionCondition(
         try comp_expr_subs.genExprWithSubs(self, if_cond, subs);
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try emitConst(self, "runtime.pyTruthy(");
+        try self.emit("runtime.pyTruthy(");
         try comp_expr_subs.genExprWithSubs(self, if_cond, subs);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
@@ -100,33 +90,33 @@ pub fn genComprehensionCondition(
             switch (semantics) {
                 .zig_native => {
                     // Integer modulo - use @mod
-                    try emitConst(self, "runtime.toBool(@mod(");
+                    try self.emit("runtime.toBool(@mod(");
                     try comp_expr_subs.genExprWithSubs(self, if_cond.binop.left.*, subs);
-                    try emitConst(self, ", ");
+                    try self.emit(", ");
                     try comp_expr_subs.genExprWithSubs(self, if_cond.binop.right.*, subs);
-                    try emitConst(self, "))");
+                    try self.emit("))");
                 },
                 .python_floored => {
                     // Float modulo - use Python semantics
-                    try emitConst(self, "runtime.toBool(runtime.pyFloatMod(");
+                    try self.emit("runtime.toBool(runtime.pyFloatMod(");
                     try comp_expr_subs.genExprWithSubs(self, if_cond.binop.left.*, subs);
-                    try emitConst(self, ", ");
+                    try self.emit(", ");
                     try comp_expr_subs.genExprWithSubs(self, if_cond.binop.right.*, subs);
-                    try emitConst(self, "))");
+                    try self.emit("))");
                 },
                 .runtime_dispatch => {
                     // Unknown types - use runtime helper
-                    try emitConst(self, "runtime.toBool(runtime.moduloRuntime(");
+                    try self.emit("runtime.toBool(runtime.moduloRuntime(");
                     try comp_expr_subs.genExprWithSubs(self, if_cond.binop.left.*, subs);
-                    try emitConst(self, ", ");
+                    try self.emit(", ");
                     try comp_expr_subs.genExprWithSubs(self, if_cond.binop.right.*, subs);
-                    try emitConst(self, "))");
+                    try self.emit("))");
                 },
             }
         } else {
-            try emitConst(self, "runtime.toBool(");
+            try self.emit("runtime.toBool(");
             try comp_expr_subs.genExprWithSubs(self, if_cond, subs);
-            try emitConst(self, ")");
+            try self.emit(")");
         }
     }
 }
@@ -161,23 +151,23 @@ pub fn genComprehensionConditionNoSubs(
         try genExpr(self, if_cond);
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try emitConst(self, "runtime.pyTruthy(");
+        try self.emit("runtime.pyTruthy(");
         try genExpr(self, if_cond);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
         // Special case: modulo should use @mod to return int (not pyMod which returns string)
         if (if_cond == .binop and if_cond.binop.op == .Mod) {
-            try emitConst(self, "runtime.toBool(@mod(");
+            try self.emit("runtime.toBool(@mod(");
             try genExpr(self, if_cond.binop.left.*);
-            try emitConst(self, ", ");
+            try self.emit(", ");
             try genExpr(self, if_cond.binop.right.*);
-            try emitConst(self, "))");
+            try self.emit("))");
         } else {
-            try emitConst(self, "runtime.toBool(");
+            try self.emit("runtime.toBool(");
             try genExpr(self, if_cond);
-            try emitConst(self, ")");
+            try self.emit(")");
         }
     }
 }

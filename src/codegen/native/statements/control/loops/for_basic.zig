@@ -15,23 +15,6 @@ const container_traits = @import("../../../../../analysis/traits/container_trait
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../../../expr_emitter.zig");
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 /// Check if an expression is a lazy class attribute access (self.ATTR where ATTR is lazy)
 /// Returns the attribute name if it is, null otherwise
 fn isLazyClassAttrAccess(self: *NativeCodegen, expr: ast.Node) ?[]const u8 {
@@ -436,7 +419,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // For now, emit a warning that nested unpacking uses flat iteration
     if (has_nested) {
         try self.emitIndent();
-        try emitConst(self,"// Note: Nested tuple unpacking - inner tuples accessed via indices\n");
+        try self.emit("// Note: Nested tuple unpacking - inner tuples accessed via indices\n");
     }
 
     // Check if this is a lazy class attribute access (e.g., self.STRINGS where STRINGS is lazy)
@@ -448,7 +431,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     if (needs_lazy_wrapper) {
         _ = em_lazy.reserveLabelId();
         try self.emitIndent();
-        try emitConst(self,"{\n");
+        try self.emit("{\n");
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __lazy_iter_{d} = try @This().{s}(__global_allocator);\n", .{ lazy_iter_id, lazy_attr_name.? });
@@ -465,9 +448,9 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // Lazy iterators and tuples require inline for (comptime iteration)
     const needs_inline_for_loop = needs_lazy_wrapper or container_traits.isTuple(iter_type);
     if (needs_inline_for_loop) {
-        try emitConst(self,"inline for (");
+        try self.emit("inline for (");
     } else {
-        try emitConst(self,"for (");
+        try self.emit("for (");
     }
 
     // If using lazy wrapper, iterate over the captured variable
@@ -482,31 +465,31 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
         if (is_slice) {
             // Slice already returns []T - wrap in parens and iterate directly
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(iter);
-            try emitConst(self,")");
+            try self.emit(")");
         } else if (is_method_call) {
             // Method call returns ArrayList - wrap in parens for .items
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(iter);
-            try emitConst(self,").items");
+            try self.emit(").items");
         } else if (iter == .list) {
             // Inline list literal
-            try emitConst(self,"(");
+            try self.emit("(");
             try self.genExpr(iter);
-            try emitConst(self,").items");
+            try self.emit(").items");
         } else if (producesBlockExpression(iter)) {
             // Block expression (reversed(), etc.) - wrap in temp variable for .items access
             // Can't do `blk: {...}.items` directly in for loop operand
             const label = try self.emitInlineBlockStart("iter");
-            try emitConst(self," const __iter = ");
+            try self.emit(" const __iter = ");
             try self.genExpr(iter);
-            try emitFmtConst(self, "; break :{s} __iter.items; ", .{label});
+            try self.emitFmt("; break :{s} __iter.items; ", .{label});
             try self.emitInlineBlockEnd();
         } else {
             // Variable that holds ArrayList
             try self.genExpr(iter);
-            try emitConst(self,".items");
+            try self.emit(".items");
         }
     } else if (container_traits.isTuple(iter_type) and iter == .name) {
         // Tuple variable - must use inline for with direct iteration
@@ -516,11 +499,11 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     } else if (iter == .name) {
         // Variable with unknown type - use container_dispatch helper to reduce monomorphization
         // Replaces inline @typeInfo/@hasField check with centralized helper
-        try emitConst(self,"runtime.container_dispatch.toIterSlice(@TypeOf(");
+        try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
         try self.genExpr(iter);
-        try emitConst(self,"), ");
+        try self.emit("), ");
         try self.genExpr(iter);
-        try emitConst(self,")");
+        try self.emit(")");
     } else {
         // Not a list type - iterate directly
         try self.genExpr(iter);
@@ -563,7 +546,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
             if (is_hoisted) {
                 // Already declared at function level - just assign using original name
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
             } else {
                 // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
                 const shadows_outer_scope = self.isDeclared(var_name) or
@@ -589,9 +572,9 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                 };
 
                 if (is_reassigned) {
-                    try emitConst(self,"var ");
+                    try self.emit("var ");
                 } else {
-                    try emitConst(self,"const ");
+                    try self.emit("const ");
                 }
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
 
@@ -604,9 +587,9 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             // Emit discard to prevent "unused variable" errors - safe because Zig allows _ = &x; even if x is used
             // This handles cases where AST shows usage but codegen uses VM fallback (e.g., f.method() -> runtime.eval("f.method()"))
             try self.emitIndent();
-            try emitConst(self, "_ = &");
+            try self.emit("_ = &");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), emit_name);
-            try emitConst(self, ";\n");
+            try self.emit(";\n");
 
             // Mark the variable as declared so reassignment won't redeclare it
             if (!is_hoisted) try self.declareVar(var_name);
@@ -628,13 +611,13 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     self.dedent();
 
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     // Close lazy wrapper block if we opened one
     if (needs_lazy_wrapper) {
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
     }
 
     // Handle optional else clause (for/else)
@@ -683,7 +666,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 if (err == error.UnsupportedSyntax) {
                     // Use VM fallback for unsupported syntax - drop-in CPython replacement
                     try self.emitVMFallback(.{ .for_stmt = for_stmt });
-                    try emitConst(self, ";\n");
+                    try self.emit(";\n");
                     return;
                 }
                 return err;
@@ -713,7 +696,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     if (for_stmt.target.* != .name) {
         // Unsupported target type - use VM fallback for drop-in CPython replacement
         try self.emitVMFallback(.{ .for_stmt = for_stmt });
-        try emitConst(self, ";\n");
+        try self.emit(";\n");
         return;
     }
     const var_name = sanitizeVarName(for_stmt.target.name.id);
@@ -831,8 +814,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Skip for callable tuples - function types must be const in Zig
         if (!is_type_tuple and !is_heterogeneous_tuple and !has_callable_elements and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
             try self.emitIndent();
-            try emitConst(self,"var ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.emit("var ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
             // Determine loop variable type - use concrete type to avoid comptime_int issues
             // For tuples of all ints, use i64. For booleans, use bool. For strings, use []const u8.
             // String literals have length-encoded types (e.g., *const [0:0]u8, *const [1:0]u8)
@@ -840,23 +823,23 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             if (iter_type.tuple.len > 0) {
                 const first_elem_type = iter_type.tuple[0];
                 if (type_traits.isIntegral(first_elem_type)) {
-                    try emitConst(self,": i64 = undefined;\n");
+                    try self.emit(": i64 = undefined;\n");
                 } else if (type_traits.isBoolean(first_elem_type)) {
-                    try emitConst(self,": bool = undefined;\n");
+                    try self.emit(": bool = undefined;\n");
                 } else if (type_traits.isFloating(first_elem_type)) {
-                    try emitConst(self,": f64 = undefined;\n");
+                    try self.emit(": f64 = undefined;\n");
                 } else if (string_traits.isString(first_elem_type)) {
                     // String literals have length in type - use []const u8 for flexibility
-                    try emitConst(self,": []const u8 = undefined;\n");
+                    try self.emit(": []const u8 = undefined;\n");
                 } else {
                     // Use std.meta.Elem to safely extract element type (works on empty arrays)
-                    try emitConst(self,": std.meta.Elem(@TypeOf(");
+                    try self.emit(": std.meta.Elem(@TypeOf(");
                     try self.genExpr(for_stmt.iter.*);
-                    try emitConst(self,")) = undefined;\n");
+                    try self.emit(")) = undefined;\n");
                 }
             } else {
                 // Empty tuple - use i64 as default
-                try emitConst(self,": i64 = undefined;\n");
+                try self.emit(": i64 = undefined;\n");
             }
             try self.declareVar(var_name);
         }
@@ -902,17 +885,24 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
             for (tuple_elts) |tuple_elt| {
                 try self.emitIndent();
-                try emitConst(self, "{\n");
+                try self.emit("{\n");
                 self.indent();
                 try self.pushScope();
 
                 // Generate: const pow_op = <element>;
                 try self.emitIndent();
-                try emitConst(self, "const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-                try emitConst(self, " = ");
+                try self.emit("const ");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try self.emit(" = ");
                 try self.genExpr(tuple_elt);
-                try emitConst(self, ";\n");
+                try self.emit(";\n");
+
+                // Emit discard to prevent "unused variable" errors when body uses VM fallback
+                // (e.g., fill_type(b'-') -> runtime.eval("fill_type(b'-')") doesn't reference Zig's variable)
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                try self.emit(";\n");
 
                 // Generate body
                 for (for_stmt.body) |stmt| {
@@ -923,7 +913,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 self.popScope();
                 self.dedent();
                 try self.emitIndent();
-                try emitConst(self, "}\n");
+                try self.emit("}\n");
             }
 
             // Handle optional else clause (for/else)
@@ -936,7 +926,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
 
         try self.emitIndent();
-        try emitConst(self,"inline for (");
+        try self.emit("inline for (");
         try self.genExpr(for_stmt.iter.*);
         try self.output.writer(self.allocator).print(") |__m{d}_loop_val| {{\n", .{loop_var_id});
 
@@ -1037,19 +1027,19 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 // and function types must be const in Zig
                 // For heterogeneous tuples (not type or callable), wrap in PyValue for type consistency
                 if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
-                    try emitConst(self,"const ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.emit("const ");
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                     try self.output.writer(self.allocator).print(": runtime.PyValue = runtime.PyValue.from(__m{d}_loop_val);\n", .{loop_var_id});
                     try self.heterogeneous_loop_vars.put(var_name, {});
                 } else {
-                    try emitConst(self,"const ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.emit("const ");
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                     try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
                 }
             }
         } else {
             // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
             try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
         }
 
@@ -1167,7 +1157,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         // Handle optional else clause (for/else)
         if (for_stmt.orelse_body) |else_body| {
@@ -1183,9 +1173,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Handle dict iteration - iterate over .keys()
     if (container_traits.isDict(iter_type)) {
-        try emitConst(self,"for (");
+        try self.emit("for (");
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,".keys()) |");
+        try self.emit(".keys()) |");
 
         // If capture would shadow a hoisted variable, use a unique capture name
         const shadows_hoisted = self.hoisted_vars.contains(var_name);
@@ -1195,11 +1185,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             var_name;
 
         if (!tuple_var_used) {
-            try emitConst(self,"_");
+            try self.emit("_");
         } else {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
         }
-        try emitConst(self,"| {\n");
+        try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
@@ -1207,10 +1197,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // If we renamed the capture, assign to the hoisted variable
         if (shadows_hoisted and tuple_var_used) {
             try self.emitIndent();
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try emitConst(self," = ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit(" = ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
-            try emitConst(self,";\n");
+            try self.emit(";\n");
         }
 
         for (for_stmt.body) |stmt| {
@@ -1221,7 +1211,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         // Handle optional else clause (for/else)
         if (for_stmt.orelse_body) |else_body| {
@@ -1236,15 +1226,15 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Python: for line in file: -> Zig: for ((try runtime.PyFile.readlines(file, alloc)).items) |line|
     if (iter_type == .file) {
         // Generate: for ((try runtime.PyFile.readlines(file, allocator)).items) |line| {
-        try emitConst(self,"for ((try runtime.PyFile.readlines(");
+        try self.emit("for ((try runtime.PyFile.readlines(");
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,", __global_allocator)).items) |");
+        try self.emit(", __global_allocator)).items) |");
         if (!tuple_var_used) {
-            try emitConst(self,"_");
+            try self.emit("_");
         } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
         }
-        try emitConst(self,"| {\n");
+        try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
@@ -1261,9 +1251,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Emit discard to prevent "unused capture" errors when codegen uses VM fallback
             // (e.g., line.strip() -> runtime.eval("line.strip()") doesn't reference Zig's line variable)
             try self.emitIndent();
-            try emitConst(self, "_ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try emitConst(self, ";\n");
+            try self.emit("_ = &");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit(";\n");
         }
 
         for (for_stmt.body) |stmt| {
@@ -1281,7 +1271,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         // Handle optional else clause (for/else)
         if (for_stmt.orelse_body) |else_body| {
@@ -1299,12 +1289,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         var em_str = self.exprEmitter();
         const label_id = em_str.reserveLabelId();
 
-        try emitConst(self,"{\n");
+        try self.emit("{\n");
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __str_{d} = ", .{label_id});
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
 
         try self.emitIndent();
         try self.output.writer(self.allocator).print("for (0..__str_{d}.len) |__i_{d}| {{\n", .{ label_id, label_id });
@@ -1313,13 +1303,20 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.pushScope();
 
         // Declare the loop variable as a single-char slice
+        // Check if variable is already declared (hoisted or previously declared)
+        const already_declared = self.hoisted_vars.contains(var_name) or self.isDeclared(var_name);
         try self.emitIndent();
         if (!tuple_var_used) {
-            try emitConst(self,"_ = ");
+            try self.emit("_ = ");
             try self.output.writer(self.allocator).print("__str_{d}[__i_{d}..][0..1];\n", .{ label_id, label_id });
+        } else if (already_declared) {
+            // Variable already hoisted/declared - assign without const to avoid shadowing
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit(" = runtime.PyValue.from(");
+            try self.output.writer(self.allocator).print("__str_{d}[__i_{d}..][0..1]);\n", .{ label_id, label_id });
         } else {
-            try emitConst(self,"const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try self.emit("const ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
             try self.output.writer(self.allocator).print(" = __str_{d}[__i_{d}..][0..1];\n", .{ label_id, label_id });
         }
 
@@ -1345,11 +1342,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         // Handle optional else clause (for/else)
         if (for_stmt.orelse_body) |else_body| {
@@ -1368,12 +1365,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         var em_pyval = self.exprEmitter();
         const label_id = em_pyval.reserveLabelId();
 
-        try emitConst(self,"{\n");
+        try self.emit("{\n");
         self.indent();
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __pyval_{d} = ", .{label_id});
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         try self.emitIndent();
         // Use runtime.container_dispatch.toIterSlice() - compiles ONCE per type, not per call site
         try self.output.writer(self.allocator).print(
@@ -1390,14 +1387,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emitIndent();
         try self.output.writer(self.allocator).print("for (__pyval_items_{d}) |", .{label_id});
         if (!tuple_var_used) {
-            try emitConst(self,"_");
+            try self.emit("_");
         } else if (shadows_outer_pyval) {
             // Use unique capture name to avoid shadowing
             try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ var_name, unique_capture_id_pyval });
         } else {
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
         }
-        try emitConst(self,"| {\n");
+        try self.emit("| {\n");
 
         self.indent();
         try self.pushScope();
@@ -1405,7 +1402,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // If we used a unique capture name, assign to outer variable (Python semantics)
         if (tuple_var_used and shadows_outer_pyval) {
             try self.emitIndent();
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
             try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id_pyval });
         }
 
@@ -1420,11 +1417,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         // Handle optional else clause (for/else)
         if (for_stmt.orelse_body) |else_body| {
@@ -1449,7 +1446,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             //     const c = @field(__vararg_val, field.name);
             //     ...body...
             // }
-            try emitConst(self,"{\n");
+            try self.emit("{\n");
             self.indent();
             try self.emitIndent();
             // Handle both pointer and direct tuple types
@@ -1483,7 +1480,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             };
 
             if (!is_hoisted_vararg) {
-                try emitConst(self,"const ");
+                try self.emit("const ");
             }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name_vararg);
             try self.output.writer(self.allocator).print(
@@ -1536,11 +1533,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             self.popScope();
             self.dedent();
             try self.emitIndent();
-            try emitConst(self,"}\n");
+            try self.emit("}\n");
 
             self.dedent();
             try self.emitIndent();
-            try emitConst(self,"}\n");
+            try self.emit("}\n");
 
             // Handle optional else clause (for/else)
             if (for_stmt.orelse_body) |else_body| {
@@ -1561,14 +1558,14 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         var em_pylist = self.exprEmitter();
         const label_id = em_pylist.reserveLabelId();
 
-        try emitConst(self,"{\n");
+        try self.emit("{\n");
         self.indent();
         // Handle error unions (e.g., generator functions that return ![]PyValue)
         // First capture raw value, then unwrap if it's an error union
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __pylist_raw_{d} = ", .{label_id});
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print(
             "const __pylist_{d} = if (@typeInfo(@TypeOf(__pylist_raw_{d})) == .error_union) try __pylist_raw_{d} else __pylist_raw_{d};\n",
@@ -1600,7 +1597,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Hoisted vars are already declared in outer scope, so don't rename them
             if (self.hoisted_vars.contains(var_name)) {
                 // Use original var name (already declared in outer scope)
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
             } else {
                 // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
@@ -1627,7 +1624,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     }
                 };
 
-                try emitConst(self,"const ");
+                try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
             }
@@ -1644,11 +1641,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         self.dedent();
 
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         self.dedent();
         try self.emitIndent();
-        try emitConst(self,"}\n");
+        try self.emit("}\n");
 
         // Handle optional else clause (for/else)
         if (for_stmt.orelse_body) |else_body| {
@@ -1659,7 +1656,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         return;
     }
 
-    try emitConst(self,"for (");
+    try self.emit("for (");
 
     // Check if this is a constant list (will be compiled to array, not ArrayList)
     const is_constant_array = blk: {
@@ -1708,19 +1705,19 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
     } else if (container_traits.isList(iter_type) and for_stmt.iter.* == .list) {
         // Inline ArrayList literal - wrap in parens for .items access
-        try emitConst(self,"(");
+        try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,").items");
+        try self.emit(").items");
     } else if (container_traits.isList(iter_type) and for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
         // Method call that returns ArrayList - wrap in parens for .items access
-        try emitConst(self,"(");
+        try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,").items");
+        try self.emit(").items");
     } else if ((container_traits.isList(iter_type) or iter_type == .deque) and for_stmt.iter.* == .call) {
         // Function call that returns ArrayList (like chain(a, b)) - wrap in parens for .items access
-        try emitConst(self,"(");
+        try self.emit("(");
         try self.genExpr(for_stmt.iter.*);
-        try emitConst(self,").items");
+        try self.emit(").items");
     } else {
         // ArrayList (list or deque types) need .items for iteration
         // Block expressions (listcomp, etc.) need to be wrapped in a temp variable
@@ -1734,28 +1731,28 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
             if (is_slice) {
                 // Slice already returns []T - wrap in parens and iterate directly
-                try emitConst(self,"(");
+                try self.emit("(");
                 try self.genExpr(for_stmt.iter.*);
-                try emitConst(self,")");
+                try self.emit(")");
             } else if (producesBlockExpression(for_stmt.iter.*)) {
                 // Wrap block expression: blk: { const __iter = <expr>; break :blk __iter.items; }
                 const label = try self.emitInlineBlockStart("iter");
-                try emitConst(self," const __iter = ");
+                try self.emit(" const __iter = ");
                 try self.genExpr(for_stmt.iter.*);
-                try emitFmtConst(self, "; break :{s} __iter.items; ", .{label});
+                try self.emitFmt("; break :{s} __iter.items; ", .{label});
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(for_stmt.iter.*);
-                try emitConst(self,".items");
+                try self.emit(".items");
             }
         } else if (for_stmt.iter.* == .name) {
             // Variable with unknown type - use container_dispatch helper to reduce monomorphization
             // Replaces inline @typeInfo/@hasField check with centralized helper
-            try emitConst(self,"runtime.container_dispatch.toIterSlice(@TypeOf(");
+            try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
             try self.genExpr(for_stmt.iter.*);
-            try emitConst(self,"), ");
+            try self.emit("), ");
             try self.genExpr(for_stmt.iter.*);
-            try emitConst(self,")");
+            try self.emit(")");
         } else {
             try self.genExpr(for_stmt.iter.*);
         }
@@ -1782,17 +1779,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     const unique_capture_id = em_capture.peekLabelId();
     if (shadows_outer) _ = em_capture.reserveLabelId();
 
-    try emitConst(self,") |");
+    try self.emit(") |");
     if (!var_used) {
         // Use bare _ for unused capture (Zig requires this)
-        try emitConst(self,"_");
+        try self.emit("_");
     } else if (shadows_outer) {
         // Use unique capture name to avoid shadowing
         try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ var_name, unique_capture_id });
     } else {
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
     }
-    try emitConst(self,"| {\n");
+    try self.emit("| {\n");
 
     self.indent();
 
@@ -1803,7 +1800,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // This implements Python semantics where `for x in ...` reassigns x from outer scope
     if (var_used and shadows_outer) {
         try self.emitIndent();
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
 
         // Check if target variable is typed as BigInt - need to convert loop capture
         // This handles cases like: for n in [324, 2**100] where n is BigInt but loop yields i64
@@ -1838,9 +1835,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         }
         if (is_captured) {
             try self.emitIndent();
-            try emitConst(self,"_ = ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-            try emitConst(self,";\n");
+            try self.emit("_ = ");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit(";\n");
         }
     }
 
@@ -1896,7 +1893,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     self.dedent();
 
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     // Handle optional else clause (for/else)
     // Note: In Python, else runs if loop completes without break.
@@ -1986,29 +1983,29 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.emitIndent();
     if ((is_hoisted or is_declared) and !shadows_outer) {
         // Variable already exists with same name - assign with cast to match the existing type
-        try emitConst(self,loop_var_name);
-        try emitConst(self," = @as(@TypeOf(");
-        try emitConst(self,loop_var_name);
-        try emitConst(self,"), @intCast(");
+        try self.emit(loop_var_name);
+        try self.emit(" = @as(@TypeOf(");
+        try self.emit(loop_var_name);
+        try self.emit("), @intCast(");
         if (start_expr) |start| {
             try self.genExpr(start);
         } else {
-            try emitConst(self,"0");
+            try self.emit("0");
         }
-        try emitConst(self,"));\n");
+        try self.emit("));\n");
     } else {
         // Declare new variable (either first use, or renamed to avoid shadowing)
-        try emitConst(self,"var ");
-        try emitConst(self,loop_var_name);
-        try emitConst(self,": ");
-        try emitConst(self,loop_type);
-        try emitConst(self," = ");
+        try self.emit("var ");
+        try self.emit(loop_var_name);
+        try self.emit(": ");
+        try self.emit(loop_type);
+        try self.emit(" = ");
         if (start_expr) |start| {
             try self.genExpr(start);
         } else {
-            try emitConst(self,"0");
+            try self.emit("0");
         }
-        try emitConst(self,";\n");
+        try self.emit(";\n");
         // Register the variable as declared so subsequent for loops with the same
         // variable name reuse it instead of redeclaring
         if (!shadows_outer) {
@@ -2047,18 +2044,18 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     };
 
     try self.emitIndent();
-    try emitConst(self,"while (");
-    try emitConst(self,loop_var_name);
-    try emitConst(self," < ");
+    try self.emit("while (");
+    try self.emit(loop_var_name);
+    try self.emit(" < ");
     if (stop_is_pyvalue) {
         // Extract integer from PyValue for loop comparison
-        try emitConst(self,"(");
+        try self.emit("(");
         try self.genExpr(stop_expr);
-        try emitConst(self,").asInt()");
+        try self.emit(").asInt()");
     } else {
         try self.genExpr(stop_expr);
     }
-    try emitConst(self,") {\n");
+    try self.emit(") {\n");
 
     self.indent();
 
@@ -2069,12 +2066,12 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // This implements Python semantics where `for x in range(3): ...` leaves x as the last value assigned
     if (shadows_outer) {
         try self.emitIndent();
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try emitConst(self," = @as(@TypeOf(");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
-        try emitConst(self,"), @intCast(");
-        try emitConst(self,loop_var_name);
-        try emitConst(self,"));\n");
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+        try self.emit(" = @as(@TypeOf(");
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+        try self.emit("), @intCast(");
+        try self.emit(loop_var_name);
+        try self.emit("));\n");
     }
 
     for (body) |stmt| {
@@ -2084,14 +2081,14 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Increment - use renamed var if shadowed
     const incr_var_name = self.var_renames.get(var_name) orelse var_name;
     try self.emitIndent();
-    try emitConst(self,incr_var_name);
-    try emitConst(self," += ");
+    try self.emit(incr_var_name);
+    try self.emit(" += ");
     if (step_expr) |step| {
         try self.genExpr(step);
     } else {
-        try emitConst(self,"1");
+        try self.emit("1");
     }
-    try emitConst(self,";\n");
+    try self.emit(";\n");
 
     // Pop scope when exiting loop - also remove rename so it doesn't leak
     if (shadows_outer) {
@@ -2101,7 +2098,7 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n");
+    try self.emit("}\n");
 
     // Handle optional else clause (runs if loop completes without break)
     if (orelse_body) |else_body| {
@@ -2128,7 +2125,7 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     if (for_stmt.target.* != .name) {
         // Async for with tuple unpacking - use VM fallback for drop-in CPython replacement
         try self.emitVMFallback(.{ .for_stmt = for_stmt });
-        try emitConst(self, ";\n");
+        try self.emit(";\n");
         return;
     }
     const var_name = sanitizeVarName(for_stmt.target.name.id);
@@ -2139,17 +2136,17 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Emit: { const __aiter_N = <iter>.__aiter__();
     try self.emitIndent();
-    try emitConst(self,"{\n");
+    try self.emit("{\n");
     self.indent();
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const __aiter_{d} = ", .{loop_id});
     try self.genExpr(for_stmt.iter.*);
-    try emitConst(self,".__aiter__();\n");
+    try self.emit(".__aiter__();\n");
 
     // Emit: while (true) {
     try self.emitIndent();
-    try emitConst(self,"while (true) {\n");
+    try self.emit("while (true) {\n");
     self.indent();
     try self.pushScope();
 
@@ -2158,20 +2155,20 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     //           else => return err,
     //       };
     try self.emitIndent();
-    try emitConst(self,"const ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+    try self.emit("const ");
+    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
     try self.output.writer(self.allocator).print(" = __aiter_{d}.__anext__() catch |err| switch (err) {{\n", .{loop_id});
     self.indent();
 
     try self.emitIndent();
-    try emitConst(self,"error.StopAsyncIteration => break,\n");
+    try self.emit("error.StopAsyncIteration => break,\n");
 
     try self.emitIndent();
-    try emitConst(self,"else => return err,\n");
+    try self.emit("else => return err,\n");
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"};\n");
+    try self.emit("};\n");
 
     // Declare the variable for type inference
     try self.declareVar(var_name);
@@ -2184,12 +2181,12 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     self.popScope();
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n"); // end while
+    try self.emit("}\n"); // end while
 
     // Handle optional else clause (runs if loop completes without break)
     if (for_stmt.orelse_body) |else_body| {
         try self.emitIndent();
-        try emitConst(self,"// for/else: else body runs if loop completed normally\n");
+        try self.emit("// for/else: else body runs if loop completed normally\n");
         for (else_body) |stmt| {
             try self.generateStmt(stmt);
         }
@@ -2197,5 +2194,5 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self,"}\n"); // end block
+    try self.emit("}\n"); // end block
 }

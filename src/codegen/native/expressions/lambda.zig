@@ -50,16 +50,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 const ClosureError = error{
     NotAClosure,
 } || CodegenError;
@@ -274,11 +264,11 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
 
     // Restore original output
     self.output = std.ArrayList(u8){};
-    try emitConst(self, current_output);
+    try self.emit(current_output);
 
     // Generate function pointer reference in current context
-    try emitConst(self, "&");
-    try emitConst(self, lambda_name);
+    try self.emit("&");
+    try self.emit(lambda_name);
 
     // Free lambda_name now
     self.allocator.free(lambda_name);
@@ -951,7 +941,7 @@ fn bodyCallsNestedClass(self: *NativeCodegen, node: ast.Node) bool {
 /// Zig:    (struct { fn call(x: i64) CustomStr { return CustomStr.init(x); } }).call
 fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!void {
     // Start inline struct
-    try emitConst(self, "(struct { fn call(");
+    try self.emit("(struct { fn call(");
 
     // First pass: Infer parameter types
     var param_types = try self.allocator.alloc([]const u8, lambda.args.len);
@@ -972,21 +962,21 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
 
     // Generate parameter list
     for (lambda.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         const is_used = isParamUsedInBody(arg.name, lambda.body.*);
         if (is_used) {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-            try emitConst(self, ": ");
-            try emitConst(self, param_types[i]);
+            try self.emit(": ");
+            try self.emit(param_types[i]);
         } else {
-            try emitConst(self, "_: ");
-            try emitConst(self, param_types[i]);
+            try self.emit("_: ");
+            try self.emit(param_types[i]);
         }
     }
 
     // Return type - if body calls nested class, it will generate try, so need error union + pointer
     const return_type = try inferReturnType(self, lambda.body.*);
-    try emitConst(self, ") ");
+    try self.emit(") ");
     // Check if body contains a call to a nested class - if so, needs error union return with pointer
     // Nested classes use heap allocation and return !*@This()
     const body_calls_nested_class = bodyCallsNestedClass(self, lambda.body.*);
@@ -1003,9 +993,9 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
             for (args) |arg| {
                 const is_used = isParamUsedInBody(arg.name, body);
                 if (is_used) {
-                    try emitConst(s, "_ = &");
+                    try s.emit("_ = &");
                     try zig_keywords.writeEscapedIdent(s.output.writer(s.allocator), arg.name);
-                    try emitConst(s, "; ");
+                    try s.emit("; ");
                 }
             }
         }
@@ -1013,38 +1003,38 @@ fn genInlineLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) CodegenError!v
 
     if (use_inferred_return) {
         // Generate: []const u8 { _ = &params; var __temp = (body); return __temp.tobytes(); }
-        try emitConst(self, "[]const u8 { ");
+        try self.emit("[]const u8 { ");
         try emitParamDiscards(self, lambda.args, lambda.body.*);
-        try emitConst(self, "var __temp = ");
+        try self.emit("var __temp = ");
         const expressions = @import("../expressions.zig");
         try expressions.genExpr(self, lambda.body.*);
-        try emitConst(self, "; return __temp.tobytes(); } })");
+        try self.emit("; return __temp.tobytes(); } })");
     } else if (isAssertRaisesCall(lambda.body.*)) {
         // assertRaises calls generate their own return statement, so don't wrap with return
         // Pattern: (struct { fn call(o: T) !void { _ = &params; assertRaises_body } })
-        try emitConst(self, "!void { ");
+        try self.emit("!void { ");
         try emitParamDiscards(self, lambda.args, lambda.body.*);
 
         // Generate body expression (assertRaises generates: if (...) return error.X;)
         const expressions = @import("../expressions.zig");
         try expressions.genExpr(self, lambda.body.*);
 
-        try emitConst(self, " } })");
+        try self.emit(" } })");
     } else {
         if (body_calls_nested_class) {
-            try emitConst(self, "!*");
+            try self.emit("!*");
         }
-        try emitConst(self, return_type);
-        try emitConst(self, " { ");
+        try self.emit(return_type);
+        try self.emit(" { ");
         try emitParamDiscards(self, lambda.args, lambda.body.*);
-        try emitConst(self, "return ");
+        try self.emit("return ");
 
         // Generate body expression
         const expressions = @import("../expressions.zig");
         try expressions.genExpr(self, lambda.body.*);
 
         // Don't extract .call - keep as struct so closure call code can use .call() on it
-        try emitConst(self, "; } })");
+        try self.emit("; } })");
     }
 
     // Clean up registered parameters

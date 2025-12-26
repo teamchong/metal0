@@ -46,196 +46,180 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 fn genSocket(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ .family = 2, .type = 1, .proto = 0, .fd = -1 }");
+    try self.emit(".{ .family = 2, .type = 1, .proto = 0, .fd = -1 }");
 }
 
 fn genGetaddrinfo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "&[_]@TypeOf(.{ .family = 2, .type = 1, .proto = 0, .canonname = \"\", .sockaddr = .{} }){}");
+    try self.emit("&[_]@TypeOf(.{ .family = 2, .type = 1, .proto = 0, .canonname = \"\", .sockaddr = .{} }){}");
 }
 
 fn genGetnameinfo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ \"localhost\", \"0\" }");
+    try self.emit(".{ \"localhost\", \"0\" }");
 }
 
 fn genGethostname(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"localhost\"");
+    try self.emit("\"localhost\"");
 }
 
 fn genGetfqdn(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"localhost\"");
+    try self.emit("\"localhost\"");
 }
 
 fn genGethostbyname(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("ghn", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const __v = ");
+                try c.emit("const __v = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; _ = __v; break :{s} \"127.0.0.1\"", .{label});
+                try c.emitFmt("; _ = __v; break :{s} \"127.0.0.1\"", .{label});
             }
         }.emit);
     } else {
-        try emitConst(self, "\"127.0.0.1\"");
+        try self.emit("\"127.0.0.1\"");
     }
 }
 
 fn genGethostbynameEx(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ \"localhost\", &[_][]const u8{}, &[_][]const u8{\"127.0.0.1\"} }");
+    try self.emit(".{ \"localhost\", &[_][]const u8{}, &[_][]const u8{\"127.0.0.1\"} }");
 }
 
 fn genGethostbyaddr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ \"localhost\", &[_][]const u8{}, &[_][]const u8{\"127.0.0.1\"} }");
+    try self.emit(".{ \"localhost\", &[_][]const u8{}, &[_][]const u8{\"127.0.0.1\"} }");
 }
 
 fn genGetservbyname(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 0)");
+    try self.emit("@as(i32, 0)");
 }
 
 fn genGetprotobyname(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 0)");
+    try self.emit("@as(i32, 0)");
 }
 
 fn genGetservbyport(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"\"");
+    try self.emit("\"\"");
 }
 
 fn genGetdefaulttimeout(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "null");
+    try self.emit("null");
 }
 
 fn genSetdefaulttimeout(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "{}");
+    try self.emit("{}");
 }
 
 fn genNtohs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@byteSwap(@as(u16, @intCast(");
+        try self.emit("@byteSwap(@as(u16, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, ")))");
+        try self.emit(")))");
     } else {
-        try emitConst(self, "@as(u16, 0)");
+        try self.emit("@as(u16, 0)");
     }
 }
 
 fn genNtohl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@byteSwap(@as(u32, @intCast(");
+        try self.emit("@byteSwap(@as(u32, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, ")))");
+        try self.emit(")))");
     } else {
-        try emitConst(self, "@as(u32, 0)");
+        try self.emit("@as(u32, 0)");
     }
 }
 
 fn genHtons(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@byteSwap(@as(u16, @intCast(");
+        try self.emit("@byteSwap(@as(u16, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, ")))");
+        try self.emit(")))");
     } else {
-        try emitConst(self, "@as(u16, 0)");
+        try self.emit("@as(u16, 0)");
     }
 }
 
 fn genHtonl(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, "@byteSwap(@as(u32, @intCast(");
+        try self.emit("@byteSwap(@as(u32, @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, ")))");
+        try self.emit(")))");
     } else {
-        try emitConst(self, "@as(u32, 0)");
+        try self.emit("@as(u32, 0)");
     }
 }
 
 fn genInetAton(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "&[_]u8{127, 0, 0, 1}");
+    try self.emit("&[_]u8{127, 0, 0, 1}");
 }
 
 fn genInetPton(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "&[_]u8{127, 0, 0, 1}");
+    try self.emit("&[_]u8{127, 0, 0, 1}");
 }
 
 fn genInetNtoa(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"127.0.0.1\"");
+    try self.emit("\"127.0.0.1\"");
 }
 
 fn genInetNtop(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "\"127.0.0.1\"");
+    try self.emit("\"127.0.0.1\"");
 }
 
 fn genAfInet(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 2)");
+    try self.emit("@as(i32, 2)");
 }
 
 fn genAfInet6(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 30)");
+    try self.emit("@as(i32, 30)");
 }
 
 fn genAfUnix(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 1)");
+    try self.emit("@as(i32, 1)");
 }
 
 fn genSockStream(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 1)");
+    try self.emit("@as(i32, 1)");
 }
 
 fn genSockDgram(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 2)");
+    try self.emit("@as(i32, 2)");
 }
 
 fn genSockRaw(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 3)");
+    try self.emit("@as(i32, 3)");
 }
 
 fn genSolSocket(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 65535)");
+    try self.emit("@as(i32, 65535)");
 }
 
 fn genSoReuseaddr(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 4)");
+    try self.emit("@as(i32, 4)");
 }
 
 fn genSoKeepalive(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 8)");
+    try self.emit("@as(i32, 8)");
 }
 
 fn genIpprotoTcp(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 6)");
+    try self.emit("@as(i32, 6)");
 }
 
 fn genIpprotoUdp(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 17)");
+    try self.emit("@as(i32, 17)");
 }
 
 fn genError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "error.SocketError");
+    try self.emit("error.SocketError");
 }
 
 fn genTimeout(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "error.SocketTimeout");
+    try self.emit("error.SocketTimeout");
 }
 
 fn genGaierror(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "error.SocketGaierror");
+    try self.emit("error.SocketGaierror");
 }
 
 fn genHerror(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "error.SocketHerror");
+    try self.emit("error.SocketHerror");
 }

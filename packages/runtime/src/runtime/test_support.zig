@@ -21,8 +21,8 @@ pub const NEVER_EQ = struct {
     }
 };
 
-/// Verbose mode flag
-pub var verbose: bool = false;
+/// Verbose mode flag (const for AOT compilation - tests don't need runtime mutability)
+pub const verbose: bool = false;
 
 /// 1GB constant
 pub const _1G: i64 = 1024 * 1024 * 1024;

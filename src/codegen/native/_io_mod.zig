@@ -7,24 +7,6 @@ const ast = @import("analysis.ast");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output - uses h.NativeCodegen from mod_helper
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "FileIO", genFileIO },
     .{ "BytesIO", genBytesIO },
@@ -55,9 +37,9 @@ fn genFileIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("fio", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const __path = ");
+            try c.emit("const __path = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} std.fs.cwd().openFile(__path, .{{}}) catch null; ", .{label});
+            try c.emitFmt("; break :{s} std.fs.cwd().openFile(__path, .{{}}) catch null; ", .{label});
         }
     }.emit);
 }
@@ -70,9 +52,9 @@ fn genBytesIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("bio", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const __init = ");
+            try c.emit("const __init = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; var __bio: std.ArrayList(u8) = .{{}}; __bio.appendSlice(__global_allocator, __init) catch unreachable; break :{s} .{{ .buffer = __bio, .pos = 0 }}; ", .{label});
+            try c.emitFmt("; var __bio: std.ArrayList(u8) = .{{}}; __bio.appendSlice(__global_allocator, __init) catch unreachable; break :{s} .{{ .buffer = __bio, .pos = 0 }}; ", .{label});
         }
     }.emit);
 }
@@ -85,9 +67,9 @@ fn genStringIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("sio", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const __init = ");
+            try c.emit("const __init = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; var __sio: std.ArrayList(u8) = .{{}}; __sio.appendSlice(__global_allocator, __init) catch unreachable; break :{s} .{{ .buffer = __sio, .pos = 0 }}; ", .{label});
+            try c.emitFmt("; var __sio: std.ArrayList(u8) = .{{}}; __sio.appendSlice(__global_allocator, __init) catch unreachable; break :{s} .{{ .buffer = __sio, .pos = 0 }}; ", .{label});
         }
     }.emit);
 }
@@ -97,9 +79,9 @@ fn genBuffered(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("buf", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const __v = ");
+                try c.emit("const __v = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} .{{ .raw = __v, .buffer_size = 8192 }}; ", .{label});
+                try c.emitFmt("; break :{s} .{{ .raw = __v, .buffer_size = 8192 }}; ", .{label});
             }
         }.emit);
     } else {
@@ -112,9 +94,9 @@ fn genTextIO(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.withInlineBlock("tio", args, struct {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                try emitConst(c, "const __v = ");
+                try c.emit("const __v = ");
                 try c.genExpr(a[0]);
-                try emitFmtConst(c, "; break :{s} .{{ .buffer = __v, .encoding = \"utf-8\" }}; ", .{label});
+                try c.emitFmt("; break :{s} .{{ .buffer = __v, .encoding = \"utf-8\" }}; ", .{label});
             }
         }.emit);
     } else {
@@ -130,11 +112,11 @@ fn genBufferedRWPair(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
     }
     try self.withInlineBlock("rwp", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const __r = ");
+            try c.emit("const __r = ");
             try c.genExpr(a[0]);
-            try emitConst(c, "; const __w = ");
+            try c.emit("; const __w = ");
             try c.genExpr(a[1]);
-            try emitFmtConst(c, "; break :{s} .{{ .reader = __r, .writer = __w, .buffer_size = 8192 }}; ", .{label});
+            try c.emitFmt("; break :{s} .{{ .reader = __r, .writer = __w, .buffer_size = 8192 }}; ", .{label});
         }
     }.emit);
 }
@@ -147,9 +129,9 @@ fn genOpenCode(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("oc", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const __path = ");
+            try c.emit("const __path = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} std.fs.cwd().openFile(__path, .{{ .mode = .read_only }}) catch null; ", .{label});
+            try c.emitFmt("; break :{s} std.fs.cwd().openFile(__path, .{{ .mode = .read_only }}) catch null; ", .{label});
         }
     }.emit);
 }

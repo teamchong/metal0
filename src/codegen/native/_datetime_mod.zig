@@ -4,14 +4,6 @@ const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");
 
-// Helper for simple constant output
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "datetime", genDatetime },
     .{ "date", genDate },
@@ -25,96 +17,96 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn ic(self: *h.NativeCodegen, args: []ast.Node, idx: usize) h.CodegenError!void {
     if (args.len > idx) {
-        try emitConst(self, "@intCast(");
+        try self.emit("@intCast(");
         try self.genExpr(args[idx]);
-        try emitConst(self, ")");
+        try self.emit(")");
     } else {
-        try emitConst(self, "0");
+        try self.emit("0");
     }
 }
 
 fn genDatetime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 3) {
-        try emitConst(self, ".{ .year = @intCast(");
+        try self.emit(".{ .year = @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "), .month = @intCast(");
+        try self.emit("), .month = @intCast(");
         try self.genExpr(args[1]);
-        try emitConst(self, "), .day = @intCast(");
+        try self.emit("), .day = @intCast(");
         try self.genExpr(args[2]);
-        try emitConst(self, "), .hour = ");
+        try self.emit("), .hour = ");
         try ic(self, args, 3);
-        try emitConst(self, ", .minute = ");
+        try self.emit(", .minute = ");
         try ic(self, args, 4);
-        try emitConst(self, ", .second = ");
+        try self.emit(", .second = ");
         try ic(self, args, 5);
-        try emitConst(self, ", .microsecond = ");
+        try self.emit(", .microsecond = ");
         try ic(self, args, 6);
-        try emitConst(self, " }");
+        try self.emit(" }");
     } else {
-        try emitConst(self, ".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
+        try self.emit(".{ .year = 1970, .month = 1, .day = 1, .hour = 0, .minute = 0, .second = 0, .microsecond = 0 }");
     }
 }
 
 fn genDate(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len >= 3) {
-        try emitConst(self, ".{ .year = @intCast(");
+        try self.emit(".{ .year = @intCast(");
         try self.genExpr(args[0]);
-        try emitConst(self, "), .month = @intCast(");
+        try self.emit("), .month = @intCast(");
         try self.genExpr(args[1]);
-        try emitConst(self, "), .day = @intCast(");
+        try self.emit("), .day = @intCast(");
         try self.genExpr(args[2]);
-        try emitConst(self, ") }");
+        try self.emit(") }");
     } else {
-        try emitConst(self, ".{ .year = 1970, .month = 1, .day = 1 }");
+        try self.emit(".{ .year = 1970, .month = 1, .day = 1 }");
     }
 }
 
 fn genTime(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ .hour = ");
+    try self.emit(".{ .hour = ");
     try ic(self, args, 0);
-    try emitConst(self, ", .minute = ");
+    try self.emit(", .minute = ");
     try ic(self, args, 1);
-    try emitConst(self, ", .second = ");
+    try self.emit(", .second = ");
     try ic(self, args, 2);
-    try emitConst(self, ", .microsecond = ");
+    try self.emit(", .microsecond = ");
     try ic(self, args, 3);
-    try emitConst(self, " }");
+    try self.emit(" }");
 }
 
 fn genTimedelta(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ .days = ");
+    try self.emit(".{ .days = ");
     try ic(self, args, 0);
-    try emitConst(self, ", .seconds = ");
+    try self.emit(", .seconds = ");
     try ic(self, args, 1);
-    try emitConst(self, ", .microseconds = ");
+    try self.emit(", .microseconds = ");
     try ic(self, args, 2);
-    try emitConst(self, " }");
+    try self.emit(" }");
 }
 
 fn genTimezone(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
-        try emitConst(self, ".{ .offset = ");
+        try self.emit(".{ .offset = ");
         try self.genExpr(args[0]);
-        try emitConst(self, ", .name = ");
+        try self.emit(", .name = ");
         if (args.len > 1) {
             try self.genExpr(args[1]);
         } else {
-            try emitConst(self, "null");
+            try self.emit("null");
         }
-        try emitConst(self, " }");
+        try self.emit(" }");
     } else {
-        try emitConst(self, ".{ .offset = 0, .name = null }");
+        try self.emit(".{ .offset = 0, .name = null }");
     }
 }
 
 fn genMinyear(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 1)");
+    try self.emit("@as(i32, 1)");
 }
 
 fn genMaxyear(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, "@as(i32, 9999)");
+    try self.emit("@as(i32, 9999)");
 }
 
 fn genTimezoneUtc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try emitConst(self, ".{ .offset = 0, .name = \"UTC\" }");
+    try self.emit(".{ .offset = 0, .name = \"UTC\" }");
 }

@@ -20,16 +20,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 const ClosureError = error{
     NotAClosure,
 } || CodegenError;
@@ -216,10 +206,10 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
 
     // Restore output
     self.output = std.ArrayList(u8){};
-    try emitConst(self, current_output);
+    try self.emit(current_output);
 
     // Generate factory call (just the function name, not & prefix for closures)
-    try emitConst(self, factory_name);
+    try self.emit(factory_name);
 
     self.allocator.free(closure_name);
 }
@@ -230,7 +220,7 @@ fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, c
     const inner_lambda = outer_lambda.body.lambda;
 
     // Start inline struct with call being the inner lambda
-    try emitConst(self, "(struct {\n");
+    try self.emit("(struct {\n");
 
     // Fields for captured vars
     // Two-Flow: Use runtime.PyValue for uncertain captured vars
@@ -248,28 +238,28 @@ fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, c
             try self.output.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
         }
     }
-    try emitConst(self, "\n");
+    try self.emit("\n");
 
     // Init function to create closure from outer lambda args
-    try emitConst(self, "    fn init(");
+    try self.emit("    fn init(");
     for (outer_lambda.args, 0..) |arg, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-        try emitConst(self, ": anytype");
+        try self.emit(": anytype");
     }
-    try emitConst(self, ") @This() {\n        return .{\n");
+    try self.emit(") @This() {\n        return .{\n");
     for (captured_vars) |var_name| {
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         try self.output.writer(self.allocator).print("            .{s} = {s},\n", .{ var_name, actual_name });
     }
-    try emitConst(self, "        };\n    }\n\n");
+    try self.emit("        };\n    }\n\n");
 
     // Call method (inner lambda)
-    try emitConst(self, "    pub fn call(self: @This()");
+    try self.emit("    pub fn call(self: @This()");
     for (inner_lambda.args) |arg| {
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-        try emitConst(self, ": anytype");
+        try self.emit(": anytype");
     }
 
     // Return type
@@ -279,7 +269,7 @@ fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, c
     // Generate inner body with captured vars prefixed with self.
     try genExprWithCapture(self, inner_lambda.body.*, captured_vars);
 
-    try emitConst(self, ";\n    }\n}).init");
+    try self.emit(";\n    }\n}).init");
 }
 
 /// Mark a variable as holding a closure (so we generate .call())
@@ -420,14 +410,14 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 
     // Restore output
     self.output = std.ArrayList(u8){};
-    try emitConst(self, current_output);
+    try self.emit(current_output);
 
     // Generate closure instantiation: Closure{ .f = f, .g = g }
     // For "self", we need to dereference since it's a pointer in methods (*const @This() or *@This())
     // Check var_renames for comprehension loop vars
     try self.output.writer(self.allocator).print("{s}{{ ", .{closure_name});
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         if (std.mem.eql(u8, var_name, "self")) {
             // Dereference self pointer to get the struct value
@@ -436,7 +426,7 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
             try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, actual_name });
         }
     }
-    try emitConst(self, " }");
+    try self.emit(" }");
 
     self.allocator.free(closure_name);
 
@@ -447,7 +437,7 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 /// Generates: (struct { x: i64, pub fn call(self: @This(), y: anytype) type { ... } }){ .x = x }
 fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, captured_vars: [][]const u8) ClosureError!void {
     // Start inline struct
-    try emitConst(self, "(struct {\n");
+    try self.emit("(struct {\n");
 
     // Fields for captured vars
     for (captured_vars) |var_name| {
@@ -462,21 +452,21 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
         defer if (should_free) self.allocator.free(zig_type);
         try self.output.writer(self.allocator).print("    {s}: {s},\n", .{ var_name, zig_type });
     }
-    try emitConst(self, "\n");
+    try self.emit("\n");
 
     // Check if self is only used for unittest methods
     const self_only_for_unittest = isSelfOnlyForUnittest(lambda.body.*, captured_vars);
 
     // Call method - use __cl to avoid shadowing outer 'self' parameter
     if (self_only_for_unittest) {
-        try emitConst(self, "    pub fn call(_: @This()");
+        try self.emit("    pub fn call(_: @This()");
     } else {
-        try emitConst(self, "    pub fn call(__cl: @This()");
+        try self.emit("    pub fn call(__cl: @This()");
     }
     for (lambda.args) |arg| {
-        try emitConst(self, ", ");
+        try self.emit(", ");
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-        try emitConst(self, ": anytype");
+        try self.emit(": anytype");
     }
 
     // Return type
@@ -485,9 +475,9 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
 
     // Body - don't use return for void or !void functions (assertRaises generates its own return)
     if (std.mem.eql(u8, return_type, "void") or std.mem.eql(u8, return_type, "!void")) {
-        try emitConst(self, "        ");
+        try self.emit("        ");
     } else {
-        try emitConst(self, "        return ");
+        try self.emit("        return ");
     }
 
     // Generate body with captured vars prefixed with __cl. (inline closure param name)
@@ -496,15 +486,15 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
     // Check if trailing semicolon needed
     const needs_semicolon = needsTrailingSemicolon(self.output.items);
     if (needs_semicolon) {
-        try emitConst(self, ";\n    }\n}){ ");
+        try self.emit(";\n    }\n}){ ");
     } else {
-        try emitConst(self, "\n    }\n}){ ");
+        try self.emit("\n    }\n}){ ");
     }
 
     // Initialize captured fields
     // Check var_renames for renamed variables (e.g., comprehension loop vars)
     for (captured_vars, 0..) |var_name, i| {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         // Get actual variable name (may be renamed in comprehension scope)
         const actual_name = self.var_renames.get(var_name) orelse var_name;
         if (std.mem.eql(u8, var_name, "self")) {
@@ -513,7 +503,7 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
             try self.output.writer(self.allocator).print(".{s} = {s}", .{ var_name, actual_name });
         }
     }
-    try emitConst(self, " }");
+    try self.emit(" }");
 }
 
 /// Wrapper for backwards compatibility - uses "self" as default prefix
@@ -531,28 +521,28 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
             for (captured_vars) |captured| {
                 if (std.mem.eql(u8, n.id, captured)) {
                     // Prefix with closure struct parameter name (escape Zig keywords)
-                    try emitConst(self, prefix);
-                    try emitConst(self, ".");
+                    try self.emit(prefix);
+                    try self.emit(".");
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
                     return;
                 }
             }
             // Check if it's a Python exception type
             if (expressions.isPythonExceptionType(n.id)) {
-                try emitConst(self, "@intFromEnum(runtime.ExceptionTypeId.");
-                try emitConst(self, n.id);
-                try emitConst(self, ")");
+                try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
+                try self.emit(n.id);
+                try self.emit(")");
                 return;
             }
             // Check if it's a builtin type/function
             if (std.mem.eql(u8, n.id, "bool")) {
-                try emitConst(self, "runtime.builtins.boolType");
+                try self.emit("runtime.builtins.boolType");
                 return;
             }
             // Check for builtin functions (isinstance, len, etc.) - need runtime.builtins prefix
             if (shared.PythonBuiltinNames.has(n.id)) {
-                try emitConst(self, "runtime.builtins.");
-                try emitConst(self, n.id);
+                try self.emit("runtime.builtins.");
+                try self.emit(n.id);
                 return;
             }
             // Not captured, use directly (escape Zig keywords like 'fn')
@@ -561,25 +551,25 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
         .binop => |b| {
             // Use @mod for modulo to handle signed integers properly
             if (b.op == .Mod) {
-                try emitConst(self, "@mod(");
+                try self.emit("@mod(");
                 try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try emitConst(self, ", ");
+                try self.emit(", ");
                 try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try emitConst(self, ")");
+                try self.emit(")");
             } else if (b.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try emitConst(self, "std.math.pow(i64, ");
+                try self.emit("std.math.pow(i64, ");
                 try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try emitConst(self, ", ");
+                try self.emit(", ");
                 try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try emitConst(self, ")");
+                try self.emit(")");
             } else if (b.op == .FloorDiv) {
                 // Floor division uses @divFloor for Python semantics
-                try emitConst(self, "@divFloor(");
+                try self.emit("@divFloor(");
                 try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try emitConst(self, ", ");
+                try self.emit(", ");
                 try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try emitConst(self, ")");
+                try self.emit(")");
             } else {
                 // Standard binary ops with auto-close pattern
                 const BinOpCtx = struct {
@@ -600,7 +590,7 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 }, struct {
                     pub fn f(_: *NativeCodegen, ctx: BinOpCtx) CodegenError!void {
                         try genExprWithCapturePrefix(ctx.s, ctx.left, ctx.cv, ctx.pfx);
-                        try emitConst(ctx.s, ctx.op_str);
+                        try ctx.s.emit(ctx.op_str);
                         try genExprWithCapturePrefix(ctx.s, ctx.right, ctx.cv, ctx.pfx);
                     }
                 }.f);
@@ -613,7 +603,7 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
             try expressions.genConstant(self, c);
             const const_code = try self.output.toOwnedSlice(self.allocator);
             self.output = saved_output;
-            try emitConst(self, const_code);
+            try self.emit(const_code);
             self.allocator.free(const_code);
         },
         .call => |c| {
@@ -661,7 +651,7 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                                     }, struct {
                                         pub fn f(_: *NativeCodegen, ctx: UnkCallCtx) CodegenError!void {
                                             for (ctx.args, 0..) |arg, i| {
-                                                if (i > 0) try emitConst(ctx.s, ", ");
+                                                if (i > 0) try ctx.s.emit(", ");
                                                 try genExprWithCapturePrefix(ctx.s, arg, ctx.cv, ctx.pfx);
                                             }
                                         }
@@ -690,7 +680,7 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
             }, struct {
                 pub fn f(_: *NativeCodegen, ctx: CallCtx) CodegenError!void {
                     for (ctx.args, 0..) |arg, i| {
-                        if (i > 0) try emitConst(ctx.s, ", ");
+                        if (i > 0) try ctx.s.emit(", ");
                         try genExprWithCapturePrefix(ctx.s, arg, ctx.cv, ctx.pfx);
                     }
                 }
@@ -699,7 +689,7 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
         .compare => |cmp| {
             try genExprWithCapturePrefix(self, cmp.left.*, captured_vars, prefix);
             for (cmp.ops, 0..) |op, i| {
-                try emitConst(self, CompOpStrings.get(@tagName(op)) orelse " == ");
+                try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
                 try genExprWithCapturePrefix(self, cmp.comparators[i], captured_vars, prefix);
             }
         },
@@ -711,34 +701,34 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 for (captured_vars) |captured| {
                     if (std.mem.eql(u8, base_name, captured)) {
                         // It's a captured variable - use the provided prefix
-                        try emitConst(self, prefix);
-                        try emitConst(self, ".");
-                        try emitConst(self, base_name);
-                        try emitConst(self, ".");
+                        try self.emit(prefix);
+                        try self.emit(".");
+                        try self.emit(base_name);
+                        try self.emit(".");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                         return;
                     }
                 }
                 // Not captured - treat as module.function reference
                 // Use proper module function dispatch with keyword escaping
-                try emitConst(self, "runtime.");
+                try self.emit("runtime.");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), base_name);
-                try emitConst(self, ".");
+                try self.emit(".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
                 return;
             }
             // Handle regular attribute access (e.g., obj.foo) - recurse into value with capture
             try genExprWithCapturePrefix(self, attr.value.*, captured_vars, prefix);
-            try emitConst(self, ".");
+            try self.emit(".");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         },
         .subscript => |sub| {
             try genExprWithCapturePrefix(self, sub.value.*, captured_vars, prefix);
-            try emitConst(self, "[");
+            try self.emit("[");
             if (sub.slice == .index) {
                 try genExprWithCapturePrefix(self, sub.slice.index.*, captured_vars, prefix);
             }
-            try emitConst(self, "]");
+            try self.emit("]");
         },
         else => {
             // For other node types, fall back to regular generation

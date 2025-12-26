@@ -11,16 +11,6 @@ const zig_keywords = @import("utils.zig_keywords");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
@@ -83,7 +73,7 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
     const vec_width: i64 = simd.vector_width;
 
     // Generate SIMD block
-    try emitConst(self, try std.fmt.allocPrint(self.allocator, "(simd_{d}: {{\n", .{label_id}));
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(simd_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Allocate result array
@@ -110,10 +100,10 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
     try self.output.writer(self.allocator).print("const __base: @Vector({d}, i64) = .{{ ", .{vec_width});
     var i: i64 = 0;
     while (i < vec_width) : (i += 1) {
-        if (i > 0) try emitConst(self, ", ");
+        if (i > 0) try self.emit(", ");
         try self.output.writer(self.allocator).print("{d}", .{i});
     }
-    try emitConst(self, " };\n");
+    try self.emit(" };\n");
 
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const __idx: @Vector({d}, i64) = __base +% @as(@Vector({d}, i64), @splat(@as(i64, @intCast(__i)) + {d}));\n", .{ vec_width, vec_width, start });
@@ -133,21 +123,21 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
         .shr => "const __r = __idx >> @intCast(__c_vec);\n",
         else => "const __r = __idx;\n",
     };
-    try emitConst(self, op_str);
+    try self.emit(op_str);
 
     // Store result
     try self.emitIndent();
     try self.output.writer(self.allocator).print("inline for (0..{d}) |__j| {{\n", .{vec_width});
     self.indent();
     try self.emitIndent();
-    try emitConst(self, "__result[__i + __j] = __r[__j];\n");
+    try self.emit("__result[__i + __j] = __r[__j];\n");
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "}\n");
+    try self.emit("}\n");
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "}\n");
+    try self.emit("}\n");
 
     // Scalar cleanup for remaining elements
     try self.emitIndent();
@@ -171,10 +161,10 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
         .shr => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s} >> @intCast({d});\n", .{ loop_var, c }),
         else => try std.fmt.allocPrint(self.allocator, "__result[__i] = {s};\n", .{loop_var}),
     };
-    try emitConst(self, scalar_expr);
+    try self.emit(scalar_expr);
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "}\n");
+    try self.emit("}\n");
 
     // Convert to ArrayList for compatibility
     try self.emitIndent();
@@ -186,7 +176,7 @@ fn genSimdListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, simd: func
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "})");
+    try self.emit("})");
 }
 
 /// Get constant value from binop expression
@@ -229,7 +219,7 @@ fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parall
     const constant = getConstantFromExpr(listcomp.elt.*, loop_var) orelse 0;
 
     // Generate parallel execution block
-    try emitConst(self, try std.fmt.allocPrint(self.allocator, "(parallel_{d}: {{\n", .{label_id}));
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(parallel_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Call runtime.parallel.parallelRangeMap
@@ -241,9 +231,9 @@ fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parall
 
     // Convert to ArrayList for compatibility
     try self.emitIndent();
-    try emitConst(self, "var __list = std.ArrayListUnmanaged(i64){};\n");
+    try self.emit("var __list = std.ArrayListUnmanaged(i64){};\n");
     try self.emitIndent();
-    try emitConst(self, "__list.items = __slice;\n");
+    try self.emit("__list.items = __slice;\n");
     try self.emitIndent();
     try self.output.writer(self.allocator).print("__list.capacity = {d};\n", .{end - start});
 
@@ -252,7 +242,7 @@ fn genParallelListComp(self: *NativeCodegen, listcomp: ast.Node.ListComp, parall
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "})");
+    try self.emit("})");
 }
 
 /// Generate Metal GPU-accelerated list comprehension
@@ -290,12 +280,12 @@ fn genMetalListComp(
     const constant = metal.constant orelse 0;
 
     // Generate Metal dispatch block
-    try emitConst(self, try std.fmt.allocPrint(self.allocator, "(metal_{d}: {{\n", .{label_id}));
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(metal_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Emit: break :metal_N try runtime.metal.vectorizedListCompToArrayList(__global_allocator, start, end, op, constant);
     try self.emitIndent();
-    try emitConst(self, "break :");
+    try self.emit("break :");
     try self.output.writer(self.allocator).print("metal_{d} try runtime.metal.vectorizedListCompToArrayList(__global_allocator, {d}, {d}, runtime.metal.VectorOp{s}, {d});\n", .{
         label_id,
         start,
@@ -306,7 +296,7 @@ fn genMetalListComp(
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "})");
+    try self.emit("})");
 }
 
 /// Internal list comprehension implementation (scalar)
@@ -334,14 +324,14 @@ pub fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) Codege
             const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
             if (iter_type == .pyvalue) {
                 // PyValue iteration - emit empty PyValue list directly
-                try emitConst(self, "std.ArrayListUnmanaged(runtime.PyValue){}\n");
+                try self.emit("std.ArrayListUnmanaged(runtime.PyValue){}\n");
                 return;
             }
         }
     }
 
     // Generate: (comp_N: { ... })
-    try emitConst(self, try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
+    try self.emit(try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
     self.indent();
 
     // Check if element is a lambda - requires special handling for closure type
@@ -362,8 +352,8 @@ pub fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) Codege
     // Generate: var __comp_result_N = std.ArrayListUnmanaged(ElementType){};
     try self.emitIndent();
     try self.output.writer(self.allocator).print("var __comp_result_{d} = std.ArrayListUnmanaged(", .{label_id});
-    try emitConst(self, element_type);
-    try emitConst(self, "){};\n");
+    try self.emit(element_type);
+    try self.emit("){};\n");
 
     // Generate nested loops for each generator
     for (listcomp.generators, 0..) |gen, gen_idx| {
@@ -382,18 +372,18 @@ pub fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) Codege
     } else {
         try comp_expr_subs.genExprWithSubs(self, listcomp.elt.*, &subs);
     }
-    try emitConst(self, ");\n");
+    try self.emit(");\n");
 
     // Close all if conditions and for loops
     for (listcomp.generators) |gen| {
         for (gen.ifs) |_| {
             self.dedent();
             try self.emitIndent();
-            try emitConst(self, "}\n");
+            try self.emit("}\n");
         }
         self.dedent();
         try self.emitIndent();
-        try emitConst(self, "}\n");
+        try self.emit("}\n");
     }
 
     // Generate: break :comp_N __comp_result_N;
@@ -402,7 +392,7 @@ pub fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) Codege
 
     self.dedent();
     try self.emitIndent();
-    try emitConst(self, "})");
+    try self.emit("})");
 
     // Clean up var_renames so outer scope sees original variable names
     for (renamed_vars.items) |var_name| {
@@ -475,13 +465,13 @@ fn genLambdaClosurePrelude(
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const __CaptureType_{d} = struct {{ ", .{label_id});
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
-    try emitConst(self, ": i64 };\n");
+    try self.emit(": i64 };\n");
 
     // Generate impl function wrapped in struct
     try self.emitIndent();
     try self.output.writer(self.allocator).print("const __ClosureImpl_{d} = struct {{ fn call(__cap: __CaptureType_{d}) i64 {{ return __cap.", .{ label_id, label_id });
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
-    try emitConst(self, "; } };\n");
+    try self.emit("; } };\n");
 
     // Generate: const __ClosureType_N = runtime.Closure0(__CaptureType_N, i64, __ClosureImpl_N.call);
     try self.emitIndent();
@@ -591,9 +581,9 @@ fn genListCompGenerator(
     // Generate if conditions for this generator
     for (gen.ifs) |if_cond| {
         try self.emitIndent();
-        try emitConst(self, "if (");
+        try self.emit("if (");
         try comp_conditions.genComprehensionCondition(self, if_cond, subs);
-        try emitConst(self, ") {\n");
+        try self.emit(") {\n");
         self.indent();
     }
 }
@@ -628,15 +618,15 @@ fn genRangeLoop(
     if (start_expr) |start| {
         try genExpr(self, start);
     } else {
-        try emitConst(self, "0");
+        try self.emit("0");
     }
-    try emitConst(self, ";\n");
+    try self.emit(";\n");
 
     // Generate: while (__comp_<orig>_<id> < <stop>) {
     try self.emitIndent();
     try self.output.writer(self.allocator).print("while ({s} < ", .{mangled_name});
     try genExpr(self, stop_expr);
-    try emitConst(self, ") {\n");
+    try self.emit(") {\n");
     self.indent();
 
     // Defer increment
@@ -677,11 +667,11 @@ fn genIterLoop(
     if (is_direct_iterable) {
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
-        try emitConst(self, ";\n");
+        try self.emit(";\n");
     } else {
         try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
-        try emitConst(self, ";\n");
+        try self.emit(";\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __list_{d}_{d}.items;\n", .{ label_id, gen_idx, label_id, gen_idx });
     }
@@ -700,7 +690,7 @@ fn genIterLoop(
         try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
         const unique_id = self.nextLabelId();
         const maybe_mangled = try comp_conditions.emitForLoopTarget(self, gen.target.*, unique_id);
-        try emitConst(self, "| {\n");
+        try self.emit("| {\n");
         self.indent();
 
         // If loop target shadows an imported module, register the rename mapping

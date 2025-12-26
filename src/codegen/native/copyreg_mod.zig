@@ -7,24 +7,6 @@ const ast = @import("analysis.ast");
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output - uses h.NativeCodegen from mod_helper
-fn emitConst(self: *h.NativeCodegen, val: []const u8) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-// Helper for formatted output
-fn emitFmtConst(self: *h.NativeCodegen, comptime fmt: []const u8, args: anytype) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
-
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "pickle", genPickle },
     .{ "constructor", genConstructor },
@@ -96,9 +78,9 @@ fn genNewobj(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("newobj", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const cls = ");
+            try c.emit("const cls = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} cls{{}}", .{label});
+            try c.emitFmt("; break :{s} cls{{}}", .{label});
         }
     }.emit);
 }
@@ -111,9 +93,9 @@ fn genNewobjEx(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("newobj_ex", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try emitConst(c, "const cls = ");
+            try c.emit("const cls = ");
             try c.genExpr(a[0]);
-            try emitFmtConst(c, "; break :{s} cls{{}}", .{label});
+            try c.emitFmt("; break :{s} cls{{}}", .{label});
         }
     }.emit);
 }

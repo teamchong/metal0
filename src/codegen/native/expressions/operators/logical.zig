@@ -17,14 +17,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // Logical operation helpers - auto-closing patterns
 // ============================================
@@ -32,7 +24,7 @@ fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
 /// Emit runtime.toBool(operand)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.toBool");
+    try self.emit("runtime.toBool");
     const Ctx = struct { o: ZigValue };
     try self.withParensCtx(Ctx{ .o = operand }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -44,29 +36,27 @@ fn emitToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
 /// Emit runtime.toBool((try runtime.pyOr/pyAnd(alloc, a, b)))
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimePyBoolOp(self: *NativeCodegen, is_or: bool, a_operand: ZigValue, b_operand: ZigValue) CodegenError!void {
-    try emitConst(self, "runtime.toBool");
+    try self.emit("runtime.toBool");
     const Ctx = struct { a: ZigValue, b: ZigValue, or_op: bool };
     try self.withParensCtx(Ctx{ .a = a_operand, .b = b_operand, .or_op = is_or }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             const Inner = struct { a: ZigValue, b: ZigValue };
             if (ctx.or_op) {
-                try emitConst(s, "try runtime.pyOr");
+                try s.emit("try runtime.pyOr");
             } else {
-                try emitConst(s, "try runtime.pyAnd");
+                try s.emit("try runtime.pyAnd");
             }
             try s.withParensCtx(Inner{ .a = ctx.a, .b = ctx.b }, struct {
                 pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
-                    try emitConst(si, "__global_allocator, ");
+                    try si.emit("__global_allocator, ");
                     try si.emitZigValue(inner.a);
-                    try emitConst(si, ", ");
+                    try si.emit(", ");
                     try si.emitZigValue(inner.b);
                 }
             }.g);
         }
     }.f);
 }
-
-
 
 /// Generate boolean operations (and, or)
 /// Python's and/or return the actual values, not booleans:
@@ -86,7 +76,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     if (all_bool) {
         const op_str = if (boolop.op == .And) " and " else " or ";
         for (boolop.values, 0..) |value, i| {
-            if (i > 0) try emitConst(self, op_str);
+            if (i > 0) try self.emit(op_str);
             const operand = try self.captureExpr(value);
             try self.emitZigValue(operand);
         }
@@ -172,7 +162,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     // For more than 2 values, use simple approach (may not be fully correct but handles common cases)
     const op_str = if (boolop.op == .And) " and " else " or ";
     for (boolop.values, 0..) |value, i| {
-        if (i > 0) try emitConst(self, op_str);
+        if (i > 0) try self.emit(op_str);
         const operand = try self.captureExpr(value);
         try emitToBool(self, operand);
     }

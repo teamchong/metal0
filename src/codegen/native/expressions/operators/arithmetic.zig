@@ -26,21 +26,6 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
-// Helper for simple constant output
-fn emitConst(self: *NativeCodegen, val: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.write(val);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-// Helper for formatted output
-fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-    const b = try self.getBuilder();
-    try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
-    try self.output.appendSlice(self.allocator, output);
-}
-
 // ============================================
 // Arithmetic operation helpers - auto-closing patterns
 // ============================================
@@ -48,14 +33,14 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 /// Emit dunder method call: try left.method(__global_allocator, right)
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, right: ast.Node) CodegenError!void {
-    try emitConst(self, "try ");
+    try self.emit("try ");
     try genExpr(self, left);
-    try emitConst(self, ".");
-    try emitConst(self, method);
+    try self.emit(".");
+    try self.emit(method);
     const Ctx = struct { r: ast.Node };
     try self.withParensCtx(Ctx{ .r = right }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try emitConst(s, "__global_allocator, ");
+            try s.emit("__global_allocator, ");
             try genExpr(s, ctx.r);
         }
     }.f);
@@ -65,22 +50,19 @@ fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, righ
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: ast.Node) CodegenError!void {
     if (is_add) {
-        try emitConst(self, "runtime.addNum");
+        try self.emit("runtime.addNum");
     } else {
-        try emitConst(self, "runtime.subtractNum");
+        try self.emit("runtime.subtractNum");
     }
     const Ctx = struct { l: ast.Node, r: ast.Node };
     try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try genExpr(s, ctx.l);
-            try emitConst(s, ", ");
+            try s.emit(", ");
             try genExpr(s, ctx.r);
         }
     }.f);
 }
-
-
-
 
 // Import specialized modules
 const bigint_ops = @import("bigint_ops.zig");
@@ -194,11 +176,11 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         if (ReverseDunders.get(@tagName(binop.op))) |rdunder_method| {
             var em = self.exprEmitter();
             const radd_label = em.reserveLabelId();
-            try emitFmtConst(self, "(radd_blk_{d}: {{ const _rhs = ", .{radd_label});
+            try self.emitFmt("(radd_blk_{d}: {{ const _rhs = ", .{radd_label});
             try genExpr(self, binop.right.*);
             try self.output.writer(self.allocator).print("; if (runtime.container_dispatch.hasPtrChildDecl(@TypeOf(_rhs), \"{s}\")) {{ break :radd_blk_{d} try _rhs.{s}(__global_allocator, ", .{ rdunder_method, radd_label, rdunder_method });
             try genExpr(self, binop.left.*);
-            try emitFmtConst(self, "); }} else {{ return error.TypeError; }} }})", .{});
+            try self.emitFmt("); }} else {{ return error.TypeError; }} }})", .{});
             return;
         }
     }
