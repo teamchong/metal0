@@ -39,6 +39,84 @@ pub const TypeConfidence = enum {
     }
 };
 
+/// Type category for certain values - used for type-based comparison routing
+/// Helps emitComparison dispatch to optimized paths for same-type comparisons
+pub const CertainType = enum {
+    /// Integer type (i64, comptime_int)
+    int,
+    /// Floating-point type (f64, comptime_float)
+    float,
+    /// Boolean type
+    bool_,
+    /// String type ([]const u8)
+    string,
+    /// Null/None type
+    null_,
+    /// Other/unknown type (use runtime comparison)
+    other,
+};
+
+/// Comparison operators (Python semantics)
+/// Used by ZigBuilder.emitComparison for structured comparison generation
+pub const CompOp = enum {
+    /// Equality (==)
+    eq,
+    /// Inequality (!=)
+    ne,
+    /// Less than (<)
+    lt,
+    /// Less than or equal (<=)
+    le,
+    /// Greater than (>)
+    gt,
+    /// Greater than or equal (>=)
+    ge,
+    /// Membership test (in)
+    in_,
+    /// Negative membership test (not in)
+    not_in,
+    /// Identity test (is)
+    is,
+    /// Negative identity test (is not)
+    is_not,
+
+    /// Convert to string representation for emitting operators
+    pub fn toOperator(self: CompOp) []const u8 {
+        return switch (self) {
+            .eq => "==",
+            .ne => "!=",
+            .lt => "<",
+            .le => "<=",
+            .gt => ">",
+            .ge => ">=",
+            .in_, .not_in, .is, .is_not => unreachable, // Not direct operators
+        };
+    }
+
+    /// Check if this is an ordering comparison (uses < <= > >=)
+    pub fn isOrdering(self: CompOp) bool {
+        return switch (self) {
+            .lt, .le, .gt, .ge => true,
+            else => false,
+        };
+    }
+
+    /// Check if this is an equality comparison (uses == !=)
+    pub fn isEquality(self: CompOp) bool {
+        return self == .eq or self == .ne;
+    }
+
+    /// Check if this is a containment test (in, not in)
+    pub fn isContainment(self: CompOp) bool {
+        return self == .in_ or self == .not_in;
+    }
+
+    /// Check if this is an identity test (is, is not)
+    pub fn isIdentity(self: CompOp) bool {
+        return self == .is or self == .is_not;
+    }
+};
+
 /// Represents a value that can be emitted as Zig code
 /// Separates the concept of "what the value is" from "how to emit it"
 pub const ZigValue = union(enum) {
@@ -161,6 +239,26 @@ pub const ZigValue = union(enum) {
     /// Check if this value represents no value (void)
     pub fn isVoid(self: ZigValue) bool {
         return self == .none;
+    }
+
+    /// Get the certain type category for type-based dispatch
+    /// Used by comparison operations to route to optimized paths
+    pub fn certainType(self: ZigValue) CertainType {
+        return switch (self) {
+            .certain_int => .int,
+            .certain_float => .float,
+            .certain_bool => .bool_,
+            .certain_str => .string,
+            .certain_null => .null_,
+            .bigint, .unified_int => .int,
+            else => .other,
+        };
+    }
+
+    /// Check if this value is numeric (int or float)
+    pub fn isNumeric(self: ZigValue) bool {
+        const ty = self.certainType();
+        return ty == .int or ty == .float;
     }
 
     /// Create a certain integer value
@@ -435,4 +533,55 @@ test "ZigValue.raw" {
     const v = ZigValue.raw("@intCast(x)");
     try std.testing.expect(v == .raw_expr);
     try std.testing.expectEqualStrings("@intCast(x)", v.raw_expr);
+}
+
+test "ZigValue.certainType" {
+    try std.testing.expectEqual(CertainType.int, ZigValue.int(42).certainType());
+    try std.testing.expectEqual(CertainType.float, ZigValue.float(3.14).certainType());
+    try std.testing.expectEqual(CertainType.bool_, ZigValue.boolean(true).certainType());
+    try std.testing.expectEqual(CertainType.string, ZigValue.string("hello").certainType());
+    try std.testing.expectEqual(CertainType.null_, ZigValue.null_().certainType());
+    try std.testing.expectEqual(CertainType.other, ZigValue.fromName("x").certainType());
+    try std.testing.expectEqual(CertainType.other, ZigValue.pyvalue(.unknown).certainType());
+}
+
+test "ZigValue.isNumeric" {
+    try std.testing.expect(ZigValue.int(42).isNumeric());
+    try std.testing.expect(ZigValue.float(3.14).isNumeric());
+    try std.testing.expect(!ZigValue.string("hi").isNumeric());
+    try std.testing.expect(!ZigValue.boolean(true).isNumeric());
+    try std.testing.expect(!ZigValue.null_().isNumeric());
+}
+
+test "CompOp.toOperator" {
+    try std.testing.expectEqualStrings("==", CompOp.eq.toOperator());
+    try std.testing.expectEqualStrings("!=", CompOp.ne.toOperator());
+    try std.testing.expectEqualStrings("<", CompOp.lt.toOperator());
+    try std.testing.expectEqualStrings("<=", CompOp.le.toOperator());
+    try std.testing.expectEqualStrings(">", CompOp.gt.toOperator());
+    try std.testing.expectEqualStrings(">=", CompOp.ge.toOperator());
+}
+
+test "CompOp.categories" {
+    // Ordering
+    try std.testing.expect(CompOp.lt.isOrdering());
+    try std.testing.expect(CompOp.le.isOrdering());
+    try std.testing.expect(CompOp.gt.isOrdering());
+    try std.testing.expect(CompOp.ge.isOrdering());
+    try std.testing.expect(!CompOp.eq.isOrdering());
+
+    // Equality
+    try std.testing.expect(CompOp.eq.isEquality());
+    try std.testing.expect(CompOp.ne.isEquality());
+    try std.testing.expect(!CompOp.lt.isEquality());
+
+    // Containment
+    try std.testing.expect(CompOp.in_.isContainment());
+    try std.testing.expect(CompOp.not_in.isContainment());
+    try std.testing.expect(!CompOp.eq.isContainment());
+
+    // Identity
+    try std.testing.expect(CompOp.is.isIdentity());
+    try std.testing.expect(CompOp.is_not.isIdentity());
+    try std.testing.expect(!CompOp.eq.isIdentity());
 }

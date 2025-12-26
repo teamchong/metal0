@@ -35,6 +35,8 @@ const Allocator = std.mem.Allocator;
 const ZigValue = @import("zig_value.zig").ZigValue;
 const LocalIndex = @import("zig_value.zig").LocalIndex;
 const TypeConfidence = @import("zig_value.zig").TypeConfidence;
+const CertainType = @import("zig_value.zig").CertainType;
+const CompOp = @import("zig_value.zig").CompOp;
 const BinOp = @import("zig_value.zig").BinOp;
 
 const ZigType = @import("zig_type.zig").ZigType;
@@ -1062,6 +1064,238 @@ pub const ZigBuilder = struct {
     }
 
     // ============================================
+    // Comparison API (type-safe dispatch)
+    // ============================================
+    //
+    // These methods provide CPython-aligned comparison generation.
+    // They use TypeConfidence and CertainType to route to optimal paths:
+    // - Both certain + same type: use native Zig operators (==, <, etc.)
+    // - Otherwise: use runtime.pyAnyEql / runtime.PyValue comparisons
+    //
+    // This ensures type safety while maximizing performance.
+
+    /// Emit a comparison expression
+    /// Routes to appropriate runtime function based on type confidence
+    pub fn emitComparison(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) !void {
+        switch (op) {
+            .eq, .ne => try self.emitEqualityComparison(op == .ne, left, right),
+            .lt, .le, .gt, .ge => try self.emitOrderingComparison(op, left, right),
+            .in_, .not_in => try self.emitContainmentCheck(op == .not_in, left, right),
+            .is, .is_not => try self.emitIdentityCheck(op == .is_not, left, right),
+        }
+    }
+
+    /// Emit equality comparison (== or !=)
+    /// Optimizes same-type certain comparisons
+    fn emitEqualityComparison(self: *ZigBuilder, negate: bool, left: ZigValue, right: ZigValue) !void {
+        const left_conf = left.confidence();
+        const right_conf = right.confidence();
+
+        if (negate) try self.write("!");
+
+        // Both certain: check if same type for optimized path
+        if (left_conf == .certain and right_conf == .certain) {
+            const left_ty = left.certainType();
+            const right_ty = right.certainType();
+
+            if (left_ty == right_ty) {
+                switch (left_ty) {
+                    .int, .float, .bool_ => {
+                        // Direct comparison: (a) == (b)
+                        try self.write("((");
+                        try self.emitValueCore(left);
+                        try self.write(") == (");
+                        try self.emitValueCore(right);
+                        try self.write("))");
+                        return;
+                    },
+                    .string => {
+                        // String comparison: std.mem.eql(u8, a, b)
+                        try self.write("std.mem.eql(u8, ");
+                        try self.emitValueCore(left);
+                        try self.write(", ");
+                        try self.emitValueCore(right);
+                        try self.write(")");
+                        return;
+                    },
+                    .null_ => {
+                        // Null comparison: always true for == null
+                        try self.write("true");
+                        return;
+                    },
+                    .other => {},
+                }
+            }
+        }
+
+        // Default: use runtime.pyAnyEql for cross-type or uncertain
+        try self.write("runtime.pyAnyEql(");
+        try self.emitValueCore(left);
+        try self.write(", ");
+        try self.emitValueCore(right);
+        try self.write(")");
+    }
+
+    /// Emit ordering comparison (<, <=, >, >=)
+    fn emitOrderingComparison(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) !void {
+        const left_conf = left.confidence();
+        const right_conf = right.confidence();
+
+        // Both certain numeric: direct comparison
+        if (left_conf == .certain and right_conf == .certain) {
+            const left_ty = left.certainType();
+            const right_ty = right.certainType();
+
+            // Numeric types can be compared directly
+            if ((left_ty == .int or left_ty == .float) and (right_ty == .int or right_ty == .float)) {
+                const op_str = op.toOperator();
+                try self.write("((");
+                try self.emitValueCore(left);
+                try self.writeFmt(") {s} (", .{op_str});
+                try self.emitValueCore(right);
+                try self.write("))");
+                return;
+            }
+        }
+
+        // Uncertain: use PyValue ordering
+        const method = switch (op) {
+            .lt => "lt",
+            .le => "le",
+            .gt => "gt",
+            .ge => "ge",
+            else => unreachable,
+        };
+        try self.write("runtime.PyValue.from(");
+        try self.emitValueCore(left);
+        try self.writeFmt(").{s}(runtime.PyValue.from(", .{method});
+        try self.emitValueCore(right);
+        try self.write("))");
+    }
+
+    /// Emit containment check (in, not in)
+    fn emitContainmentCheck(self: *ZigBuilder, negate: bool, element: ZigValue, container: ZigValue) !void {
+        if (negate) try self.write("!");
+        try self.write("runtime.container_dispatch.contains(@TypeOf(");
+        try self.emitValueCore(container);
+        try self.write("), ");
+        try self.emitValueCore(container);
+        try self.write(", ");
+        try self.emitValueCore(element);
+        try self.write(")");
+    }
+
+    /// Emit identity check (is, is not)
+    fn emitIdentityCheck(self: *ZigBuilder, negate: bool, left: ZigValue, right: ZigValue) !void {
+        if (negate) try self.write("!");
+        try self.write("runtime.pyIdentical(");
+        try self.emitValueCore(left);
+        try self.write(", ");
+        try self.emitValueCore(right);
+        try self.write(")");
+    }
+
+    // ============================================
+    // Assertion API (unittest integration)
+    // ============================================
+    //
+    // These methods emit assertions for Python unittest compatibility.
+    // They use the comparison API internally for type-safe dispatch.
+
+    /// Emit assertEqual assertion with type-aware comparison
+    pub fn emitAssertEqual(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.write("if (!");
+        try self.emitEqualityComparison(false, left, right);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertNotEqual assertion
+    pub fn emitAssertNotEqual(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.write("if (");
+        try self.emitEqualityComparison(false, left, right);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertTrue assertion
+    pub fn emitAssertTrue(self: *ZigBuilder, value: ZigValue) !void {
+        try self.write("if (!");
+        try self.emitToBool(value);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertFalse assertion
+    pub fn emitAssertFalse(self: *ZigBuilder, value: ZigValue) !void {
+        try self.write("if (");
+        try self.emitToBool(value);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertIs assertion (identity check)
+    pub fn emitAssertIs(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.write("if (!");
+        try self.emitIdentityCheck(false, left, right);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertIsNot assertion
+    pub fn emitAssertIsNot(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.write("if (");
+        try self.emitIdentityCheck(false, left, right);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertIn assertion (membership test)
+    pub fn emitAssertIn(self: *ZigBuilder, element: ZigValue, container: ZigValue) !void {
+        try self.write("if (!");
+        try self.emitContainmentCheck(false, element, container);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertNotIn assertion
+    pub fn emitAssertNotIn(self: *ZigBuilder, element: ZigValue, container: ZigValue) !void {
+        try self.write("if (");
+        try self.emitContainmentCheck(false, element, container);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit ordering assertion (assertGreater, assertLess, etc)
+    pub fn emitAssertOrdering(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) !void {
+        try self.write("if (!");
+        try self.emitOrderingComparison(op, left, right);
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertIsNone
+    pub fn emitAssertIsNone(self: *ZigBuilder, value: ZigValue) !void {
+        try self.write("if (!");
+        try self.emitIdentityCheck(false, value, ZigValue.null_());
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Emit assertIsNotNone
+    pub fn emitAssertIsNotNone(self: *ZigBuilder, value: ZigValue) !void {
+        try self.write("if (");
+        try self.emitIdentityCheck(false, value, ZigValue.null_());
+        try self.write(") return error.AssertionFailed");
+    }
+
+    /// Helper to emit bool conversion
+    fn emitToBool(self: *ZigBuilder, value: ZigValue) !void {
+        switch (value) {
+            .certain_bool => |b| try self.writeFmt("{}", .{b}),
+            .certain_int => |i| try self.writeFmt("({d} != 0)", .{i}),
+            .certain_float => |f| try self.writeFmt("({d} != 0.0)", .{f}),
+            .certain_str => |s| try self.writeFmt("({d} > 0)", .{s.len}),
+            .certain_null => try self.write("false"),
+            else => {
+                try self.write("runtime.toBool(");
+                try self.emitValueCore(value);
+                try self.write(")");
+            },
+        }
+    }
+
+    // ============================================
     // Import API
     // ============================================
 
@@ -1872,4 +2106,79 @@ test "ZigBuilder finish combines sections" {
 
     try std.testing.expect(std.mem.indexOf(u8, output, "@import(\"std\")") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "// main code") != null);
+}
+
+test "ZigBuilder comparison - certain int equality" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    try builder.emitComparison(.eq, ZigValue.int(42), ZigValue.int(42));
+
+    const output = builder.getBody();
+    // Certain int == int uses direct comparison
+    try std.testing.expect(std.mem.indexOf(u8, output, "((42) == (42))") != null);
+}
+
+test "ZigBuilder comparison - string equality" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    try builder.emitComparison(.eq, ZigValue.string("hello"), ZigValue.string("world"));
+
+    const output = builder.getBody();
+    // String comparison uses std.mem.eql
+    try std.testing.expect(std.mem.indexOf(u8, output, "std.mem.eql(u8, \"hello\", \"world\")") != null);
+}
+
+test "ZigBuilder comparison - ordering" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    try builder.emitComparison(.lt, ZigValue.int(1), ZigValue.int(2));
+
+    const output = builder.getBody();
+    // Ordering uses direct operator
+    try std.testing.expect(std.mem.indexOf(u8, output, "((1) < (2))") != null);
+}
+
+test "ZigBuilder comparison - uncertain uses runtime" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    // Named variable is .other type, not certain
+    try builder.emitComparison(.eq, ZigValue.fromName("x"), ZigValue.int(42));
+
+    const output = builder.getBody();
+    // Uncertain uses runtime.pyAnyEql
+    try std.testing.expect(std.mem.indexOf(u8, output, "runtime.pyAnyEql(x, 42)") != null);
+}
+
+test "ZigBuilder assertion - assertEqual" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    try builder.emitAssertEqual(ZigValue.int(1), ZigValue.int(2));
+
+    const output = builder.getBody();
+    try std.testing.expect(std.mem.indexOf(u8, output, "if (!((1) == (2))) return error.AssertionFailed") != null);
+}
+
+test "ZigBuilder assertion - assertTrue" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    try builder.emitAssertTrue(ZigValue.boolean(true));
+
+    const output = builder.getBody();
+    try std.testing.expect(std.mem.indexOf(u8, output, "if (!true) return error.AssertionFailed") != null);
+}
+
+test "ZigBuilder assertion - assertIs" {
+    var builder = try ZigBuilder.init(std.testing.allocator);
+    defer builder.deinit();
+
+    try builder.emitAssertIs(ZigValue.fromName("a"), ZigValue.fromName("b"));
+
+    const output = builder.getBody();
+    try std.testing.expect(std.mem.indexOf(u8, output, "runtime.pyIdentical(a, b)") != null);
 }
