@@ -102,6 +102,7 @@ const bz2_mod = @import("../bz2_mod.zig");
 const lzma_mod = @import("../lzma_mod.zig");
 
 // metal0 native libraries
+const logic_table_mod = @import("../logic_table_mod.zig");
 const tokenizer_mod = @import("../tokenizer_mod.zig");
 const tarfile_mod = @import("../tarfile_mod.zig");
 const shlex_mod = @import("../shlex_mod.zig");
@@ -493,6 +494,7 @@ const ModuleMap = std.StaticStringMap(FuncMap).initComptime(.{
     .{ "abc", abc_mod.Funcs },
     .{ "inspect", inspect_mod.Funcs },
     .{ "dataclasses", dataclasses_mod.Funcs },
+    .{ "logic_table", logic_table_mod.Funcs },
     .{ "enum", enum_mod.Funcs },
     .{ "operator", operator_mod.Funcs },
     .{ "atexit", atexit_mod.Funcs },
