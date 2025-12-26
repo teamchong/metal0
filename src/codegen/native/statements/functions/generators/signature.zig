@@ -1400,6 +1400,9 @@ pub fn genMethodSignatureWithSkip(
     is_skipped: bool,
     actually_uses_allocator: bool,
 ) CodegenError!void {
+    // Clear anytype_params from previous method to avoid cross-method pollution
+    self.anytype_params.clearRetainingCapacity();
+
     try self.emit("\n");
     try self.emitIndent();
 

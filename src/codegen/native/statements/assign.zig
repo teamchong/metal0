@@ -100,6 +100,88 @@ fn isBigIntExpression(self: *NativeCodegen, expr: ast.Node) bool {
     return false;
 }
 
+/// Collect all variable names referenced in an AST node (recursive)
+/// Used to find variables that appear only in VM fallback strings and need discards
+fn collectNamesFromNode(allocator: std.mem.Allocator, node: ast.Node, names: *std.ArrayList([]const u8)) void {
+    switch (node) {
+        .name => |n| {
+            // Skip Python builtins and keywords
+            if (std.mem.eql(u8, n.id, "None") or std.mem.eql(u8, n.id, "True") or
+                std.mem.eql(u8, n.id, "False") or std.mem.eql(u8, n.id, "self"))
+            {
+                return;
+            }
+            names.append(allocator, n.id) catch {};
+        },
+        .call => |call| {
+            // Collect names from function and arguments
+            collectNamesFromNode(allocator, call.func.*, names);
+            for (call.args) |arg| {
+                collectNamesFromNode(allocator, arg, names);
+            }
+            for (call.keyword_args) |kw| {
+                collectNamesFromNode(allocator, kw.value, names);
+            }
+        },
+        .attribute => |attr| {
+            collectNamesFromNode(allocator, attr.value.*, names);
+        },
+        .subscript => |sub| {
+            collectNamesFromNode(allocator, sub.value.*, names);
+            switch (sub.slice) {
+                .index => |idx| collectNamesFromNode(allocator, idx.*, names),
+                .slice => |range| {
+                    if (range.lower) |lower| collectNamesFromNode(allocator, lower.*, names);
+                    if (range.upper) |upper| collectNamesFromNode(allocator, upper.*, names);
+                    if (range.step) |step| collectNamesFromNode(allocator, step.*, names);
+                },
+            }
+        },
+        .binop => |binop| {
+            collectNamesFromNode(allocator, binop.left.*, names);
+            collectNamesFromNode(allocator, binop.right.*, names);
+        },
+        .unaryop => |unary| {
+            collectNamesFromNode(allocator, unary.operand.*, names);
+        },
+        .compare => |cmp| {
+            collectNamesFromNode(allocator, cmp.left.*, names);
+            for (cmp.comparators) |comp| {
+                collectNamesFromNode(allocator, comp, names);
+            }
+        },
+        .boolop => |boolop| {
+            for (boolop.values) |val| {
+                collectNamesFromNode(allocator, val, names);
+            }
+        },
+        .if_expr => |if_expr| {
+            collectNamesFromNode(allocator, if_expr.condition.*, names);
+            collectNamesFromNode(allocator, if_expr.body.*, names);
+            collectNamesFromNode(allocator, if_expr.orelse_value.*, names);
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elt| {
+                collectNamesFromNode(allocator, elt, names);
+            }
+        },
+        .list => |list| {
+            for (list.elts) |elt| {
+                collectNamesFromNode(allocator, elt, names);
+            }
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                collectNamesFromNode(allocator, key, names);
+            }
+            for (dict.values) |val| {
+                collectNamesFromNode(allocator, val, names);
+            }
+        },
+        else => {},
+    }
+}
+
 /// Check for deferred closure instantiations waiting on this variable
 /// These are closures that captured the variable before it was declared
 pub fn triggerDeferredClosureInstantiations(self: *NativeCodegen, var_name: []const u8) CodegenError!void {
@@ -1552,6 +1634,28 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit(";\n");
             }
 
+            // Also emit discards for variables USED in VM fallback RHS expressions
+            // Example: x = weakref.ref(obj) -> runtime.eval("weakref.ref(obj)")
+            // Here `obj` only appears in the string literal, so Zig sees it as unused
+            if (self.needsVMFallback(assign.value.*)) {
+                var rhs_names: std.ArrayList([]const u8) = .{};
+                defer rhs_names.deinit(self.allocator);
+                collectNamesFromNode(self.allocator, assign.value.*, &rhs_names);
+                for (rhs_names.items) |rhs_name| {
+                    // Only emit discard for local variables that we've seen declared
+                    // Skip the LHS variable (already handled above)
+                    if (std.mem.eql(u8, rhs_name, var_name)) continue;
+                    // Check if it's a local variable in this function scope
+                    if (self.func_local_vars.contains(rhs_name) or self.pending_discards.contains(rhs_name)) {
+                        const rhs_actual_name = self.var_renames.get(rhs_name) orelse rhs_name;
+                        try self.emitIndent();
+                        try self.emit("_ = &");
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), rhs_actual_name);
+                        try self.emit(";\n");
+                    }
+                }
+            }
+
             // Track first assignments for potential discard emission
             // We defer discard emission to check if the variable is actually used in generated code
             // This avoids "pointless discard" errors when the variable IS used
@@ -1706,7 +1810,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             try self.emitIndent();
 
-            // Check for sys.stdout/stderr/argv assignment - these need special handling
+            // Check for sys module attribute assignment - needs special handling
+            // Some sys attributes are mutable at runtime (breakpointhook, etc.)
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "sys")) {
                 if (std.mem.eql(u8, attr.attr, "stdout") or std.mem.eql(u8, attr.attr, "stderr")) {
                     try self.emit("runtime.discard(");
@@ -1723,6 +1828,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(";\n");
                     return;
                 }
+                // For other sys module attributes (breakpointhook, etc.),
+                // use VM fallback since they're not compile-time known
+                try self.emitVMFallback(.{ .assign = assign });
+                try self.emit(";\n");
+                return;
             }
 
             // Check if the attribute's base object is uncertain (would generate runtime.eval)

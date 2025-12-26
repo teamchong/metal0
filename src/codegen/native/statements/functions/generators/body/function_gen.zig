@@ -508,6 +508,10 @@ pub fn genFunctionBody(
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
+    // Clear closure_vars to avoid cross-method pollution
+    // (e.g., def f() in one method shouldn't affect f = Foo() in another method)
+    self.closure_vars.clearRetainingCapacity();
+    self.void_closure_vars.clearRetainingCapacity();
     // NOTE: var_renames is NOT cleared here anymore.
     // Parameter renames are set up in generators.zig BEFORE signature generation,
     // so both signature and body use the same renamed names.
@@ -1378,6 +1382,10 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
+    // Clear closure_vars to avoid cross-method pollution
+    // (e.g., def f() in one method shouldn't affect f = Foo() in another method)
+    self.closure_vars.clearRetainingCapacity();
+    self.void_closure_vars.clearRetainingCapacity();
     // Clear deferred closure instantiations from previous method
     // This prevents closures from one method leaking into another method's scope
     self.clearDeferredClosureInstantiations();
@@ -1546,8 +1554,22 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // 2. The end-of-method unused param check is skipped when control_flow_terminated is true
     // 3. Methods that panic/raise early would leave anytype params without discards
     // By emitting discards upfront, we ensure they execute even if the method terminates early
+    // Check if class has a known parent - affects whether params only used in super() are anonymous
+    const has_known_parent_for_discard = if (self.current_class_name) |ccn| self.getParentClassName(ccn) != null else true;
+
     const start_param_idx = if (method.args.len > 0 and !is_staticmethod and !is_classmethod) @as(usize, 1) else @as(usize, 0);
     for (method.args[start_param_idx..]) |arg| {
+        // Skip if param was made anonymous in the signature.
+        // For classes without known parent, params only used in super() calls are made anonymous.
+        const was_param_used_in_python = if (!has_known_parent_for_discard)
+            param_analyzer.isNameUsedInBodyExcludingSuperCalls(method.body, arg.name)
+        else
+            param_analyzer.isNameUsedInBody(method.body, arg.name);
+        if (!was_param_used_in_python) {
+            // Param was made anonymous ("_:") in signature - no discard needed
+            continue;
+        }
+
         // Check if this param is anytype by checking if it was used as a function/iterator/type-check
         // (same conditions that make signature.zig emit "anytype")
         const is_func = param_analyzer.isParameterUsedAsFunction(method.body, arg.name);
@@ -1563,8 +1585,13 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             }
             break :blk false;
         };
+        // Also check anytype_params which is populated during signature generation
+        // This catches cases where signature.zig determined the param should be anytype
+        // but the conditions here don't match (e.g., subscript access like state["foo"])
+        const is_in_anytype_params = self.anytype_params.contains(arg.name);
         const is_anytype = (is_func and arg.default == null) or is_iter or is_type_check or
-            ((is_passed_to_callable or has_callable_param) and arg.type_annotation == null);
+            ((is_passed_to_callable or has_callable_param) and arg.type_annotation == null) or
+            is_in_anytype_params;
 
         if (is_anytype) {
             // Emit discard for anytype param using address-of to avoid "pointless discard" error

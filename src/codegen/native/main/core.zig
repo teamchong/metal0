@@ -38,11 +38,22 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 /// Emit bytecode VM fallback for uncertain/dynamic expressions
 /// Used when native codegen can't handle a construct - falls back to VM execution
 pub fn emitVMFallback(self: *NativeCodegen, source: []const u8) CodegenError!void {
-    // Generate: runtime.eval(__global_allocator, "source_code")
-    // Caller handles error union (via try or catch) and value discard (via _ =)
-    try emitConst(self, "runtime.eval(__global_allocator, \"");
-    try escapeZigString(self, source);
-    try emitConst(self, "\")");
+    // At module level, we can't use 'try' - use 'catch unreachable' instead
+    // Inside defer blocks, we also can't use 'try' - use 'catch unreachable'
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+
+    if (cannot_use_try) {
+        // Generate: runtime.PyValue.from(runtime.eval(...) catch unreachable)
+        try emitConst(self, "runtime.PyValue.from(runtime.eval(__global_allocator, \"");
+        try escapeZigString(self, source);
+        try emitConst(self, "\") catch unreachable)");
+    } else {
+        // Generate: runtime.PyValue.from(try runtime.eval(...))
+        try emitConst(self, "runtime.PyValue.from(try runtime.eval(__global_allocator, \"");
+        try escapeZigString(self, source);
+        try emitConst(self, "\"))");
+    }
 }
 
 /// Helper to escape a string for Zig string literal

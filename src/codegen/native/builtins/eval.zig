@@ -25,13 +25,17 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
         try self.comptime_evals.put(source_copy, {});
     }
 
+    // When inside a defer block, we can't use 'try' - use 'catch unreachable' instead
+    const try_expr = if (self.inside_defer) "" else "try ";
+    const catch_expr = if (self.inside_defer) " catch unreachable" else "";
+
     // Compile source to bytecode at compile time
     var program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
         // If bytecode compilation fails, fall back to runtime eval
         std.debug.print("comptime eval fallback for '{s}': {}\n", .{ eval_source, err });
-        try self.emit("try runtime.eval(__global_allocator, \"");
+        try self.emitFmt("runtime.PyValue.from({s}runtime.eval(__global_allocator, \"", .{try_expr});
         try escapeZigString(self, eval_source);
-        try self.emit("\")");
+        try self.emitFmt("\"){s})", .{catch_expr});
         return;
     };
     defer program.deinit();
@@ -57,9 +61,9 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     // Serialize bytecode and emit as byte array
     const serialized = program.serialize(self.allocator) catch {
         try self.emit("// serialization failed\n");
-        try self.emitFmt("break :__m{d}_eval try runtime.eval(__global_allocator, \"", .{id});
+        try self.emitFmt("break :__m{d}_eval runtime.PyValue.from({s}runtime.eval(__global_allocator, \"", .{ id, try_expr });
         try escapeZigString(self, source);
-        try self.emit("\");\n}");
+        try self.emitFmt("\"){s});\n}}", .{catch_expr});
         return;
     };
     defer self.allocator.free(serialized);
@@ -79,11 +83,11 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     try self.emit(" = runtime.BytecodeVM.init(__global_allocator);\n    defer _vm_");
     try emitInt(self, blob_id);
     try self.emit(".deinit();\n");
-    try self.emitFmt("    break :__m{d}_eval try _vm_", .{id});
+    try self.emitFmt("    break :__m{d}_eval runtime.PyValue.from({s}_vm_", .{ id, try_expr });
     try emitInt(self, blob_id);
     try self.emit(".execute(&_program_");
     try emitInt(self, blob_id);
-    try self.emit(");\n}");
+    try self.emitFmt("){s});\n}}", .{catch_expr});
 }
 
 /// Helper to emit integer as decimal string
@@ -116,10 +120,15 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return error.OutOfMemory; // eval() requires at least 1 argument
     }
 
+    // When inside a defer block, we can't use 'try' - use 'catch unreachable' instead
+    const try_expr = if (self.inside_defer) "" else "try ";
+    const catch_expr = if (self.inside_defer) " catch unreachable" else "";
+
     if (args.len >= 2) {
         // eval(source, globals, [locals])
-        // Generate: try runtime.evalWithScope(__global_allocator, source, globals, locals)
-        try self.emit("try runtime.evalWithScope(__global_allocator, ");
+        // Generate: runtime.PyValue.from(try runtime.evalWithScope(...))
+        // Wrap result in PyValue since eval returns *PyObject
+        try self.emitFmt("runtime.PyValue.from({s}runtime.evalWithScope(__global_allocator, ", .{try_expr});
         try self.genExpr(args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]); // globals
@@ -129,14 +138,14 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else {
             try self.emit("null"); // no locals, use globals as locals
         }
-        try self.emit(")");
+        try self.emitFmt("){s})", .{catch_expr});
     } else {
         // eval(source) - no scope args
-        // Generate: try runtime.eval(__global_allocator, source_code)
-        // Returns *PyObject which can be a list, int, string, etc.
-        try self.emit("try runtime.eval(__global_allocator, ");
+        // Generate: runtime.PyValue.from(try runtime.eval(...))
+        // Wrap result in PyValue since eval returns *PyObject
+        try self.emitFmt("runtime.PyValue.from({s}runtime.eval(__global_allocator, ", .{try_expr});
         try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitFmt("){s})", .{catch_expr});
     }
 }
 

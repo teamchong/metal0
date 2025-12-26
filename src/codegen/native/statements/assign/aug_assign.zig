@@ -913,6 +913,15 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         }
     }
 
+    // Check if target needs VM fallback (e.g., B.counter where B is a class with class attributes)
+    // If so, use full VM fallback for the entire augmented assignment
+    // This avoids generating invalid code like: runtime.eval("B.counter") = runtime.eval("B.counter") + 1
+    if (self.needsVMFallback(aug.target.*)) {
+        try self.emitVMFallback(.{ .aug_assign = aug });
+        try self.emit(";\n");
+        return;
+    }
+
     // Emit target (variable name)
     try self.genExpr(aug.target.*);
     try self.emit(" = ");

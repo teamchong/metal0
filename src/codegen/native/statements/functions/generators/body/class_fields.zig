@@ -499,6 +499,18 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                     continue;
                 }
 
+                // Skip boolean operations (like linux_alpha = foo() and bar())
+                // These are handled as lazy-computed attributes
+                if (assign.value.* == .boolop) {
+                    continue;
+                }
+
+                // Skip comparison operations (like system_round_bug = round(5e15+1) != 5e15+1)
+                // These are handled as lazy-computed attributes
+                if (assign.value.* == .compare) {
+                    continue;
+                }
+
                 // Skip list/set/dict literals - they may be handled elsewhere
                 if (assign.value.* == .list or assign.value.* == .set or assign.value.* == .dict) {
                     continue;

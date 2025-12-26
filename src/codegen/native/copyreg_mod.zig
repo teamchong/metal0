@@ -36,38 +36,33 @@ fn genConstructor(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void 
 }
 
 fn genDispatchTable(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.AutoHashMap(usize, ?*anyopaque).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+    // Use self.emit() directly to write to output buffer
+    // (builder.emitValue() writes to builder.body which isn't flushed automatically)
+    try self.emit("hashmap_helper.AutoHashMap(usize, ?*anyopaque).init(__global_allocator)");
 }
 
 fn genExtensionRegistry(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.StringHashMap(i32).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+    try self.emit("hashmap_helper.StringHashMap(i32).init(__global_allocator)");
 }
 
 fn genInvertedRegistry(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.AutoHashMap(i32, []const u8).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+    try self.emit("hashmap_helper.AutoHashMap(i32, []const u8).init(__global_allocator)");
 }
 
 fn genExtensionCache(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("hashmap_helper.AutoHashMap(i32, ?*anyopaque).init(__global_allocator)"), builder_mod.EmitConfig.forExpression());
+    try self.emit("hashmap_helper.AutoHashMap(i32, ?*anyopaque).init(__global_allocator)");
 }
 
 fn genAddExtension(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    try self.emit("{}");
 }
 
 fn genRemoveExtension(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    try self.emit("{}");
 }
 
 fn genClearExtensionCache(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
+    try self.emit("{}");
 }
 
 fn genNewobj(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {

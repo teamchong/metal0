@@ -261,10 +261,15 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // VM fallback (runtime.eval) returns error union that must be handled
     // BUT: Block expressions { ... } are NOT error unions even if they contain runtime.eval
     // AND: @panic returns noreturn, so catch {} after it is unreachable code
+    // AND: PyValue.from(try runtime.eval(...)) is NOT an error union - the try is inside
     const contains_eval = std.mem.indexOf(u8, expr_output, "runtime.eval(") != null;
     const is_block_expression = trimmed_start.len > 0 and trimmed_start[0] == '{' and ends_with_brace;
     const contains_panic = std.mem.indexOf(u8, expr_output, "@panic(") != null;
-    const has_error_return = contains_eval and !is_block_expression and !contains_panic;
+    // Check for PyValue-wrapped eval: expression STARTS with runtime.PyValue.from(
+    // This is the top-level pattern that returns a PyValue and needs discarding
+    const is_pyvalue_wrapped = std.mem.startsWith(u8, trimmed_start, "runtime.PyValue.from(try runtime.eval(") or
+        std.mem.startsWith(u8, trimmed_start, "runtime.PyValue.from(runtime.eval(");
+    const has_error_return = contains_eval and !is_block_expression and !contains_panic and !is_pyvalue_wrapped;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);
@@ -332,7 +337,8 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }.emit,
         StmtCtx{
             .pre_generated = expr_output,
-            .needs_discard = needs_discard,
+            // PyValue-wrapped expressions also need discard since they return PyValue
+            .needs_discard = needs_discard or is_pyvalue_wrapped,
             .needs_catch = has_error_return,
         },
         .{
@@ -347,6 +353,10 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
 /// Check if expression returns a value that needs `_ = ` prefix
 fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
+    // VM fallback expressions are wrapped with runtime.PyValue.from(try runtime.eval(...))
+    // which returns PyValue (non-void), so they need to be discarded
+    if (self.needsVMFallback(expr)) return true;
+
     // Module docstrings (bare string literals) need discard
     if (expr == .constant) {
         if (expr.constant.value == .string) return true;
