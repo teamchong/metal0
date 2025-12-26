@@ -1902,6 +1902,10 @@ pub const NativeCodegen = struct {
     /// This method tracks which parameters have been discarded in the current function scope.
     /// If the parameter has already been discarded, this is a no-op (prevents duplicates).
     /// Must call clearDiscardedParams() when entering a new function scope.
+    ///
+    /// The parameter name in the discard must match the signature:
+    /// - If param shadows class method, module-level, or local scope: {name}__shadow
+    /// - Otherwise: use writeLocalVarName (handles Zig keyword escaping)
     pub fn emitParamDiscard(self: *NativeCodegen, param_name: []const u8) CodegenError!void {
         // Check if already discarded in current function scope
         if (self.discarded_params.contains(param_name)) {
@@ -1909,10 +1913,39 @@ pub const NativeCodegen = struct {
         }
         // Mark as discarded
         try self.discarded_params.put(param_name, {});
+
+        // Check if param was renamed to {name}__shadow in the signature
+        // This mirrors the logic in signature.zig:genMethodParam
+        const shadows_class_method = if (self.current_class_body) |cb| blk: {
+            for (cb) |stmt| {
+                if (stmt == .function_def) {
+                    const method_name = stmt.function_def.name;
+                    // Skip special methods that we're checking params FOR
+                    if (std.mem.eql(u8, method_name, "__init__") or std.mem.eql(u8, method_name, "__new__")) {
+                        continue;
+                    }
+                    if (std.mem.eql(u8, param_name, method_name)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
+        const shadows_module_level = self.wouldParamShadow(param_name);
+        const shadows_local_scope = self.isDeclaredInAnyScope(param_name);
+
         // Emit the discard statement
         try self.emitIndent();
         try self.emit("_ = &");
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), param_name);
+
+        if (shadows_class_method or shadows_module_level or shadows_local_scope) {
+            // Use the __shadow suffix to match signature
+            try self.emitFmt("{s}__shadow", .{param_name});
+        } else {
+            // Use writeLocalVarName for Zig keyword escaping (e.g., "packed" -> "@\"packed\"")
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), param_name);
+        }
         try self.emit(";\n");
     }
 

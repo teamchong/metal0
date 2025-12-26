@@ -1666,6 +1666,18 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
             }
 
+            // If variable is used in eval string but nowhere else in actual code,
+            // emit _ = &varname; to suppress Zig "unused local constant" error
+            // This handles runtime-assigned variables (non-comptime path)
+            // The comptime path at lines 924-933 handles this separately
+            if (is_first_assignment and self.isEvalStringVar(original_var_name)) {
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                try self.emit(";\n");
+            }
+
             // Track variable metadata (ArrayList vars, closures, etc.)
             try valueGen.trackVariableMetadata(
                 self,

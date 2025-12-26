@@ -29,6 +29,7 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
         "__future__",
         // metal0 native libraries (Zig implementations)
         "metal0",      "metal0.tokenizer",
+        "logic_table", // GPU-accelerated data processing
     };
     for (stdlib_modules) |stdlib_mod| {
         if (std.mem.eql(u8, module_name, stdlib_mod)) {

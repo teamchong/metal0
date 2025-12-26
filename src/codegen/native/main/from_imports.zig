@@ -409,6 +409,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 "cycle",
                 "repeat",
                 "accumulate",
+                "batched",
                 "chain",
                 "compress",
                 "dropwhile",
