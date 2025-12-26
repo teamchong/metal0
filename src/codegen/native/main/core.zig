@@ -43,6 +43,7 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
 /// Used when native codegen can't handle a construct - falls back to VM execution
 pub fn emitVMFallback(self: *NativeCodegen, source: []const u8) CodegenError!void {
     // Generate: runtime.eval(__global_allocator, "source_code")
+    // Caller handles error union (via try or catch) and value discard (via _ =)
     try emitConst(self, "runtime.eval(__global_allocator, \"");
     try escapeZigString(self, source);
     try emitConst(self, "\")");

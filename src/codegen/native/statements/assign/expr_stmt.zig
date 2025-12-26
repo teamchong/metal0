@@ -172,22 +172,6 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         }
     }
 
-    // Special handling for unittest.main() - complete block
-    if (expr == .call and expr.call.func.* == .attribute) {
-        const attr = expr.call.func.attribute;
-        if (attr.value.* == .name) {
-            const obj_name = attr.value.name.id;
-            const method_name = attr.attr;
-            if (std.mem.eql(u8, obj_name, "unittest") and std.mem.eql(u8, method_name, "main")) {
-                // unittest.main() is a complete statement - no semicolon
-                try self.emitIndent();
-                try self.genExpr(expr);
-                try self.output.append(self.allocator, '\n');
-                return;
-            }
-        }
-    }
-
     // Check if expression needs value discard
     const needs_discard = shouldDiscardValue(self, expr);
 
@@ -273,6 +257,10 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // NOTE: If needs_discard is true, we're adding `_ = ` prefix, so labeled blocks become assignments and need semicolons
     const should_skip_semicolon = (is_block_stmt or is_labeled_block or is_wrapped_labeled_block) and !needs_discard;
 
+    // Detect if this is an error-returning expression that needs catch {}
+    // VM fallback (runtime.eval) returns error union that must be handled
+    const has_error_return = std.mem.indexOf(u8, expr_output, "runtime.eval(") != null;
+
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);
 
@@ -280,14 +268,15 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const StmtCtx = struct {
         pre_generated: []const u8,
         needs_discard: bool,
+        needs_catch: bool,
     };
 
     // Use builder.withStatement for atomic indent + expr + semicolon
     try builder.withStatement(
         struct {
             fn emit(b: *ZigBuilder, ctx: StmtCtx) !void {
-                // Add discard prefix if needed
-                if (ctx.needs_discard) {
+                // Add discard prefix if needed (for error-returning or value-returning expressions)
+                if (ctx.needs_discard or ctx.needs_catch) {
                     try b.write("_ = ");
                 }
 
@@ -329,11 +318,17 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                 }
 
                 try b.write(output);
+
+                // Add catch {} suffix for error-returning expressions
+                if (ctx.needs_catch) {
+                    try b.write(" catch {}");
+                }
             }
         }.emit,
         StmtCtx{
             .pre_generated = expr_output,
             .needs_discard = needs_discard,
+            .needs_catch = has_error_return,
         },
         .{
             .skip_semicolon = should_skip_semicolon,
