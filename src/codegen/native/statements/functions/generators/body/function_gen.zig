@@ -40,6 +40,7 @@ const mutation_analysis = @import("mutation_analysis.zig");
 const usage_analysis = @import("usage_analysis.zig");
 const nested_captures = @import("nested_captures.zig");
 const returned_vars_analysis = @import("returned_vars_analysis.zig");
+const vm_fallback_analysis = @import("vm_fallback_analysis.zig");
 const scope_analyzer = @import("../../scope_analyzer.zig");
 const var_hoisting = @import("../../var_hoisting.zig");
 const self_analyzer = @import("../../self_analyzer.zig");
@@ -527,6 +528,11 @@ pub fn genFunctionBody(
 
     // Analyze function body for returned variables (skip defer deinit for these)
     try returned_vars_analysis.analyzeReturnedVars(self, func);
+
+    // Analyze function body for VM fallback expressions
+    // This pre-populates vm_fallback_used_vars so that assignment codegen can emit
+    // immediate discards for variables that only appear in eval() strings
+    try vm_fallback_analysis.analyzeVMFallbackVars(self, func);
 
     // Analyze scope-escaping variables that need hoisting
     // Variables first assigned in for/if/while/try blocks but used outside need hoisting
@@ -1383,6 +1389,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Analyze method body for returned variables (skip defer deinit for these)
     try returned_vars_analysis.analyzeReturnedVars(self, method);
+
+    // Analyze method body for VM fallback expressions
+    // This pre-populates vm_fallback_used_vars so that assignment codegen can emit
+    // immediate discards for variables that only appear in eval() strings
+    try vm_fallback_analysis.analyzeVMFallbackVars(self, method);
 
     // Track local variables and analyze nested class captures for closure support
     // Clear all maps for each method to avoid pollution from sibling methods

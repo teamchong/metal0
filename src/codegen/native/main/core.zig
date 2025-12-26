@@ -2698,38 +2698,9 @@ pub const NativeCodegen = struct {
             _ = self.pending_discards.swapRemove(key);
         }
 
-        // Also emit discards for variables referenced only in VM fallback expressions
-        // These variables are declared but only appear inside eval string literals
-        // The occurrence count check above may not find them because:
-        // 1. Builder pattern puts code in builder buffer, not self.output
-        // 2. Variables inside eval strings are not counted as usage
-        var vm_it = self.vm_fallback_used_vars.iterator();
-        while (vm_it.next()) |entry| {
-            const var_name = entry.key_ptr.*;
-
-            // Skip variables already processed via pending_discards
-            var already_processed = false;
-            for (to_remove.items) |processed_name| {
-                if (std.mem.eql(u8, var_name, processed_name)) {
-                    already_processed = true;
-                    break;
-                }
-            }
-            if (already_processed) continue;
-
-            // Check if this variable was declared by looking at type inferrer
-            // Variables in VM fallback that were declared will have a type entry
-            const var_type = self.type_inferrer.var_types.get(var_name) orelse continue;
-            _ = var_type;
-
-            // Get the renamed name if applicable
-            const emit_name = self.var_renames.get(var_name) orelse var_name;
-
-            try self.emitIndent();
-            try emitConst(self, "_ = &");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
-            try emitConst(self, ";\n");
-        }
+        // NOTE: VM fallback variable discards are now emitted immediately after assignment
+        // in assign.zig (lines 1675-1682) using vm_fallback_analysis pre-pass.
+        // This prevents scope issues where discards were emitted outside the variable's scope.
     }
 
     /// Check if a position in the output is inside a string literal
