@@ -497,9 +497,11 @@ pub fn genInitMethod(
             false;
 
         // Check if parameter shadows module-level declaration (var, function, import)
+        // Also check module_level_from_imports for `from X import Y` symbols (e.g., `deque` from `from collections import deque`)
         const shadows_module_level = self.module_level_funcs.contains(arg.name) or
             self.module_level_vars.contains(arg.name) or
-            self.imported_modules.contains(arg.name);
+            self.imported_modules.contains(arg.name) or
+            self.module_level_from_imports.contains(arg.name);
 
         // Check if parameter name is assigned in the init body (local var shadows param)
         // e.g., `def __init__(self, d): if not d: d = {}` - the `d = {}` would shadow param
@@ -903,7 +905,8 @@ pub fn genInitMethodWithBuiltinBase(
                 // Check if param would shadow module-level declaration
                 const shadows_module_level = self.module_level_funcs.contains(arg.name) or
                     self.module_level_vars.contains(arg.name) or
-                    self.imported_modules.contains(arg.name);
+                    self.imported_modules.contains(arg.name) or
+                    self.module_level_from_imports.contains(arg.name);
                 // Check if param would shadow a local variable assignment in init body
                 const shadows_local_assign = param_analyzer.isNameAssignedInInitBody(init.body, arg.name);
 
@@ -1449,7 +1452,8 @@ pub fn genInitMethodFromNew(
             // Check if param would shadow module-level declaration
             const shadows_module_level = self.module_level_funcs.contains(arg.name) or
                 self.module_level_vars.contains(arg.name) or
-                self.imported_modules.contains(arg.name);
+                self.imported_modules.contains(arg.name) or
+                self.module_level_from_imports.contains(arg.name);
             // Check if param is 'self' in nested class (would shadow outer method's self)
             const shadows_outer_self = is_nested and std.mem.eql(u8, arg.name, "self");
             // Check if param would shadow a local variable assignment in __new__ body

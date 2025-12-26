@@ -307,7 +307,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     }
                     try emitConst(self, " = ");
                     if (import_path) |path| {
-                        try emitConst(self, path);
+                        // Use writeEscapedImportPath to handle keyword module names like "enum"
+                        try zig_keywords.writeEscapedImportPath(self.output.writer(self.allocator), path);
                         try emitConst(self, ";\n");
                     } else {
                         // No direct import path - try stdlib_modules_gen as fallback
@@ -1641,7 +1642,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         }
                         try emitConst(self, " = ");
                         if (import_path) |path| {
-                            try emitConst(self, path);
+                            // Use writeEscapedImportPath to handle keyword module names like "enum"
+                            try zig_keywords.writeEscapedImportPath(self.output.writer(self.allocator), path);
                         } else {
                             try emitConst(self, "struct {}");
                         }
@@ -1664,7 +1666,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         }
                         try emitConst(self, " = ");
                         if (import_path) |path| {
-                            try emitConst(self, path);
+                            // Use writeEscapedImportPath to handle keyword module names like "enum"
+                            try zig_keywords.writeEscapedImportPath(self.output.writer(self.allocator), path);
                         } else {
                             try emitConst(self, "struct {}");
                         }

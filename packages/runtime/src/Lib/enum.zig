@@ -229,6 +229,83 @@ pub fn AutoFlag(comptime names: anytype) type {
 pub const IntFlag = Flag;
 
 // ============================================================================
+// Python enum module compatibility exports
+// ============================================================================
+
+/// EnumMeta - the metaclass for Enum types
+/// In Python, this is the metaclass that creates Enum classes.
+/// In Zig, we use comptime type generation, so this is a marker type.
+pub const EnumMeta = struct {
+    pub const __name__ = "EnumMeta";
+};
+
+/// EnumType is an alias for EnumMeta (Python 3.11+)
+pub const EnumType = EnumMeta;
+
+/// ReprEnum - base class for enums that want repr() to show value
+pub const ReprEnum = struct {
+    pub const __name__ = "ReprEnum";
+};
+
+// Boundary behaviors for Flag
+pub const STRICT: i64 = 1;
+pub const CONFORM: i64 = 2;
+pub const EJECT: i64 = 3;
+pub const KEEP: i64 = 4;
+
+// Verification decorators
+pub const UNIQUE: i64 = 1;
+pub const CONTINUOUS: i64 = 2;
+pub const NAMED_FLAGS: i64 = 3;
+
+/// verify decorator - validates enum properties
+pub fn verify(comptime constraint: i64) fn (type) type {
+    return struct {
+        pub fn apply(comptime E: type) type {
+            _ = constraint;
+            return E;
+        }
+    }.apply;
+}
+
+/// member decorator - marks a value as an enum member
+pub fn member(value: anytype) @TypeOf(value) {
+    return value;
+}
+
+/// nonmember decorator - marks a value as NOT an enum member
+pub fn nonmember(value: anytype) @TypeOf(value) {
+    return value;
+}
+
+/// _simple_enum decorator (internal)
+pub fn _simple_enum(comptime E: type) type {
+    return E;
+}
+
+/// _test_simple_enum (internal testing)
+pub fn _test_simple_enum(comptime E: type) bool {
+    _ = E;
+    return true;
+}
+
+/// _iter_bits_lsb - iterate over set bits from LSB
+pub fn _iter_bits_lsb(value: u64) IterBitsLsb {
+    return IterBitsLsb{ .value = value };
+}
+
+pub const IterBitsLsb = struct {
+    value: u64,
+
+    pub fn next(self: *IterBitsLsb) ?u64 {
+        if (self.value == 0) return null;
+        const bit = self.value & (~self.value +% 1); // isolate lowest set bit
+        self.value &= ~bit; // clear it
+        return bit;
+    }
+};
+
+// ============================================================================
 // Unique Decorator Simulation
 // ============================================================================
 

@@ -308,6 +308,23 @@ pub fn writeEscapedModulePath(writer: anytype, module_path: []const u8) !void {
     }
 }
 
+/// Write import path with escaped last segment if it's a keyword
+/// Used for import paths like "runtime.Lib.enum" -> "runtime.Lib.@\"enum\""
+/// Unlike writeEscapedModulePath which escapes the first segment,
+/// this escapes the LAST segment (the module name after runtime.Lib.)
+pub fn writeEscapedImportPath(writer: anytype, import_path: []const u8) !void {
+    // Find the last dot
+    if (std.mem.lastIndexOfScalar(u8, import_path, '.')) |last_dot| {
+        const prefix = import_path[0 .. last_dot + 1]; // includes the dot
+        const last_segment = import_path[last_dot + 1 ..];
+        try writer.writeAll(prefix);
+        try writeEscapedIdent(writer, last_segment);
+    } else {
+        // No dot - escape whole thing if keyword
+        try writeEscapedIdent(writer, import_path);
+    }
+}
+
 /// Convert a dotted module path to a valid Zig identifier
 /// e.g., "test.support" -> "test_support", "test.support.os_helper" -> "test_support_os_helper"
 pub fn dottedToIdent(module_path: []const u8) []const u8 {
