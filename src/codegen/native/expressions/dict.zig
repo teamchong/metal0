@@ -44,6 +44,14 @@ fn emitAutoArrayHashMapInit(self: *NativeCodegen, key_type: []const u8, value_ty
     try self.emit(")");
 }
 
+/// Emit runtime.PyValueHashMap(value_type).init(__global_allocator) (Zig 0.15 managed style)
+/// Used for dicts with non-string keys (tuples, ints, bools, mixed types)
+/// Note: ArrayHashMap in Zig 0.15 is managed and requires .init(allocator)
+fn emitPyValueHashMapInit(self: *NativeCodegen, value_type: []const u8) CodegenError!void {
+    _ = value_type; // Value type is always PyValue for mixed key dicts
+    try self.emit("runtime.PyValueHashMap(runtime.PyValue).init(__global_allocator)");
+}
+
 /// Emit try alloc.dupe(u8, str) for string duplication
 fn emitAllocDupe(self: *NativeCodegen, alloc_name: []const u8, str: []const u8) CodegenError!void {
     try self.emit("try ");
@@ -155,8 +163,8 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
         }
 
         if (has_int_keys and has_str_keys) {
-            // Mixed key types - use StringHashMap with runtime.PyValue values
-            try emitStringHashMapInit(self, "runtime.PyValue", alloc_name);
+            // Mixed key types - use PyValueHashMap for non-string keys
+            try emitPyValueHashMapInit(self, "runtime.PyValue");
         } else if (has_int_keys) {
             // Use AutoArrayHashMap for int keys (has .keys() and .values() like Python)
             try emitAutoArrayHashMapInit(self, "i64", "i64", alloc_name);
@@ -164,8 +172,8 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
             // String keys with mutations - use i64 value type for common pattern d['key'] = 1
             try emitStringHashMapInit(self, "i64", alloc_name);
         } else {
-            // Default to StringHashMap for unknown empty dicts
-            try emitStringHashMapInit(self, "runtime.PyValue", alloc_name);
+            // Default to PyValueHashMap for unknown empty dicts (may get non-string keys later)
+            try emitPyValueHashMapInit(self, "runtime.PyValue");
         }
         return;
     }
@@ -293,18 +301,23 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
         .int => {
             // Integer keys - use AutoArrayHashMap with i64 key type (has .keys() and .values())
             try self.emit("var _dict = std.AutoArrayHashMap(i64, V).init(");
+            try self.emit(alloc_name);
+            try self.emit(");\n");
         },
         .string => {
             // String keys - use StringHashMap
             try self.emit("var _dict = hashmap_helper.StringHashMap(V).init(");
+            try self.emit(alloc_name);
+            try self.emit(");\n");
         },
         .pyvalue => {
-            // Unknown/mixed key types - use StringHashMap with PyValue
-            try self.emit("var _dict = hashmap_helper.StringHashMap(runtime.PyValue).init(");
+            // Unknown/mixed key types - use PyValueHashMap for non-string keys
+            // PyValueHashMap uses managed ArrayHashMap (Zig 0.15) - requires .init(allocator)
+            try self.emit("var _dict = runtime.PyValueHashMap(runtime.PyValue).init(");
+            try self.emit(alloc_name);
+            try self.emit(");\n");
         },
     }
-    try self.emit(alloc_name);
-    try self.emit(");\n");
 
     // Inline loop - unrolled at compile time
     try self.emitIndent();
@@ -400,8 +413,13 @@ fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []cons
             try self.emit("try _dict.put(kv[0], cast_val);\n");
         },
         .pyvalue => {
-            // Convert key to PyValue for mixed/unknown key types
-            try self.emit("try _dict.put(runtime.toPyValue(kv[0]), runtime.toPyValue(cast_val));\n");
+            // Convert key and value to PyValue for mixed/unknown key types
+            // PyValueHashMap uses managed ArrayHashMap - put() uses stored allocator
+            try self.emit("try _dict.put(try runtime.toPyValue(");
+            try self.emit(alloc_name);
+            try self.emit(", kv[0]), try runtime.toPyValue(");
+            try self.emit(alloc_name);
+            try self.emit(", cast_val));\n");
         },
     }
     self.dedent();

@@ -71,7 +71,8 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
             try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{value_type_str});
         },
         .pyvalue => {
-            try self.output.writer(self.allocator).print("var __dict_result = hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator);\n", .{});
+            // Use PyValueHashMap for non-string keys (Zig 0.15 managed style)
+            try self.output.writer(self.allocator).print("var __dict_result = runtime.PyValueHashMap(runtime.PyValue).init(__global_allocator);\n", .{});
         },
     }
 
@@ -86,17 +87,26 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
 
     // Generate: try __dict_result.put(<key>, <value>);
     try self.emitIndent();
-    try self.emit("try __dict_result.put(");
-    try genExpr(self, dictcomp.key.*);
-    try self.emit(", ");
-    if (self.target_dict_value_type != null) {
-        try self.emit("try runtime.toPyValue(__global_allocator, ");
+    if (key_classification == .pyvalue) {
+        // PyValueHashMap uses managed ArrayHashMap - put() uses stored allocator
+        try self.emit("try __dict_result.put(try runtime.toPyValue(__global_allocator, ");
+        try genExpr(self, dictcomp.key.*);
+        try self.emit("), try runtime.toPyValue(__global_allocator, ");
         try genExpr(self, dictcomp.value.*);
-        try self.emit(")");
+        try self.emit("));\n");
     } else {
-        try genExpr(self, dictcomp.value.*);
+        try self.emit("try __dict_result.put(");
+        try genExpr(self, dictcomp.key.*);
+        try self.emit(", ");
+        if (self.target_dict_value_type != null) {
+            try self.emit("try runtime.toPyValue(__global_allocator, ");
+            try genExpr(self, dictcomp.value.*);
+            try self.emit(")");
+        } else {
+            try genExpr(self, dictcomp.value.*);
+        }
+        try self.emit(");\n");
     }
-    try self.emit(");\n");
 
     // Close all if conditions and for loops
     for (dictcomp.generators) |gen| {
