@@ -89,7 +89,83 @@ pub fn emitVMFallbackFromAST(self: *NativeCodegen, node: ast.Node) CodegenError!
     };
     defer self.allocator.free(source);
 
+    // Collect variable names referenced in this VM fallback expression
+    // These will need discards emitted because they appear only in string literals
+    collectVMFallbackVars(self, node) catch {};
+
     try emitVMFallback(self, source);
+}
+
+/// Collect variable names from an AST node and register them as VM fallback used
+fn collectVMFallbackVars(self: *NativeCodegen, node: ast.Node) !void {
+    switch (node) {
+        .name => |n| {
+            // Skip Python builtins and keywords
+            if (std.mem.eql(u8, n.id, "None") or std.mem.eql(u8, n.id, "True") or
+                std.mem.eql(u8, n.id, "False") or std.mem.eql(u8, n.id, "self") or
+                std.mem.eql(u8, n.id, "complex") or std.mem.eql(u8, n.id, "operator"))
+            {
+                return;
+            }
+            // Only track local variables (check if declared)
+            if (self.func_local_vars.contains(n.id) or self.symbol_table.lookup(n.id) != null) {
+                const name_copy = try self.arena.allocator().dupe(u8, n.id);
+                try self.vm_fallback_used_vars.put(name_copy, {});
+            }
+        },
+        .call => |call| {
+            try collectVMFallbackVars(self, call.func.*);
+            for (call.args) |arg| {
+                try collectVMFallbackVars(self, arg);
+            }
+            for (call.keyword_args) |kw| {
+                try collectVMFallbackVars(self, kw.value);
+            }
+        },
+        .attribute => |attr| {
+            try collectVMFallbackVars(self, attr.value.*);
+        },
+        .subscript => |sub| {
+            try collectVMFallbackVars(self, sub.value.*);
+            switch (sub.slice) {
+                .index => |idx| try collectVMFallbackVars(self, idx.*),
+                .slice => |range| {
+                    if (range.lower) |lower| try collectVMFallbackVars(self, lower.*);
+                    if (range.upper) |upper| try collectVMFallbackVars(self, upper.*);
+                    if (range.step) |step| try collectVMFallbackVars(self, step.*);
+                },
+            }
+        },
+        .binop => |binop| {
+            try collectVMFallbackVars(self, binop.left.*);
+            try collectVMFallbackVars(self, binop.right.*);
+        },
+        .unaryop => |unary| {
+            try collectVMFallbackVars(self, unary.operand.*);
+        },
+        .compare => |compare| {
+            try collectVMFallbackVars(self, compare.left.*);
+            for (compare.comparators) |comp| {
+                try collectVMFallbackVars(self, comp);
+            }
+        },
+        .if_expr => |if_expr| {
+            try collectVMFallbackVars(self, if_expr.condition.*);
+            try collectVMFallbackVars(self, if_expr.body.*);
+            try collectVMFallbackVars(self, if_expr.orelse_value.*);
+        },
+        .list => |list| {
+            for (list.elts) |elem| {
+                try collectVMFallbackVars(self, elem);
+            }
+        },
+        .tuple => |tuple| {
+            for (tuple.elts) |elem| {
+                try collectVMFallbackVars(self, elem);
+            }
+        },
+        else => {},
+    }
 }
 
 const hashmap_helper = @import("utils.hashmap_helper");
@@ -300,6 +376,10 @@ pub const NativeCodegen = struct {
     // Track first assignments that may need discards (var_name -> emitted_name)
     // Discards are emitted at end of scope after checking if variable was actually used
     pending_discards: FnvStringMap,
+
+    // Track variables referenced in generated VM fallback expressions
+    // These need discards emitted because they appear only in string literals in generated code
+    vm_fallback_used_vars: FnvVoidMap,
 
     // Track which parameters have been discarded in current function scope
     // Prevents duplicate `_ = &param;` emissions from multiple code paths
@@ -891,6 +971,7 @@ pub const NativeCodegen = struct {
             .hoisted_vars = FnvVoidMap.init(aa),
             .exception_vars = FnvVoidMap.init(aa),
             .pending_discards = FnvStringMap.init(aa),
+            .vm_fallback_used_vars = FnvVoidMap.init(aa),
             .discarded_params = FnvVoidMap.init(aa),
             .function_start_pos = 0,
             .array_vars = FnvVoidMap.init(aa),

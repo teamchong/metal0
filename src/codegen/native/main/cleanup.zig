@@ -37,6 +37,7 @@ pub fn deinit(self: *NativeCodegen) void {
     self.var_renames.deinit();
     self.hoisted_vars.deinit();
     self.pending_discards.deinit();
+    self.vm_fallback_used_vars.deinit();
     self.array_vars.deinit();
     self.array_slice_vars.deinit();
     self.closure_list_vars.deinit();

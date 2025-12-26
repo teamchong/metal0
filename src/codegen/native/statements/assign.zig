@@ -1666,11 +1666,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
             }
 
-            // If variable is used in eval string but nowhere else in actual code,
+            // If variable is used in eval string or VM fallback but nowhere else in actual code,
             // emit _ = &varname; to suppress Zig "unused local constant" error
-            // This handles runtime-assigned variables (non-comptime path)
+            // This handles:
+            // 1. Runtime-assigned variables (non-comptime path) - via isEvalStringVar
+            // 2. Variables referenced in generated VM fallback expressions - via vm_fallback_used_vars
             // The comptime path at lines 924-933 handles this separately
-            if (is_first_assignment and self.isEvalStringVar(original_var_name)) {
+            const is_vm_fallback_var = self.vm_fallback_used_vars.contains(original_var_name);
+            if (is_first_assignment and (self.isEvalStringVar(original_var_name) or is_vm_fallback_var)) {
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
                 try self.emit("_ = &");
