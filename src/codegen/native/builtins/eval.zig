@@ -125,31 +125,63 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
 }
 
 /// Generate code for eval(source, [globals, [locals]])
-/// Calls runtime.eval() which uses bytecode VM
+/// Calls runtime.eval() or runtime.evalWithScope() which uses bytecode VM
 /// Returns *runtime.PyObject that can be used with len(), pyObjToInt(), etc.
 pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         return error.OutOfMemory; // eval() requires at least 1 argument
     }
 
-    // For now, ignore globals and locals arguments (args[1] and args[2])
-    // Generate: try runtime.eval(__global_allocator, source_code)
-    // Returns *PyObject which can be a list, int, string, etc.
-    try emitConst(self, "try runtime.eval(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try emitConst(self, ")");
+    if (args.len >= 2) {
+        // eval(source, globals, [locals])
+        // Generate: try runtime.evalWithScope(__global_allocator, source, globals, locals)
+        try emitConst(self, "try runtime.evalWithScope(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try emitConst(self, ", ");
+        try self.genExpr(args[1]); // globals
+        try emitConst(self, ", ");
+        if (args.len >= 3) {
+            try self.genExpr(args[2]); // locals
+        } else {
+            try emitConst(self, "null"); // no locals, use globals as locals
+        }
+        try emitConst(self, ")");
+    } else {
+        // eval(source) - no scope args
+        // Generate: try runtime.eval(__global_allocator, source_code)
+        // Returns *PyObject which can be a list, int, string, etc.
+        try emitConst(self, "try runtime.eval(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try emitConst(self, ")");
+    }
 }
 
 /// Generate code for exec(source, [globals, [locals]])
-/// Calls runtime.exec() which uses bytecode VM (no return value)
+/// Calls runtime.exec() or runtime.execWithScope() which uses bytecode VM (no return value)
 pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
         return error.OutOfMemory; // exec() requires at least 1 argument
     }
 
-    // For now, ignore globals and locals arguments (args[1] and args[2])
-    // Generate: try runtime.exec(__global_allocator, source_code)
-    try emitConst(self, "try runtime.exec(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try emitConst(self, ")");
+    if (args.len >= 2) {
+        // exec(source, globals, [locals])
+        // Generate: try runtime.execWithScope(__global_allocator, source, globals, locals)
+        try emitConst(self, "try runtime.execWithScope(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try emitConst(self, ", ");
+        try self.genExpr(args[1]); // globals
+        try emitConst(self, ", ");
+        if (args.len >= 3) {
+            try self.genExpr(args[2]); // locals
+        } else {
+            try emitConst(self, "null"); // no locals, use globals as locals
+        }
+        try emitConst(self, ")");
+    } else {
+        // exec(source) - no scope args
+        // Generate: try runtime.exec(__global_allocator, source_code)
+        try emitConst(self, "try runtime.exec(__global_allocator, ");
+        try self.genExpr(args[0]);
+        try emitConst(self, ")");
+    }
 }

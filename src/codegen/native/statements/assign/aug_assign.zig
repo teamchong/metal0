@@ -132,9 +132,11 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     return;
                 } else {
                     // Dynamic attribute aug assign: put the new value
-                    // Note: Pow and MatMul not supported for dynamic dict attributes
+                    // Note: Pow and MatMul use VM fallback for dynamic dict attributes
                     if (aug.op == .Pow or aug.op == .MatMul) {
-                        try emitConst(self,"@compileError(\"**= and @= not supported for dynamic attributes\");\n");
+                        const core = @import("../../main/core.zig");
+                        try core.emitVMFallbackFromAST(self, .{ .aug_assign = aug });
+                        try emitConst(self, ";\n");
                         return;
                     }
                     try emitConst(self,"try ");
@@ -275,12 +277,10 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
             try emitConst(self,"__new_items.deinit(__global_allocator);\n");
         } else {
             // Other operators (Sub, Div, etc.) are not valid for slice assignment in Python
-            // Python raises TypeError: 'NoneType' object cannot be interpreted as an integer
-            // We generate a compile error to catch this at compile time
-            try self.emitIndent();
-            try emitConst(self,"@compileError(\"Unsupported operator for slice augmented assignment - only *= and += are valid\");\n");
-            try self.emitIndent();
-            try emitConst(self,"_ = __slice;\n");
+            // Python raises TypeError at runtime - use VM fallback for drop-in CPython replacement
+            const core = @import("../../main/core.zig");
+            try core.emitVMFallbackFromAST(self, .{ .aug_assign = aug });
+            try emitConst(self,";\n");
         }
 
         self.dedent();

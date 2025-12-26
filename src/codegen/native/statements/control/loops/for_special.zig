@@ -75,8 +75,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         // Generate tuple iteration where each iteration produces a (idx, val) struct
         const var_name = target.name.id;
         if (args.len == 0) {
-            try emitIndent(self, "@compileError(\"enumerate() requires at least 1 argument\");\n");
-            return;
+            return error.UnsupportedSyntax;  // enumerate() requires at least 1 argument - caller uses VM fallback
         }
         try emitIndent(self, "{\n");
         self.indent();
@@ -108,15 +107,14 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         .list => |l| l.elts,
         .tuple => |t| t.elts,
         else => {
-            // Unknown target type - generate compile error
-            try emitIndent(self, "@compileError(\"enumerate() target must be a tuple/list for unpacking or a single variable\");\n");
-            return;
+            // Unknown target type - caller uses VM fallback
+            return error.UnsupportedSyntax;
         },
     };
     if (target_elts.len != 2) {
-        // Not exactly 2 elements - Python only supports (idx, value) unpacking
-        try emitIndent(self, "@compileError(\"enumerate() unpacking requires exactly 2 variables: (index, value)\");\n");
-        return;
+        // Not exactly 2 elements - Python allows but will unpack differently
+        // Use VM fallback for drop-in CPython replacement
+        return error.UnsupportedSyntax;
     }
 
     // Extract variable names - handle simple names and nested tuples

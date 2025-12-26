@@ -118,10 +118,11 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 return true;
             }
 
-            // Check if this is a skipped (unsupported) module
+            // Check if this is a skipped (unsupported) module - use VM fallback
             if (self.isSkippedModule(module_name)) {
-                // Emit compile error for unsupported third-party module
-                try emitFmtConst(self, "@compileError(\"Module '{s}' is not supported. External module not found.\")", .{module_name});
+                // Use VM fallback for unsupported modules (drop-in CPython compatibility)
+                const core = @import("main/core.zig");
+                try core.emitVMFallbackFromAST(self, .{ .call = call });
                 return true;
             }
         }
@@ -151,6 +152,14 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                     return true;
                 }
             }
+
+            // Check if module is skipped - use VM fallback for drop-in CPython replacement
+            if (self.isSkippedModule(module_name)) {
+                const core = @import("main/core.zig");
+                try core.emitVMFallbackFromAST(self, .{ .call = call });
+                return true;
+            }
+
             // Route to module function dispatch
             if (try module_functions.tryDispatch(self, module_name, func_name, call)) {
                 return true;

@@ -39,6 +39,51 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
     try self.output.appendSlice(self.allocator, output);
 }
 
+/// Emit bytecode VM fallback for uncertain/dynamic expressions
+/// Used when native codegen can't handle a construct - falls back to VM execution
+pub fn emitVMFallback(self: *NativeCodegen, source: []const u8) CodegenError!void {
+    // Generate: runtime.eval(__global_allocator, "source_code")
+    try emitConst(self, "runtime.eval(__global_allocator, \"");
+    try escapeZigString(self, source);
+    try emitConst(self, "\")");
+}
+
+/// Helper to escape a string for Zig string literal
+fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    for (source) |c| {
+        switch (c) {
+            '"' => try b.write("\\\""),
+            '\\' => try b.write("\\\\"),
+            '\n' => try b.write("\\n"),
+            '\r' => try b.write("\\r"),
+            '\t' => try b.write("\\t"),
+            else => try b.body.append(b.allocator, c),
+        }
+    }
+    const output = b.getBodyAndClear();
+    try self.output.appendSlice(self.allocator, output);
+}
+
+// Import AST printer for VM fallback
+const ast_printer = @import("../ast_printer.zig");
+
+/// Emit VM fallback from AST node (auto-converts to Python source)
+/// This is the main entry point for universal VM fallback
+pub fn emitVMFallbackFromAST(self: *NativeCodegen, node: ast.Node) CodegenError!void {
+    var printer = ast_printer.AstPrinter.init(self.allocator);
+    defer printer.deinit();
+
+    const source = printer.print(node) catch {
+        // If AST printing fails, emit a panic as last resort
+        try emitConst(self, "@panic(\"AST reconstruction failed\")");
+        return;
+    };
+    defer self.allocator.free(source);
+
+    try emitVMFallback(self, source);
+}
+
 const hashmap_helper = @import("utils.hashmap_helper");
 const scratch_buffer_mod = @import("../../../utils/scratch_buffer.zig");
 const ScratchBuffer = scratch_buffer_mod.ScratchBuffer;
@@ -1366,6 +1411,104 @@ pub const NativeCodegen = struct {
         }
         // Variable is certain - use raw Zig type for performance
         return false;
+    }
+
+    /// Determine if an expression needs VM fallback instead of native codegen
+    /// Returns true when native codegen would fail or produce incorrect results
+    /// Used for universal catch-all: any unsupported construct → VM execution
+    pub fn needsVMFallback(self: *NativeCodegen, node: ast.Node) bool {
+        switch (node) {
+            // Lambda always needs fallback (first-class functions)
+            .lambda => return true,
+
+            // Generator expressions need fallback (lazy evaluation)
+            .genexp => return true,
+
+            // Function calls - check if we can determine the return type
+            .call => |call| {
+                // Method calls on uncertain receivers need fallback
+                if (call.func.* == .attribute) {
+                    const attr = call.func.attribute;
+                    if (attr.value.* == .name) {
+                        const var_name = attr.value.name.id;
+                        // If receiver type is uncertain, we can't statically dispatch
+                        if (self.isVarUncertain(var_name)) {
+                            return true;
+                        }
+                    }
+                }
+                // Direct function calls - check if it's a known builtin
+                if (call.func.* == .name) {
+                    const func_name = call.func.name.id;
+                    // Known builtins that are fully implemented natively
+                    const native_builtins = [_][]const u8{
+                        "len",     "range",    "print",    "str",      "int",
+                        "float",   "bool",     "list",     "dict",     "set",
+                        "tuple",   "type",     "abs",      "min",      "max",
+                        "sum",     "sorted",   "reversed", "enumerate", "zip",
+                        "repr",    "hash",     "id",       "ord",      "chr",
+                        "hex",     "oct",      "bin",      "isinstance", "issubclass",
+                        "hasattr", "getattr",  "setattr",  "delattr",  "callable",
+                        "iter",    "next",     "open",     "input",    "format",
+                    };
+                    for (native_builtins) |builtin| {
+                        if (std.mem.eql(u8, func_name, builtin)) {
+                            return false; // Natively supported
+                        }
+                    }
+                    // Check if it's a user-defined function with known signature
+                    if (self.function_signatures.get(func_name) != null) {
+                        return false; // User function, can compile
+                    }
+                    // Unknown function - check if it's a class constructor
+                    if (func_name.len > 0 and std.ascii.isUpper(func_name[0])) {
+                        // Class constructors are handled natively
+                        return false;
+                    }
+                    // Unknown callable - might need fallback
+                    // But don't fall back for imported module functions
+                    if (self.import_aliases.contains(func_name)) {
+                        return false;
+                    }
+                }
+                return false;
+            },
+
+            // Subscript on uncertain container
+            .subscript => |sub| {
+                if (sub.value.* == .name) {
+                    const var_name = sub.value.name.id;
+                    if (self.isVarUncertain(var_name)) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+
+            // Attribute access on uncertain object
+            .attribute => |attr| {
+                if (attr.value.* == .name) {
+                    const var_name = attr.value.name.id;
+                    // Special cases: 'self' is always certain within a class
+                    if (std.mem.eql(u8, var_name, "self")) {
+                        return false;
+                    }
+                    if (self.isVarUncertain(var_name)) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+
+            // Named expressions (walrus operator) - generally OK natively
+            .named_expr => return false,
+
+            // Match statements need fallback for complex patterns
+            .match_stmt => return true,
+
+            // Everything else is handled natively
+            else => return false,
+        }
     }
 
     /// Infer expression type with scope-aware variable type lookup

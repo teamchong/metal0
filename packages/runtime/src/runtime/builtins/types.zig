@@ -61,18 +61,32 @@ pub fn memoryview_callable(value: []const u8) []const u8 {
     return value;
 }
 
-/// compile() builtin - not supported in AOT context
-pub fn compile(source: []const u8, filename: []const u8, mode: []const u8) PythonError!void {
-    _ = source;
-    _ = filename;
-    _ = mode;
-    return PythonError.ValueError;
+/// compile() builtin - compile Python source to code object
+/// Uses subprocess compilation to compile Python source code
+pub fn compile(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8) !*anyopaque {
+    _ = filename; // TODO: store in code object for tracebacks
+    _ = mode; // Mode is handled by the subprocess compiler
+    const eval_cache = @import("../../Python/eval_cache.zig");
+
+    // Use subprocess compilation to produce bytecode
+    const program = try eval_cache.compileViaSubprocess(allocator, source);
+
+    // Return the code object (caller is responsible for cleanup)
+    return @ptrCast(program.code);
 }
 
-/// exec() builtin - not supported in AOT context
-pub fn exec(code: anytype) PythonError!void {
-    _ = code;
-    return PythonError.ValueError;
+/// exec() builtin - execute Python code dynamically
+/// Delegates to pythonrun.exec() which uses bytecode VM
+pub fn exec(allocator: std.mem.Allocator, code: []const u8) !void {
+    const pythonrun = @import("../../Python/pythonrun.zig");
+    return pythonrun.exec(allocator, code);
+}
+
+/// exec() with globals and locals
+pub fn execWithScope(allocator: std.mem.Allocator, code: []const u8, globals: ?*anyopaque, locals: ?*anyopaque) !void {
+    const pythonrun = @import("../../Python/pythonrun.zig");
+    const runtime = @import("../../runtime.zig");
+    return pythonrun.execWithScope(allocator, code, @ptrCast(globals orelse runtime.Py_None), @ptrCast(locals));
 }
 
 /// struct.pack() stub - no args version

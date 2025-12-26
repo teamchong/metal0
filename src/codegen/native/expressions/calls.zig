@@ -660,8 +660,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     needs_alloc = traits.needs_allocator;
                     needs_try = traits.can_error;
                 } else {
-                    // Function not found in local module - emit compile error
-                    try emitFmtConst(self, "@compileError(\"Unknown function: {s}.{s}\")", .{ mod, func_name });
+                    // Function not found in local module - use VM fallback for drop-in CPython replacement
+                    const core = @import("../main/core.zig");
+                    try core.emitVMFallbackFromAST(self, .{ .call = call });
                     return;
                 }
             } else {
@@ -787,9 +788,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             if (i > 0) try emitConst(self, ", ");
 
                             if (arg == .starred) {
-                                // Starred arg in mixed context - need to handle separately
-                                // For now, emit error - this case is complex
-                                try emitConst(self, "@compileError(\"Mixed starred args not yet supported in PyValue.call()\")");
+                                // Starred arg in mixed context - use VM fallback for drop-in CPython replacement
+                                const core = @import("../main/core.zig");
+                                try core.emitVMFallbackFromAST(self, .{ .call = call });
+                                return;
                             } else {
                                 try emitConst(self, "runtime.PyValue.from(");
                                 try genExpr(self, arg);

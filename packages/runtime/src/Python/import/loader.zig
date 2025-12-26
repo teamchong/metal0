@@ -100,10 +100,8 @@ pub fn importModuleLevel(
     else
         resolved_package;
 
-    _ = locals;
-    _ = globals;
-    _ = fromlist;
-
+    // For relative imports, we resolve the name and use importModule directly
+    // globals/locals/fromlist are already handled in the absolute import case (level == 0)
     return importModule(full_name);
 }
 

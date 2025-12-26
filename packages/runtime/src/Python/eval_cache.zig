@@ -11,6 +11,7 @@
 // Re-export public API from cache_globals
 pub const initCache = @import("eval_cache/cache_globals.zig").initCache;
 pub const evalCached = @import("eval_cache/cache_globals.zig").evalCached;
+pub const evalWithScope = @import("eval_cache/cache_globals.zig").evalWithScope;
 pub const clearCache = @import("eval_cache/cache_globals.zig").clearCache;
 pub const getCacheStats = @import("eval_cache/cache_globals.zig").getCacheStats;
 pub const deinitCache = @import("eval_cache/cache_globals.zig").deinitCache;

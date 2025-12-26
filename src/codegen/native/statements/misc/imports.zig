@@ -33,26 +33,15 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
     }
 
     // Check if module was marked as unavailable (e.g., winreg on Mac)
-    // Generate code that raises ModuleNotFoundError like Python does
+    // Use VM fallback to import at runtime - drop-in CPython replacement
+    // dispatch.zig handles calls to skipped modules via VM fallback
     if (self.isSkippedModule(module_name)) {
-        const b = try self.getBuilder();
-
-        // At module level (indent 0 or struct level), use comptime block with @compileError
-        // At function level, generate runtime error
-        if (self.indent_level == 0 or (self.mode == .module and self.indent_level == 1)) {
-            // Module-level: emit comptime block that fails compilation
-            // This matches Python behavior where import fails immediately
-            try b.writeIndent();
-            try b.writeFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
-        } else {
-            // Local import: generate runtime error
-            try b.writeIndent();
-            try b.writeFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
-            self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
+        // Skip import generation - dispatch.zig will use VM fallback for any access
+        // Track the alias so dispatch knows it maps to the skipped module
+        if (!std.mem.eql(u8, alias, module_name)) {
+            const alias_copy = try self.allocator.dupe(u8, alias);
+            try self.import_aliases.put(alias_copy, module_name);
         }
-
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
         return;
     }
 
@@ -97,26 +86,20 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
     const module_name = import.module;
 
     // Check if module was marked as unavailable (e.g., winreg on Mac)
-    // Generate code that raises ModuleNotFoundError like Python does
+    // Use VM fallback to import at runtime - drop-in CPython replacement
+    // Track imported names for dispatch.zig to handle via VM fallback
     if (self.isSkippedModule(module_name)) {
-        const b = try self.getBuilder();
+        // Track each imported name as coming from the skipped module
+        // dispatch.zig will use VM fallback for any access
+        for (import.names, 0..) |name, i| {
+            const name_alias = if (i < import.asnames.len and import.asnames[i] != null)
+                import.asnames[i].?
+            else
+                name;
 
-        // At module level (indent 0 or struct level), use comptime block with @compileError
-        // At function level, generate runtime error
-        if (self.indent_level == 0 or (self.mode == .module and self.indent_level == 1)) {
-            // Module-level: emit comptime block that fails compilation
-            // This matches Python behavior where import fails immediately
-            try b.writeIndent();
-            try b.writeFmt("comptime {{ @compileError(\"No module named '{s}'\"); }}\n", .{module_name});
-        } else {
-            // Local import: generate runtime error
-            try b.writeIndent();
-            try b.writeFmt("return error.ModuleNotFoundError; // No module named '{s}'\n", .{module_name});
-            self.control_flow_terminated = true; // Mark control flow terminated to skip unreachable code
+            // Track as local from-import so dispatch can route to VM fallback
+            try self.local_from_imports.put(name_alias, module_name);
         }
-
-        const output = b.getBodyAndClear();
-        try self.output.appendSlice(self.allocator, output);
         return;
     }
 

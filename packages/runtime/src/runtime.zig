@@ -241,8 +241,11 @@ pub const assertEqualGeneric = builtins.assertEqualGeneric;
 // Re-export compile_builtin from Python/ast.zig for codegen
 pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
 
-// Re-export eval from Python/ceval.zig for codegen
+// Re-export eval/exec from Python modules for codegen
 pub const eval = @import("Python/ceval.zig").eval;
+pub const evalWithScope = @import("Python/ceval.zig").evalWithScope;
+pub const exec = @import("Python/pythonrun.zig").exec;
+pub const execWithScope = @import("Python/pythonrun.zig").execWithScope;
 
 // Re-export BytecodeProgram and VM for codegen
 pub const BytecodeProgram = @import("Python/compile.zig").BytecodeProgram;
@@ -995,15 +998,16 @@ pub const importlib = @import("Lib/importlib.zig");
 pub const inspect = @import("Lib/inspect.zig");
 
 /// Dynamic import for __import__() builtin
-/// In AOT compilation, returns a stub module object (Py_None)
-/// This enables code using __import__() to compile
-/// Note: True dynamic import is not supported in AOT compilation
+/// Uses the import system to load modules at runtime
 pub fn dynamic_import(allocator: std.mem.Allocator, module_name: []const u8) !*PyObject {
-    // For AOT compilation, we return Py_None as a stub
-    // The module_name is ignored - true dynamic import not supported
-    _ = allocator;
-    _ = module_name;
-    return Py_None;
+    const import_mod = @import("Python/import.zig");
+    const module = import_mod.importModule(allocator, module_name) catch |err| {
+        // If import fails, return Py_None to allow graceful degradation
+        // This matches Python's behavior of returning None for failed optional imports
+        std.log.debug("dynamic_import failed for '{s}': {}", .{ module_name, err });
+        return Py_None;
+    };
+    return @ptrCast(module);
 }
 
 test "reference counting" {

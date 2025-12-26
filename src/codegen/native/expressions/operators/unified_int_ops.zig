@@ -196,10 +196,9 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
             try emitConst(self, "))");
         },
         else => {
-            // Unsupported UnifiedInt op - fall back to error
-            try emitConst(self, "@compileError(\"Unsupported UnifiedInt operation: ");
-            try emitConst(self, op_name);
-            try emitConst(self, "\")");
+            // Unsupported UnifiedInt op - use VM fallback for drop-in CPython replacement
+            const core = @import("../../main/core.zig");
+            try core.emitVMFallbackFromAST(self, .{ .binop = binop });
         },
     }
 }
@@ -236,8 +235,9 @@ pub fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: N
         .Mult => "mul",
         .Div => "div",
         else => {
-            // Unsupported complex operation - fall back to error
-            try emitConst(self, "@compileError(\"Unsupported complex operation\")");
+            // Unsupported complex operation - use VM fallback for drop-in CPython replacement
+            const core = @import("../../main/core.zig");
+            try core.emitVMFallbackFromAST(self, .{ .binop = binop });
             return;
         },
     };

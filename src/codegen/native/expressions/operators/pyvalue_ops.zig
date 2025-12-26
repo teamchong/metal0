@@ -146,10 +146,9 @@ pub fn isComptimeFloat(expr: ast.Node) bool {
 /// Pattern: (runtime.PyValue.from(left)).method(runtime.PyValue.from(right))
 pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const method_name = PyValueMethods.get(@tagName(binop.op)) orelse {
-        // Unsupported operation - fall back to compile error
-        try emitConst(self, "@compileError(\"Unsupported PyValue operation: ");
-        try emitConst(self, @tagName(binop.op));
-        try emitConst(self, "\")");
+        // Unsupported operation - use VM fallback for drop-in CPython replacement
+        const core = @import("../../main/core.zig");
+        try core.emitVMFallbackFromAST(self, .{ .binop = binop });
         return;
     };
 

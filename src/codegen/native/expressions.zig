@@ -102,6 +102,14 @@ pub fn isCapturedByCurrentClass(self: *NativeCodegen, var_name: []const u8) bool
 
 /// Main expression dispatcher
 pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
+    // Universal VM fallback: if native codegen can't handle this expression,
+    // convert AST to Python source and execute via bytecode VM
+    if (self.needsVMFallback(node)) {
+        const core = @import("main/core.zig");
+        try core.emitVMFallbackFromAST(self, node);
+        return;
+    }
+
     switch (node) {
         .constant => |c| try constants.genConstant(self, c),
         .name => |n| {

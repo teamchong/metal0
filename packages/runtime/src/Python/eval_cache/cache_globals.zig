@@ -115,3 +115,54 @@ pub fn deinitCache() void {
         cache_allocator = null;
     }
 }
+
+/// Cached eval() with globals/locals scope - for eval(source, globals, locals)
+pub fn evalWithScope(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    globals: ?*anyopaque,
+    locals: ?*anyopaque,
+) !*PyObject {
+    // FAST PATH: Try to parse as simple literal first (no bytecode needed)
+    // Literals don't need scope
+    if (literal_parser.tryParseLiteral(allocator, source)) |obj| {
+        return obj;
+    }
+
+    // Ensure cache is initialized
+    if (lru_cache == null) {
+        try initCache(allocator);
+    }
+
+    // Check cache first (thread-safe)
+    cache_mutex.lock();
+    const cached = if (lru_cache) |*cache| cache.get(source) else null;
+    cache_mutex.unlock();
+
+    if (cached) |program| {
+        // Cache hit - execute bytecode with scope
+        return execution.executeWithScope(allocator, program, globals, locals);
+    }
+
+    // Cache miss - parse expression directly to bytecode
+    const program = parseSourceToBytecode(source, allocator) catch |err| {
+        return err;
+    };
+
+    // Store in cache (thread-safe, LRU handles eviction)
+    cache_mutex.lock();
+    if (lru_cache) |*cache| {
+        try cache.put(source, program);
+    }
+    cache_mutex.unlock();
+
+    // Get the cached program to return (since put may have stored a copy)
+    cache_mutex.lock();
+    const stored = if (lru_cache) |*cache| cache.get(source) else null;
+    cache_mutex.unlock();
+
+    if (stored) |p| {
+        return execution.executeWithScope(allocator, p, globals, locals);
+    }
+    return error.CacheFailed;
+}

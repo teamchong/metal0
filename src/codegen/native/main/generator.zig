@@ -308,21 +308,22 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try emitConst(self, " = ");
                     if (import_path) |path| {
                         try emitConst(self, path);
+                        try emitConst(self, ";\n");
                     } else {
                         // No direct import path - try stdlib_modules_gen as fallback
                         const stdlib_gen = @import("../stdlib_modules_gen.zig");
                         if (stdlib_gen.hasModule(mod_name)) {
                             try emitConst(self, "runtime.Lib.");
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
+                            try emitConst(self, ";\n");
                         } else {
-                            // Module not implemented - emit compile error for clear failure
-                            try self.output.writer(self.allocator).print(
-                                "@compileError(\"Module '{s}' is not implemented in metal0 runtime\")",
-                                .{mod_name},
-                            );
+                            // Module not implemented - mark as skipped for VM fallback
+                            // dispatch.zig will use VM fallback for any access
+                            try self.markSkippedModule(mod_name);
+                            // Emit empty struct as placeholder (const decl already emitted)
+                            try emitConst(self, "struct {};\n");
                         }
                     }
-                    try emitConst(self, ";\n");
                 },
                 .compile_python, .unsupported => {
                     // These modules are handled via @import above (if compiled)

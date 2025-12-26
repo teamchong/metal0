@@ -690,7 +690,16 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Handle enumerate() loops
         if (std.mem.eql(u8, func_name, "enumerate")) {
             // enumerate() requires tuple target (idx, item)
-            try genEnumerateLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body, for_stmt.orelse_body);
+            genEnumerateLoop(self, for_stmt.target.*, for_stmt.iter.call.args, for_stmt.body, for_stmt.orelse_body) catch |err| {
+                if (err == error.UnsupportedSyntax) {
+                    // Use VM fallback for unsupported syntax - drop-in CPython replacement
+                    const core = @import("../../../main/core.zig");
+                    try core.emitVMFallbackFromAST(self, .{ .for_stmt = for_stmt });
+                    try emitConst(self, ";\n");
+                    return;
+                }
+                return err;
+            };
             return;
         }
 
@@ -714,9 +723,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Regular iteration over collection - requires single target variable
     if (for_stmt.target.* != .name) {
-        // Unsupported target type - generate compile error
-        try self.emitIndent();
-        try emitConst(self,"@compileError(\"For loop target must be a simple variable name for this iterator type\");\n");
+        // Unsupported target type - use VM fallback for drop-in CPython replacement
+        const core = @import("../../../main/core.zig");
+        try core.emitVMFallbackFromAST(self, .{ .for_stmt = for_stmt });
+        try emitConst(self, ";\n");
         return;
     }
     const var_name = sanitizeVarName(for_stmt.target.name.id);
@@ -2121,9 +2131,10 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
     // Get the loop variable name
     if (for_stmt.target.* != .name) {
-        // Async for with tuple unpacking requires special handling
-        try self.emitIndent();
-        try emitConst(self,"@compileError(\"Async for with tuple unpacking not yet supported\");\n");
+        // Async for with tuple unpacking - use VM fallback for drop-in CPython replacement
+        const core = @import("../../../main/core.zig");
+        try core.emitVMFallbackFromAST(self, .{ .for_stmt = for_stmt });
+        try emitConst(self, ";\n");
         return;
     }
     const var_name = sanitizeVarName(for_stmt.target.name.id);

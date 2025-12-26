@@ -136,6 +136,7 @@ pub const unpackIterable = unpack_mod.unpackIterable;
 const eval_cache = @import("eval_cache.zig");
 
 pub const evalCached = eval_cache.evalCached;
+pub const evalWithScope = eval_cache.evalWithScope;
 pub const initCache = eval_cache.initCache;
 pub const clearCache = eval_cache.clearCache;
 pub const getCacheStats = eval_cache.getCacheStats;

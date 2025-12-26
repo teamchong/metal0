@@ -705,24 +705,42 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 /// Generate code for filter(func, iterable)
-/// Filters elements by predicate
-/// NOT SUPPORTED: Requires first-class functions/lambdas which need runtime function pointers
-/// For AOT compilation, use explicit loops with conditions instead:
-///   result = []
-///   for x in items:
-///       if condition(x):
-///           result.append(x)
+/// Falls back to bytecode VM for dynamic execution (lambdas, complex expressions)
 pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    _ = args;
-    // filter() requires passing functions as values (function pointers)
-    // This needs either:
-    // 1. Function pointers (complex in Zig, needs comptime or anytype)
-    // 2. Lambda support (would need closure generation)
-    // For now, users should use explicit for loops with if conditions
-    // Use a block expression that returns a valid type but panics with a clear message
-    // This prevents "unreachable code" errors after the filter() call
-    const filter_err_id = self.nextNameId();
-    try emitFmtConst(self, "(__m{d}_filter_err: {{ @panic(\"filter() not supported - use explicit for loop with if instead\"); }})", .{filter_err_id});
+    if (args.len < 2) {
+        return error.UnsupportedSyntax;
+    }
+
+    // Use AST printer to convert filter arguments to Python source
+    // This handles lambdas, attribute access, and all complex expressions
+    const ast_printer = @import("../ast_printer.zig");
+    var printer = ast_printer.AstPrinter.init(self.allocator);
+    defer printer.deinit();
+
+    const func_source = printer.print(args[0]) catch {
+        // Fallback to error if AST printing fails
+        return error.UnsupportedSyntax;
+    };
+    defer self.allocator.free(func_source);
+
+    // Reset printer for second arg
+    printer.output.clearRetainingCapacity();
+    const iter_source = printer.print(args[1]) catch {
+        return error.UnsupportedSyntax;
+    };
+    defer self.allocator.free(iter_source);
+
+    // Build full filter() source string and emit VM fallback
+    var source_buf = std.ArrayList(u8){};
+    defer source_buf.deinit(self.allocator);
+    try source_buf.appendSlice(self.allocator, "list(filter(");
+    try source_buf.appendSlice(self.allocator, func_source);
+    try source_buf.appendSlice(self.allocator, ", ");
+    try source_buf.appendSlice(self.allocator, iter_source);
+    try source_buf.appendSlice(self.allocator, "))");
+
+    const core = @import("../main/core.zig");
+    try core.emitVMFallback(self, source_buf.items);
 }
 
 /// Generate code for iter(iterable)
