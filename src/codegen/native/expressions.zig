@@ -128,6 +128,16 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 return;
             }
 
+            // Handle nested class self-reference: when inside a class and referencing that class by name
+            // This MUST happen before other checks because the class name might be in func_local_vars
+            // (local classes are const declarations in the enclosing function)
+            if (self.current_class_name) |class_name| {
+                if (std.mem.eql(u8, name_to_use, class_name)) {
+                    try self.emit("@This()");
+                    return;
+                }
+            }
+
             // Note: name_to_use computation uses anonymous block (:blk) which is inline/comptime
             // and doesn't need unique ID - it's never generated as Zig code
 
@@ -216,6 +226,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     try self.emit("@This()");
                 } else if (std.mem.eql(u8, name_to_use, "__class__")) {
                     // Python __class__ refers to the current class - use @This() in Zig
+                    try self.emit("@This()");
+                } else if (self.nested_class_names.contains(name_to_use) and std.mem.eql(u8, name_to_use, class_name)) {
+                    // Nested class self-reference - also use @This()
                     try self.emit("@This()");
                 } else {
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);

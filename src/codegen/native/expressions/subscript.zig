@@ -265,6 +265,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 } else {
                     // Check for struct slicing (e.g., sys.version_info[:2])
                     // Named tuples like VersionInfo need .toArray() for slicing
+                    // Wrap in runtime.PyValue.from() for type compatibility when assigned to PyValue variables
                     const needs_to_array = blk: {
                         if (subscript.value.* == .attribute) {
                             const attr = subscript.value.attribute;
@@ -276,7 +277,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     };
 
                     if (needs_to_array) {
-                        try self.emit("__base.toArray()[");
+                        try self.emit("runtime.PyValue.from(__base.toArray()[");
                     } else {
                         try self.emit("__base[");
                     }
@@ -307,7 +308,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                             try self.emit("__base.len");
                         }
                     }
-                    try self.emit("]");
+                    if (needs_to_array) {
+                        try self.emit("])");  // Close both slice and PyValue.from()
+                    } else {
+                        try self.emit("]");
+                    }
                 }
             },
         }
@@ -646,10 +651,12 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             // Handle struct slicing for named tuples like sys.version_info
             // Python: sys.version_info[:2] returns (3, 12) - slice first 2 elements
             // Zig: VersionInfo struct has .toArray() method for slicing support
+            // Wrap in runtime.PyValue.from() for type compatibility when assigned to PyValue variables
             if (subscript.value.* == .attribute) {
                 const attr = subscript.value.attribute;
                 if (std.mem.eql(u8, attr.attr, "version_info")) {
-                    // Use .toArray() for slicing support
+                    // Use .toArray() for slicing support, wrapped in PyValue.from()
+                    try self.emit("runtime.PyValue.from(");
                     try genExpr(self, subscript.value.*);
                     try self.emit(".toArray()[");
                     // Emit slice bounds
@@ -663,7 +670,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genExpr(self, upper.*);
                     }
                     // Note: step is not supported for array slicing, ignore if present
-                    try self.emit("]");
+                    try self.emit("])");  // Close both slice and PyValue.from()
                     return;
                 }
             }

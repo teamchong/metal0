@@ -678,6 +678,7 @@ pub const pyCount = equality_mod.pyCount;
 pub const pySliceEql = equality_mod.pySliceEql;
 pub const pyTupleEql = equality_mod.pyTupleEql;
 pub const pyAnyEql = equality_mod.pyAnyEql;
+pub const pyIdentical = equality_mod.pyIdentical;
 const pyAnyEqlSameType = equality_mod.pyAnyEqlSameType;
 pub const iterSlice = equality_mod.iterSlice;
 // PyValue-only equality (no monomorphization) - use for uncertain types

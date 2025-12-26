@@ -1872,8 +1872,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     var emitted_count: usize = 0;
 
                     // For each remaining parameter position, find matching keyword arg or emit null
+                    // Note: Don't check allocator_was_emitted here - the comma after allocator
+                    // was already emitted at line 1713 if there are keyword args
                     for (sig.param_names[start_pos..]) |param_name| {
-                        if (emitted_count > 0 or call.args.len > 0 or allocator_was_emitted) try self.emit(", ");
+                        if (emitted_count > 0 or call.args.len > 0) try self.emit(", ");
 
                         // Find keyword argument with this parameter name
                         var found = false;
@@ -1896,8 +1898,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
                 } else {
                     // No function signature available - emit keyword args in order (fallback)
+                    // Note: Don't check allocator_was_emitted here - the comma after allocator
+                    // was already emitted in line 1713 if there are keyword args
                     for (call.keyword_args, 0..) |kwarg, i| {
-                        if (i > 0 or call.args.len > 0 or allocator_was_emitted) try self.emit(", ");
+                        if (i > 0 or call.args.len > 0) try self.emit(", ");
                         try genExpr(self, kwarg.value);
                     }
 

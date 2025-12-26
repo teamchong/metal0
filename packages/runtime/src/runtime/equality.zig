@@ -339,6 +339,11 @@ pub fn pyIdentical(a: anytype, b: @TypeOf(a)) bool {
         return &a == &b;
     }
 
+    // Arrays: compare addresses (same backing storage means identity)
+    if (info == .array) {
+        return &a == &b;
+    }
+
     // Primitives: identity == equality
     return a == b;
 }

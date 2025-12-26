@@ -226,14 +226,38 @@ fn emitContainmentCheck(
     }
 
     // Default: use runtime.pyContains for lists/tuples/sets
-    if (is_not_in) try self.emit("!");
-    try self.emit("runtime.pyContains(@TypeOf(");
-    try genExpr(self, right);
-    try self.emit("), ");
-    try genExpr(self, right);
-    try self.emit(", ");
-    try genExpr(self, left);
-    try self.emit(")");
+    // Need to infer element type and handle list literals properly
+    const right_is_list_literal = right == .list;
+
+    if (right_is_list_literal) {
+        // For list literals, use inline for loop to avoid slice coercion issues
+        // Check: for (array) |item| if (item == value) ...
+        if (is_not_in) try self.emit("!");
+        try self.emit("(inline_blk: { for (");
+        try genExpr(self, right);
+        try self.emit(") |__item| { if (runtime.pyAnyEql(__item, ");
+        try genExpr(self, left);
+        try self.emit(")) break :inline_blk true; } break :inline_blk false; })");
+    } else if (container_traits.isList(right_type)) {
+        // ArrayList type: use .items to get slice
+        const elem_type = right_type.list.*.toSimpleZigType();
+        if (is_not_in) try self.emit("!");
+        try self.emitFmt("runtime.pyContains({s}, ", .{elem_type});
+        try genExpr(self, right);
+        try self.emit(".items, ");
+        try genExpr(self, left);
+        try self.emit(")");
+    } else {
+        // Other containers: use container_dispatch
+        if (is_not_in) try self.emit("!");
+        try self.emit("runtime.container_dispatch.contains(@TypeOf(");
+        try genExpr(self, right);
+        try self.emit("), ");
+        try genExpr(self, right);
+        try self.emit(", ");
+        try genExpr(self, left);
+        try self.emit(")");
+    }
 }
 
 // ============================================================================
@@ -251,6 +275,8 @@ fn emitIdentityComparison(
     right_class: TypeClass,
 ) CodegenError!void {
     const is_is = (op == .Is);
+    // These types are only used for class instance checks (handled by left_class/right_class)
+    _ = left_type;
     _ = right_type;
 
     // None identity check
@@ -344,8 +370,6 @@ fn emitNoneComparison(
     right_class: TypeClass,
 ) CodegenError!void {
     const is_eq = (op == .Eq);
-    _ = right_type;
-    _ = left_type;
 
     // Check for optional parameter (tracked in none_default_params)
     const check_var = if (left_class == .none) right else left;
