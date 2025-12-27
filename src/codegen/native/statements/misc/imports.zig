@@ -85,6 +85,10 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         // Note: This is a heuristic - we skip stdlib modules since they're usually
         // imported at module level and would cause shadowing errors
         if (info.strategy == .zig_runtime) {
+            // Still track as imported so dispatch works for module.func() calls
+            // This fixes: import operator inside function -> operator.truth(0) dispatches natively
+            const alias_copy = try self.allocator.dupe(u8, alias);
+            try self.imported_modules.put(alias_copy, {});
             return;
         }
 

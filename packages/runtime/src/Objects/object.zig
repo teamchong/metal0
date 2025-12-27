@@ -23,6 +23,7 @@ pub const PyValue = union(enum) {
     type_obj: *pytype.PyType, // Python type/class object (for metaclasses)
     ptr: *anyopaque, // For types that can't be represented (no type info)
     object: ObjectInstance, // Class instance with type information for method dispatch
+    pylist: *cpython.PyListObject, // Python list from eval() - allows len() etc.
 
     pub const Complex = struct { real: f64, imag: f64 };
 
@@ -424,6 +425,7 @@ pub const PyValue = union(enum) {
             .none => false,
             .not_implemented => true, // NotImplemented is truthy
             .list => |list| list.items.len > 0,
+            .pylist => |pylist| pylist.ob_base.ob_size > 0, // CPython list
             .tuple => |v| v.len > 0,
             .bigint => |v| !v.isZero(),
             .complex => |v| v.real != 0.0 or v.imag != 0.0, // 0j is falsy
@@ -457,6 +459,7 @@ pub const PyValue = union(enum) {
     pub fn pyLen(self: PyValue) usize {
         return switch (self) {
             .list => |list| list.items.len,
+            .pylist => |pylist| @intCast(pylist.ob_base.ob_size),
             .tuple => |v| v.len,
             .string => |v| v.len,
             else => 0,
@@ -474,6 +477,7 @@ pub const PyValue = union(enum) {
             .none => "NoneType",
             .not_implemented => "NotImplementedType",
             .list => "list",
+            .pylist => "list", // CPython list also reports as "list"
             .tuple => "tuple",
             .bigint => "int",
             .complex => "complex",
@@ -639,6 +643,11 @@ pub const PyValue = union(enum) {
                 if (cpython.PyUnicode_Check(obj)) {
                     // Get string value - for now return empty, proper impl needs allocator
                     return .{ .string = "" };
+                }
+                if (cpython.PyList_Check(obj)) {
+                    // Store the PyList as a PyObject with list semantics
+                    // This allows len() and other operations to work
+                    return .{ .pylist = @ptrCast(@alignCast(obj)) };
                 }
                 // Unknown PyObject type - store as ptr
                 return .{ .ptr = @ptrCast(@constCast(value)) };
@@ -914,7 +923,8 @@ pub const PyValue = union(enum) {
                     break :blk try std.fmt.allocPrint(allocator, "({d}{d}j)", .{ v.real, v.imag });
                 }
             },
-            .list, .tuple, .bigint, .bytes, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
+            .list, .pylist, .tuple, .bigint, .bytes, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
+            else => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
 
@@ -938,7 +948,8 @@ pub const PyValue = union(enum) {
                     break :blk try std.fmt.allocPrint(allocator, "({d}{d}j)", .{ v.real, v.imag });
                 }
             },
-            .list, .tuple, .bigint, .bytes, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
+            .list, .pylist, .tuple, .bigint, .bytes, .ptr => try std.fmt.allocPrint(allocator, "{}", .{self}),
+            else => try std.fmt.allocPrint(allocator, "{}", .{self}),
         };
     }
 
@@ -1502,6 +1513,7 @@ pub const PyValue = union(enum) {
             .string => |v| v.len == 0,
             .bytes => |v| v.data.len == 0,
             .list => |v| v.items.len == 0,
+            .pylist => |v| v.ob_base.ob_size == 0,
             .tuple => |v| v.len == 0,
             .bigint => |v| v.isZero(),
             .complex => |v| v.real == 0.0 and v.imag == 0.0,
@@ -1600,6 +1612,7 @@ pub const PyValue = union(enum) {
                     }
                     break :blk true;
                 },
+                .pylist => |v| v == other.pylist, // CPython list identity comparison
                 .tuple => |v| blk: {
                     const w = other.tuple;
                     if (v.len != w.len) break :blk false;

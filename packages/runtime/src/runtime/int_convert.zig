@@ -30,6 +30,7 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
                 .bool => "'bool' object cannot be interpreted as an integer",
                 .none => "'NoneType' object cannot be interpreted as an integer",
                 .list => "'list' object cannot be interpreted as an integer",
+                .pylist => "'list' object cannot be interpreted as an integer",
                 .tuple => "'tuple' object cannot be interpreted as an integer",
                 .complex => "'complex' object cannot be interpreted as an integer",
                 .type_obj => "'type' object cannot be interpreted as an integer",
