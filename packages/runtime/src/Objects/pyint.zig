@@ -514,7 +514,7 @@ pub const UnifiedInt = union(enum) {
     }
 
     /// Simple equality check that doesn't require allocator
-    /// Used by pyAnyEql for UnifiedInt comparison
+    /// Used by pyValueCompare for UnifiedInt comparison
     pub fn eqlSimple(self: Self, other: Self) bool {
         switch (self) {
             .small => |a| switch (other) {
@@ -546,7 +546,7 @@ pub const UnifiedInt = union(enum) {
     }
 
     /// Compare UnifiedInt with an i64 value
-    /// Used by pyAnyEql for cross-type comparison
+    /// Used by pyValueCompare for cross-type comparison
     pub fn eqlInt(self: Self, other: i64) bool {
         return switch (self) {
             .small => |v| v == other,

@@ -585,8 +585,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // use-after-free when subsequent expression generation causes memory operations
             // that could invalidate pointers into the original AST
             var var_name: []const u8 = try self.arena.allocator().dupe(u8, target.name.id);
-            // DEBUG: verify the copy worked
-            std.debug.print("DEBUG: var_name after dupe = '{s}' (len={})\n", .{var_name, var_name.len});
             const original_var_name = var_name; // Keep for usage checks (before any renaming)
 
             // Skip function-aliasing assignments: genslices = rslices, permutations = rpermutation

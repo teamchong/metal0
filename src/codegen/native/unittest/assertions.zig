@@ -50,24 +50,9 @@ const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
 /// Handler type for assertion methods
 const AssertHandler = *const fn (*NativeCodegen, ast.Node, []ast.Node) CodegenError!void;
 
-// Comptime generator for simple 1-arg assertions: try unittest.func(arg)
-fn gen1ArgAssert(comptime func_name: []const u8) AssertHandler {
-    return struct {
-        fn handler(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-            _ = obj;
-            if (args.len < 1) {
-                try self.emit("@compileError(\"" ++ func_name ++ " requires 1 argument\")");
-                return;
-            }
-            try self.emit("try unittest." ++ func_name ++ "(");
-            try parent.genExpr(self, args[0]);
-            try self.emit(")");
-        }
-    }.handler;
-}
-
-// Comptime generator for simple 2-arg assertions: try unittest.func(a, b)
-fn gen2ArgAssert(comptime func_name: []const u8) AssertHandler {
+// Comptime generator for simple 2-arg assertions using ZigBuilder
+// Generates: try unittest.func_name(a, b)
+fn gen2ArgAssertBuilder(comptime func_name: []const u8) AssertHandler {
     return struct {
         fn handler(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
             _ = obj;
@@ -75,11 +60,11 @@ fn gen2ArgAssert(comptime func_name: []const u8) AssertHandler {
                 try self.emit("@compileError(\"" ++ func_name ++ " requires 2 arguments\")");
                 return;
             }
-            try self.emit("try unittest." ++ func_name ++ "(");
-            try parent.genExpr(self, args[0]);
-            try self.emit(", ");
-            try parent.genExpr(self, args[1]);
-            try self.emit(")");
+            const left = try self.exprToValue(args[0]);
+            const right = try self.exprToValue(args[1]);
+            const b = try self.getBuilder();
+            try b.emitTryCall("unittest." ++ func_name, &.{ left, right });
+            try self.flushBuilder();
         }
     }.handler;
 }
@@ -584,9 +569,10 @@ fn producesNativeList(node: ast.Node) bool {
 }
 
 /// Generate inline assertEqual - avoids anytype monomorphization explosion
-/// Strategy: Generate type-specific inline comparisons at codegen time.
-/// Key insight: Use explicit type annotations to force type coercion and avoid
-/// anonymous types that cause monomorphization explosion.
+/// Uses ZigBuilder for fallback path (100% builder migration)
+///
+/// Strategy: Special cases use emit() for AST-level optimizations,
+/// standard path uses ZigBuilder structured API.
 pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
@@ -594,18 +580,16 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
-    // === SPECIAL CASE: assertEqual(type(x), type(y)) ===
-    // Optimize to @TypeOf comparison at comptime instead of comparing string type names
-    // This avoids pyTypeName monomorphization explosion
+    // === SPECIAL CASE 1: assertEqual(type(x), type(y)) ===
+    // Optimize to @TypeOf comparison at comptime
     if (args[0] == .call and args[1] == .call) {
         const call_a = args[0].call;
         const call_b = args[1].call;
         if (call_a.func.* == .name and call_b.func.* == .name) {
-            const func_a = call_a.func.name.id;
-            const func_b = call_b.func.name.id;
-            if (std.mem.eql(u8, func_a, "type") and std.mem.eql(u8, func_b, "type")) {
+            if (std.mem.eql(u8, call_a.func.name.id, "type") and
+                std.mem.eql(u8, call_b.func.name.id, "type"))
+            {
                 if (call_a.args.len >= 1 and call_b.args.len >= 1) {
-                    // Generate: if (@TypeOf(x) != @TypeOf(y)) return error.AssertionFailed;
                     try self.emit("if (@TypeOf(");
                     try parent.genExpr(self, call_a.args[0]);
                     try self.emit(") != @TypeOf(");
@@ -617,83 +601,22 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         }
     }
 
-    // === SPECIAL CASE: assertEqual(type(x), complex/float/int/str/bool/bytes) ===
-    // When comparing type(x) to a type name like complex, generate:
-    //   if (!std.mem.eql(u8, runtime.pyTypeName(x), "complex")) return error.AssertionFailed;
-    if (args[0] == .call and args[0].call.func.* == .name and
-        std.mem.eql(u8, args[0].call.func.name.id, "type") and args[0].call.args.len >= 1)
-    {
-        // Check if args[1] is a known type name (complex, float, int, etc.)
-        if (args[1] == .name) {
-            const type_name = args[1].name.id;
-            const known_types = [_][]const u8{ "complex", "float", "int", "str", "bool", "bytes", "list", "dict", "tuple", "set" };
-            for (known_types) |known| {
-                if (std.mem.eql(u8, type_name, known)) {
-                    // Generate: if (!std.mem.eql(u8, runtime.pyTypeName(x), "type_name")) return error.AssertionFailed;
-                    try self.emit("if (!std.mem.eql(u8, runtime.pyTypeName(");
-                    try parent.genExpr(self, args[0].call.args[0]);
-                    try self.emitFmt("), \"{s}\")) return error.AssertionFailed;\n", .{type_name});
-                    return;
-                }
-            }
-        }
-    }
-    // Also handle reversed order: assertEqual(complex, type(x))
-    if (args[1] == .call and args[1].call.func.* == .name and
-        std.mem.eql(u8, args[1].call.func.name.id, "type") and args[1].call.args.len >= 1)
-    {
-        if (args[0] == .name) {
-            const type_name = args[0].name.id;
-            const known_types = [_][]const u8{ "complex", "float", "int", "str", "bool", "bytes", "list", "dict", "tuple", "set" };
-            for (known_types) |known| {
-                if (std.mem.eql(u8, type_name, known)) {
-                    try self.emit("if (!std.mem.eql(u8, runtime.pyTypeName(");
-                    try parent.genExpr(self, args[1].call.args[0]);
-                    try self.emitFmt("), \"{s}\")) return error.AssertionFailed;\n", .{type_name});
-                    return;
-                }
-            }
-        }
-    }
+    // === SPECIAL CASE 2: assertEqual(type(x), TypeName) ===
+    if (try emitTypeNameComparison(self, args)) return;
 
-    // === SPECIAL CASE: assertEqual(list(x), y) or assertEqual(x, list(y)) ===
-    // Optimize list() conversion by using runtime.listEquals helper
-    // This avoids listFromAny anytype monomorphization
-    if (args[0] == .call and args[0].call.func.* == .name and
-        std.mem.eql(u8, args[0].call.func.name.id, "list") and args[0].call.args.len >= 1)
-    {
-        try self.emit("if (!runtime.listEquals(__global_allocator, ");
-        try parent.genExpr(self, args[0].call.args[0]); // The iterator/iterable
-        try self.emit(", ");
-        try parent.genExpr(self, args[1]); // The expected list/array
-        try self.emit(")) return error.AssertionFailed;\n");
-        return;
-    }
-    if (args[1] == .call and args[1].call.func.* == .name and
-        std.mem.eql(u8, args[1].call.func.name.id, "list") and args[1].call.args.len >= 1)
-    {
-        try self.emit("if (!runtime.listEquals(__global_allocator, ");
-        try parent.genExpr(self, args[1].call.args[0]); // The iterator/iterable
-        try self.emit(", ");
-        try parent.genExpr(self, args[0]); // The expected list/array
-        try self.emit(")) return error.AssertionFailed;\n");
-        return;
-    }
+    // === SPECIAL CASE 3: assertEqual(list(x), y) ===
+    if (try emitListComparison(self, args)) return;
 
-    // Infer types for type-specific code generation
+    // Infer types for type-specific optimizations
     const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
     const tag_a: std.meta.Tag(NativeType) = type_a;
     const tag_b: std.meta.Tag(NativeType) = type_b;
 
-    // === SPECIAL CASE: int(string) might produce BigInt ===
-    // When int() is called on a string with >= 19 chars (source representation) or
-    // on a string variable, codegen uses parseBigIntUnicode which returns BigInt.
-    // In this case, direct comparison won't work - use PyValue comparison.
+    // === SPECIAL CASE 4: BigInt comparison ===
     const a_might_be_bigint = intCallMightProduceBigInt(args[0]);
     const b_might_be_bigint = intCallMightProduceBigInt(args[1]);
     if (a_might_be_bigint or b_might_be_bigint or tag_a == .bigint or tag_b == .bigint) {
-        // BigInt comparison - use PyValue.eql() which handles BigInt correctly
         try self.emit("if (!runtime.PyValue.from(");
         try parent.genExpr(self, args[0]);
         try self.emit(").eql(runtime.PyValue.from(");
@@ -702,47 +625,7 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
-    // === PRIMITIVE TYPES: Direct comparison ===
-    // For known primitive types, use optimized inline comparisons (no monomorphization)
-    if (tag_a == tag_b) {
-        switch (type_a) {
-            .int, .usize => {
-                try self.emit("if ((");
-                try parent.genExpr(self, args[0]);
-                try self.emit(") != (");
-                try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;\n");
-                return;
-            },
-            .float => {
-                try self.emit("if ((");
-                try parent.genExpr(self, args[0]);
-                try self.emit(") != (");
-                try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;\n");
-                return;
-            },
-            .bool => {
-                try self.emit("if ((");
-                try parent.genExpr(self, args[0]);
-                try self.emit(") != (");
-                try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;\n");
-                return;
-            },
-            .string => {
-                try self.emit("if (!std.mem.eql(u8, ");
-                try parent.genExpr(self, args[0]);
-                try self.emit(", ");
-                try parent.genExpr(self, args[1]);
-                try self.emit(")) return error.AssertionFailed;\n");
-                return;
-            },
-            else => {},
-        }
-    }
-
-    // === EMPTY LIST: Length check ===
+    // === SPECIAL CASE 5: Empty list literal → length check ===
     if (isEmptyListLiteral(args[1])) {
         try self.emit("if (runtime.builtinLen(");
         try parent.genExpr(self, args[0]);
@@ -756,37 +639,100 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         return;
     }
 
-    // === LIST/SLICE COMPARISON WITH KNOWN ELEMENT TYPE ===
-    // This is the key optimization: use explicit type annotations to coerce
-    // different expression types (blocks, arrays, slices, ArrayLists) to a
-    // common slice type, avoiding anonymous type monomorphization.
-    //
-    // IMPORTANT: Skip this optimization if either side produces a NativeList
-    // with PyValue items (via list() calls, comprehensions, etc.) because
-    // NativeList.items is []PyValue, not []ConcreteType.
+    // === SPECIAL CASE 6: List/slice with known element type ===
+    if (try emitSliceComparison(self, args, type_a, type_b)) return;
 
-    // Check if either expression produces NativeList with PyValue items
-    const a_produces_native_list = producesNativeList(args[0]);
-    const b_produces_native_list = producesNativeList(args[1]);
+    // === STANDARD PATH: Use ZigBuilder ===
+    // Builder handles: same-type primitives, strings, cross-type, class instances
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertEqualStmt(left, right);
+    try self.flushBuilder();
+}
 
-    // Get element types for both sides (handles list, also check the other side)
-    const elem_type_a = getListElementTypeStr(type_a);
-    const elem_type_b = getListElementTypeStr(type_b);
-    const slice_type_a = getSliceTypeStr(type_a);
-    const slice_type_b = getSliceTypeStr(type_b);
+// === Helper functions for genAssertEqual special cases ===
 
-    // Use element type from either side (prefer the known one)
-    const elem_type = elem_type_a orelse elem_type_b;
-    const slice_type = slice_type_a orelse slice_type_b;
+/// Handle assertEqual(type(x), TypeName) or assertEqual(TypeName, type(x))
+fn emitTypeNameComparison(self: *NativeCodegen, args: []ast.Node) !bool {
+    const known_types = [_][]const u8{ "complex", "float", "int", "str", "bool", "bytes", "list", "dict", "tuple", "set" };
 
-    // If we have a known element type AND neither side produces NativeList, use slice comparison
-    if (elem_type != null and slice_type != null and !a_produces_native_list and !b_produces_native_list) {
-        // Generate a comparison block that:
-        // 1. Evaluates both expressions
-        // 2. Extracts slices with explicit type annotation (forces coercion)
-        // 3. Compares with std.mem.eql using concrete type (no monomorphization)
-        // Use unified slicesEqual which handles arrays, slices, and structs with .items
-        // Takes pointers to avoid by-value array copying issues
+    // Check: assertEqual(type(x), TypeName)
+    if (args[0] == .call and args[0].call.func.* == .name and
+        std.mem.eql(u8, args[0].call.func.name.id, "type") and args[0].call.args.len >= 1)
+    {
+        if (args[1] == .name) {
+            const type_name = args[1].name.id;
+            for (known_types) |known| {
+                if (std.mem.eql(u8, type_name, known)) {
+                    try self.emit("if (!std.mem.eql(u8, runtime.pyTypeName(");
+                    try parent.genExpr(self, args[0].call.args[0]);
+                    try self.emitFmt("), \"{s}\")) return error.AssertionFailed;\n", .{type_name});
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check: assertEqual(TypeName, type(x))
+    if (args[1] == .call and args[1].call.func.* == .name and
+        std.mem.eql(u8, args[1].call.func.name.id, "type") and args[1].call.args.len >= 1)
+    {
+        if (args[0] == .name) {
+            const type_name = args[0].name.id;
+            for (known_types) |known| {
+                if (std.mem.eql(u8, type_name, known)) {
+                    try self.emit("if (!std.mem.eql(u8, runtime.pyTypeName(");
+                    try parent.genExpr(self, args[1].call.args[0]);
+                    try self.emitFmt("), \"{s}\")) return error.AssertionFailed;\n", .{type_name});
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+/// Handle assertEqual(list(x), y) or assertEqual(x, list(y))
+fn emitListComparison(self: *NativeCodegen, args: []ast.Node) !bool {
+    // Check: assertEqual(list(x), y)
+    if (args[0] == .call and args[0].call.func.* == .name and
+        std.mem.eql(u8, args[0].call.func.name.id, "list") and args[0].call.args.len >= 1)
+    {
+        try self.emit("if (!runtime.listEquals(__global_allocator, ");
+        try parent.genExpr(self, args[0].call.args[0]);
+        try self.emit(", ");
+        try parent.genExpr(self, args[1]);
+        try self.emit(")) return error.AssertionFailed;\n");
+        return true;
+    }
+
+    // Check: assertEqual(x, list(y))
+    if (args[1] == .call and args[1].call.func.* == .name and
+        std.mem.eql(u8, args[1].call.func.name.id, "list") and args[1].call.args.len >= 1)
+    {
+        try self.emit("if (!runtime.listEquals(__global_allocator, ");
+        try parent.genExpr(self, args[1].call.args[0]);
+        try self.emit(", ");
+        try parent.genExpr(self, args[0]);
+        try self.emit(")) return error.AssertionFailed;\n");
+        return true;
+    }
+
+    return false;
+}
+
+/// Handle assertEqual with known list/slice element types
+fn emitSliceComparison(self: *NativeCodegen, args: []ast.Node, type_a: NativeType, type_b: NativeType) !bool {
+    // Skip if either produces NativeList with PyValue items
+    if (producesNativeList(args[0]) or producesNativeList(args[1])) return false;
+
+    // Get element types
+    const elem_type = getListElementTypeStr(type_a) orelse getListElementTypeStr(type_b);
+    const slice_type = getSliceTypeStr(type_a) orelse getSliceTypeStr(type_b);
+
+    if (elem_type != null and slice_type != null) {
         try self.emit("if (!runtime.container_dispatch.slicesEqual(@TypeOf(");
         try parent.genExpr(self, args[0]);
         try self.emit("), @TypeOf(");
@@ -796,50 +742,10 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
         try self.emit(", &");
         try parent.genExpr(self, args[1]);
         try self.emit(")) return error.AssertionFailed;\n");
-        return;
+        return true;
     }
 
-    // === CLASS INSTANCE COMPARISON ===
-    // Class instances have __eq__ methods that pyAnyEql will call.
-    // PyValue.from() can't represent class instances properly, so use pyAnyEql.
-    if (tag_a == .class_instance or tag_b == .class_instance) {
-        try self.emit("if (!runtime.pyAnyEql(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(", ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;\n");
-        return;
-    }
-
-    // === PyValue COMPARISON (for uncertain types) ===
-    // When either type is unknown/pyvalue, use pyAnyEql which handles __eq__ on class instances.
-    // This compiles ONCE instead of monomorphizing for each type combination.
-    // Note: using pyAnyEql instead of PyValue.from().eql() to handle class instances
-    // that may be returned from method calls (e.g., Rat.__radd__).
-    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
-        type_b == .pyvalue or type_b == .unknown);
-    if (is_uncertain) {
-        try self.emit("if (!runtime.pyAnyEql(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(", ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;\n");
-        return;
-    }
-
-    // === GENERIC FALLBACK: Use runtime.pyAnyEql() ===
-    // For all other cases (dicts, sets, mixed types without __eq__),
-    // use runtime.pyAnyEql() which handles __eq__ methods on class instances.
-    // This handles all comparison semantics:
-    // - Same-type comparisons (floats with NaN, ints, strings)
-    // - Cross-type comparisons (int vs float)
-    // - Container comparisons (lists, dicts, sets)
-    // - Class instance comparisons (calls __eq__ if available)
-    try self.emit("if (!runtime.pyAnyEql(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")) return error.AssertionFailed;\n");
+    return false;
 }
 
 /// Generate assertTrue using ZigBuilder (100% builder migration)
@@ -966,14 +872,15 @@ pub fn genAssertIsNotNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node)
     try b.emitAssertIsNotNoneStmt(value);
     try self.flushBuilder();
 }
-pub const genAssertAlmostEqual = gen2ArgAssert("assertAlmostEqual");
-pub const genAssertNotAlmostEqual = gen2ArgAssert("assertNotAlmostEqual");
-pub const genAssertCountEqual = gen2ArgAssert("assertCountEqual");
-pub const genAssertRegex = gen2ArgAssert("assertRegex");
-pub const genAssertNotRegex = gen2ArgAssert("assertNotRegex");
-pub const genAssertSetEqual = gen2ArgAssert("assertSetEqual");
-pub const genAssertDictEqual = gen2ArgAssert("assertDictEqual");
-pub const genAssertFloatsAreIdentical = gen2ArgAssert("assertFloatsAreIdentical");
+// Specialized 2-arg assertions using ZigBuilder (100% builder migration)
+pub const genAssertAlmostEqual = gen2ArgAssertBuilder("assertAlmostEqual");
+pub const genAssertNotAlmostEqual = gen2ArgAssertBuilder("assertNotAlmostEqual");
+pub const genAssertCountEqual = gen2ArgAssertBuilder("assertCountEqual");
+pub const genAssertRegex = gen2ArgAssertBuilder("assertRegex");
+pub const genAssertNotRegex = gen2ArgAssertBuilder("assertNotRegex");
+pub const genAssertSetEqual = gen2ArgAssertBuilder("assertSetEqual");
+pub const genAssertDictEqual = gen2ArgAssertBuilder("assertDictEqual");
+pub const genAssertFloatsAreIdentical = gen2ArgAssertBuilder("assertFloatsAreIdentical");
 /// Generate assertIsNot using ZigBuilder (100% builder migration)
 pub fn genAssertIsNot(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
@@ -1003,13 +910,14 @@ pub fn genAssertNotIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
 }
 
 /// Generate code for self.assertIs(a, b) - special handling for type() checks
+/// Uses ZigBuilder for standard path (100% builder migration)
 pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertIs requires 2 arguments\")");
         return;
     }
-    // Handle special case: assertIs(type(x), SomeType)
+    // SPECIAL CASE: assertIs(type(x), SomeType) - type comparison
     // When first arg is type(x), we need to compare type names
     if (args[0] == .call and args[0].call.func.* == .name) {
         const func_name = args[0].call.func.name.id;
@@ -1036,11 +944,7 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                     return;
                 }
                 // For user-defined classes (like subclass), compare __name__ field
-                // type(x) returns @typeName(@TypeOf(x)) which is a string
-                // subclass has __name__ field that matches
-                // Use assertTypeIsStr with the class's __name__
                 if (!isBuiltinTypeName(type_name)) {
-                    // Mark variable as used to avoid "unused local" error
                     try self.emit("{ _ = &");
                     try self.emit(type_name);
                     try self.emit("; try unittest.assertTypeIsStr(");
@@ -1053,36 +957,70 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
             }
         }
     }
-    try self.emit("try unittest.assertIs(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
+    // STANDARD PATH: Use builder for identity check
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertIsStmt(left, right);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertIn(item, container)
+/// Uses ZigBuilder for standard path (100% builder migration)
 pub fn genAssertIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertIn requires 2 arguments\")");
         return;
     }
-    try self.emit("try unittest.assertIn(");
 
-    // Check if item is a call that might return error union (like float.__getformat__)
+    // SPECIAL CASE: float.__getformat__() returns error union, needs try
     if (args[0] == .call and args[0].call.func.* == .attribute) {
         const attr = args[0].call.func.attribute;
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
             if (std.mem.eql(u8, attr.attr, "__getformat__")) {
-                // float.__getformat__ returns ![]const u8, need to try
-                try self.emit("try ");
+                // float.__getformat__ returns ![]const u8, need to use emit for try prefix
+                try self.emit("try unittest.assertIn(try ");
+                try parent.genExpr(self, args[0]);
+                try self.emit(", ");
+                try parent.genExpr(self, args[1]);
+                try self.emit(")");
+                return;
             }
         }
     }
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")");
+
+    // Check for string containment (substring search)
+    // Python: 'abc' in 'abcdef' -> True (substring search, not element search)
+    // Check both by type inference AND by literal detection (for unknown container types)
+    const element_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const container_type = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+    const string_traits = @import("../../../analysis/traits/string_traits.zig");
+
+    // Detect if element is a string literal
+    const element_is_string_literal = args[0] == .constant and args[0].constant.value == .string;
+
+    // Use string containment if:
+    // 1. Both types are strings, OR
+    // 2. Element is a string literal (the container is likely a string too)
+    if ((string_traits.isString(element_type) and string_traits.isString(container_type)) or
+        element_is_string_literal)
+    {
+        // String containment: use stringContains for substring search
+        try self.emit("if (!runtime.container_dispatch.stringContains(");
+        try parent.genExpr(self, args[1]); // haystack (container)
+        try self.emit(", ");
+        try parent.genExpr(self, args[0]); // needle (element)
+        try self.emit(")) return error.AssertionFailed");
+        return;
+    }
+
+    // STANDARD PATH: Use builder for containment check
+    const element = try self.exprToValue(args[0]);
+    const container = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertInStmt(element, container);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertIsInstance(obj, type)
@@ -1214,6 +1152,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         } else {
             try self.emit("\"exec\"");
         }
+        try self.emit(", 0"); // flags parameter
         try self.emitFmt(") catch break :{s} {{}}; return error.ExpectedExceptionNotRaised; ", .{label});
         try self.emitInlineBlockEnd();
         return;
@@ -1487,11 +1426,12 @@ pub fn genAssertNotHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
     try self.emit(")) @compileError(\"assertNotHasAttr failed\"); }");
 }
 
-// These use comptime generators declared at top
-pub const genAssertSequenceEqual = gen2ArgAssert("assertEqual");
-pub const genAssertListEqual = gen2ArgAssert("assertEqual");
-pub const genAssertTupleEqual = gen2ArgAssert("assertEqual");
-pub const genAssertMultiLineEqual = gen2ArgAssert("assertEqual");
+// Equality aliases using ZigBuilder (100% builder migration)
+// These delegate to unittest.assertEqual via the builder
+pub const genAssertSequenceEqual = gen2ArgAssertBuilder("assertEqual");
+pub const genAssertListEqual = gen2ArgAssertBuilder("assertEqual");
+pub const genAssertTupleEqual = gen2ArgAssertBuilder("assertEqual");
+pub const genAssertMultiLineEqual = gen2ArgAssertBuilder("assertEqual");
 
 /// Generate code for self.assertLogs(logger, level)
 pub fn genAssertLogs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {

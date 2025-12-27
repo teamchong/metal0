@@ -17,7 +17,7 @@ pub fn assertIs(a: anytype, b: anytype) !void {
         }
 
         if (A == B) {
-            break :blk runtime.pyAnyEql(a, b);
+            break :blk runtime.PyValue.from(a).eql(runtime.PyValue.from(b));
         }
 
         if (A == *runtime.PyObject and B == bool) {

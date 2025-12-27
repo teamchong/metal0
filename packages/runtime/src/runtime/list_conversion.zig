@@ -268,7 +268,7 @@ pub fn listEquals(allocator: std.mem.Allocator, iterable: anytype, expected: any
                 return false;
             };
             if (i >= expected_items.len) return false; // More items than expected
-            if (!equality.pyAnyEql(next_val, expected_items[i])) return false;
+            if (!equality.pyValueCompare(next_val, expected_items[i])) return false;
             i += 1;
         }
         return i == expected_items.len; // All items matched
@@ -286,7 +286,7 @@ pub fn listEquals(allocator: std.mem.Allocator, iterable: anytype, expected: any
                     return false;
                 };
                 if (i >= expected_items.len) return false;
-                if (!equality.pyAnyEql(next_val, expected_items[i])) return false;
+                if (!equality.pyValueCompare(next_val, expected_items[i])) return false;
                 i += 1;
             }
             return i == expected_items.len;
@@ -297,7 +297,7 @@ pub fn listEquals(allocator: std.mem.Allocator, iterable: anytype, expected: any
     if (info_t == .pointer and info_t.pointer.size == .slice) {
         if (iterable.len != expected_items.len) return false;
         for (iterable, 0..) |item, i| {
-            if (!equality.pyAnyEql(item, expected_items[i])) return false;
+            if (!equality.pyValueCompare(item, expected_items[i])) return false;
         }
         return true;
     }
@@ -306,7 +306,7 @@ pub fn listEquals(allocator: std.mem.Allocator, iterable: anytype, expected: any
     if (info_t == .array) {
         if (iterable.len != expected_items.len) return false;
         for (iterable, 0..) |item, i| {
-            if (!equality.pyAnyEql(item, expected_items[i])) return false;
+            if (!equality.pyValueCompare(item, expected_items[i])) return false;
         }
         return true;
     }
@@ -315,7 +315,7 @@ pub fn listEquals(allocator: std.mem.Allocator, iterable: anytype, expected: any
     if (info_t == .@"struct" and @hasField(T, "items")) {
         if (iterable.items.len != expected_items.len) return false;
         for (iterable.items, 0..) |item, i| {
-            if (!equality.pyAnyEql(item, expected_items[i])) return false;
+            if (!equality.pyValueCompare(item, expected_items[i])) return false;
         }
         return true;
     }

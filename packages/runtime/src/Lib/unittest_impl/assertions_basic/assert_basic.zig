@@ -194,10 +194,10 @@ pub fn assertNotEqual(a: anytype, b: anytype) !void {
             if (@hasDecl(A, "eql")) {
                 break :blk a.eql(b);
             }
-            break :blk runtime.pyAnyEql(a, b);
+            break :blk runtime.PyValue.from(a).eql(runtime.PyValue.from(b));
         },
         else => blk: {
-            break :blk runtime.pyAnyEql(a, b);
+            break :blk runtime.PyValue.from(a).eql(runtime.PyValue.from(b));
         },
     };
 

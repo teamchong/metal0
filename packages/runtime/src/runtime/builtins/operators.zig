@@ -466,11 +466,11 @@ fn toBoolFromResult(result: anytype) bool {
 
 /// Generic assertEqual helper - delegates to centralized equality module
 pub fn assertEqualGeneric(a: anytype, b: anytype, allocator: std.mem.Allocator) !bool {
-    // Use the centralized pyAnyEql from equality.zig for most cases
+    // Use the centralized pyValueCompare from equality.zig for most cases
     const equality = @import("../equality.zig");
 
     // Try the non-allocator equality first (handles structs, tuples, numerics, etc.)
-    if (equality.pyAnyEql(a, b)) return true;
+    if (equality.pyValueCompare(a, b)) return true;
 
     // Fall back to allocator-dependent pyEqual only for special cases
     // (PyValue conversion, BigInt, etc.)

@@ -273,9 +273,9 @@ pub const setEqual = container_ops.setEqual;
 pub const arrayLessThan = container_ops.arrayLessThan;
 
 /// Generic 'in' operator for any type - works with ArrayLists, slices, etc.
-/// Wrapper around container_ops.containsGeneric with NativeList and pyAnyEql bound
+/// Wrapper around container_ops.containsGeneric with NativeList and pyValueCompare bound
 pub fn containsGeneric(container: anytype, item: anytype) bool {
-    return container_ops.containsGeneric(NativeList, equality_mod.pyAnyEql, container, item);
+    return container_ops.containsGeneric(NativeList, equality_mod.pyValueCompare, container, item);
 }
 
 /// Generic 'in' operator - checks membership based on container type

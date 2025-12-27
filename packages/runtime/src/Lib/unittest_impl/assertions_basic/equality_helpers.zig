@@ -4,14 +4,14 @@ const runtime = @import("../../../runtime.zig");
 const PyValue = runtime.PyValue;
 
 /// Python-compatible value equality check (handles NaN identity, cross-type comparison)
-/// Delegates to runtime.pyAnyEql for comprehensive Python semantic comparison
+/// Delegates to PyValue.from().eql() for comprehensive Python semantic comparison
 pub fn pythonEql(a: anytype, b: anytype) bool {
-    return runtime.pyAnyEql(a, b);
+    return PyValue.from(a).eql(PyValue.from(b));
 }
 
-/// Helper to compare two elements - delegates to pyAnyEql for Python semantics
+/// Helper to compare two elements - delegates to PyValue.eql() for Python semantics
 pub fn elemEql(a: anytype, b: anytype) bool {
-    return runtime.pyAnyEql(a, b);
+    return PyValue.from(a).eql(PyValue.from(b));
 }
 
 /// Helper to compare two ArrayList instances element by element
@@ -46,7 +46,7 @@ pub fn equalArrayList(a: anytype, b: anytype) bool {
                     continue; // Both NaN - consider equal (same object identity)
                 }
                 if (a_elem != b_elem) return false;
-            } else if (!runtime.pyAnyEql(a_elem, b_elem)) return false;
+            } else if (!PyValue.from(a_elem).eql(PyValue.from(b_elem))) return false;
         } else {
             // Different types - try string comparison with __base_value__
             if (!equalWithBaseValue(a_elem, b_elem)) return false;
@@ -98,7 +98,7 @@ pub fn equalHashMap(a: anytype, b: anytype) bool {
             if (@hasDecl(B, "get")) {
                 const b_val = b.get(entry.key_ptr.*);
                 if (b_val == null) return false;
-                if (!runtime.pyAnyEql(entry.value_ptr.*, b_val.?)) return false;
+                if (!PyValue.from(entry.value_ptr.*).eql(PyValue.from(b_val.?))) return false;
             } else {
                 return false; // b doesn't support get
             }
@@ -106,8 +106,8 @@ pub fn equalHashMap(a: anytype, b: anytype) bool {
         return true;
     }
 
-    // Fallback: use pyAnyEql for Python semantics
-    return runtime.pyAnyEql(a, b);
+    // Fallback: use PyValue.from().eql() for Python semantics
+    return PyValue.from(a).eql(PyValue.from(b));
 }
 
 /// Compare PyValue union with another value (tuple, array, int, etc.)
@@ -333,9 +333,9 @@ pub fn equalValues(a: anytype, b: anytype) bool {
         }
     }
 
-    // Same type - use pyAnyEql for Python semantics (handles NaN, structs, etc.)
+    // Same type - use PyValue.eql() for Python semantics (handles NaN, structs, etc.)
     if (A == B) {
-        return runtime.pyAnyEql(a, b);
+        return PyValue.from(a).eql(PyValue.from(b));
     }
 
     // Integer type coercion - comptime_int vs i64/i32/etc

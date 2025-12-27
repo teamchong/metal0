@@ -1105,7 +1105,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // PyValue callables need to use .call() method with PyValue array argument
         // Check pyvalue_vars FIRST - this is tracked during assignment codegen (more reliable)
         // Then fall back to type inference (for cases where type inference caught it)
-        const is_pyvalue_callable = self.pyvalue_vars.contains(raw_func_name) or blk: {
+        // EXCEPTION: anytype parameters should NOT be treated as PyValue callables -
+        // they could be types like staticmethod/classmethod which need direct call pattern
+        const is_callable_anytype_param = self.anytype_params.contains(raw_func_name);
+        const is_pyvalue_callable = !is_callable_anytype_param and (self.pyvalue_vars.contains(raw_func_name) or blk: {
             const func_type = self.type_inferrer.getScopedVar(raw_func_name) orelse
                 self.type_inferrer.var_types.get(raw_func_name);
             if (func_type) |ft| {
@@ -1113,7 +1116,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 break :blk (ft == .pyvalue or ft == .unknown);
             }
             break :blk false;
-        };
+        });
         if (is_pyvalue_callable) {
             // PyValue callable: check(Foo()) -> check.call(&.{runtime.PyValue.from(Foo())})
             try self.emit("(try ");
@@ -1136,6 +1139,29 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
 
             try self.emit("}))");
+            return;
+        }
+
+        // Handle anytype parameters that might be types (like staticmethod/classmethod)
+        // In Zig, types cannot be called directly - they need .init()
+        // Generate: func.init(args) for anytype parameters that are likely types
+        if (is_callable_anytype_param) {
+            // Use .init() pattern for anytype params - works for types like staticmethod/classmethod
+            // that are passed as arguments and then called to construct instances
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+            try self.emit(".init(");
+
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try genExpr(self, arg);
+            }
+
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try self.emit(", ");
+                try genExpr(self, kwarg.value);
+            }
+
+            try self.emit(")");
             return;
         }
 

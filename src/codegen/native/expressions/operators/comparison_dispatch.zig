@@ -7,9 +7,9 @@
 /// |--------------|----------|----------|----------|----------|
 /// | primitives | native == | native < | N/A | native == |
 /// | strings | std.mem.eql | std.mem.order | indexOf | ptr compare |
-/// | containers | pyAnyEql | pyValueLt | pyContains | ptr compare |
-/// | class inst | __eq__/pyAnyEql | __lt__/pyValueLt | __contains__ | ptr compare |
-/// | unknown | pyAnyEql | pyValueLt | pyContains | @TypeOf check |
+/// | containers | PyValue.eql | pyValueLt | pyContains | ptr compare |
+/// | class inst | __eq__/PyValue.eql | __lt__/pyValueLt | __contains__ | ptr compare |
+/// | unknown | PyValue.eql | pyValueLt | pyContains | @TypeOf check |
 ///
 /// Usage: Replace 16+ specialized branches in genCompare with single dispatcher call
 ///
@@ -121,19 +121,19 @@ fn emitEqualityComparison(
     // Class instance with known dunder method
     if (left_class == .class_instance) {
         if (try emitClassDunderCall(self, left, left_type, op, right)) return;
-        // Fall through to pyAnyEql if no dunder
+        // Fall through to PyValue.eql if no dunder
     }
     if (right_class == .class_instance and left_class != .class_instance) {
         if (try emitClassDunderCall(self, right, right_type, reverseOp(op), left)) return;
     }
 
-    // Default: use runtime.pyAnyEql for Python semantics
+    // Default: use PyValue.from().eql() for Python semantics (unified comparison)
     if (is_neq) try self.emit("!");
-    try self.emit("runtime.pyAnyEql(");
+    try self.emit("runtime.PyValue.from(");
     try genExpr(self, left);
-    try self.emit(", ");
+    try self.emit(").eql(runtime.PyValue.from(");
     try genExpr(self, right);
-    try self.emit(")");
+    try self.emit("))");
 }
 
 // ============================================================================
@@ -246,9 +246,9 @@ fn emitContainmentCheck(
         if (is_not_in) try self.emit("!");
         try self.emit("(inline_blk: { inline for (");
         try genExpr(self, right);
-        try self.emit(") |__item| { if (runtime.pyAnyEql(__item, ");
+        try self.emit(") |__item| { if (runtime.PyValue.from(__item).eql(runtime.PyValue.from(");
         try genExpr(self, left);
-        try self.emit(")) break :inline_blk true; } break :inline_blk false; })");
+        try self.emit("))) break :inline_blk true; } break :inline_blk false; })");
     } else if (container_traits.isList(right_type)) {
         // ArrayList type: use .items to get slice
         const elem_type = right_type.list.*.toSimpleZigType();

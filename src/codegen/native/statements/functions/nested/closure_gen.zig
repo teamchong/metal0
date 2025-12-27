@@ -513,8 +513,10 @@ pub fn genStandardClosure(
     for (func.args, 0..) |arg, idx| {
         try self.declareVar(arg.name);
         // Add rename mapping for parameter access in body
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(arg.name)) |renamed| {
-            try self.var_renames.put(arg.name, renamed);
+            const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+            try self.var_renames.put(arg.name, renamed_copy);
         }
         // If this param is anytype, add the ORIGINAL name to anytype_params
         // This ensures dunder dispatch checks work correctly (AST uses original names)
@@ -525,16 +527,20 @@ pub fn genStandardClosure(
     // Also declare and rename vararg if present (always anytype)
     if (func.vararg) |vararg_name| {
         try self.declareVar(vararg_name);
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(vararg_name)) |renamed| {
-            try self.var_renames.put(vararg_name, renamed);
+            const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+            try self.var_renames.put(vararg_name, renamed_copy);
         }
         try self.anytype_params.put(vararg_name, {}); // varargs are always anytype
     }
     // Also declare and rename kwarg if present (always anytype)
     if (func.kwarg) |kwarg_name| {
         try self.declareVar(kwarg_name);
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(kwarg_name)) |renamed| {
-            try self.var_renames.put(kwarg_name, renamed);
+            const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+            try self.var_renames.put(kwarg_name, renamed_copy);
         }
         try self.anytype_params.put(kwarg_name, {}); // kwargs are always anytype
     }
@@ -1236,8 +1242,10 @@ pub fn genNestedFunctionWithOuterCapture(
     for (func.args) |arg| {
         try self.declareVar(arg.name);
         // Add rename mapping for parameter access in body
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(arg.name)) |renamed| {
-            try self.var_renames.put(arg.name, renamed);
+            const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+            try self.var_renames.put(arg.name, renamed_copy);
         }
     }
 

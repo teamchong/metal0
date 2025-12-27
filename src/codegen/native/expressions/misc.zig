@@ -666,7 +666,11 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
                 try self.emit(".");
                 // Apply name demangling for private attributes
+                // Skip demangling for true dunder attributes (starting with __)
                 const attr_name = blk: {
+                    if (std.mem.startsWith(u8, attr.attr, "__")) {
+                        break :blk attr.attr;
+                    }
                     if (std.mem.startsWith(u8, attr.attr, "_") and attr.attr.len > 2) {
                         if (std.mem.indexOf(u8, attr.attr[1..], "__")) |pos| {
                             break :blk attr.attr[1 + pos ..];
@@ -688,8 +692,15 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         // Python mangles __attr to _ClassName__attr when accessed from outside
         // But Zig struct has the field as __attr (unmangled)
         // So we need to demangle: _Rat__num -> __num
+        // EXCEPTION: True dunder attributes (starting with __) should NOT be demangled
+        // e.g., __func__, __wrapped__, __name__ are valid dunder attrs, not mangled names
         const attr_name = blk: {
+            // Skip demangling for true dunder attributes (start with __)
+            if (std.mem.startsWith(u8, attr.attr, "__")) {
+                break :blk attr.attr;
+            }
             // Check if attr starts with underscore and contains __ later (mangled pattern)
+            // Pattern: _ClassName__privateattr where ClassName doesn't start with _
             if (std.mem.startsWith(u8, attr.attr, "_") and attr.attr.len > 2) {
                 // Find the double underscore after class name prefix
                 if (std.mem.indexOf(u8, attr.attr[1..], "__")) |pos| {

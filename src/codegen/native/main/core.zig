@@ -2086,40 +2086,70 @@ pub const NativeCodegen = struct {
     pub fn exprToValue(self: *NativeCodegen, node: ast.Node) CodegenError!builder_mod.ZigValue {
         switch (node) {
             .constant => |c| {
-                return switch (c.value) {
-                    .int => |i| builder_mod.ZigValue.int(i),
-                    .float => |f| builder_mod.ZigValue.float(f),
-                    .string => |s| builder_mod.ZigValue.string(s),
-                    .bool => |b| builder_mod.ZigValue.boolean(b),
-                    .none => builder_mod.ZigValue.null_(),
-                    .bytes => |s| builder_mod.ZigValue.string(s),
-                    .bigint, .complex => builder_mod.ZigValue.pyvalue(.unknown),
-                };
+                switch (c.value) {
+                    .int => |i| return builder_mod.ZigValue.int(i),
+                    .float => |f| return builder_mod.ZigValue.float(f),
+                    .string => |s| return builder_mod.ZigValue.string(s),
+                    .bool => |b| return builder_mod.ZigValue.boolean(b),
+                    .none => return builder_mod.ZigValue.null_(),
+                    .bytes => |s| return builder_mod.ZigValue.string(s),
+                    .bigint, .complex => {
+                        // For bigint/complex: emit as raw expression
+                        const expressions = @import("../expressions.zig");
+                        const start = self.output.items.len;
+                        try expressions.genExpr(self, node);
+                        const expr_str = try self.arena.allocator().dupe(u8, self.output.items[start..]);
+                        self.output.shrinkRetainingCapacity(start);
+                        return builder_mod.ZigValue.raw(expr_str);
+                    },
+                }
             },
             .name => |n| {
-                const name = n.id;
+                const orig_name = n.id;
 
-                // Check for Python singletons
-                if (std.mem.eql(u8, name, "True")) {
+                // Check for Python singletons first (before renaming)
+                if (std.mem.eql(u8, orig_name, "True")) {
                     return builder_mod.ZigValue.boolean(true);
                 }
-                if (std.mem.eql(u8, name, "False")) {
+                if (std.mem.eql(u8, orig_name, "False")) {
                     return builder_mod.ZigValue.boolean(false);
                 }
-                if (std.mem.eql(u8, name, "None")) {
+                if (std.mem.eql(u8, orig_name, "None")) {
                     return builder_mod.ZigValue.null_();
                 }
+
+                // Apply var_renames (same logic as expressions.zig)
+                // Comprehension/param renames take precedence over func_local_vars
+                const name = blk: {
+                    if (self.var_renames.get(orig_name)) |renamed| {
+                        // Comprehension loop variables (__comp_*) MUST shadow local vars
+                        if (std.mem.startsWith(u8, renamed, "__comp_")) break :blk renamed;
+                        // Parameter renames (__m*_p_*) MUST apply even for func_local_vars
+                        if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_p_") != null) break :blk renamed;
+                        // Mutable param copies (__m*_v_*)
+                        if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_v_") != null) break :blk renamed;
+                        // Closure captures (__m*_c_*)
+                        if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_c_") != null) break :blk renamed;
+                    }
+                    // Local vars/params take precedence - don't rename them
+                    if (self.func_local_vars.contains(orig_name)) break :blk orig_name;
+                    // Apply other renames
+                    if (self.var_renames.get(orig_name)) |renamed| break :blk renamed;
+                    break :blk orig_name;
+                };
 
                 // Check type confidence from inferrer
                 if (self.type_inferrer.getTypedVar(name)) |typed| {
                     if (typed.confidence == .uncertain or self.pyvalue_vars.contains(name)) {
-                        return builder_mod.ZigValue.pyvalue(.unknown);
+                        // Uncertain vars: capture name as raw, will be wrapped in PyValue.from() by builder
+                        return builder_mod.ZigValue.raw(name);
                     }
                 }
 
                 // Check if it's a PyValue variable
                 if (self.pyvalue_vars.contains(name)) {
-                    return builder_mod.ZigValue.pyvalue(.unknown);
+                    // PyValue vars: capture name as raw
+                    return builder_mod.ZigValue.raw(name);
                 }
 
                 // Return named reference (will be emitted as variable name)

@@ -569,6 +569,14 @@ pub const PyValue = union(enum) {
             }
         }
 
+        // Handle optional types (?T) - unwrap if present, None if null
+        if (info == .optional) {
+            if (value) |v| {
+                return from(v);
+            }
+            return .{ .none = {} };
+        }
+
         // Handle unions generically (IntResult, UnifiedInt, FloorCeilResult, etc.)
         // This automatically converts the active variant to PyValue
         if (info == .@"union") {
@@ -1890,7 +1898,7 @@ pub const PyValue = union(enum) {
 };
 
 /// Convert any value to PyValue (single-anytype function, O(n) instantiations)
-/// Use this instead of pyAnyEql which has O(n²) instantiations
+/// This is the foundation for PyValue.from() - unified comparison via PyValue.eql()
 pub fn toPyValue(allocator: std.mem.Allocator, value: anytype) !PyValue {
     const T = @TypeOf(value);
     const info = @typeInfo(T);

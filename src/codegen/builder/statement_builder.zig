@@ -826,18 +826,18 @@ pub const StatementBuilder = struct {
     fn emitRuntimeComparison(self: *StatementBuilder, b: Binary) !void {
         switch (b.op) {
             .eq => {
-                try self.builder.write("runtime.pyAnyEql(");
+                try self.builder.write("runtime.PyValue.from(");
                 try self.emitExpr(b.left.*);
-                try self.builder.write(", ");
+                try self.builder.write(").eql(runtime.PyValue.from(");
                 try self.emitExpr(b.right.*);
-                try self.builder.write(")");
+                try self.builder.write("))");
             },
             .ne => {
-                try self.builder.write("!runtime.pyAnyEql(");
+                try self.builder.write("!runtime.PyValue.from(");
                 try self.emitExpr(b.left.*);
-                try self.builder.write(", ");
+                try self.builder.write(").eql(runtime.PyValue.from(");
                 try self.emitExpr(b.right.*);
-                try self.builder.write(")");
+                try self.builder.write("))");
             },
             .lt, .le, .gt, .ge => {
                 const method = switch (b.op) {

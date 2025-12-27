@@ -212,6 +212,7 @@ pub fn genZeroCaptureClosure(
         const is_reassigned = var_tracking.isParamReassignedInStmts(arg.name, func.body);
 
         // Add rename mapping for parameter access in body
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(arg.name)) |renamed| {
             if (is_reassigned) {
                 // Create mutable var copy name
@@ -219,7 +220,8 @@ pub fn genZeroCaptureClosure(
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(arg.name, var_name);
             } else {
-                try self.var_renames.put(arg.name, renamed);
+                const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+                try self.var_renames.put(arg.name, renamed_copy);
             }
         }
     }
@@ -227,6 +229,7 @@ pub fn genZeroCaptureClosure(
     // Handle vararg scope declaration and rename mapping
     if (func.vararg) |vararg_name| {
         try self.declareVar(vararg_name);
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(vararg_name)) |renamed| {
             const is_reassigned = var_tracking.isParamReassignedInStmts(vararg_name, func.body);
             if (is_reassigned) {
@@ -234,7 +237,8 @@ pub fn genZeroCaptureClosure(
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(vararg_name, var_name);
             } else {
-                try self.var_renames.put(vararg_name, renamed);
+                const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+                try self.var_renames.put(vararg_name, renamed_copy);
             }
         }
     }
@@ -242,6 +246,7 @@ pub fn genZeroCaptureClosure(
     // Handle kwarg scope declaration and rename mapping
     if (func.kwarg) |kwarg_name| {
         try self.declareVar(kwarg_name);
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(kwarg_name)) |renamed| {
             const is_reassigned = var_tracking.isParamReassignedInStmts(kwarg_name, func.body);
             if (is_reassigned) {
@@ -249,7 +254,8 @@ pub fn genZeroCaptureClosure(
                 try reassigned_param_vars.append(self.allocator, var_name);
                 try self.var_renames.put(kwarg_name, var_name);
             } else {
-                try self.var_renames.put(kwarg_name, renamed);
+                const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+                try self.var_renames.put(kwarg_name, renamed_copy);
             }
         }
     }
@@ -734,20 +740,24 @@ pub fn genModuleLevelZeroCaptureClosure(
     try mutation_analysis_2.analyzeFunctionLocalMutations(self, func);
 
     // Add parameter renames to var_renames temporarily
+    // IMPORTANT: Must dupe renamed values because param_renames is deferred deinit
     var rename_keys = std.ArrayList([]const u8){};
     defer rename_keys.deinit(self.allocator);
     var rename_iter = param_renames.iterator();
     while (rename_iter.next()) |entry| {
         try self.declareVar(entry.key_ptr.*);
-        try self.var_renames.put(entry.key_ptr.*, entry.value_ptr.*);
+        const value_copy = try self.arena.allocator().dupe(u8, entry.value_ptr.*);
+        try self.var_renames.put(entry.key_ptr.*, value_copy);
         try rename_keys.append(self.allocator, entry.key_ptr.*);
     }
 
     // Handle vararg scope
     if (func.vararg) |vararg_name| {
         try self.declareVar(vararg_name);
+        // IMPORTANT: Must dupe renamed value because param_renames is deferred deinit
         if (param_renames.get(vararg_name)) |renamed| {
-            try self.var_renames.put(vararg_name, renamed);
+            const renamed_copy = try self.arena.allocator().dupe(u8, renamed);
+            try self.var_renames.put(vararg_name, renamed_copy);
         }
     }
 

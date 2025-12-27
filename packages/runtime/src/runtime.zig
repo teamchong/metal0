@@ -681,9 +681,11 @@ pub const pyContains = equality_mod.pyContains;
 pub const pyCount = equality_mod.pyCount;
 pub const pySliceEql = equality_mod.pySliceEql;
 pub const pyTupleEql = equality_mod.pyTupleEql;
+// Unified comparison: use PyValue.from(a).eql(PyValue.from(b)) or pyValueCompare(a, b)
+pub const pyValueCompare = equality_mod.pyValueCompare;
+// DEPRECATED: pyAnyEql - use pyValueCompare or PyValue.from().eql() instead
 pub const pyAnyEql = equality_mod.pyAnyEql;
 pub const pyIdentical = equality_mod.pyIdentical;
-const pyAnyEqlSameType = equality_mod.pyAnyEqlSameType;
 pub const iterSlice = equality_mod.iterSlice;
 // PyValue-only equality (no monomorphization) - use for uncertain types
 pub const pyValueEql = equality_mod.pyValueEql;

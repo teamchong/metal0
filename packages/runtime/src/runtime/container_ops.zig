@@ -22,9 +22,9 @@ pub fn setEqual(a: anytype, b: anytype) bool {
 }
 
 /// Generic 'in' operator for any type - works with ArrayLists, slices, etc.
-/// Uses runtime's pyAnyEql for comparison
+/// Uses pyValueCompare for comparison (unified PyValue-based equality)
 /// Two-Flow: Handles PyValue containers for uncertain types
-pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: anytype, item: anytype) bool {
+pub fn containsGeneric(comptime NativeList: type, eqlFn: anytype, container: anytype, item: anytype) bool {
     const T = @TypeOf(container);
     const info = @typeInfo(T);
 
@@ -37,7 +37,7 @@ pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: 
                     const ItemT = @TypeOf(item);
                     if (ItemT == PyValue) {
                         if (elem.eql(item)) break :blk true;
-                    } else if (pyAnyEql(elem, item)) {
+                    } else if (eqlFn(elem, item)) {
                         break :blk true;
                     }
                 }
@@ -48,7 +48,7 @@ pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: 
                     const ItemT = @TypeOf(item);
                     if (ItemT == PyValue) {
                         if (elem.eql(item)) break :blk true;
-                    } else if (pyAnyEql(elem, item)) {
+                    } else if (eqlFn(elem, item)) {
                         break :blk true;
                     }
                 }
@@ -68,7 +68,7 @@ pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: 
     // Check for NativeList type first (has .items which is an ArrayList, not a slice)
     if (T == NativeList) {
         for (container.items.items) |elem| {
-            if (pyAnyEql(elem, item)) return true;
+            if (eqlFn(elem, item)) return true;
         }
         return false;
     }
@@ -76,7 +76,7 @@ pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: 
     // ArrayList: check .items (items is a slice)
     if (info == .@"struct" and @hasField(T, "items")) {
         for (container.items) |elem| {
-            if (pyAnyEql(elem, item)) return true;
+            if (eqlFn(elem, item)) return true;
         }
         return false;
     }
@@ -84,7 +84,7 @@ pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: 
     // Array: iterate and compare (e.g., [_]i64{1, 2, 3})
     if (info == .array) {
         for (container) |elem| {
-            if (pyAnyEql(elem, item)) return true;
+            if (eqlFn(elem, item)) return true;
         }
         return false;
     }
@@ -92,7 +92,7 @@ pub fn containsGeneric(comptime NativeList: type, pyAnyEql: anytype, container: 
     // Slice: iterate and compare
     if (info == .pointer and info.pointer.size == .slice) {
         for (container) |elem| {
-            if (pyAnyEql(elem, item)) return true;
+            if (eqlFn(elem, item)) return true;
         }
         return false;
     }

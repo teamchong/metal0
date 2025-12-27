@@ -76,6 +76,13 @@ pub fn pySliceEql(comptime T: type, a: []const T, b: []const T) bool {
     return std.mem.eql(T, a, b);
 }
 
+/// Unified Python-style equality using PyValue.from().eql()
+/// This is the preferred comparison method - compiles once, handles all types
+/// Use this as a drop-in replacement for the legacy pyAnyEql
+pub fn pyValueCompare(a: anytype, b: anytype) bool {
+    return PyValue.from(a).eql(PyValue.from(b));
+}
+
 /// Python-style tuple/array equality
 /// Handles NaN specially: two NaN values are considered equal (identity semantics)
 /// SIMPLIFIED: Uses PyValue conversion for complex types to avoid monomorphization explosion

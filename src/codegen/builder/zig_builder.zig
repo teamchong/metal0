@@ -429,9 +429,11 @@ pub const ZigBuilder = struct {
                 try self.write("\"");
             },
             .certain_null => try self.write("null"),
-            .uncertain_pyvalue => |_| {
-                // Uncertain values need runtime wrapping
-                try self.write("runtime.PyValue.none()");
+            .uncertain_pyvalue => |info| {
+                // Uncertain values are runtime-typed, use the raw expression
+                // They should have been captured as raw_expr during exprToValue
+                _ = info;
+                try self.write("runtime.PyValue{ .none = {} }");
             },
             .raw_expr => |expr| try self.write(expr),
             .bigint => |_| try self.write("runtime.BigInt.zero()"), // TODO: proper BigInt emission
@@ -1034,6 +1036,19 @@ pub const ZigBuilder = struct {
         try self.write(");\n");
     }
 
+    /// Emit a try call statement: try func(args...)
+    pub fn emitTryCall(self: *ZigBuilder, func: []const u8, args: []const ZigValue) !void {
+        try self.writeIndent();
+        try self.write("try ");
+        try self.write(func);
+        try self.write("(");
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.write(", ");
+            try self.emitValue(arg, EmitConfig.forArg());
+        }
+        try self.write(");\n");
+    }
+
     /// Emit a raw statement
     pub fn emitRaw(self: *ZigBuilder, code: []const u8) !void {
         try self.writeIndent();
@@ -1070,7 +1085,7 @@ pub const ZigBuilder = struct {
     // These methods provide CPython-aligned comparison generation.
     // They use TypeConfidence and CertainType to route to optimal paths:
     // - Both certain + same type: use native Zig operators (==, <, etc.)
-    // - Otherwise: use runtime.pyAnyEql / runtime.PyValue comparisons
+    // - Otherwise: use runtime.PyValue.from().eql() for unified comparison
     //
     // This ensures type safety while maximizing performance.
 
@@ -1128,12 +1143,12 @@ pub const ZigBuilder = struct {
             }
         }
 
-        // Default: use runtime.pyAnyEql for cross-type or uncertain
-        try self.write("runtime.pyAnyEql(");
+        // Default: use PyValue.from().eql() for cross-type or uncertain
+        try self.write("runtime.PyValue.from(");
         try self.emitValueCore(left);
-        try self.write(", ");
+        try self.write(").eql(runtime.PyValue.from(");
         try self.emitValueCore(right);
-        try self.write(")");
+        try self.write("))");
     }
 
     /// Emit ordering comparison (<, <=, >, >=)
@@ -2235,8 +2250,8 @@ test "ZigBuilder comparison - uncertain uses runtime" {
     try builder.emitComparison(.eq, ZigValue.fromName("x"), ZigValue.int(42));
 
     const output = builder.getBody();
-    // Uncertain uses runtime.pyAnyEql
-    try std.testing.expect(std.mem.indexOf(u8, output, "runtime.pyAnyEql(x, 42)") != null);
+    // Uncertain uses PyValue.from().eql()
+    try std.testing.expect(std.mem.indexOf(u8, output, "runtime.PyValue.from(x).eql(runtime.PyValue.from(42))") != null);
 }
 
 test "ZigBuilder assertion - assertEqual" {

@@ -822,7 +822,19 @@ pub fn emitVarDeclaration(
         }
         break :blk false;
     } else false;
-    const needs_pyvalue_wrap = !expr_produces_pyvalue and !is_string_concat and (type_traits.isUnknown(value_type) or
+
+    // EXCEPTION: Calls to anytype parameters with .init() return native struct types
+    // that need to preserve their type for field access (e.g., staticmethod.__func__)
+    // Don't wrap these in PyValue or field access will fail
+    const is_anytype_init_call = if (value_expr) |expr| blk: {
+        if (expr == .call and expr.call.func.* == .name) {
+            const func_name = expr.call.func.name.id;
+            break :blk self.anytype_params.contains(func_name);
+        }
+        break :blk false;
+    } else false;
+
+    const needs_pyvalue_wrap = !expr_produces_pyvalue and !is_string_concat and !is_anytype_init_call and (type_traits.isUnknown(value_type) or
         (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
     if (needs_pyvalue_wrap) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");

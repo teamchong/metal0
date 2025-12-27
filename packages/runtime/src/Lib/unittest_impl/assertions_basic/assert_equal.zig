@@ -423,10 +423,10 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 break :blk equalTuples(a, b);
             }
             if (a_info == .@"struct") {
-                break :blk runtime.pyAnyEql(a, b);
+                break :blk runtime.PyValue.from(a).eql(runtime.PyValue.from(b));
             }
             if (a_info == .@"union") {
-                break :blk runtime.pyAnyEql(a, b);
+                break :blk runtime.PyValue.from(a).eql(runtime.PyValue.from(b));
             }
             if (comptime (a_info == .pointer and a_info.pointer.size == .one)) {
                 const child = a_info.pointer.child;

@@ -268,6 +268,37 @@ pub fn notContains(comptime T: type, container: T, value: GetElementType(T)) boo
     return !contains(T, container, value);
 }
 
+/// String substring containment check - for 'in' operator with strings
+/// Python: 'abc' in 'abcdef' -> True (substring search)
+/// Handles both optional and non-optional strings
+pub fn stringContains(haystack: anytype, needle: anytype) bool {
+    // Unwrap optionals - if either is null, return false (Python semantics: None doesn't contain anything)
+    const h: []const u8 = if (@typeInfo(@TypeOf(haystack)) == .optional)
+        haystack orelse return false
+    else
+        haystack;
+    const n: []const u8 = if (@typeInfo(@TypeOf(needle)) == .optional)
+        needle orelse return false
+    else
+        needle;
+    return std.mem.indexOf(u8, h, n) != null;
+}
+
+/// String substring NOT containment check - for 'not in' operator with strings
+/// Handles both optional and non-optional strings
+pub fn stringNotContains(haystack: anytype, needle: anytype) bool {
+    // Unwrap optionals - if either is null, return true (needle not found in null)
+    const h: []const u8 = if (@typeInfo(@TypeOf(haystack)) == .optional)
+        haystack orelse return true
+    else
+        haystack;
+    const n: []const u8 = if (@typeInfo(@TypeOf(needle)) == .optional)
+        needle orelse return true
+    else
+        needle;
+    return std.mem.indexOf(u8, h, n) == null;
+}
+
 /// Check if type is a slice - for identity comparison
 /// Compiles ONCE per type, not per 'is'/'is not' expression
 pub fn isSlice(comptime T: type) bool {
