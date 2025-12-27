@@ -253,8 +253,23 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.emit("var total: i64 = 0;\n");
     try self.emit("for (");
+
+    // Track if we're iterating PyValue elements
+    var needs_pyvalue_add = false;
+
     if (needs_wrap) {
-        try self.emit("__iterable.items");
+        // Check if expression needs VM fallback (genexp, lambda, uncertain method calls)
+        const needs_vm = self.needsVMFallback(args[0]);
+        const wrapped_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        const is_wrapped_pyvalue = (wrapped_type == .pyvalue or wrapped_type == .unknown);
+
+        if (needs_vm or is_wrapped_pyvalue) {
+            // PyValue iteration - use runtime.iterSlice()
+            try self.emit("runtime.iterSlice(__iterable)");
+            needs_pyvalue_add = true;
+        } else {
+            try self.emit("__iterable.items");
+        }
     } else {
         try self.genExpr(args[0]);
         // ArrayList needs .items for iteration, arrays don't
@@ -262,7 +277,12 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit(".items");
         }
     }
-    try self.emit(") |item| { total += item; }\n");
+    if (needs_pyvalue_add) {
+        // PyValue elements - use .asInt() to extract integer value
+        try self.emit(") |item| { total += item.asInt(); }\n");
+    } else {
+        try self.emit(") |item| { total += item; }\n");
+    }
     try self.emitFmt("break :__m{d}_sum total;\n", .{sum_id});
     try self.emit("}");
 }
@@ -302,14 +322,34 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(";\n");
     }
     try self.emit("for (");
+
+    // Track if we're iterating PyValue elements
+    var needs_pyvalue_truthy = false;
+
     if (needs_wrap) {
-        try self.emit("__iterable.items");
+        // Check if expression needs VM fallback (genexp, lambda, uncertain method calls)
+        const needs_vm = self.needsVMFallback(args[0]);
+        const wrapped_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        const is_wrapped_pyvalue = (wrapped_type == .pyvalue or wrapped_type == .unknown);
+
+        if (needs_vm or is_wrapped_pyvalue) {
+            // PyValue iteration - use runtime.iterSlice()
+            try self.emit("runtime.iterSlice(__iterable)");
+            needs_pyvalue_truthy = true;
+        } else {
+            try self.emit("__iterable.items");
+        }
     } else {
         try self.genExpr(args[0]);
         try self.emit(".items");
     }
     try self.emit(") |item| {\n");
-    try self.emitFmt("if (item == 0) break :__m{d}_all false;\n", .{all_id});
+    if (needs_pyvalue_truthy) {
+        // PyValue elements - use .isTruthy() for truthy check
+        try self.emitFmt("if (!item.isTruthy()) break :__m{d}_all false;\n", .{all_id});
+    } else {
+        try self.emitFmt("if (item == 0) break :__m{d}_all false;\n", .{all_id});
+    }
     try self.emit("}\n");
     try self.emitFmt("break :__m{d}_all true;\n", .{all_id});
     try self.emit("}");
@@ -357,8 +397,24 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(";\n");
     }
     try self.emit("for (");
+
+    // Track if we're iterating PyValue elements (need different truthy check)
+    var needs_pyvalue_truthy = false;
+
     if (needs_wrap) {
-        if (is_arraylist) {
+        // Check if expression needs VM fallback (genexp, lambda, uncertain method calls)
+        // VM fallback wraps result in PyValue.from(...), so we need iterSlice
+        const needs_vm = self.needsVMFallback(args[0]);
+
+        // Also check inferred type for PyValue/unknown
+        const wrapped_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        const is_wrapped_pyvalue = (wrapped_type == .pyvalue or wrapped_type == .unknown);
+
+        if (needs_vm or is_wrapped_pyvalue) {
+            // PyValue iteration - use runtime.iterSlice() for universal handling
+            try self.emit("runtime.iterSlice(__iterable)");
+            needs_pyvalue_truthy = true;
+        } else if (is_arraylist) {
             // genexp/listcomp produce ArrayList - need .items
             try self.emit("__iterable.items");
         } else {
@@ -374,8 +430,13 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(".items");
     }
     try self.emit(") |item| {\n");
-    // Use comptime type check for truthy semantics - bool vs int
-    try self.emitFmt("if (@TypeOf(item) == bool) {{ if (item) break :__m{d}_any true; }} else {{ if (item != 0) break :__m{d}_any true; }}\n", .{ any_id, any_id });
+    // Use comptime type check for truthy semantics - bool vs int vs PyValue
+    if (needs_pyvalue_truthy) {
+        // PyValue elements - use .isTruthy() for truthy check
+        try self.emitFmt("if (item.isTruthy()) break :__m{d}_any true;\n", .{any_id});
+    } else {
+        try self.emitFmt("if (@TypeOf(item) == bool) {{ if (item) break :__m{d}_any true; }} else {{ if (item != 0) break :__m{d}_any true; }}\n", .{ any_id, any_id });
+    }
     try self.emit("}\n");
     try self.emitFmt("break :__m{d}_any false;\n", .{any_id});
     try self.emit("}");

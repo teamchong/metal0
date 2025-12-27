@@ -524,6 +524,12 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
+    } else if (self.needsVMFallback(if_stmt.condition.*)) {
+        // VM fallback generates PyValue.from(...), need .isTruthy() for bool conversion
+        // This check MUST come before cond_type == .bool because type inference may
+        // return .bool (expected return type) but codegen produces PyValue due to fallback
+        try self.genExpr(if_stmt.condition.*);
+        _ = try builder.write(".isTruthy()");
     } else if (cond_type == .bool) {
         // Bool type - use directly without wrapping
         try self.genExpr(if_stmt.condition.*);
