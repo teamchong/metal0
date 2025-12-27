@@ -151,6 +151,10 @@ pub fn GetElementType(comptime T: type) type {
         if (fields.len > 0) {
             return fields[0].type;
         }
+    } else if (info == .@"struct" and @hasDecl(T, "KV")) {
+        // Hash map types (std.AutoHashMap, std.AutoArrayHashMap) - use key type for containment
+        // These have a KV type that tells us the key/value types
+        return @TypeOf(@as(T.KV, undefined).key);
     }
     return void;
 }
@@ -255,10 +259,24 @@ pub fn setPtrAt(comptime T: type, comptime E: type, container: T, index: usize, 
     }
 }
 
-/// Check if value is contained in array/slice - for 'in' operator
-/// Handles: arrays, slices, ArrayList (.items)
+/// Check if value is contained in array/slice/tuple/hashmap - for 'in' operator
+/// Handles: arrays, slices, ArrayList (.items), tuples, hash maps (sets/dicts)
 /// Compiles ONCE per type, not per 'in' expression
 pub fn contains(comptime T: type, container: T, value: GetElementType(T)) bool {
+    const info = @typeInfo(T);
+    // Special handling for tuples - inline iterate over fields
+    if (info == .@"struct" and info.@"struct".is_tuple) {
+        inline for (info.@"struct".fields) |field| {
+            if (@field(container, field.name) == value) return true;
+        }
+        return false;
+    }
+    // Special handling for hash maps (sets/dicts) - check key containment
+    if (info == .@"struct" and @hasDecl(T, "contains")) {
+        // Use the map's built-in contains method
+        return container.contains(value);
+    }
+    // Normal path for arrays/slices
     const slice = getSlice(T, container);
     return std.mem.indexOfScalar(GetElementType(T), slice, value) != null;
 }

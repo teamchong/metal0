@@ -200,10 +200,10 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
     self.indent_level += 1;
 
     // Generate call to struct method
-    // The struct method has signature: fn(allocator, self, args...)
+    // The struct method has signature: fn(self, args...)
     // For static functions without self state, pass undefined for self
     try self.emitIndent();
-    try self.emitFmt("return {s}.{s}(__global_allocator, undefined", .{ class_name, method_name });
+    try self.emitFmt("return {s}.{s}(undefined", .{ class_name, method_name });
 
     // Forward parameters
     for (func.args) |arg| {
@@ -221,7 +221,7 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
         }
     }
 
-    try self.emit(") catch 0.0;\n");
+    try self.emit(");\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
