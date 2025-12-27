@@ -90,6 +90,8 @@ pub fn build(b: *std.Build) void {
     });
     // Builder needs NameGen for unified ID generation
     builder_mod.addImport("codegen.name_gen", name_gen);
+    // Builder needs zig_keywords for identifier escaping
+    builder_mod.addImport("utils.zig_keywords", zig_keywords);
 
     const ast = b.addModule("analysis.ast", .{
         .root_source_file = b.path("src/ast.zig"),

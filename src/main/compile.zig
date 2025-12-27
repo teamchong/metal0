@@ -464,7 +464,20 @@ pub fn compileLogicTableOnly(allocator: std.mem.Allocator, input_file: []const u
         try result.appendSlice(aa, full_code[struct_start..struct_end]);
         try result.appendSlice(aa, "\n\n");
 
-        pos = struct_end;
+        // Also capture export wrappers that follow the struct
+        // Look for // __logic_table_exports_begin__ ... // __logic_table_exports_end__
+        if (std.mem.indexOfPos(u8, full_code, struct_end, "// __logic_table_exports_begin__")) |exports_begin| {
+            if (std.mem.indexOfPos(u8, full_code, exports_begin, "// __logic_table_exports_end__")) |exports_end| {
+                const exports_code = full_code[exports_begin + "// __logic_table_exports_begin__\n".len .. exports_end];
+                try result.appendSlice(aa, exports_code);
+                try result.appendSlice(aa, "\n");
+                pos = exports_end + "// __logic_table_exports_end__".len;
+            } else {
+                pos = struct_end;
+            }
+        } else {
+            pos = struct_end;
+        }
     }
 
     // Determine output path (.a extension for static library)

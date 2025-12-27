@@ -65,10 +65,11 @@ pub fn genConstant(self: *NativeCodegen, constant: ast.Node.Constant) CodegenErr
                 try self.emit(if (f < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
             } else if (std.math.isNan(f)) {
                 try self.emit("std.math.nan(f64)");
-            } else if (@mod(f, 1.0) == 0.0) {
-                try self.output.writer(self.allocator).print("@as(f64, {d:.1})", .{f});
             } else {
-                try self.output.writer(self.allocator).print("@as(f64, {d})", .{f});
+                // CRITICAL: Use {e} (scientific notation) to ensure a decimal point.
+                // The {d} format produces "123000000..." for large floats like 1.23e167,
+                // which Zig treats as comptime_int and causes "cannot represent" errors.
+                try self.output.writer(self.allocator).print("{e}", .{f});
             }
         },
         .bool => try self.emit(if (constant.value.bool) "true" else "false"),

@@ -843,8 +843,8 @@ pub fn genFunctionSignature(
         // Export functions for WASM (except main which becomes _start)
         try self.emit("export fn ");
     } else if (self.in_logic_table_class) {
-        // @logic_table methods need export for static library linking
-        try self.emit("export fn ");
+        // @logic_table methods use pub fn - export wrappers generated at module level
+        try self.emit("pub fn ");
     } else {
         try self.emit("fn ");
     }
@@ -1727,6 +1727,11 @@ pub fn genMethodSignatureWithSkip(
         const method_key = try std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, method.name });
         try self.vararg_methods.put(method_key, param_index);
 
+        // Also track the vararg parameter name so assignments can detect shadowing
+        // Python allows reassigning varargs: `if not args: args = (default,)`
+        const vararg_param_copy = try self.arena.allocator().dupe(u8, vararg_name);
+        try self.vararg_params.put(vararg_param_copy, {});
+
         const is_vararg_used = param_analyzer.isNameUsedInBody(method.body, vararg_name);
         if (is_skipped or !is_vararg_used) {
             try self.emit("_: []const runtime.PyValue"); // Use concrete slice type
@@ -1739,6 +1744,11 @@ pub fn genMethodSignatureWithSkip(
     // Add **kwargs parameter if present
     if (method.kwarg) |kwarg_name| {
         if (any_param_emitted) try self.emit(", ");
+
+        // Track the kwarg parameter name so assignments can detect shadowing
+        const kwarg_param_copy = try self.arena.allocator().dupe(u8, kwarg_name);
+        try self.kwarg_params.put(kwarg_param_copy, {});
+
         const is_kwarg_used = param_analyzer.isNameUsedInBody(method.body, kwarg_name);
         if (is_skipped or !is_kwarg_used) {
             try self.emit("_: anytype"); // Use anonymous for unused

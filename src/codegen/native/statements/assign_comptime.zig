@@ -21,6 +21,8 @@ pub fn emitComptimeAssignment(
         const shadows_import = self.imported_modules.contains(var_name);
         const shadows_module_func = self.module_level_funcs.contains(var_name);
         const shadows_global = self.isGlobalVar(var_name);
+        // Check if var_name would shadow a vararg or kwarg parameter (e.g., *args or **kwargs)
+        const shadows_vararg_param = self.vararg_params.contains(var_name) or self.kwarg_params.contains(var_name);
         // Also check if var_name would shadow a class-level attribute (becomes lazy method)
         const shadows_class_member = if (self.current_class_body) |class_body| blk: {
             for (class_body) |stmt| {
@@ -35,7 +37,7 @@ pub fn emitComptimeAssignment(
             break :blk false;
         } else false;
 
-        const needs_local_rename = shadows_import or shadows_module_func or shadows_global or shadows_class_member;
+        const needs_local_rename = shadows_import or shadows_module_func or shadows_global or shadows_class_member or shadows_vararg_param;
         const existing_rename = self.var_renames.get(var_name);
         const has_lazy_pattern = if (existing_rename) |r| std.mem.startsWith(u8, r, "(try ") else false;
         if (needs_local_rename and (existing_rename == null or has_lazy_pattern)) {

@@ -419,13 +419,10 @@ pub const ZigBuilder = struct {
                         try self.write("-std.math.inf(f64)");
                     }
                 } else {
-                    // CRITICAL: Always wrap floats with @as(f64, ...) to prevent
-                    // large floats like 1.23e167 from being formatted as integer literals.
-                    // Without this, {d} format may emit "123000000..." which Zig treats
-                    // as comptime_int, causing "type 'i64' cannot represent" errors.
-                    try self.write("@as(f64, ");
-                    try self.writeFmt("{d}", .{v});
-                    try self.write(")");
+                    // CRITICAL: Use {e} (scientific notation) to ensure a decimal point.
+                    // The {d} format produces "123000000..." for large floats like 1.23e167,
+                    // which Zig treats as comptime_int and causes "cannot represent" errors.
+                    try self.writeFmt("{e}", .{v});
                 }
             },
             .certain_bool => |v| try self.write(if (v) "true" else "false"),
