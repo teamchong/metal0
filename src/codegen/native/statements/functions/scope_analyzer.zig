@@ -49,6 +49,25 @@ pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !Scop
     };
     errdefer result.escaped_vars.deinit(allocator);
 
+    // Track variables assigned at function level (not inside blocks)
+    // These are the "true" initial assignments for type inference
+    var func_level_assigns = hashmap_helper.StringHashMap(*const ast.Node).init(allocator);
+    defer func_level_assigns.deinit();
+
+    // Pre-pass: collect function-level assignments FIRST
+    // This gives us the correct init_expr for variables like `dot = 0.0` at function level
+    for (body) |stmt| {
+        if (stmt == .assign) {
+            if (stmt.assign.targets.len > 0 and stmt.assign.targets[0] == .name) {
+                const var_name = stmt.assign.targets[0].name.id;
+                // Only store the FIRST function-level assignment
+                if (!func_level_assigns.contains(var_name)) {
+                    try func_level_assigns.put(var_name, stmt.assign.value);
+                }
+            }
+        }
+    }
+
     // Track variables declared at each scope level
     var declared_in_inner = hashmap_helper.StringHashMap(EscapedVar).init(allocator);
     defer declared_in_inner.deinit();
@@ -77,7 +96,14 @@ pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !Scop
     var iter = declared_in_inner.iterator();
     while (iter.next()) |entry| {
         if (used_at_outer.contains(entry.key_ptr.*)) {
-            try result.escaped_vars.append(allocator, entry.value_ptr.*);
+            var escaped_var = entry.value_ptr.*;
+            // If the variable has a function-level assignment, use THAT init_expr
+            // This fixes type inference for patterns like `dot = 0.0; for: dot = dot + x`
+            // where `dot` should be typed as f64 from the initial 0.0 assignment
+            if (func_level_assigns.get(entry.key_ptr.*)) |func_level_init| {
+                escaped_var.init_expr = func_level_init;
+            }
+            try result.escaped_vars.append(allocator, escaped_var);
         }
     }
 

@@ -65,6 +65,7 @@ pub fn hasLogicTableDecorator(class: ast.Node.ClassDef) bool {
 const MethodInfo = struct {
     name: []const u8,
     func: ast.Node.FunctionDef,
+    needs_allocator: bool,
 };
 
 /// Generate @logic_table class as a Zig struct
@@ -106,10 +107,10 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
             // Skip __init__ and dunder methods
             if (std.mem.startsWith(u8, method.name, "__")) continue;
 
-            try methods.append(allocator, .{ .name = method.name, .func = method });
-
             // Check if method needs allocator (for error handling, string ops, etc.)
             const needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
+
+            try methods.append(allocator, .{ .name = method.name, .func = method, .needs_allocator = needs_allocator });
             const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(method, class.name);
 
             // Generate method signature - treat as staticmethod since @logic_table methods are pure functions
@@ -143,7 +144,7 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
     if (self.emit_logic_table_exports) {
         try self.emit("// __logic_table_exports_begin__\n");
         for (methods.items) |m| {
-            try genExportWrapper(self, class.name, m.name, m.func);
+            try genExportWrapper(self, class.name, m.name, m.func, m.needs_allocator);
         }
         try self.emit("// __logic_table_exports_end__\n");
     }
@@ -151,7 +152,7 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
 
 /// Generate a C-callable export wrapper for a struct method
 /// This allows the method to be called from C/external code via dlsym
-fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: []const u8, func: ast.Node.FunctionDef) CodegenError!void {
+fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: []const u8, func: ast.Node.FunctionDef, needs_allocator: bool) CodegenError!void {
     // Export wrapper signature: export fn ClassName_methodName(args...) callconv(.c) ReturnType
     try self.emitFmt("export fn {s}_{s}(", .{ class_name, method_name });
 
@@ -220,11 +221,16 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
     self.indent_level += 1;
 
     // Generate call to struct method
-    // The struct method has signature: fn(self, allocator, args...) !ReturnType
+    // The struct method has signature: fn(self, [allocator], args...) !ReturnType
     // Pass undefined for self since @logic_table methods don't actually use it
+    // Only pass allocator if the method needs it
     // Use catch to convert error union to plain value (return 0/NaN on error)
     try self.emitIndent();
-    try self.emitFmt("return {s}.{s}(undefined, __global_allocator", .{ class_name, method_name });
+    if (needs_allocator) {
+        try self.emitFmt("return {s}.{s}(undefined, __global_allocator", .{ class_name, method_name });
+    } else {
+        try self.emitFmt("return {s}.{s}(undefined", .{ class_name, method_name });
+    }
 
     // Forward parameters
     for (func.args) |arg| {

@@ -1384,6 +1384,169 @@ pub const ZigBuilder = struct {
         try self.write(";\n");
     }
 
+    // ============================================
+    // Extended Assertion API (100% builder migration)
+    // ============================================
+
+    /// Emit assertStartsWith as a complete statement
+    /// Generated: try unittest.assertTrue(std.mem.startsWith(u8, s, prefix));
+    pub fn emitAssertStartsWithStmt(self: *ZigBuilder, string: ZigValue, prefix: ZigValue) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertTrue(std.mem.startsWith(u8, ");
+        try self.emitValueCore(string);
+        try self.write(", ");
+        try self.emitValueCore(prefix);
+        try self.write("));\n");
+    }
+
+    /// Emit assertNotStartsWith as a complete statement
+    pub fn emitAssertNotStartsWithStmt(self: *ZigBuilder, string: ZigValue, prefix: ZigValue) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertFalse(std.mem.startsWith(u8, ");
+        try self.emitValueCore(string);
+        try self.write(", ");
+        try self.emitValueCore(prefix);
+        try self.write("));\n");
+    }
+
+    /// Emit assertEndsWith as a complete statement
+    pub fn emitAssertEndsWithStmt(self: *ZigBuilder, string: ZigValue, suffix: ZigValue) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertTrue(std.mem.endsWith(u8, ");
+        try self.emitValueCore(string);
+        try self.write(", ");
+        try self.emitValueCore(suffix);
+        try self.write("));\n");
+    }
+
+    /// Emit assertNotEndsWith as a complete statement
+    pub fn emitAssertNotEndsWithStmt(self: *ZigBuilder, string: ZigValue, suffix: ZigValue) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertFalse(std.mem.endsWith(u8, ");
+        try self.emitValueCore(string);
+        try self.write(", ");
+        try self.emitValueCore(suffix);
+        try self.write("));\n");
+    }
+
+    /// Emit assertIsInstance as a complete statement
+    /// Generated: try unittest.assertIsInstance(obj, "type_name");
+    pub fn emitAssertIsInstanceStmt(self: *ZigBuilder, obj: ZigValue, type_name: []const u8) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertIsInstance(");
+        try self.emitValueCore(obj);
+        try self.writeFmt(", \"{s}\");\n", .{type_name});
+    }
+
+    /// Emit assertIsInstance with raw type expression (for user-defined classes)
+    pub fn emitAssertIsInstanceRawStmt(self: *ZigBuilder, obj: ZigValue, type_expr: []const u8) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertIsInstance(");
+        try self.emitValueCore(obj);
+        try self.writeFmt(", {s}.__name__);\n", .{type_expr});
+    }
+
+    /// Emit assertNotIsInstance as a complete statement
+    pub fn emitAssertNotIsInstanceStmt(self: *ZigBuilder, obj: ZigValue, type_name: []const u8) !void {
+        try self.writeIndent();
+        try self.write("try unittest.assertNotIsInstance(");
+        try self.emitValueCore(obj);
+        try self.writeFmt(", \"{s}\");\n", .{type_name});
+    }
+
+    /// Emit assertIsSubclass as a complete statement
+    pub fn emitAssertIsSubclassStmt(self: *ZigBuilder, cls: []const u8, parent_cls: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("runtime.unittest.assertIsSubclass(\"{s}\", \"{s}\");\n", .{ cls, parent_cls });
+    }
+
+    /// Emit assertNotIsSubclass as a complete statement
+    pub fn emitAssertNotIsSubclassStmt(self: *ZigBuilder, cls: []const u8, parent_cls: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("runtime.unittest.assertNotIsSubclass(\"{s}\", \"{s}\");\n", .{ cls, parent_cls });
+    }
+
+    /// Emit assertHasAttr as a complete statement (comptime no-op, references attr)
+    pub fn emitAssertHasAttrStmt(self: *ZigBuilder, attr_name: ZigValue) !void {
+        try self.writeIndent();
+        try self.write("{ _ = ");
+        try self.emitValueCore(attr_name);
+        try self.write("; }\n");
+    }
+
+    /// Emit assertNotHasAttr as a complete statement (comptime check)
+    pub fn emitAssertNotHasAttrStmt(self: *ZigBuilder, obj: ZigValue, attr_name: ZigValue) !void {
+        try self.writeIndent();
+        try self.write("comptime { const _T = @TypeOf(");
+        try self.emitValueCore(obj);
+        try self.write("); if (@typeInfo(_T) == .@\"struct\" and @hasField(_T, ");
+        try self.emitValueCore(attr_name);
+        try self.write(")) @compileError(\"assertNotHasAttr failed\"); }\n");
+    }
+
+    /// Emit assertLogs stub as a complete statement
+    /// Returns a struct with __enter__/__exit__ and empty records/output
+    pub fn emitAssertLogsStmt(self: *ZigBuilder) !void {
+        try self.writeIndent();
+        try self.write("struct { pub fn __enter__(_: *const @This()) @This() { return @This(){}; } pub fn __exit__(_: *const @This()) void {} records: []const []const u8 = &.{}, output: []const u8 = \"\" }{};\n");
+    }
+
+    /// Emit fail as a complete statement
+    pub fn emitFailStmt(self: *ZigBuilder, msg: ?ZigValue) !void {
+        try self.writeIndent();
+        try self.write("@panic(");
+        if (msg) |m| {
+            try self.emitValueCore(m);
+        } else {
+            try self.write("\"Test failed\"");
+        }
+        try self.write(");\n");
+    }
+
+    /// Emit skipTest as a complete statement
+    pub fn emitSkipTestStmt(self: *ZigBuilder) !void {
+        try self.writeIndent();
+        try self.write("return;\n");
+    }
+
+    // ============================================
+    // assertRaises API (complex exception handling)
+    // ============================================
+
+    /// Begin an assertRaises block with a label for breaking on error
+    /// Returns the label name for use with emitAssertRaisesBreak
+    pub fn beginAssertRaisesBlock(self: *ZigBuilder, hint: []const u8) ![]const u8 {
+        const label = try self.freshInlineLabel(hint);
+        try self.writeFmt("({s}: {{ ", .{label});
+        return label;
+    }
+
+    /// Emit break on catch for assertRaises: catch break :label {};
+    pub fn emitAssertRaisesBreak(self: *ZigBuilder, label: []const u8) !void {
+        try self.writeFmt(" catch break :{s} {{}}; return error.ExpectedExceptionNotRaised; ", .{label});
+    }
+
+    /// End assertRaises block
+    pub fn endAssertRaisesBlock(self: *ZigBuilder) !void {
+        try self.write("})");
+    }
+
+    /// Emit assertRaises with expectError (any exception)
+    pub fn emitAssertRaisesAny(self: *ZigBuilder, callable_expr: []const u8) !void {
+        try self.writeIndent();
+        try self.write("if (runtime.unittest.expectError(");
+        try self.write(callable_expr);
+        try self.write(")) return error.ExpectedExceptionNotRaised;\n");
+    }
+
+    /// Emit assertRaises with expectSpecificError (named exception)
+    pub fn emitAssertRaisesSpecific(self: *ZigBuilder, callable_expr: []const u8, exc_name: []const u8) !void {
+        try self.writeIndent();
+        try self.write("{ const __ar_result = runtime.unittest.expectSpecificError(");
+        try self.write(callable_expr);
+        try self.writeFmt(", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}\n", .{exc_name});
+    }
+
     /// Helper to emit bool conversion
     fn emitToBool(self: *ZigBuilder, value: ZigValue) !void {
         switch (value) {

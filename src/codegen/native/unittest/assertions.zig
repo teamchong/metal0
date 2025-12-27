@@ -1024,12 +1024,16 @@ pub fn genAssertIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 }
 
 /// Generate code for self.assertIsInstance(obj, type)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertIsInstance requires 2 arguments\")");
         return;
     }
+    const obj_value = try self.exprToValue(args[0]);
+    const b = try self.getBuilder();
+
     // If the type arg is a variable name, use the variable to avoid "unused" warnings
     // then extract the type name from it
     if (args[1] == .name) {
@@ -1037,46 +1041,55 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         // Check if this is a user-defined variable (not a builtin type name)
         if (!isBuiltinTypeName(type_var)) {
             // For user-defined classes, use the class's __name__ constant
-            // which is a string like "aug_test" that matches the Python class name
-            try self.emit("try unittest.assertIsInstance(");
-            try parent.genExpr(self, args[0]);
-            try self.emit(", ");
             // Escape Zig keywords like "struct" when used as variable names
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), type_var);
-            try self.emit(".__name__)");
+            var escaped_buf: [256]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&escaped_buf);
+            zig_keywords.writeEscapedIdent(fbs.writer(), type_var) catch {};
+            const escaped = fbs.getWritten();
+            try b.emitAssertIsInstanceRawStmt(obj_value, escaped);
+            try self.flushBuilder();
             return;
         }
+        // Builtin type name - use string literal
+        try b.emitAssertIsInstanceStmt(obj_value, type_var);
+        try self.flushBuilder();
+        return;
     }
+    // Non-name expression - convert to value and emit
+    const type_value = try self.exprToValue(args[1]);
+    // For expressions, we need to fall back to raw emit since builder expects string literal
+    try self.flushBuilder();
     try self.emit("try unittest.assertIsInstance(");
-    try parent.genExpr(self, args[0]);
+    try self.emitZigValue(obj_value);
     try self.emit(", ");
-    if (args[1] == .name) {
-        try self.emit("\"");
-        try self.emit(args[1].name.id);
-        try self.emit("\"");
-    } else {
-        try parent.genExpr(self, args[1]);
-    }
+    try self.emitZigValue(type_value);
     try self.emit(")");
 }
 
 /// Generate code for self.assertNotIsInstance(obj, type)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertNotIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertNotIsInstance requires 2 arguments\")");
         return;
     }
-    try self.emit("try unittest.assertNotIsInstance(");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
+    const obj_value = try self.exprToValue(args[0]);
+    const b = try self.getBuilder();
+
     if (args[1] == .name) {
-        try self.emit("\"");
-        try self.emit(args[1].name.id);
-        try self.emit("\"");
-    } else {
-        try parent.genExpr(self, args[1]);
+        const type_var = args[1].name.id;
+        try b.emitAssertNotIsInstanceStmt(obj_value, type_var);
+        try self.flushBuilder();
+        return;
     }
+    // Non-name expression - convert to value and emit
+    const type_value = try self.exprToValue(args[1]);
+    try self.flushBuilder();
+    try self.emit("try unittest.assertNotIsInstance(");
+    try self.emitZigValue(obj_value);
+    try self.emit(", ");
+    try self.emitZigValue(type_value);
     try self.emit(")");
 }
 
@@ -1356,48 +1369,52 @@ pub fn genAssertNotIsSubclass(self: *NativeCodegen, obj: ast.Node, args: []ast.N
 }
 
 /// Generate code for self.assertStartsWith(s, prefix)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertStartsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertStartsWith requires 2 arguments\")");
         return;
     }
-    try self.emit("try unittest.assertTrue(std.mem.startsWith(u8, ");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit("))");
+    const string = try self.exprToValue(args[0]);
+    const prefix = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertStartsWithStmt(string, prefix);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertNotStartsWith(s, prefix)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertNotStartsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertNotStartsWith requires 2 arguments\")");
         return;
     }
-    try self.emit("try unittest.assertFalse(std.mem.startsWith(u8, ");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit("))");
+    const string = try self.exprToValue(args[0]);
+    const prefix = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertNotStartsWithStmt(string, prefix);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertEndsWith(s, suffix)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertEndsWith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertEndsWith requires 2 arguments\")");
         return;
     }
-    try self.emit("try unittest.assertTrue(std.mem.endsWith(u8, ");
-    try parent.genExpr(self, args[0]);
-    try self.emit(", ");
-    try parent.genExpr(self, args[1]);
-    try self.emit("))");
+    const string = try self.exprToValue(args[0]);
+    const suffix = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertEndsWithStmt(string, suffix);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertHasAttr(obj, name)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
@@ -1406,12 +1423,14 @@ pub fn genAssertHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) C
     }
     // For module attribute checking, verify at comptime using @hasField (if struct)
     // Use a no-op that references the arguments to avoid "unused variable" errors
-    try self.emit("{ _ = ");
-    try parent.genExpr(self, args[1]);
-    try self.emit("; }"); // Reference the attr name to mark it as used
+    const attr_name = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertHasAttrStmt(attr_name);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertNotHasAttr(obj, name)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertNotHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
@@ -1419,11 +1438,11 @@ pub fn genAssertNotHasAttr(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         return;
     }
     // For AOT, we check at compile time using @hasField (must check struct type first)
-    try self.emit("comptime { const _T = @TypeOf(");
-    try parent.genExpr(self, args[0]);
-    try self.emit("); if (@typeInfo(_T) == .@\"struct\" and @hasField(_T, ");
-    try parent.genExpr(self, args[1]);
-    try self.emit(")) @compileError(\"assertNotHasAttr failed\"); }");
+    const obj_value = try self.exprToValue(args[0]);
+    const attr_name = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertNotHasAttrStmt(obj_value, attr_name);
+    try self.flushBuilder();
 }
 
 // Equality aliases using ZigBuilder (100% builder migration)
