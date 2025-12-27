@@ -705,6 +705,8 @@ pub const toBoolWithError = bool_ops.toBoolWithError;
 pub const toBoolValue = bool_ops.toBoolValue;
 pub const validateBoolReturn = bool_ops.validateBoolReturn;
 pub const validateFloatReturn = bool_ops.validateFloatReturn;
+pub const bool__new__ = bool_ops.bool__new__;
+pub const boolFromBytes = bool_ops.boolFromBytes;
 
 // Re-export pyToInt from int_convert.zig
 pub const pyToInt = int_convert.pyToInt;
