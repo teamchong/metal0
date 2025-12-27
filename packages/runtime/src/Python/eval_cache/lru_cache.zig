@@ -16,6 +16,7 @@ const CacheEntry = struct {
     memory_size: usize, // estimated memory usage
     prev: ?*CacheEntry = null, // doubly-linked list for LRU
     next: ?*CacheEntry = null,
+    refcount: std.atomic.Value(u32) = std.atomic.Value(u32).init(0), // prevents eviction while in use
 };
 
 /// LRU Cache for bytecode programs
@@ -51,10 +52,34 @@ pub const LruCache = struct {
 
     /// Get cached bytecode, returns null if not found
     /// Moves entry to front of LRU list on hit
+    /// WARNING: Use acquire() instead if you need the pointer after releasing the mutex!
     pub fn get(self: *LruCache, source: []const u8) ?*bytecode.BytecodeProgram {
         const entry = self.map.get(source) orelse return null;
         self.moveToFront(entry);
         return &entry.program;
+    }
+
+    /// Acquire cached bytecode with refcount increment - prevents eviction
+    /// MUST call release() when done to allow eviction
+    /// Use this when the pointer will be used after releasing the cache mutex
+    pub fn acquire(self: *LruCache, source: []const u8) ?*bytecode.BytecodeProgram {
+        const entry = self.map.get(source) orelse return null;
+        _ = entry.refcount.fetchAdd(1, .monotonic);
+        self.moveToFront(entry);
+        return &entry.program;
+    }
+
+    /// Release a previously acquired program - decrements refcount
+    /// Once refcount reaches 0, the entry can be evicted
+    pub fn release(self: *LruCache, program: *bytecode.BytecodeProgram) void {
+        _ = self; // Unused, but required for method syntax
+        // Get the CacheEntry from the program pointer using @fieldParentPtr
+        const entry: *CacheEntry = @fieldParentPtr("program", program);
+        const prev = entry.refcount.fetchSub(1, .monotonic);
+        // Safety check: refcount should never go below 0
+        if (prev == 0) {
+            @panic("LruCache: release() called more times than acquire()");
+        }
     }
 
     /// Store bytecode in cache, evicting if necessary
@@ -96,10 +121,22 @@ pub const LruCache = struct {
             self.current_memory + new_size > self.config.max_memory_bytes;
     }
 
-    /// Evict least recently used entry
+    /// Evict least recently used entry that is not in use
+    /// Skips entries with refcount > 0 (currently being executed)
     fn evictLru(self: *LruCache) !void {
-        const lru = self.tail orelse return error.EmptyCache;
-        self.removeEntry(lru);
+        // Start from tail (least recently used) and find first evictable entry
+        var candidate = self.tail;
+        while (candidate) |entry| {
+            if (entry.refcount.load(.monotonic) == 0) {
+                // Entry is not in use, safe to evict
+                self.removeEntry(entry);
+                return;
+            }
+            // Entry is in use, try the next (more recently used) one
+            candidate = entry.prev;
+        }
+        // All entries are in use - cannot evict
+        return error.AllEntriesInUse;
     }
 
     /// Remove entry from cache

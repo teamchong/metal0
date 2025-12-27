@@ -3,6 +3,7 @@ const std = @import("std");
 const constants = @import("constants.zig");
 const Instruction = constants.Instruction;
 const Constant = constants.Constant;
+const OpCode = constants.OpCode;
 
 /// Compiled bytecode program
 pub const BytecodeProgram = struct {
@@ -75,8 +76,14 @@ pub const BytecodeProgram = struct {
     }
 
     /// Deserialize bytecode from binary format (subprocess output)
+    /// Supports both "PYBC" (old format) and "MET0" (compiler format)
     pub fn deserialize(allocator: std.mem.Allocator, data: []const u8) !BytecodeProgram {
-        if (data.len < 12) return error.InvalidBytecode; // magic + version + num_constants
+        if (data.len < 10) return error.InvalidBytecode;
+
+        // Check magic - support both formats
+        if (std.mem.eql(u8, data[0..4], "MET0")) {
+            return deserializeMET0(allocator, data);
+        }
 
         var pos: usize = 0;
 
@@ -164,5 +171,177 @@ pub const BytecodeProgram = struct {
             .constants = consts,
             .allocator = allocator,
         };
+    }
+
+    /// Deserialize MET0 format bytecode (from metal0 compiler)
+    /// Format: [magic:4][version:2][bytecode_len:4][bytecode][constants_len:4]
+    /// Translates new bytecode opcodes to old VM opcodes
+    fn deserializeMET0(allocator: std.mem.Allocator, data: []const u8) !BytecodeProgram {
+        if (data.len < 14) return error.InvalidBytecode; // MET0 + version(2) + len(4) + consts_len(4)
+
+        var pos: usize = 4; // Skip "MET0" magic
+
+        // Version (u16)
+        const version = std.mem.readInt(u16, data[pos..][0..2], .little);
+        _ = version; // Version check could be added later
+        pos += 2;
+
+        // Bytecode length
+        const bytecode_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+        pos += 4;
+
+        if (pos + bytecode_len > data.len) return error.UnexpectedEof;
+        const bytecode_bytes = data[pos..][0..bytecode_len];
+        pos += bytecode_len;
+
+        // Constants count (constants not serialized in MET0 format currently)
+        if (pos + 4 > data.len) return error.UnexpectedEof;
+        const num_constants = std.mem.readInt(u32, data[pos..][0..4], .little);
+        _ = num_constants;
+
+        // Parse the raw bytecode into instructions
+        // MET0 bytecode uses varint encoding for arguments
+        var instructions_list: std.ArrayList(Instruction) = .{};
+        errdefer instructions_list.deinit(allocator);
+
+        // Collect constants for LOAD_I8/LOAD_I16/etc instructions
+        var constants_list: std.ArrayList(Constant) = .{};
+        errdefer constants_list.deinit(allocator);
+
+        var bc_pos: usize = 0;
+        while (bc_pos < bytecode_bytes.len) {
+            const op_byte = bytecode_bytes[bc_pos];
+            bc_pos += 1;
+
+            // Read single-byte argument if needed (NOT varint - AST compiler uses u8 args)
+            var arg: u32 = 0;
+
+            // Check if instruction has an argument by looking at opcode
+            const has_arg = switch (op_byte) {
+                // Stack ops without args
+                0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06 => false,
+                // Constant loads with no arg (LOAD_NONE, LOAD_TRUE, LOAD_FALSE, LOAD_ZERO, LOAD_ONE)
+                0x11, 0x12, 0x13, 0x17, 0x18 => false,
+                // Binary ops without args
+                0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D => false,
+                // Unary ops without args
+                0x50, 0x51, 0x52, 0x53, 0x54 => false,
+                // Compare ops without args
+                0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69 => false,
+                // Return without arg
+                0x88, 0x89 => false,
+                // Optimized locals without arg
+                0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A => false,
+                // Optimized calls without arg
+                0x81, 0x82, 0x83, 0x84 => false,
+                // Everything else has a single-byte arg
+                else => true,
+            };
+
+            if (has_arg and bc_pos < bytecode_bytes.len) {
+                // Single byte arg (matches emitArg in ast_compiler.zig)
+                arg = bytecode_bytes[bc_pos];
+                bc_pos += 1;
+            }
+
+            // Translate new bytecode opcodes to old VM opcodes
+            // New bytecode:  LOAD_I8=0x14, ADD=0x40, DIV=0x43, RETURN=0x88
+            // Old VM: LoadConst=0, Add=2, Div=5, Return=18
+            const translated_op: OpCode = switch (op_byte) {
+                // LOAD_I8: Create constant and emit LoadConst
+                0x14 => blk: {
+                    const const_idx = constants_list.items.len;
+                    try constants_list.append(allocator, .{ .int = @as(i64, @intCast(arg)) });
+                    arg = @intCast(const_idx);
+                    break :blk .LoadConst;
+                },
+                // LOAD_NONE: Create None constant
+                0x11 => blk: {
+                    const const_idx = constants_list.items.len;
+                    try constants_list.append(allocator, .{ .none = {} });
+                    arg = @intCast(const_idx);
+                    break :blk .LoadConst;
+                },
+                // LOAD_TRUE: Create True constant
+                0x12 => blk: {
+                    const const_idx = constants_list.items.len;
+                    try constants_list.append(allocator, .{ .bool = true });
+                    arg = @intCast(const_idx);
+                    break :blk .LoadConst;
+                },
+                // LOAD_FALSE: Create False constant
+                0x13 => blk: {
+                    const const_idx = constants_list.items.len;
+                    try constants_list.append(allocator, .{ .bool = false });
+                    arg = @intCast(const_idx);
+                    break :blk .LoadConst;
+                },
+                // LOAD_ZERO, LOAD_ONE: Create constant 0 or 1
+                0x17 => blk: {
+                    const const_idx = constants_list.items.len;
+                    try constants_list.append(allocator, .{ .int = 0 });
+                    arg = @intCast(const_idx);
+                    break :blk .LoadConst;
+                },
+                0x18 => blk: {
+                    const const_idx = constants_list.items.len;
+                    try constants_list.append(allocator, .{ .int = 1 });
+                    arg = @intCast(const_idx);
+                    break :blk .LoadConst;
+                },
+                // LOAD_CONST
+                0x10 => .LoadConst,
+                // POP
+                0x01 => .Pop,
+                // Binary ops: ADD=0x40, SUB=0x41, MUL=0x42, DIV=0x43, FLOORDIV=0x44, MOD=0x45, POW=0x46
+                0x40 => .Add,
+                0x41 => .Sub,
+                0x42 => .Mult,
+                0x43 => .Div,
+                0x44 => .FloorDiv,
+                0x45 => .Mod,
+                0x46 => .Pow,
+                // Unary ops: INVERT=0x50, UADD=0x51, USUB=0x52
+                0x50 => .Invert,
+                0x51 => .UAdd,
+                0x52 => .USub,
+                // Compare ops: EQ=0x60, NE=0x61, LT=0x62, GT=0x63, LE=0x64, GE=0x65
+                0x60 => .Eq,
+                0x61 => .NotEq,
+                0x62 => .Lt,
+                0x63 => .Gt,
+                0x64 => .LtE,
+                0x65 => .GtE,
+                // RETURN=0x88
+                0x88 => .Return,
+                // Unknown - skip
+                else => continue,
+            };
+
+            try instructions_list.append(allocator, .{
+                .op = translated_op,
+                .arg = arg,
+            });
+        }
+
+        const instructions = try instructions_list.toOwnedSlice(allocator);
+        const consts = try constants_list.toOwnedSlice(allocator);
+
+        // Build result struct
+        const result: BytecodeProgram = .{
+            .instructions = instructions,
+            .constants = consts,
+            .allocator = allocator,
+        };
+
+        // Verify result is sane before returning
+        if (@intFromPtr(result.instructions.ptr) == 0 or result.instructions.len > 10000) {
+            @panic("deserializeMET0: corrupted instructions before return");
+        }
+        if (@intFromPtr(result.constants.ptr) == 0 and result.constants.len > 0) {
+            @panic("deserializeMET0: corrupted constants before return");
+        }
+
+        return result;
     }
 };

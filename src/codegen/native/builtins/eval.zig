@@ -29,8 +29,8 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     const try_expr = if (self.inside_defer) "" else "try ";
     const catch_expr = if (self.inside_defer) " catch unreachable" else "";
 
-    // Compile source to bytecode at compile time
-    var program = bytecode_compiler.compileSource(self.allocator, eval_source) catch |err| {
+    // Compile source to bytecode at compile time (use compileExpr for eval semantics)
+    var program = bytecode_compiler.compileExpr(self.allocator, eval_source) catch |err| {
         // If bytecode compilation fails, fall back to runtime eval
         std.debug.print("comptime eval fallback for '{s}': {}\n", .{ eval_source, err });
         try self.emitFmt("runtime.PyValue.from({s}runtime.eval(__global_allocator, \"", .{try_expr});

@@ -50,4 +50,5 @@ pub const Constant = union(enum) {
     bool: bool,
     bigint: []const u8, // BigInt stored as decimal string for serialization
     complex: f64, // Complex number (imaginary part only, e.g., 2j = complex(2.0))
+    none: void, // Python None
 };

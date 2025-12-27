@@ -14,6 +14,7 @@ const zig_keywords = @import("utils.zig_keywords");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const imports = @import("misc/imports.zig");
 
 // Re-export submodules
 pub const genAugAssign = @import("assign/aug_assign.zig").genAugAssign;
@@ -359,6 +360,24 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (target == .name) {
                 const owned_name = try self.arena.allocator().dupe(u8, target.name.id);
                 try self.error_callable_vars.put(owned_name, {});
+            }
+        }
+    }
+
+    // Track class type assignments: R = fractions.Fraction
+    // When a variable is assigned from a module attribute that's a known class type,
+    // track it for .init() instantiation (instead of .call())
+    if (assign.value.* == .attribute) {
+        const attr = assign.value.attribute;
+        if (attr.value.* == .name) {
+            const module_name = attr.value.name.id;
+            const class_name = attr.attr;
+            if (imports.isKnownClassType(module_name, class_name)) {
+                for (assign.targets) |target| {
+                    if (target == .name) {
+                        try self.imported_class_types.put(target.name.id, {});
+                    }
+                }
             }
         }
     }

@@ -236,6 +236,7 @@ pub const TestFactoryInfo = struct {
 pub const CodegenMode = enum {
     script, // Has main(), runs directly
     module, // Exports functions, no main()
+    logic_table_only, // Only emit @logic_table structs (no runtime, for LanceQL)
 };
 
 /// Error set for code generation
@@ -657,6 +658,10 @@ pub const NativeCodegen = struct {
     // Used to detect when a variable holds a PyValue callable for .call() generation
     pyvalue_vars: FnvVoidMap,
 
+    // Track variables that are imported class types (e.g., Fraction from fractions)
+    // These need .init() instantiation instead of .call()
+    imported_class_types: FnvVoidMap,
+
     // Track base class for nested classes (maps class name -> base class name)
     // Used to provide default args when calling BadIndex() where BadIndex(int)
     nested_class_bases: FnvStringMap,
@@ -1060,6 +1065,7 @@ pub const NativeCodegen = struct {
             .hoisted_local_classes = FnvStringMap.init(aa),
             .bigint_vars = FnvVoidMap.init(aa),
             .pyvalue_vars = FnvVoidMap.init(aa),
+            .imported_class_types = FnvVoidMap.init(aa),
             .nested_class_bases = FnvStringMap.init(aa),
             .nested_class_defs = FnvClassDefMap.init(aa),
             .nested_class_method_needs_alloc = FnvVoidMap.init(aa),
@@ -1620,6 +1626,38 @@ pub const NativeCodegen = struct {
                         // Direct imports (import X) are also known - let dispatch handle them
                         if (self.imported_modules.contains(var_name)) {
                             return false;
+                        }
+                        // From-imports (from X import Y) are also known - let dispatch handle them
+                        if (self.module_level_from_imports.contains(var_name)) {
+                            return false;
+                        }
+                        // Local from-imports are also known
+                        if (self.local_from_imports.contains(var_name)) {
+                            return false;
+                        }
+                        // Nested class names (classes defined inside functions) are known
+                        if (self.nested_class_names.contains(var_name)) {
+                            return false;
+                        }
+                        // User-defined class names (start with uppercase) are typically defined in the same file
+                        // This handles module-level classes like "B.register(V)" from ABC metaclass
+                        if (var_name.len > 0 and std.ascii.isUpper(var_name[0])) {
+                            // Check it's not a known builtin type that looks like a class
+                            const builtin_types = [_][]const u8{
+                                "TypeError", "ValueError", "RuntimeError", "KeyError",
+                                "IndexError", "AttributeError", "ZeroDivisionError",
+                                "StopIteration", "NotImplementedError", "AssertionError",
+                            };
+                            var is_exception = false;
+                            for (builtin_types) |bt| {
+                                if (std.mem.eql(u8, var_name, bt)) {
+                                    is_exception = true;
+                                    break;
+                                }
+                            }
+                            if (!is_exception) {
+                                return false; // Likely a user-defined class
+                            }
                         }
                         // If receiver type is uncertain, we can't statically dispatch
                         if (self.isVarUncertain(var_name)) {

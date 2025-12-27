@@ -1070,6 +1070,35 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             return;
         }
 
+        // Handle imported class types: Fraction(1, 2) -> Fraction.init(1, 2)
+        // These are struct types from runtime modules that need .init() instantiation
+        if (self.imported_class_types.contains(raw_func_name)) {
+            // Check for starred args: R(*tuple) -> R.init(tuple[0], tuple[1])
+            const has_starred = for (call.args) |arg| {
+                if (arg == .starred) break true;
+            } else false;
+
+            if (has_starred and call.args.len == 1 and call.args[0] == .starred) {
+                // Single starred arg - unpack tuple for 2-arg init (Fraction, etc.)
+                // Generate: blk: { const __t = expr; break :blk R.init(__t.@"0", __t.@"1"); }
+                const starred_value = call.args[0].starred.value.*;
+                try self.emit("__starred_blk: { const __starred_t = ");
+                try genExpr(self, starred_value);
+                try self.emit("; break :__starred_blk ");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+                try self.emit(".init(__starred_t.@\"0\", __starred_t.@\"1\"); }");
+            } else {
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+                try self.emit(".init(");
+                for (call.args, 0..) |arg, i| {
+                    if (i > 0) try self.emit(", ");
+                    try genExpr(self, arg);
+                }
+                try self.emit(")");
+            }
+            return;
+        }
+
         // Check if this is a PyValue callable (from runtime.eval of lambda or VM fallback)
         // PyValue callables need to use .call() method with PyValue array argument
         // Check pyvalue_vars FIRST - this is tracked during assignment codegen (more reliable)

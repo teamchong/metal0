@@ -242,6 +242,7 @@ pub const ContextManager = struct {
         args: []const []const u8 = &[_][]const u8{},
 
         // SyntaxError-specific attributes
+        filename: ?[]const u8 = null,
         offset: ?i64 = null,
         lineno: ?i64 = null,
         text: ?[]const u8 = null,

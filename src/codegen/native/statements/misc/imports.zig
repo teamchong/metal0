@@ -7,6 +7,32 @@ const CodegenError = @import("../../main.zig").CodegenError;
 const builder_mod = @import("codegen.builder");
 const ZigBuilder = builder_mod.ZigBuilder;
 
+/// Known runtime class types that need .init() instantiation instead of .call()
+/// Maps module name -> class name -> true
+const KNOWN_CLASS_TYPES = .{
+    .{ "fractions", &[_][]const u8{"Fraction"} },
+    .{ "decimal", &[_][]const u8{"Decimal"} },
+    .{ "datetime", &[_][]const u8{ "datetime", "date", "time", "timedelta" } },
+    .{ "pathlib", &[_][]const u8{ "Path", "PurePath", "PosixPath", "WindowsPath" } },
+    .{ "collections", &[_][]const u8{ "Counter", "OrderedDict", "ChainMap", "defaultdict" } },
+    .{ "re", &[_][]const u8{"Pattern"} },
+};
+
+/// Check if a module.name combination is a known class type needing .init()
+pub fn isKnownClassType(module_name: []const u8, name: []const u8) bool {
+    inline for (KNOWN_CLASS_TYPES) |entry| {
+        if (std.mem.eql(u8, module_name, entry[0])) {
+            const class_names: []const []const u8 = entry[1];
+            for (class_names) |class_name| {
+                if (std.mem.eql(u8, name, class_name)) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 /// Generate import statement: import module
 /// For module-level imports, this is handled in PHASE 3
 /// For local imports (inside functions), we need to generate const bindings
@@ -111,6 +137,19 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
 /// Local imports (inside functions) need to generate const bindings
 pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenError!void {
     const module_name = import.module;
+
+    // Track known class types that need .init() instantiation
+    // This must happen for ALL imports (module-level and local)
+    for (import.names, 0..) |name, i| {
+        const name_alias = if (i < import.asnames.len and import.asnames[i] != null)
+            import.asnames[i].?
+        else
+            name;
+
+        if (isKnownClassType(module_name, name_alias) or isKnownClassType(module_name, name)) {
+            try self.imported_class_types.put(name_alias, {});
+        }
+    }
 
     // Check if module was marked as unavailable (e.g., winreg on Mac)
     // Use VM fallback to import at runtime - drop-in CPython replacement

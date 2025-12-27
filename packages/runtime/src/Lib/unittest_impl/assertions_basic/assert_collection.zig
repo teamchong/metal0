@@ -69,6 +69,17 @@ pub fn assertIn(item: anytype, container: anytype) !void {
             }
         } else if (comptime container_info == .pointer) {
             break :elem_blk false;
+        } else if (comptime container_info == .optional) {
+            // Handle optional types - unwrap and iterate if present
+            if (container) |unwrapped| {
+                const unwrapped_info = @typeInfo(@TypeOf(unwrapped));
+                if (comptime unwrapped_info == .pointer and unwrapped_info.pointer.size == .slice) {
+                    for (unwrapped) |elem| {
+                        if (pythonEql(elem, item)) break :elem_blk true;
+                    }
+                }
+            }
+            break :elem_blk false;
         } else {
             for (container) |elem| {
                 if (pythonEql(elem, item)) break :elem_blk true;
@@ -139,6 +150,17 @@ pub fn assertNotIn(item: anytype, container: anytype) !void {
                 break :elem_blk false;
             }
         } else if (comptime container_info == .pointer) {
+            break :elem_blk false;
+        } else if (comptime container_info == .optional) {
+            // Handle optional types - unwrap and iterate if present
+            if (container) |unwrapped| {
+                const unwrapped_info = @typeInfo(@TypeOf(unwrapped));
+                if (comptime unwrapped_info == .pointer and unwrapped_info.pointer.size == .slice) {
+                    for (unwrapped) |elem| {
+                        if (pythonEql(elem, item)) break :elem_blk true;
+                    }
+                }
+            }
             break :elem_blk false;
         } else {
             for (container) |elem| {

@@ -37,12 +37,19 @@ pub fn evalCached(allocator: std.mem.Allocator, source: []const u8) !*PyObject {
     }
 
     // Check cache first (thread-safe)
+    // Use acquire() to increment refcount - prevents eviction during execution
     cache_mutex.lock();
-    const cached = if (lru_cache) |*cache| cache.get(source) else null;
+    const cached = if (lru_cache) |*cache| cache.acquire(source) else null;
     cache_mutex.unlock();
 
     if (cached) |program| {
         // Cache hit - execute bytecode
+        // program is safe to use because refcount prevents eviction
+        defer {
+            cache_mutex.lock();
+            if (lru_cache) |*cache| cache.release(program);
+            cache_mutex.unlock();
+        }
         return execution.executeTarget(allocator, program);
     }
 
@@ -57,19 +64,21 @@ pub fn evalCached(allocator: std.mem.Allocator, source: []const u8) !*PyObject {
         return err;
     };
 
-    // Store in cache (thread-safe, LRU handles eviction)
+    // Store in cache and acquire reference (thread-safe, LRU handles eviction)
     cache_mutex.lock();
     if (lru_cache) |*cache| {
         try cache.put(source, program);
     }
-    cache_mutex.unlock();
-
-    // Get the cached program to return (since put may have stored a copy)
-    cache_mutex.lock();
-    const stored = if (lru_cache) |*cache| cache.get(source) else null;
+    // Acquire the stored program before unlocking
+    const stored = if (lru_cache) |*cache| cache.acquire(source) else null;
     cache_mutex.unlock();
 
     if (stored) |p| {
+        defer {
+            cache_mutex.lock();
+            if (lru_cache) |*cache| cache.release(p);
+            cache_mutex.unlock();
+        }
         return execution.executeTarget(allocator, p);
     }
     return error.CacheFailed;
@@ -135,12 +144,19 @@ pub fn evalWithScope(
     }
 
     // Check cache first (thread-safe)
+    // Use acquire() to increment refcount - prevents eviction during execution
     cache_mutex.lock();
-    const cached = if (lru_cache) |*cache| cache.get(source) else null;
+    const cached = if (lru_cache) |*cache| cache.acquire(source) else null;
     cache_mutex.unlock();
 
     if (cached) |program| {
         // Cache hit - execute bytecode with scope
+        // program is safe to use because refcount prevents eviction
+        defer {
+            cache_mutex.lock();
+            if (lru_cache) |*cache| cache.release(program);
+            cache_mutex.unlock();
+        }
         return execution.executeWithScope(allocator, program, globals, locals);
     }
 
@@ -149,19 +165,21 @@ pub fn evalWithScope(
         return err;
     };
 
-    // Store in cache (thread-safe, LRU handles eviction)
+    // Store in cache and acquire reference (thread-safe, LRU handles eviction)
     cache_mutex.lock();
     if (lru_cache) |*cache| {
         try cache.put(source, program);
     }
-    cache_mutex.unlock();
-
-    // Get the cached program to return (since put may have stored a copy)
-    cache_mutex.lock();
-    const stored = if (lru_cache) |*cache| cache.get(source) else null;
+    // Acquire the stored program before unlocking
+    const stored = if (lru_cache) |*cache| cache.acquire(source) else null;
     cache_mutex.unlock();
 
     if (stored) |p| {
+        defer {
+            cache_mutex.lock();
+            if (lru_cache) |*cache| cache.release(p);
+            cache_mutex.unlock();
+        }
         return execution.executeWithScope(allocator, p, globals, locals);
     }
     return error.CacheFailed;

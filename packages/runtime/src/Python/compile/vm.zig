@@ -50,6 +50,7 @@ pub const VM = struct {
                         .bytes => |b| try createPyBytes(self.allocator, b),
                         .bool => |b| try PyBool.create(self.allocator, b),
                         .bigint => |s| try PyBigInt.create(self.allocator, s),
+                        .none => @import("../../cpython.zig").Py_None,
                     };
                     try self.stack.append(self.allocator, obj);
                 },
