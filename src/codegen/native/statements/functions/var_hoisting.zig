@@ -703,6 +703,24 @@ fn analyzeIterElementType(iter_expr: *const ast.Node) []const u8 {
     };
 }
 
+/// Check if an expression tree contains any float constant.
+/// Used to determine if a binop should return f64 instead of UnifiedInt.
+fn exprContainsFloat(expr: *const ast.Node) bool {
+    return switch (expr.*) {
+        .constant => |c| c.value == .float,
+        .binop => |b| exprContainsFloat(b.left) or exprContainsFloat(b.right),
+        .unaryop => |u| exprContainsFloat(u.operand),
+        .call => |c| blk: {
+            // float() builtin returns float
+            if (c.func.* == .name and std.mem.eql(u8, c.func.name.id, "float")) {
+                break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 /// Infer a fallback type when @TypeOf can't be used due to forward references.
 /// This provides a reasonable default based on the expression shape and source context.
 pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedSource) []const u8 {
@@ -813,11 +831,16 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
                 if (b.op == .Div) {
                     return "f64";
                 }
-                // If either operand is float, result is float
+                // If either operand is float constant, result is float
                 if (b.left.* == .constant and b.left.constant.value == .float) {
                     return "f64";
                 }
                 if (b.right.* == .constant and b.right.constant.value == .float) {
+                    return "f64";
+                }
+                // Recursively check nested binops for float constants
+                // e.g., dot + a[i] * b[i] where the nested binop may have float operands
+                if (exprContainsFloat(b.left) or exprContainsFloat(b.right)) {
                     return "f64";
                 }
                 // Use UnifiedInt for binops that may overflow or involve uncertain types

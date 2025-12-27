@@ -1690,6 +1690,33 @@ pub const NativeCodegen = struct {
                                 return false; // Likely a user-defined class
                             }
                         }
+                        // EXCEPTION: unittest assertion methods (self.assertEqual, test_self.assertTrue, etc.)
+                        // These should be handled by the native dispatch, not VM fallback
+                        // Check if var_name is the current method's first param (Python's "self")
+                        if (self.current_method_first_param) |first_param| {
+                            if (std.mem.eql(u8, var_name, first_param) or std.mem.eql(u8, var_name, "self")) {
+                                // Check if method being called is a unittest assertion
+                                const method_name = attr.attr;
+                                const unittest_methods = [_][]const u8{
+                                    "assertEqual",        "assertNotEqual",     "assertTrue",
+                                    "assertFalse",        "assertIs",           "assertIsNot",
+                                    "assertIsNone",       "assertIsNotNone",    "assertIn",
+                                    "assertNotIn",        "assertRaises",       "assertRaisesRegex",
+                                    "assertWarns",        "assertWarnsRegex",   "assertGreater",
+                                    "assertGreaterEqual", "assertLess",         "assertLessEqual",
+                                    "assertAlmostEqual",  "assertNotAlmostEqual", "assertSequenceEqual",
+                                    "assertListEqual",    "assertTupleEqual",   "assertSetEqual",
+                                    "assertDictEqual",    "assertMultiLineEqual", "assertCountEqual",
+                                    "assertRegex",        "assertNotRegex",     "subTest",
+                                    "skipTest",           "fail",
+                                };
+                                for (unittest_methods) |ut_method| {
+                                    if (std.mem.eql(u8, method_name, ut_method)) {
+                                        return false; // Native dispatch handles unittest methods
+                                    }
+                                }
+                            }
+                        }
                         // If receiver type is uncertain, we can't statically dispatch
                         if (self.isVarUncertain(var_name)) {
                             return true;
@@ -2140,6 +2167,8 @@ pub const NativeCodegen = struct {
                         if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_v_") != null) break :blk renamed;
                         // Closure captures (__m*_c_*)
                         if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_c_") != null) break :blk renamed;
+                        // Shadow variables for type-changing assignments (__m*_s_*) - e.g., x /= 2 changes int to float
+                        if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_s_") != null) break :blk renamed;
                     }
                     // Local vars/params take precedence - don't rename them
                     if (self.func_local_vars.contains(orig_name)) break :blk orig_name;
@@ -2171,6 +2200,9 @@ pub const NativeCodegen = struct {
                 const expressions = @import("../expressions.zig");
                 const start = self.output.items.len;
                 try expressions.genExpr(self, node);
+                // Flush builder to ensure any pending output (from modules using builder)
+                // gets written to self.output before we capture the result
+                try self.flushBuilder();
                 const expr_str = try self.arena.allocator().dupe(u8, self.output.items[start..]);
                 self.output.shrinkRetainingCapacity(start);
                 return builder_mod.ZigValue.raw(expr_str);
@@ -2558,6 +2590,10 @@ pub const NativeCodegen = struct {
 
         // Generate the expression into the output buffer
         try expressions.genExpr(self, expr);
+
+        // Flush builder to ensure any pending output (from modules using builder)
+        // gets written to self.output before we capture the result
+        try self.flushBuilder();
 
         // Extract the generated code
         const generated = self.output.items[start_pos..];

@@ -118,6 +118,19 @@ const ModuleFuncsReturningValues = std.StaticStringMap(void).initComptime(.{
     .{ "collections.Counter", {} },
     .{ "collections.deque", {} },
     .{ "collections.OrderedDict", {} },
+    // gc module
+    .{ "gc.get_referents", {} },
+    .{ "gc.get_referrers", {} },
+    .{ "gc.get_objects", {} },
+    .{ "gc.isenabled", {} },
+    .{ "gc.is_tracked", {} },
+    .{ "gc.is_finalized", {} },
+    .{ "gc.get_threshold", {} },
+    .{ "gc.get_count", {} },
+    .{ "gc.get_stats", {} },
+    .{ "gc.get_debug", {} },
+    .{ "gc.collect", {} },
+    .{ "gc.get_freeze_count", {} },
 });
 
 /// Check if a module.function combination returns a value

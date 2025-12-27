@@ -30,6 +30,9 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 const function_generators = @import("statements/functions/generators.zig");
+const signature = @import("statements/functions/generators/signature.zig");
+const gen_body = @import("statements/functions/generators/body.zig");
+const function_traits = @import("analysis.function_traits");
 
 /// Check if a class has @logic_table decorator
 pub fn hasLogicTableDecorator(class: ast.Node.ClassDef) bool {
@@ -81,6 +84,10 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
     try self.emitIndent();
     try self.emit("pub const __logic_table__ = true;\n\n");
 
+    // Emit init function for instantiation (returns self/undefined since methods are static)
+    try self.emitIndent();
+    try self.emit("pub fn init(_: std.mem.Allocator) !@This() { return .{}; }\n\n");
+
     // Set flag so genFunctionSignature emits 'pub fn'
     self.in_logic_table_class = true;
     defer self.in_logic_table_class = false;
@@ -89,7 +96,9 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
     var methods: std.ArrayListUnmanaged(MethodInfo) = .{};
     defer methods.deinit(allocator);
 
-    // Generate methods using existing codegen
+    // Generate methods using existing class method codegen
+    // Use genMethodSignatureWithSkip + genMethodBodyWithAllocatorInfo
+    // which properly handles self parameter (as staticmethod since @logic_table methods are pure functions)
     for (class.body) |stmt| {
         if (stmt == .function_def) {
             const method = stmt.function_def;
@@ -99,8 +108,17 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
 
             try methods.append(allocator, .{ .name = method.name, .func = method });
 
-            // Use existing function generator - handles ALL Python syntax
-            try function_generators.genFunctionDef(self, method);
+            // Check if method needs allocator (for error handling, string ops, etc.)
+            const needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
+            const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(method, class.name);
+
+            // Generate method signature - treat as staticmethod since @logic_table methods are pure functions
+            // The mutates_self=false since we don't have a real self
+            // NOTE: For @logic_table, methods don't use self, so we generate them as static methods
+            try signature.genMethodSignatureWithSkip(self, class.name, method, false, needs_allocator, false, actually_uses_allocator);
+
+            // Generate method body
+            try gen_body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
         }
     }
 
@@ -134,7 +152,7 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
 /// Generate a C-callable export wrapper for a struct method
 /// This allows the method to be called from C/external code via dlsym
 fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: []const u8, func: ast.Node.FunctionDef) CodegenError!void {
-    // Export wrapper signature: export fn ClassName_methodName(args...) callconv(.C) ReturnType
+    // Export wrapper signature: export fn ClassName_methodName(args...) callconv(.c) ReturnType
     try self.emitFmt("export fn {s}_{s}(", .{ class_name, method_name });
 
     // Generate parameters (skip 'self' which is the first parameter)
@@ -202,10 +220,11 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
     self.indent_level += 1;
 
     // Generate call to struct method
-    // The struct method has signature: fn(self, args...)
-    // For static functions without self state, pass undefined for self
+    // The struct method has signature: fn(self, allocator, args...) !ReturnType
+    // Pass undefined for self since @logic_table methods don't actually use it
+    // Use catch to convert error union to plain value (return 0/NaN on error)
     try self.emitIndent();
-    try self.emitFmt("return {s}.{s}(undefined", .{ class_name, method_name });
+    try self.emitFmt("return {s}.{s}(undefined, __global_allocator", .{ class_name, method_name });
 
     // Forward parameters
     for (func.args) |arg| {
@@ -223,7 +242,8 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
         }
     }
 
-    try self.emit(");\n");
+    // Use catch to handle errors - return 0 or NaN on error
+    try self.emit(") catch 0.0;\n");
 
     self.indent_level -= 1;
     try self.emitIndent();

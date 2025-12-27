@@ -1552,10 +1552,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 for (captured_vars) |var_name| {
                     try self.emit(", &");
                     // Use renamed variable if inside TryHelper or other scope
+                    // IMPORTANT: Use writeLocalVarName to escape Zig keywords (e.g., test -> @"test")
                     if (self.var_renames.get(var_name)) |renamed| {
-                        try self.emit(renamed);
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
                     } else {
-                        try self.emit(var_name);
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                     }
                 }
             }

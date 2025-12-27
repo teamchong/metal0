@@ -401,6 +401,9 @@ pub fn compileLogicTableOnly(allocator: std.mem.Allocator, input_file: []const u
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, input_file);
     defer native_gen.deinit();
 
+    // Enable export wrapper generation for @logic_table classes
+    native_gen.emit_logic_table_exports = true;
+
     try native_gen.buildCallGraph(tree.module);
     const full_code = try native_gen.generate(tree.module);
 

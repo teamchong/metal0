@@ -115,6 +115,8 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_p_") != null) break :blk renamed;
                     // Also check for mutable param copies (__m*_v_*)
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_v_") != null) break :blk renamed;
+                    // Shadow variables for type-changing assignments (__m*_s_*) - e.g., x /= 2 changes int to float
+                    if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_s_") != null) break :blk renamed;
                 }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
                 if (self.func_local_vars.contains(n.id)) break :blk n.id;
