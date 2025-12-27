@@ -410,6 +410,72 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     }
 }
 
+/// Compile Zig source code to static library (.a)
+/// Used for @logic_table output that can be linked into other projects
+pub fn compileZigStaticLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8) !void {
+    // Use arena for all intermediate allocations
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const aa = arena.allocator();
+
+    try build_dirs.init();
+    const build_dir = build_dirs.CACHE;
+
+    // Write Zig code to temporary file
+    const out_basename = std.fs.path.basename(output_path);
+    const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/logic_table_{s}_{d}.zig", .{ build_dir, out_stem, std.time.milliTimestamp() });
+
+    const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
+    defer tmp_file.close();
+    try tmp_file.writeAll(zig_code);
+
+    // Shell out to zig build-lib (static)
+    const zig_path = try findZigBinary(aa);
+    const output_flag = try std.fmt.allocPrint(aa, "-femit-bin={s}", .{output_path});
+
+    var args = std.ArrayList([]const u8){};
+
+    try args.append(aa, zig_path);
+    try args.append(aa, "build-lib");
+
+    // Add all module definitions including main (runtime, c_interop, etc.)
+    try buildModuleFlags(aa, &args, tmp_path);
+
+    try args.append(aa, "-OReleaseFast");
+    try args.append(aa, "-fno-stack-check");
+    // No -dynamic flag = static library
+    try args.append(aa, "-lc");
+
+    // Add Accelerate framework on macOS for numpy/scipy operations
+    if (builtin.os.tag == .macos) {
+        try args.append(aa, "-framework");
+        try args.append(aa, "Accelerate");
+    }
+
+    try args.append(aa, output_flag);
+
+    const argv = try args.toOwnedSlice(aa);
+
+    const result = try std.process.Child.run(.{
+        .allocator = aa,
+        .argv = argv,
+    });
+
+    switch (result.term) {
+        .Exited => |code| {
+            if (code != 0) {
+                std.debug.print("Static lib compilation failed:\n{s}\n", .{result.stderr});
+                return error.ZigCompilationFailed;
+            }
+        },
+        .Signal, .Stopped, .Unknown => {
+            std.debug.print("Static lib compilation terminated abnormally:\n{s}\n", .{result.stderr});
+            return error.ZigCompilationFailed;
+        },
+    }
+}
+
 /// Compile Zig source code to WASM binary with target selection
 pub fn compileWasmWithTarget(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, target: @import("main.zig").CompileOptions.Target, exports: []const []const u8) !void {
     return compileWasmInternal(allocator, zig_code, output_path, target, exports);
