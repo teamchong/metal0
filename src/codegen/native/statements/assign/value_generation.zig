@@ -347,6 +347,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 const var_name = target.name.id;
                 // Skip discard pattern
                 if (std.mem.eql(u8, var_name, "_")) continue;
+                // Skip variables that were not declared (unused in tuple unpacking)
+                // These were discarded earlier and never declared, so we can't reference them
+                if (self.isVarUnused(var_name)) continue;
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
@@ -578,6 +581,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 const var_name = target.name.id;
                 // Skip discard pattern
                 if (std.mem.eql(u8, var_name, "_")) continue;
+                // Skip variables that were not declared (unused in list unpacking)
+                // These were discarded earlier and never declared, so we can't reference them
+                if (self.isVarUnused(var_name)) continue;
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);

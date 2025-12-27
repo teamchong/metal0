@@ -1833,6 +1833,47 @@ pub const PyValue = union(enum) {
             else => 0,
         };
     }
+
+    // ============================================================================
+    // Context Manager Protocol (__enter__ / __exit__)
+    // ============================================================================
+
+    /// Context manager __enter__ - returns self for simple context managers
+    /// For VM fallback results, this provides minimal context manager support
+    pub fn __enter__(self: PyValue, allocator: std.mem.Allocator) !PyValue {
+        _ = allocator;
+        // For most PyValue types, __enter__ just returns self
+        // Object types may have custom __enter__ methods via vtable
+        switch (self) {
+            .object => |obj| {
+                // Try to call __enter__ on the underlying object if it exists
+                if (obj.vtable.__call__) |call_fn| {
+                    _ = call_fn;
+                    // Context managers typically just return self
+                }
+                return self;
+            },
+            else => return self,
+        }
+    }
+
+    /// Context manager __exit__ - cleanup method
+    /// For VM fallback results, this provides minimal context manager support
+    pub fn __exit__(self: PyValue, allocator: std.mem.Allocator, exc_type: ?PyValue, exc_val: ?PyValue, exc_tb: ?PyValue) !bool {
+        _ = allocator;
+        _ = exc_type;
+        _ = exc_val;
+        _ = exc_tb;
+        // For most PyValue types, __exit__ does nothing and returns false
+        // (meaning exceptions should propagate)
+        switch (self) {
+            .object => |_| {
+                // Object types may have custom __exit__ methods
+                return false;
+            },
+            else => return false,
+        }
+    }
 };
 
 /// Convert any value to PyValue (single-anytype function, O(n) instantiations)

@@ -112,6 +112,36 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
     try self.output.appendSlice(self.allocator, output);
 }
 
+/// Generate source string expression for eval/exec
+/// Handles BinOp string/bytes concat specially using std.mem.concat
+/// Regular strings/expressions use genExpr
+fn genEvalSource(codegen: *NativeCodegen, source: ast.Node) CodegenError!void {
+    switch (source) {
+        .binop => |b| {
+            // Check if this is an Add operation (string/bytes concatenation)
+            // For eval/exec source args, Add should always be string concat
+            if (b.op == .Add) {
+                const left = b.left.*;
+                const right = b.right.*;
+
+                // Generate: try std.mem.concat(__global_allocator, u8, &.{ left, right })
+                try codegen.emit("try std.mem.concat(__global_allocator, u8, &.{ ");
+                try genEvalSource(codegen, left);
+                try codegen.emit(", ");
+                try genEvalSource(codegen, right);
+                try codegen.emit(" })");
+                return;
+            }
+            // For non-Add binops, fall through to genExpr
+            try codegen.genExpr(source);
+        },
+        else => {
+            // For non-binop expressions, use normal genExpr
+            try codegen.genExpr(source);
+        },
+    }
+}
+
 /// Generate code for eval(source, [globals, [locals]])
 /// Calls runtime.eval() or runtime.evalWithScope() which uses bytecode VM
 /// Returns *runtime.PyObject that can be used with len(), pyObjToInt(), etc.
@@ -129,7 +159,7 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Generate: runtime.PyValue.from(try runtime.evalWithScope(...))
         // Wrap result in PyValue since eval returns *PyObject
         try self.emitFmt("runtime.PyValue.from({s}runtime.evalWithScope(__global_allocator, ", .{try_expr});
-        try self.genExpr(args[0]);
+        try genEvalSource(self, args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]); // globals
         try self.emit(", ");
@@ -144,7 +174,7 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Generate: runtime.PyValue.from(try runtime.eval(...))
         // Wrap result in PyValue since eval returns *PyObject
         try self.emitFmt("runtime.PyValue.from({s}runtime.eval(__global_allocator, ", .{try_expr});
-        try self.genExpr(args[0]);
+        try genEvalSource(self, args[0]);
         try self.emitFmt("){s})", .{catch_expr});
     }
 }
@@ -160,7 +190,7 @@ pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // exec(source, globals, [locals])
         // Generate: try runtime.execWithScope(__global_allocator, source, globals, locals)
         try self.emit("try runtime.execWithScope(__global_allocator, ");
-        try self.genExpr(args[0]);
+        try genEvalSource(self, args[0]);
         try self.emit(", ");
         try self.genExpr(args[1]); // globals
         try self.emit(", ");
@@ -174,7 +204,7 @@ pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // exec(source) - no scope args
         // Generate: try runtime.exec(__global_allocator, source_code)
         try self.emit("try runtime.exec(__global_allocator, ");
-        try self.genExpr(args[0]);
+        try genEvalSource(self, args[0]);
         try self.emit(")");
     }
 }
