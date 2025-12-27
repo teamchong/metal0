@@ -12,11 +12,19 @@ pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("return error.TypeError");
         return;
     }
-    try self.emit("runtime.getattr_builtin(");
+    // Use comptime type check to handle both struct types (staticmethod, classmethod)
+    // and *PyObject types
+    const id = self.nextNameId();
+    try self.emitFmt("__m{d}_getattr: {{ const __ga_obj = ", .{id});
     try self.genExpr(args[0]); // object
-    try self.emit(", ");
+    try self.emit("; const __ga_name = ");
     try self.genExpr(args[1]); // name
-    try self.emit(")");
+    try self.emit("; const __ga_info = @typeInfo(@TypeOf(__ga_obj)); ");
+    try self.emitFmt("break :__m{d}_getattr if (__ga_info == .@\"struct\") ", .{id});
+    try self.emit("runtime.structGetattr(__ga_obj, __ga_name) ");
+    try self.emit("else if (__ga_info == .pointer and @typeInfo(__ga_info.pointer.child) == .@\"struct\") ");
+    try self.emit("runtime.structGetattr(__ga_obj, __ga_name) ");
+    try self.emit("else runtime.getattr_builtin(__ga_obj, __ga_name); }");
 }
 
 pub fn genSetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {

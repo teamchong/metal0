@@ -366,6 +366,13 @@ pub fn pyIdentical(a: anytype, b: anytype) bool {
 fn pyIdenticalSameType(comptime T: type, a: T, b: T) bool {
     const info = @typeInfo(T);
 
+    // Handle optional types by unwrapping
+    if (info == .optional) {
+        if (a == null and b == null) return true;
+        if (a == null or b == null) return false;
+        return pyIdenticalSameType(info.optional.child, a.?, b.?);
+    }
+
     // Pointers: compare addresses directly
     if (info == .pointer) {
         return a == b;
@@ -389,6 +396,15 @@ fn pyIdenticalSameType(comptime T: type, a: T, b: T) bool {
     // Arrays: compare addresses (same backing storage means identity)
     if (info == .array) {
         return &a == &b;
+    }
+
+    // Unions: use .eql if available
+    if (info == .@"union") {
+        if (@hasDecl(T, "eql")) {
+            return a.eql(b);
+        }
+        // For unions without eql, fall back to byte comparison
+        return @as([@sizeOf(T)]u8, @bitCast(a)) == @as([@sizeOf(T)]u8, @bitCast(b));
     }
 
     // Primitives: identity == equality

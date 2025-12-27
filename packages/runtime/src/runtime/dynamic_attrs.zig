@@ -248,6 +248,75 @@ pub fn dir_builtin(obj: anytype) []const []const u8 {
     return getTypeAttrs(T);
 }
 
+/// Generic struct attribute access using comptime reflection
+/// Works with any struct type (staticmethod, classmethod, custom classes, etc.)
+/// Returns the field value wrapped in a PyValue if found, null otherwise
+pub fn structGetattr(obj: anytype, name: []const u8) ?@import("../Objects/object.zig").PyValue {
+    const T = @TypeOf(obj);
+    const info = @typeInfo(T);
+
+    // Handle pointers - dereference
+    if (info == .pointer) {
+        const Child = info.pointer.child;
+        const child_info = @typeInfo(Child);
+        if (child_info == .@"struct") {
+            return structGetattrImpl(Child, obj.*, name);
+        }
+        return null;
+    }
+
+    // Handle structs directly
+    if (info == .@"struct") {
+        return structGetattrImpl(T, obj, name);
+    }
+
+    return null;
+}
+
+fn structGetattrImpl(comptime T: type, obj: T, name: []const u8) ?@import("../Objects/object.zig").PyValue {
+    const PyValueObj = @import("../Objects/object.zig").PyValue;
+    const ObjectInstance = PyValueObj.ObjectInstance;
+    const fields = @typeInfo(T).@"struct".fields;
+
+    // Use inline for to iterate fields at comptime
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, field.name, name)) {
+            const value = @field(obj, field.name);
+            // Convert to PyValue based on type
+            const FieldT = @TypeOf(value);
+            const field_info = @typeInfo(FieldT);
+
+            if (FieldT == []const u8) {
+                return PyValueObj{ .string = value };
+            } else if (FieldT == ?[]const u8) {
+                if (value) |v| {
+                    return PyValueObj{ .string = v };
+                }
+                return PyValueObj.none;
+            } else if (field_info == .int or field_info == .comptime_int) {
+                return PyValueObj{ .int = @intCast(value) };
+            } else if (field_info == .float or field_info == .comptime_float) {
+                return PyValueObj{ .float = @floatCast(value) };
+            } else if (FieldT == bool) {
+                return PyValueObj{ .boolean = value };
+            } else if (FieldT == PyValueObj) {
+                return value;
+            } else if (FieldT == ObjectInstance) {
+                // ObjectInstance is already a class instance wrapper
+                return PyValueObj{ .class_instance = value };
+            } else if (field_info == .pointer) {
+                // Pointer types can be wrapped directly
+                return PyValueObj{ .object = @ptrCast(@constCast(value)) };
+            } else {
+                // For non-pointer types, return none (can't safely wrap)
+                return PyValueObj.none;
+            }
+        }
+    }
+
+    return null;
+}
+
 fn getTypeAttrs(comptime T: type) []const []const u8 {
     const info = @typeInfo(T);
 

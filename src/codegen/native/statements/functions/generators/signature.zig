@@ -843,8 +843,8 @@ pub fn genFunctionSignature(
         // Export functions for WASM (except main which becomes _start)
         try self.emit("export fn ");
     } else if (self.in_logic_table_class) {
-        // @logic_table methods need pub for external linking
-        try self.emit("pub fn ");
+        // @logic_table methods need export for static library linking
+        try self.emit("export fn ");
     } else {
         try self.emit("fn ");
     }

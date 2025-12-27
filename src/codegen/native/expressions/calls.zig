@@ -1145,7 +1145,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Handle anytype parameters that might be types (like staticmethod/classmethod)
         // In Zig, types cannot be called directly - they need .init()
         // Generate: func.init(args) for anytype parameters that are likely types
-        if (is_callable_anytype_param) {
+        // EXCEPTION: If called with starred args (e.g., op(*instances)), it's a function call
+        // not a type constructor - functions like operator.eq need direct call, not .init()
+        const has_starred_args = for (call.args) |arg| {
+            if (arg == .starred) break true;
+        } else false;
+
+        if (is_callable_anytype_param and !has_starred_args) {
             // Use .init() pattern for anytype params - works for types like staticmethod/classmethod
             // that are passed as arguments and then called to construct instances
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
@@ -1162,6 +1168,22 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
 
             try self.emit(")");
+            return;
+        }
+
+        // Handle anytype callable with starred args: op(*instances) -> op(instances.items[0], instances.items[1])
+        // This is for functions like operator.eq passed as anytype params
+        if (is_callable_anytype_param and has_starred_args and call.args.len == 1 and call.args[0] == .starred) {
+            const starred_value = call.args[0].starred.value.*;
+            // Generate: op(instances.items[0], instances.items[1])
+            // For ArrayList, access .items; for other types, assume direct indexing
+            // Note: Don't emit "_ = " here - caller context handles the discard
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+            try self.emit("(");
+            try genExpr(self, starred_value);
+            try self.emit(".items[0], ");
+            try genExpr(self, starred_value);
+            try self.emit(".items[1])");
             return;
         }
 
