@@ -50,6 +50,21 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
                 if (try module_functions.tryDispatch(self, compound_name, func_name, call)) {
                     return true;
                 }
+
+                // Check if root_module is a C extension module (e.g., np.linalg.norm())
+                // Generate call with compound submodule: c_interop.callModuleFunction("numpy.linalg", "norm", ...)
+                if (self.isCExtensionModule(root_module)) {
+                    // Resolve alias to actual module name (e.g., "np" -> "numpy")
+                    const actual_root = self.c_extension_modules.get(root_module) orelse root_module;
+                    var actual_compound_buf: [256]u8 = undefined;
+                    const actual_compound = std.fmt.bufPrint(
+                        &actual_compound_buf,
+                        "{s}.{s}",
+                        .{ actual_root, sub_module },
+                    ) catch return false;
+                    try generateNestedCExtensionCall(self, actual_compound, func_name, call);
+                    return true;
+                }
             }
         }
 
@@ -185,6 +200,32 @@ fn generateCExtensionCall(
     // Use .? to unwrap optional - if null, it means Python call failed
     try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
     try self.emit(actual_module_name);
+    try self.emit("\", \"");
+    try self.emit(func_name);
+    try self.emit("\", .{");
+
+    // Generate arguments as tuple
+    for (call.args, 0..) |arg, i| {
+        if (i > 0) try self.emit(", ");
+        try expressions.genExpr(self, arg);
+    }
+
+    try self.emit("}).?))");
+}
+
+/// Generate call to C extension submodule via Python C API
+/// Example: np.linalg.norm(x) -> c_interop.callModuleFunction("numpy.linalg", "norm", .{args}).?
+fn generateNestedCExtensionCall(
+    self: *NativeCodegen,
+    compound_module: []const u8,
+    func_name: []const u8,
+    call: ast.Node.Call,
+) CodegenError!void {
+    const expressions = @import("expressions.zig");
+
+    // Generate: c_interop.callModuleFunction("module.submodule", "func_name", .{args...}).?
+    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
+    try self.emit(compound_module);
     try self.emit("\", \"");
     try self.emit(func_name);
     try self.emit("\", .{");

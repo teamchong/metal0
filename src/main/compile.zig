@@ -413,6 +413,12 @@ pub fn compileLogicTableOnly(allocator: std.mem.Allocator, input_file: []const u
         \\// Import this file into LanceQL to use compiled @logic_table functions
         \\
         \\const std = @import("std");
+        \\const runtime = @import("runtime");
+        \\const c_interop = @import("c_interop");
+        \\
+        \\// Global allocator for logic_table functions - using GPA for flexibility
+        \\var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};
+        \\pub var __global_allocator: std.mem.Allocator = __gpa.allocator();
         \\
         \\
     );
