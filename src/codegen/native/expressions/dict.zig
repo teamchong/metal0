@@ -453,13 +453,12 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
 /// Generate runtime dict literal (fallback path)
 fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
     // Infer key type from first key (for non-unpacking entries)
-    var uses_int_keys = false;
-    var uses_float_keys = false;
+    // Use getDictKeyType for proper classification (int, string, pyvalue for tuples/bools/etc)
+    var key_classification: type_traits.DictKeyType = .string; // Default to string
     for (dict.keys) |key| {
         if (key != .constant or key.constant.value != .none) {
             const key_type = try self.type_inferrer.inferExpr(key);
-            uses_int_keys = type_traits.isIntegral(key_type);
-            uses_float_keys = type_traits.isFloating(key_type);
+            key_classification = type_traits.getDictKeyType(key_type);
             break;
         }
     }
@@ -499,18 +498,31 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     try self.emit("\n");
     self.indent();
     try self.emitIndent();
-    if (uses_int_keys) {
-        try self.emitFmt("var {s} = std.AutoArrayHashMap(i64, ", .{map_var});
-    } else if (uses_float_keys) {
-        // Floats can't be hashed directly in Zig, use u64 bit representation
-        try self.emitFmt("var {s} = std.AutoArrayHashMap(u64, ", .{map_var});
-    } else {
-        try self.emitFmt("var {s} = hashmap_helper.StringHashMap(", .{map_var});
+    switch (key_classification) {
+        .int => {
+            // Integer keys - use AutoArrayHashMap with i64 key type (has .keys() and .values())
+            try self.emitFmt("var {s} = std.AutoArrayHashMap(i64, ", .{map_var});
+            try val_type.toZigType(self.allocator, &self.output);
+            try self.emit(").init(");
+            try self.emit(alloc_name);
+            try self.emit(");\n");
+        },
+        .string => {
+            // String keys - use StringHashMap
+            try self.emitFmt("var {s} = hashmap_helper.StringHashMap(", .{map_var});
+            try val_type.toZigType(self.allocator, &self.output);
+            try self.emit(").init(");
+            try self.emit(alloc_name);
+            try self.emit(");\n");
+        },
+        .pyvalue => {
+            // Tuple/bool/mixed key types - use PyValueHashMap
+            // PyValueHashMap uses managed ArrayHashMap - requires .init(allocator)
+            try self.emitFmt("var {s} = runtime.PyValueHashMap(runtime.PyValue).init(", .{map_var});
+            try self.emit(alloc_name);
+            try self.emit(");\n");
+        },
     }
-    try val_type.toZigType(self.allocator, &self.output);
-    try self.emit(").init(");
-    try self.emit(alloc_name);
-    try self.emit(");\n");
 
     // Track if we need to convert values to strings
     const need_str_conversion = string_traits.isString(val_type);
@@ -568,40 +580,66 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
 
         try self.emitIndent();
         try self.emitFmt("try {s}.put(", .{map_var});
-        if (uses_float_keys) {
-            // Convert float key to bits for hashing
-            try self.emit("@bitCast(");
-            try genExpr(self, key);
-            try self.emit(")");
-        } else {
-            try genExpr(self, key);
+
+        // Generate key with appropriate conversion
+        switch (key_classification) {
+            .int => {
+                // Cast to i64 for AutoArrayHashMap
+                try self.emit("@as(i64, ");
+                try genExpr(self, key);
+                try self.emit(")");
+            },
+            .string => {
+                try genExpr(self, key);
+            },
+            .pyvalue => {
+                // Convert key to PyValue for PyValueHashMap
+                try self.emit("try runtime.toPyValue(");
+                try self.emit(alloc_name);
+                try self.emit(", ");
+                try genExpr(self, key);
+                try self.emit(")");
+            },
         }
         try self.emit(", ");
 
-        // If dict values are string type and this value isn't string, convert it
-        if (need_str_conversion) {
-            const value_type = try self.type_inferrer.inferExpr(value);
-            if (!string_traits.isString(value_type)) {
-                try genValueToString(self, value, value_type, alloc_name);
-            } else if (has_mixed_types) {
-                // For mixed-type dicts, duplicate ALL strings so we can free uniformly
-                try self.emit("try ");
+        // Generate value with appropriate conversion
+        switch (key_classification) {
+            .pyvalue => {
+                // PyValueHashMap always uses PyValue values
+                try self.emit("try runtime.toPyValue(");
                 try self.emit(alloc_name);
-                try self.emit(".dupe(u8, ");
+                try self.emit(", ");
                 try genExpr(self, value);
                 try self.emit(")");
-            } else {
-                try genExpr(self, value);
-            }
-        } else if (val_type == .pyvalue) {
-            // PyValue: wrap the value with PyValue.fromAlloc()
-            try self.emit("try runtime.PyValue.fromAlloc(");
-            try self.emit(alloc_name);
-            try self.emit(", ");
-            try genExpr(self, value);
-            try self.emit(")");
-        } else {
-            try genExpr(self, value);
+            },
+            else => {
+                // If dict values are string type and this value isn't string, convert it
+                if (need_str_conversion) {
+                    const value_type = try self.type_inferrer.inferExpr(value);
+                    if (!string_traits.isString(value_type)) {
+                        try genValueToString(self, value, value_type, alloc_name);
+                    } else if (has_mixed_types) {
+                        // For mixed-type dicts, duplicate ALL strings so we can free uniformly
+                        try self.emit("try ");
+                        try self.emit(alloc_name);
+                        try self.emit(".dupe(u8, ");
+                        try genExpr(self, value);
+                        try self.emit(")");
+                    } else {
+                        try genExpr(self, value);
+                    }
+                } else if (val_type == .pyvalue) {
+                    // PyValue: wrap the value with PyValue.fromAlloc()
+                    try self.emit("try runtime.PyValue.fromAlloc(");
+                    try self.emit(alloc_name);
+                    try self.emit(", ");
+                    try genExpr(self, value);
+                    try self.emit(")");
+                } else {
+                    try genExpr(self, value);
+                }
+            },
         }
 
         try self.emit(");\n");

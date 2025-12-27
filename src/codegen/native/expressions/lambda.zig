@@ -108,6 +108,21 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
         return;
     }
 
+    // Check if lambda references variables from outer scope (not its parameters)
+    // This check must happen BEFORE the scope-level check, so captured variables
+    // like 'self' are properly handled even when inside a function.
+    const captured_vars = try findCapturedVars(self, lambda);
+    defer self.allocator.free(captured_vars);
+
+    if (captured_vars.len > 0) {
+        // This lambda captures outer variables - treat as closure
+        // genSimpleClosureLambda handles both module-level and inline cases
+        try lambda_closure.genSimpleClosureLambda(self, lambda, captured_vars);
+        // Note: The caller (assignment) needs to mark this variable as a closure
+        // We can't do it here because we don't know the variable name
+        return;
+    }
+
     // FIX: When inside a function scope, use inline lambda
     // Module-level lambdas are stored and emitted in PHASE 8, which happens after
     // function bodies are generated. This causes "undeclared identifier" errors
@@ -117,17 +132,6 @@ pub fn genLambda(self: *NativeCodegen, lambda: ast.Node.Lambda) ClosureError!voi
     const func_name = self.current_function_name;
     if (scope_level > 0 or func_name != null) {
         try genInlineLambda(self, lambda);
-        return;
-    }
-    // Check if lambda references variables from outer scope (not its parameters)
-    const captured_vars = try findCapturedVars(self, lambda);
-    defer self.allocator.free(captured_vars);
-
-    if (captured_vars.len > 0) {
-        // This lambda captures outer variables - treat as closure
-        try lambda_closure.genSimpleClosureLambda(self, lambda, captured_vars);
-        // Note: The caller (assignment) needs to mark this variable as a closure
-        // We can't do it here because we don't know the variable name
         return;
     }
 
