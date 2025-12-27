@@ -376,6 +376,7 @@ pub fn toBoolValue(value: PyValue) bool {
         .string => |s| s.len > 0,
         .none => false,
         .list => |l| l.items.len > 0,
+        .pylist => |l| l.ob_base.ob_size > 0, // CPython list
         .tuple => |t| t.len > 0,
         .bytes => |b| b.data.len > 0,
         .bigint => |b| !b.isZero(),

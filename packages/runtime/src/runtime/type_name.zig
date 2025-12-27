@@ -28,6 +28,7 @@ pub fn pyTypeName(value: anytype) []const u8 {
             .none => "NoneType",
             .not_implemented => "NotImplementedType",
             .list => "list",
+            .pylist => "list", // CPython list also reports as "list"
             .tuple => "tuple",
             .bigint => "int",
             .complex => "complex",

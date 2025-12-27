@@ -25,6 +25,7 @@ pub fn len_builtin(value: anytype) usize {
             .tuple => |tuple| tuple.len,
             .string => |s| s.len,
             .bytes => |b| b.data.len,
+            .pylist => |pylist| @intCast(pylist.ob_base.ob_size),
             else => 0,
         };
     }

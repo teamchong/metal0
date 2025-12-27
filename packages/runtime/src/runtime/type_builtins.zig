@@ -69,11 +69,13 @@ pub fn boolBuiltinCallPyValue(t: PyValue) PythonError!bool {
         .string => |s| s.len > 0,
         .bytes => |b| b.data.len > 0,
         .list => |l| l.items.len > 0,
+        .pylist => |l| l.ob_base.ob_size > 0, // CPython list
         .tuple => |tup| tup.len > 0,
         .none => false,
         .bigint => |bi| !bi.isZero(),
         .complex => |c| c.real != 0.0 or c.imag != 0.0,
-        .ptr => true,
+        .ptr, .type_obj, .object => true,
+        .not_implemented => true,
     };
 }
 
