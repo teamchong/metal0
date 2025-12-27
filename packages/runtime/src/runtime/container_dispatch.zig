@@ -2,6 +2,7 @@
 /// These functions replace inline @TypeOf/@hasField checks with centralized dispatch
 /// Each helper compiles ONCE per element type, not per call site
 const std = @import("std");
+const PyValue = @import("../Objects/object.zig").PyValue;
 
 /// Compare two containers for equality - handles arrays, slices, and structs with .items
 /// This is the unified comparison function for assertEqual on sequences
@@ -280,6 +281,10 @@ pub fn contains(comptime T: type, container: T, value: anytype) bool {
         // Handle type mismatch: f64 value in u64 keyed map (Python float sets use bitcast)
         if (V == f64 and K == u64) {
             return container.contains(@bitCast(value));
+        }
+        // Handle type mismatch: f64/i64/etc value in PyValue container (wrap in PyValue)
+        if (K == PyValue and V != PyValue) {
+            return container.contains(PyValue.from(value));
         }
         // Use the map's built-in contains method
         return container.contains(value);

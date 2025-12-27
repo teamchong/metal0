@@ -293,7 +293,12 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Labeled blocks that break with {} return void even if they contain eval() inside
     // Check both patterns: is_wrapped_labeled_block detects ((__mN_...) and is_labeled_block detects __mN_...:
     const is_labeled_expr = is_wrapped_labeled_block or is_labeled_block or has_labeled_block_pattern;
-    const has_error_return = contains_eval and !is_block_expression and !contains_panic and !is_pyvalue_wrapped and !already_uses_try and !is_labeled_expr;
+    // Check if this is an assertion pattern: "if (!...) return error.AssertionFailed"
+    // Assertions contain try internally but are control flow statements, not error expressions
+    // They should NOT be wrapped with `_ = ... catch {}`
+    const is_assertion_stmt = std.mem.startsWith(u8, trimmed_start, "if (!") and
+        std.mem.endsWith(u8, trimmed_end, "return error.AssertionFailed");
+    const has_error_return = contains_eval and !is_block_expression and !contains_panic and !is_pyvalue_wrapped and !already_uses_try and !is_labeled_expr and !is_assertion_stmt;
 
     // Clear the generated output, we'll re-add it via builder
     self.output.shrinkRetainingCapacity(start_pos);

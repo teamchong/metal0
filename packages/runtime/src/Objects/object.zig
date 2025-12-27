@@ -597,6 +597,11 @@ pub const PyValue = union(enum) {
             return .{ .bigint = value };
         }
 
+        // Handle *BigInt and *const BigInt pointers (from UnifiedInt.big)
+        if (T == *bigint.BigInt or T == *const bigint.BigInt) {
+            return .{ .bigint = value.* };
+        }
+
         // Handle PyPowResult explicitly - convert to float or complex
         const builtins_pow = @import("../runtime/builtins/pow.zig");
         if (T == builtins_pow.PyPowResult) {

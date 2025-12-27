@@ -322,7 +322,13 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     });
 
     // O(1) lookup for all standard builtins
+    // BUT: Check if the name is shadowed by a local variable/parameter first
+    // e.g., `def powtest(self, type):` shadows builtin `type()`
     if (BuiltinMap.get(func_name)) |handler| {
+        // If this name is declared locally (parameter or local var), don't use builtin
+        if (self.func_local_vars.contains(func_name)) {
+            return false; // Let it be treated as a normal function/variable call
+        }
         // Check for unexpected keyword arguments
         // Most builtins (bool, float, str, len, etc.) don't accept keyword args
         if (call.keyword_args.len > 0 and !accepts_kwargs.has(func_name)) {
@@ -417,7 +423,14 @@ pub fn tryDispatchByName(self: *NativeCodegen, func_name: []const u8, args: []as
     }
 
     // O(1) lookup for all standard builtins
+    // BUT: Check if the name is shadowed by a local variable/parameter first
+    // e.g., `def powtest(self, type):` shadows builtin `type()`
     if (BuiltinMap.get(func_name)) |handler| {
+        // If this name is declared locally (parameter or local var), don't use builtin
+        // Parameters are included in func_local_vars during function generation
+        if (self.func_local_vars.contains(func_name)) {
+            return false; // Let it be treated as a normal function/variable call
+        }
         try handler(self, args);
         return true;
     }

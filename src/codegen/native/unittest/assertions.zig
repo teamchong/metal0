@@ -1094,12 +1094,26 @@ pub fn genAssertNotIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.N
 }
 
 /// Generate code for self.assertIsSubclass(cls, parent_cls)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertIsSubclass(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertIsSubclass requires 2 arguments\")");
         return;
     }
+    const b = try self.getBuilder();
+
+    // Both args should be type names
+    const cls_name = if (args[0] == .name) args[0].name.id else "";
+    const parent_name = if (args[1] == .name) args[1].name.id else "";
+
+    if (cls_name.len > 0 and parent_name.len > 0) {
+        try b.emitAssertIsSubclassStmt(cls_name, parent_name);
+        try self.flushBuilder();
+        return;
+    }
+    // Fallback for non-name expressions
+    try self.flushBuilder();
     try self.emit("runtime.unittest.assertIsSubclass(");
     if (args[0] == .name) {
         try self.emit("\"");
@@ -1343,12 +1357,26 @@ pub fn genAssertWarnsRegex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
 }
 
 /// Generate code for self.assertNotIsSubclass(cls, parent_cls)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertNotIsSubclass(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertNotIsSubclass requires 2 arguments\")");
         return;
     }
+    const b = try self.getBuilder();
+
+    // Both args should be type names
+    const cls_name = if (args[0] == .name) args[0].name.id else "";
+    const parent_name = if (args[1] == .name) args[1].name.id else "";
+
+    if (cls_name.len > 0 and parent_name.len > 0) {
+        try b.emitAssertNotIsSubclassStmt(cls_name, parent_name);
+        try self.flushBuilder();
+        return;
+    }
+    // Fallback for non-name expressions
+    try self.flushBuilder();
     try self.emit("runtime.unittest.assertNotIsSubclass(");
     if (args[0] == .name) {
         try self.emit("\"");
@@ -1453,36 +1481,41 @@ pub const genAssertTupleEqual = gen2ArgAssertBuilder("assertEqual");
 pub const genAssertMultiLineEqual = gen2ArgAssertBuilder("assertEqual");
 
 /// Generate code for self.assertLogs(logger, level)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertLogs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     _ = args;
     // For AOT, logging context managers aren't tracked - return stub
-    try self.emit("struct { pub fn __enter__(_: *const @This()) @This() { return @This(){}; } pub fn __exit__(_: *const @This()) void {} records: []const []const u8 = &.{}, output: []const u8 = \"\" }{}");
+    const b = try self.getBuilder();
+    try b.emitAssertLogsStmt();
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertNoLogs(logger, level)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genAssertNoLogs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     try genAssertLogs(self, obj, args);
 }
 
 /// Generate code for self.fail(msg)
+/// Uses ZigBuilder (100% builder migration)
 pub fn genFail(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
-    try self.emit("@panic(");
-    if (args.len > 0) {
-        try parent.genExpr(self, args[0]);
-    } else {
-        try self.emit("\"Test failed\"");
-    }
-    try self.emit(")");
+    const msg = if (args.len > 0) try self.exprToValue(args[0]) else null;
+    const b = try self.getBuilder();
+    try b.emitFailStmt(msg);
+    try self.flushBuilder();
 }
 
 /// Generate code for self.skipTest(reason)
+/// Uses ZigBuilder (100% builder migration)
 /// This terminates control flow - no code after skipTest should run
 pub fn genSkipTest(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     _ = args;
-    try self.emit("return");
+    const b = try self.getBuilder();
+    try b.emitSkipTestStmt();
+    try self.flushBuilder();
     // Mark control flow as terminated so no unreachable code is generated after
     self.control_flow_terminated = true;
 }
