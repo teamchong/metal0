@@ -163,6 +163,7 @@ const shadowing_module_names = std.StaticStringMap(void).initComptime(.{
     .{ "collections", {} }, // Python `collections` module
     .{ "std", {} }, // Zig std library
     .{ "runtime", {} }, // metal0 runtime
+    .{ "c_interop", {} }, // metal0 c_interop for numpy/external libs
     .{ "unittest", {} }, // unittest module
     .{ "os", {} }, // os module
     .{ "sys", {} }, // sys module
@@ -274,7 +275,7 @@ pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
     }
 }
 
-/// Write local variable name, renaming if it would shadow a method
+/// Write local variable name, renaming if it would shadow a method or module import
 /// Use this for local variable declarations and usages, NOT for method/field names
 pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
@@ -283,8 +284,9 @@ pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
     } else if (isZigKeyword(name) or containsNonAscii(name)) {
         // Unicode identifiers and keywords need @"name" syntax
         try writer.print("@\"{s}\"", .{name});
-    } else if (wouldShadowMethod(name)) {
-        // Rename to avoid shadowing method names in struct scope
+    } else if (wouldShadowMethod(name) or wouldShadowModule(name)) {
+        // Rename to avoid shadowing method names in struct scope or module-level imports
+        // e.g., `std = np.std(...)` becomes `std_ = ...` to not shadow `const std = @import("std")`
         try writer.print("{s}_", .{name});
     } else {
         try writer.writeAll(name);
