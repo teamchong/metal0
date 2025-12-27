@@ -759,12 +759,13 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             try self.emit(" = ");
 
             // Normal case: use module const reference
-            // For simple module names (no dots), use writeLocalVarName to match module import generation
-            // (e.g., `copy` becomes `copy_` to avoid shadowing struct methods)
+            // Use writeEscapedIdent (not writeLocalVarName) to match module import generation in generator.zig
+            // Generator uses writeEscapedIdent, so module 'math' becomes 'const math = ...'
+            // We must also use writeEscapedIdent so from-import 'const isinf = math.isinf' matches
             if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
                 try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
             } else {
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), from_imp.module);
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), from_imp.module);
             }
             try self.emit(".");
             try self.emit(name);

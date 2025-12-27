@@ -22,3 +22,4 @@ pub const LruCache = @import("eval_cache/lru_cache.zig").LruCache;
 
 // Re-export subprocess compilation (rarely used, but available)
 pub const compileViaSubprocess = @import("eval_cache/subprocess.zig").compileViaSubprocess;
+pub const compileViaSubprocessWithFlags = @import("eval_cache/subprocess.zig").compileViaSubprocessWithFlags;

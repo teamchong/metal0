@@ -119,6 +119,26 @@ fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     const operand_type = try self.inferExprScoped(unaryop.operand.*);
     const operand = try self.captureExpr(unaryop.operand.*);
 
+    // PyValue: use .isTruthy() method (must check first as PyValue can hold any type)
+    if (operand_type == .pyvalue) {
+        try self.emit("!");
+        try self.emitZigValue(operand);
+        try self.emit(".isTruthy()");
+        return;
+    }
+
+    // Check if operand is a variable assigned from VM fallback
+    // (needsVMFallback only checks the expression itself, not prior assignments)
+    if (unaryop.operand.* == .name) {
+        const var_name = unaryop.operand.name.id;
+        if (self.pyvalue_vars.contains(var_name)) {
+            try self.emit("!");
+            try self.emitZigValue(operand);
+            try self.emit(".isTruthy()");
+            return;
+        }
+    }
+
     if (string_traits.isString(operand_type)) {
         // String: not "abc" -> len == 0
         try self.emit("(");

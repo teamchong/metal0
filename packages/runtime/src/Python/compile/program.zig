@@ -301,16 +301,17 @@ pub const BytecodeProgram = struct {
                 0x44 => .FloorDiv,
                 0x45 => .Mod,
                 0x46 => .Pow,
-                // Unary ops: INVERT=0x50, UADD=0x51, USUB=0x52
-                0x50 => .Invert,
-                0x51 => .UAdd,
-                0x52 => .USub,
-                // Compare ops: EQ=0x60, NE=0x61, LT=0x62, GT=0x63, LE=0x64, GE=0x65
-                0x60 => .Eq,
-                0x61 => .NotEq,
-                0x62 => .Lt,
-                0x63 => .Gt,
-                0x64 => .LtE,
+                // Unary ops: NEG=0x50, POS=0x51, NOT=0x52, INVERT=0x53
+                0x50 => .USub,   // NEG: unary minus -x
+                0x51 => .UAdd,   // POS: unary plus +x
+                0x52 => .Not,    // NOT: boolean not
+                0x53 => .Invert, // INVERT: bitwise ~
+                // Compare ops: LT=0x60, LE=0x61, EQ=0x62, NE=0x63, GT=0x64, GE=0x65
+                0x60 => .Lt,
+                0x61 => .LtE,
+                0x62 => .Eq,
+                0x63 => .NotEq,
+                0x64 => .Gt,
                 0x65 => .GtE,
                 // RETURN=0x88
                 0x88 => .Return,

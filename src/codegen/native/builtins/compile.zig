@@ -20,5 +20,12 @@ pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[1]); // filename
     try self.emit(", ");
     try self.genExpr(args[2]); // mode
+    try self.emit(", ");
+    // flags parameter (optional, default 0)
+    if (args.len >= 4) {
+        try self.genExpr(args[3]);
+    } else {
+        try self.emit("0");
+    }
     try self.emit(")");
 }

@@ -1573,6 +1573,15 @@ pub const NativeCodegen = struct {
     /// Returns true if the variable's type cannot be proven certain at compile time
     /// Uses the Two-Flow Type System: uncertain = use PyValue, certain = use raw Zig types
     pub fn isVarUncertain(self: *NativeCodegen, name: []const u8) bool {
+        // Variables assigned from VM fallback are always uncertain (return PyValue)
+        if (self.pyvalue_vars.contains(name)) {
+            return true;
+        }
+        // Check renamed name too (e.g., line -> __m56_lv_line)
+        const renamed_name = self.var_renames.get(name) orelse name;
+        if (self.pyvalue_vars.contains(renamed_name)) {
+            return true;
+        }
         return self.type_inferrer.isUncertain(name);
     }
 
@@ -1638,6 +1647,17 @@ pub const NativeCodegen = struct {
                         // Nested class names (classes defined inside functions) are known
                         if (self.nested_class_names.contains(var_name)) {
                             return false;
+                        }
+                        // Builtin type names are always known - don't fall back for them
+                        // This handles bool.from_bytes(), int.from_bytes(), str.encode(), etc.
+                        const builtin_type_names = [_][]const u8{
+                            "bool", "int", "float", "str", "bytes", "list", "dict", "set", "tuple",
+                            "frozenset", "complex", "range", "slice", "object", "type",
+                        };
+                        for (builtin_type_names) |type_name| {
+                            if (std.mem.eql(u8, var_name, type_name)) {
+                                return false; // Known builtin type - dispatch handles it
+                            }
                         }
                         // User-defined class names (start with uppercase) are typically defined in the same file
                         // This handles module-level classes like "B.register(V)" from ABC metaclass
@@ -1766,17 +1786,22 @@ pub const NativeCodegen = struct {
             const original_name = node.name.id;
             // Check if variable has been renamed (e.g., loop capture line -> __loop_line)
             const renamed_name = self.var_renames.get(original_name) orelse original_name;
-            // Check symbol table FIRST for locally-declared types (e.g., PyValue loop vars)
-            // This takes precedence over bigint_vars because we may have re-declared the var
+            // Check if this variable was assigned from VM fallback (returns PyValue)
+            // Must check FIRST since VM fallback reassignment (line = line.strip())
+            // overrides the original loop capture type (string -> PyValue)
+            if (self.pyvalue_vars.contains(original_name) or self.pyvalue_vars.contains(renamed_name)) {
+                return .pyvalue;
+            }
+            // Check if this variable was assigned from a BigInt expression
+            if (self.bigint_vars.contains(renamed_name)) {
+                return .bigint;
+            }
+            // Check symbol table for locally-declared types (e.g., loop vars)
             if (self.symbol_table.getType(renamed_name)) |local_type| {
                 // Only use local type if it's not unknown
                 if (local_type != .unknown) {
                     return local_type;
                 }
-            }
-            // Check if this variable was assigned from a BigInt expression
-            if (self.bigint_vars.contains(renamed_name)) {
-                return .bigint;
             }
             // Check type inferrer's scoped map for the current function scope
             // Use ORIGINAL name since that's what was stored during type inference
@@ -1789,9 +1814,19 @@ pub const NativeCodegen = struct {
                 }
             }
             // Also check type inferrer's current scope (for nested functions with scope set)
-            if (self.type_inferrer.getScopedVar(original_name)) |scoped_type| {
+            // Check RENAMED name first (e.g., __m56_lv_line for reassigned loop capture)
+            // This ensures VM fallback variables get their correct PyValue type
+            if (self.type_inferrer.getScopedVar(renamed_name)) |scoped_type| {
                 if (scoped_type != .unknown) {
                     return scoped_type;
+                }
+            }
+            // Then check original name as fallback
+            if (!std.mem.eql(u8, renamed_name, original_name)) {
+                if (self.type_inferrer.getScopedVar(original_name)) |scoped_type| {
+                    if (scoped_type != .unknown) {
+                        return scoped_type;
+                    }
                 }
             }
             // Check global var_types as final fallback for module-level variables

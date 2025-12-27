@@ -264,6 +264,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
     var value_type = try self.inferExprScoped(assign.value.*);
     const original_expr_type = value_type; // Keep for class_instance shadowing detection
 
+    // VM fallback expressions return PyValue, not the inferred type
+    // This ensures subsequent uses of the variable know it's PyValue
+    if (self.needsVMFallback(assign.value.*)) {
+        value_type = .pyvalue;
+    }
+
     // For variable declarations and reassignments, use the scoped widened type
     // from the type inferrer. This ensures the variable can hold all values
     // that will be assigned to it within the same function scope.
@@ -1646,15 +1652,23 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // VM fallback variables are referenced by name in subsequent eval() strings,
             // not as Zig identifiers, so Zig sees them as unused
             // Also track as pyvalue_vars for callable dispatch at call sites
-            if (is_first_assignment and self.needsVMFallback(assign.value.*)) {
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
-                try self.emitIndent();
-                try self.emit("_ = &");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-                try self.emit(";\n");
+            if (self.needsVMFallback(assign.value.*)) {
                 // Track as pyvalue_var for .call() generation at call sites
+                // Must track for BOTH first assignment AND reassignment since
+                // reassignment like `line = line.strip()` returns PyValue
                 const pyvalue_key = try self.arena.allocator().dupe(u8, var_name);
                 try self.pyvalue_vars.put(pyvalue_key, {});
+
+                // For first assignment only, emit discard to suppress unused warnings
+                // VM fallback variables are referenced by name in subsequent eval() strings,
+                // not as Zig identifiers, so Zig sees them as unused
+                if (is_first_assignment) {
+                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                    try self.emit(";\n");
+                }
             }
 
             // Also emit discards for variables USED in VM fallback RHS expressions

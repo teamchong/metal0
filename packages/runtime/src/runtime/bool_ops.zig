@@ -399,6 +399,32 @@ pub fn validateBoolReturn(value: anytype) PythonError!bool {
     return PythonError.TypeError;
 }
 
+/// Implements bool.__new__(cls, value) - constructor for bool type
+/// bool.__new__(bool)           → False (no value, default)
+/// bool.__new__(bool, 1)        → True
+/// bool.__new__(bool, 0)        → False
+/// bool.__new__(bool, [])       → False (empty list)
+/// bool.__new__(bool, "hello")  → True (non-empty string)
+pub fn bool__new__(value: anytype) bool {
+    const T = @TypeOf(value);
+    // No value provided → default to False
+    if (T == void or (T == @TypeOf(null))) {
+        return false;
+    }
+    // Convert value to bool using Python truthiness semantics
+    return toBool(value);
+}
+
+/// Implements bool.from_bytes(bytes, byteorder) - convert bytes to bool
+/// bool.from_bytes(b'\x00' * 8, 'big')   → False (all zero bytes)
+/// bool.from_bytes(b'abcd', 'little')    → True (non-zero bytes)
+/// Logic: Convert bytes to int, then check if non-zero
+pub fn boolFromBytes(bytes_input: anytype, byteorder: []const u8) bool {
+    const int_ops = @import("int_ops.zig");
+    const int_val = int_ops.intFromBytes(bytes_input, byteorder);
+    return int_val != 0;
+}
+
 /// Validate that __float__ returns float (Python 3 requirement)
 /// Returns error.TypeError if value is not float
 /// NOTE: In Python 3, returning a float subclass from __float__ is deprecated

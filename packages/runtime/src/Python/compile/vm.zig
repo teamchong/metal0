@@ -66,6 +66,7 @@ pub const VM = struct {
                 .Invert => try self.unaryInvert(),
                 .UAdd => try self.unaryAdd(),
                 .USub => try self.unarySub(),
+                .Not => try self.unaryNot(),
 
                 .Eq => try self.compareOp(.Eq),
                 .NotEq => try self.compareOp(.NotEq),
@@ -334,5 +335,50 @@ pub const VM = struct {
         } else {
             return error.TypeError;
         }
+    }
+
+    /// Boolean NOT: not x
+    fn unaryNot(self: *VM) !void {
+        if (self.stack.items.len < 1) return error.StackUnderflow;
+
+        const val = self.stack.pop() orelse return error.StackUnderflow;
+
+        // Get truth value and negate
+        const is_truthy = blk: {
+            if (runtime.PyBool_Check(val)) {
+                break :blk PyBool.getValue(val);
+            } else if (runtime.PyLong_Check(val)) {
+                break :blk PyInt.getValue(val) != 0;
+            } else if (runtime.PyFloat_Check(val)) {
+                break :blk PyFloat.getValue(val) != 0.0;
+            } else if (runtime.PyUnicode_Check(val)) {
+                const str = PyString.getValue(val);
+                break :blk str.len > 0;
+            } else if (runtime.PyBytes_Check(val)) {
+                // Access ob_size from PyBytesObject
+                const bytes_obj: *runtime.PyBytesObject = @ptrCast(@alignCast(val));
+                break :blk bytes_obj.ob_base.ob_size > 0;
+            } else if (val == runtime.Py_None) {
+                break :blk false;
+            } else if (runtime.PyList_Check(val)) {
+                // Access ob_size from PyListObject
+                const list_obj: *runtime.cpython.PyListObject = @ptrCast(@alignCast(val));
+                break :blk list_obj.ob_base.ob_size > 0;
+            } else if (runtime.PyTuple_Check(val)) {
+                // Access ob_size from PyTupleObject
+                const tuple_obj: *runtime.cpython.PyTupleObject = @ptrCast(@alignCast(val));
+                break :blk tuple_obj.ob_base.ob_size > 0;
+            } else if (runtime.PyBigInt_Check(val)) {
+                const big = PyBigInt.getValue(val);
+                break :blk !big.isZero();
+            } else {
+                // Other objects are truthy by default
+                break :blk true;
+            }
+        };
+
+        // Push the negated boolean
+        const result = try PyBool.create(self.allocator, !is_truthy);
+        try self.stack.append(self.allocator, result);
     }
 };

@@ -36,7 +36,7 @@ pub fn floatBuiltinCallPyValue(first: PyValue) PythonError!f64 {
             exceptions.setFloatConversionError(b.data);
             return PythonError.ValueError;
         },
-        .bigint => |bi| bi.toFloat() catch return PythonError.OverflowError,
+        .bigint => |*bi| bi.toFloat(),
         else => PythonError.TypeError,
     };
 }

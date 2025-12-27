@@ -64,6 +64,10 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
     const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
     const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
+    // Check if source needs VM fallback (returns PyValue)
+    // VM fallback results are PyValue, so we need .listItems()[i] for access
+    const is_pyvalue_type = self.needsVMFallback(assign.value.*) or source_tag == .pyvalue;
+
     // Generate: const __unpack_tmp_N = value_expr;
     // Don't add 'try' here - let genExpr handle error propagation internally
     // Blocks that construct tuples/lists from error union results handle 'try' inside the block
@@ -88,7 +92,10 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
             if (is_unused) {
                 try self.emitIndent();
-                if (is_list_type) {
+                if (is_pyvalue_type) {
+                    // PyValue from VM fallback - use .listItems()[i]
+                    try self.output.writer(self.allocator).print("_ = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+                } else if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
                     // Use runtime helper to avoid comptime explosion in loops
@@ -102,7 +109,15 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             // Register the type for this unpacked variable
             // Extract element type from source tuple if available
             // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
-            if (container_traits.isTuple(source_type)) {
+            //
+            // IMPORTANT: When unpacking from PyValue (VM fallback), the elements are also PyValue.
+            // We must register them as .pyvalue and track in pyvalue_vars so downstream usage
+            // generates proper type conversions (e.g., .asString() for string functions).
+            if (is_pyvalue_type) {
+                // VM fallback result - elements are PyValue, not the inferred type
+                try self.type_inferrer.putScopedVar(var_name, .pyvalue);
+                try self.pyvalue_vars.put(var_name, {});
+            } else if (container_traits.isTuple(source_type)) {
                 if (i < source_type.tuple.len) {
                     try self.type_inferrer.putScopedVar(var_name, source_type.tuple[i]);
                 }
@@ -149,7 +164,10 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             } else {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name);
             }
-            if (is_list_type) {
+            if (is_pyvalue_type) {
+                // PyValue from VM fallback - use .listItems()[i]
+                try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+            } else if (is_list_type) {
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
@@ -171,7 +189,10 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             // Generate: target[idx] = __unpack_tmp_N.@"i";
             try self.emitIndent();
             try self.genExpr(target);
-            if (is_list_type) {
+            if (is_pyvalue_type) {
+                // PyValue from VM fallback - use .listItems()[i]
+                try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+            } else if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use comptime type dispatch for PyValue from generators
@@ -204,7 +225,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     try self.emit("@constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
-                    if (is_list_type) {
+                    if (is_pyvalue_type) {
+                        try self.output.writer(self.allocator).print(".listItems()[{d}]", .{i});
+                    } else if (is_list_type) {
                         try self.output.writer(self.allocator).print(".items[{d}]", .{i});
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
@@ -214,7 +237,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                     try self.emit("try @constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
-                    if (is_list_type) {
+                    if (is_pyvalue_type) {
+                        try self.output.writer(self.allocator).print(".listItems()[{d}]", .{i});
+                    } else if (is_list_type) {
                         try self.output.writer(self.allocator).print(".items[{d}]", .{i});
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
@@ -224,7 +249,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             } else {
                 // Static attribute: direct field assignment
                 try self.genExpr(target);
-                if (is_list_type) {
+                if (is_pyvalue_type) {
+                    try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+                } else if (is_list_type) {
                     try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
                     try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
@@ -239,7 +266,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             try self.emitIndent();
             try self.emit("const ");
             try self.emit(nested_tmp);
-            if (is_list_type) {
+            if (is_pyvalue_type) {
+                try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+            } else if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
@@ -278,7 +307,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
             try self.emitIndent();
             try self.emit("const ");
             try self.emit(nested_tmp);
-            if (is_list_type) {
+            if (is_pyvalue_type) {
+                try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+            } else if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 try self.output.writer(self.allocator).print(" = runtime.tuple_ops.getField({s}, {d});\n", .{ tmp_name, i });
@@ -371,6 +402,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
     const source_tag = @as(std.meta.Tag(@TypeOf(source_type)), source_type);
     const is_list_type = source_tag == .list or type_traits.isArray(source_type);
 
+    // Check if source needs VM fallback (returns PyValue)
+    // VM fallback results are PyValue, so we need .listItems()[i] for access
+    const is_pyvalue_type = self.needsVMFallback(assign.value.*) or source_tag == .pyvalue;
+
     // Generate: const __unpack_tmp_N = value_expr;
     // Add 'try' only if value is a function call that returns an error union
     // (blocks that construct lists from error union results are NOT error unions themselves)
@@ -403,7 +438,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             const is_unused = std.mem.eql(u8, var_name, "_") or self.isVarUnused(var_name);
             if (is_unused) {
                 try self.emitIndent();
-                if (is_list_type) {
+                if (is_pyvalue_type) {
+                    // PyValue from VM fallback - use .listItems()[i]
+                    try self.output.writer(self.allocator).print("_ = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+                } else if (is_list_type) {
                     try self.output.writer(self.allocator).print("_ = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
                     // Use runtime helper to avoid comptime explosion in loops
@@ -463,7 +501,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             } else {
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_name2);
             }
-            if (is_list_type) {
+            if (is_pyvalue_type) {
+                // PyValue from VM fallback - use .listItems()[i]
+                try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+            } else if (is_list_type) {
                 // Use .items[i] for ArrayLists: __unpack_tmp_N.items[i]
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
@@ -483,7 +524,10 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             // Handle subscript targets: rshape[n], lslices[n] = big, small
             try self.emitIndent();
             try self.genExpr(target);
-            if (is_list_type) {
+            if (is_pyvalue_type) {
+                // PyValue from VM fallback - use .listItems()[i]
+                try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+            } else if (is_list_type) {
                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
             } else {
                 // Use comptime type dispatch for PyValue from generators
@@ -516,7 +560,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                     try self.emit("@constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
-                    if (is_list_type) {
+                    if (is_pyvalue_type) {
+                        try self.output.writer(self.allocator).print(".listItems()[{d}]", .{i});
+                    } else if (is_list_type) {
                         try self.output.writer(self.allocator).print(".items[{d}]", .{i});
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
@@ -526,7 +572,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                     try self.emit("try @constCast(&");
                     try self.genExpr(attr.value.*);
                     try self.output.writer(self.allocator).print(".__dict__).put(\"{s}\", runtime.PyValue.from({s}", .{ attr.attr, tmp_name });
-                    if (is_list_type) {
+                    if (is_pyvalue_type) {
+                        try self.output.writer(self.allocator).print(".listItems()[{d}]", .{i});
+                    } else if (is_list_type) {
                         try self.output.writer(self.allocator).print(".items[{d}]", .{i});
                     } else {
                         try self.output.writer(self.allocator).print(".@\"{d}\"", .{i});
@@ -536,7 +584,9 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
             } else {
                 // Static attribute: direct field assignment
                 try self.genExpr(target);
-                if (is_list_type) {
+                if (is_pyvalue_type) {
+                    try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
+                } else if (is_list_type) {
                     try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, i });
                 } else {
                     try self.output.writer(self.allocator).print(" = {s}.@\"{d}\";\n", .{ tmp_name, i });
@@ -782,6 +832,14 @@ pub fn emitVarDeclaration(
     if (expr_produces_pyvalue) {
         try self.emit(": runtime.PyValue = ");
         return false; // No wrapper opened
+    }
+
+    // VM fallback expressions return PyValue, so emit PyValue type annotation
+    // This handles cases like `line = line.strip()` where the method call falls back to VM
+    const needs_vm_fallback = if (value_expr) |expr| self.needsVMFallback(expr) else false;
+    if (needs_vm_fallback) {
+        try self.emit(": runtime.PyValue = ");
+        return false; // No wrapper opened - genEval already wraps with PyValue.from()
     }
 
     // For functions (lambdas) and callables, never emit type annotation

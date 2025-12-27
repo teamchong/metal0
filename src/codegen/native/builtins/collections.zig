@@ -574,6 +574,8 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check iterable type to determine if we need .items for ArrayList
     const iterable_type = try self.inferExprScoped(iterable);
     const needs_items = container_traits.isList(iterable_type);
+    // Check if iterable needs VM fallback - PyValue iteration is different
+    const needs_pyvalue_iter = self.needsVMFallback(iterable) or iterable_type == .pyvalue;
 
     // Check for known method patterns: map(str.strip, items) or map(str.split, items)
     if (func == .attribute) {
@@ -595,12 +597,20 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 try self.genExpr(iterable);
                 try self.emit(";\n");
                 try self.emitIndent();
-                if (needs_items) {
+                if (needs_pyvalue_iter) {
+                    // PyValue needs iteration - use listItems() to get slice of PyValue
+                    try self.emit("for (__map_iterable.listItems()) |__map_item_pv| {\n");
+                } else if (needs_items) {
                     try self.emit("for (__map_iterable.items) |__map_item| {\n");
                 } else {
                     try self.emit("for (__map_iterable) |__map_item| {\n");
                 }
                 self.indent();
+                if (needs_pyvalue_iter) {
+                    // Extract string from PyValue for string methods
+                    try self.emitIndent();
+                    try self.emit("const __map_item = __map_item_pv.asString();\n");
+                }
                 try self.emitIndent();
                 try self.emit(pattern);
                 try self.emitIndent();
@@ -633,12 +643,20 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.genExpr(iterable);
             try self.emit(";\n");
             try self.emitIndent();
-            if (needs_items) {
+            if (needs_pyvalue_iter) {
+                // PyValue needs iteration - use listItems() to get slice of PyValue
+                try self.emit("for (__map_iterable.listItems()) |__map_item_pv| {\n");
+            } else if (needs_items) {
                 try self.emit("for (__map_iterable.items) |__map_item| {\n");
             } else {
                 try self.emit("for (__map_iterable) |__map_item| {\n");
             }
             self.indent();
+            if (needs_pyvalue_iter) {
+                // Extract value from PyValue for type conversion
+                try self.emitIndent();
+                try self.emit("const __map_item = __map_item_pv.asString();\n");
+            }
             try self.emitIndent();
             try self.emit(conv_pattern);
             try self.emitIndent();
@@ -675,7 +693,10 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(iterable);
         try self.emit(";\n");
         try self.emitIndent();
-        if (needs_items) {
+        if (needs_pyvalue_iter) {
+            // PyValue needs iteration - use listItems() to get slice of PyValue
+            try self.emit("for (__map_iterable.listItems()) |__map_item| {\n");
+        } else if (needs_items) {
             try self.emit("for (__map_iterable.items) |__map_item| {\n");
         } else {
             try self.emit("for (__map_iterable) |__map_item| {\n");

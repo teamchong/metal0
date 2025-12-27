@@ -1151,7 +1151,7 @@ pub fn genAssertIsSubclass(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         try self.emit("@compileError(\"assertIsSubclass requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertIsSubclass(");
+    try self.emit("runtime.unittest.assertIsSubclass(");
     if (args[0] == .name) {
         try self.emit("\"");
         try self.emit(args[0].name.id);
@@ -1250,12 +1250,12 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     if (exception_name) |exc_name| {
         // Use expectSpecificError for known exception types
         // Use if-else chain instead of switch to avoid trailing semicolon issues
-        try self.emit("{ const __ar_result = unittest.expectSpecificError(");
+        try self.emit("{ const __ar_result = runtime.unittest.expectSpecificError(");
         try emitCallableInvocation(self, args[1], call_args, &.{});
         try self.emitFmt(", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}", .{exc_name});
     } else {
         // Fall back to expectError for unknown exception types
-        try self.emit("if (unittest.expectError(");
+        try self.emit("if (runtime.unittest.expectError(");
         try emitCallableInvocation(self, args[1], call_args, &.{});
         // expectError returns true if NO error was raised (test should fail)
         try self.emit(")) return error.ExpectedExceptionNotRaised;");
@@ -1303,12 +1303,12 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
     if (exception_name) |exc_name| {
         // Use expectSpecificError for known exception types
         // Use if-else chain instead of switch to avoid trailing semicolon issues
-        try self.emit("{ const __ar_result = unittest.expectSpecificError(");
+        try self.emit("{ const __ar_result = runtime.unittest.expectSpecificError(");
         try emitCallableInvocation(self, args[1], call_args, keyword_args);
         try self.emitFmt(", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}", .{exc_name});
     } else {
         // Fall back to expectError for unknown exception types
-        try self.emit("if (unittest.expectError(");
+        try self.emit("if (runtime.unittest.expectError(");
         try emitCallableInvocation(self, args[1], call_args, keyword_args);
         try self.emit(")) return error.ExpectedExceptionNotRaised;");
     }
@@ -1399,7 +1399,7 @@ pub fn genAssertNotIsSubclass(self: *NativeCodegen, obj: ast.Node, args: []ast.N
         try self.emit("@compileError(\"assertNotIsSubclass requires 2 arguments\")");
         return;
     }
-    try self.emit("unittest.assertNotIsSubclass(");
+    try self.emit("runtime.unittest.assertNotIsSubclass(");
     if (args[0] == .name) {
         try self.emit("\"");
         try self.emit(args[0].name.id);

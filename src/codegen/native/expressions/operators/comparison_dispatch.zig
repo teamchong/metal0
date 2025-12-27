@@ -226,9 +226,9 @@ fn emitContainmentCheck(
     // Class instance with __contains__
     if (right_class == .class_instance) {
         if (is_not_in) try self.emit("!");
-        try self.emit("(try ");
+        try self.emit("(");
         try genExpr(self, right);
-        try self.emit(".__contains__(__global_allocator, ");
+        try self.emit(".__contains__(");
         try genExpr(self, left);
         try self.emit("))");
         return;
@@ -237,12 +237,14 @@ fn emitContainmentCheck(
     // Default: use runtime.pyContains for lists/tuples/sets
     // Need to infer element type and handle list literals properly
     const right_is_list_literal = right == .list;
+    const right_is_tuple_literal = right == .tuple;
 
-    if (right_is_list_literal) {
-        // For list literals, use inline for loop to avoid slice coercion issues
-        // Check: for (array) |item| if (item == value) ...
+    if (right_is_list_literal or right_is_tuple_literal) {
+        // For list/tuple literals, use inline for loop to avoid slice coercion issues
+        // Tuples require inline for because field indices must be comptime-known
+        // Check: inline for (tuple) |item| if (item == value) ...
         if (is_not_in) try self.emit("!");
-        try self.emit("(inline_blk: { for (");
+        try self.emit("(inline_blk: { inline for (");
         try genExpr(self, right);
         try self.emit(") |__item| { if (runtime.pyAnyEql(__item, ");
         try genExpr(self, left);
@@ -284,9 +286,6 @@ fn emitIdentityComparison(
     right_class: TypeClass,
 ) CodegenError!void {
     const is_is = (op == .Is);
-    // These types are only used for class instance checks (handled by left_class/right_class)
-    _ = left_type;
-    _ = right_type;
 
     // None identity check
     if (left_class == .none or right_class == .none) {
@@ -310,8 +309,14 @@ fn emitIdentityComparison(
         return;
     }
 
-    // Primitives: identity == equality
+    // Primitives: identity == equality (only for same types)
     if (left_class == .primitive and right_class == .primitive) {
+        // Different primitive types cannot be identical
+        // e.g., +False (i64) is not False (bool) → always true for "is not"
+        if (std.meta.activeTag(left_type) != std.meta.activeTag(right_type)) {
+            try self.emit(if (is_is) "false" else "true");
+            return;
+        }
         try genExpr(self, left);
         try self.emit(if (is_is) " == " else " != ");
         try genExpr(self, right);

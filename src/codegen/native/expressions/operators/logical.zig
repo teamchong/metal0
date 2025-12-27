@@ -63,17 +63,25 @@ fn emitRuntimePyBoolOp(self: *NativeCodegen, is_or: bool, a_operand: ZigValue, b
 /// - "a or b" returns a if truthy, else b
 /// - "a and b" returns a if falsy, else b
 pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!void {
-    // Check if all values are booleans - can use simple Zig and/or
+    // Check if all values are booleans AND don't need VM fallback
+    // VM fallback produces PyValue, not bool, so we can't use simple Zig and/or
     var all_bool = true;
+    var has_vm_fallback = false;
     for (boolop.values) |value| {
         const val_type = self.inferExprScoped(value) catch .unknown;
         if (val_type != .bool) {
             all_bool = false;
             break;
         }
+        // Also check if the expression needs VM fallback
+        // VM fallback returns PyValue even if type inference says bool
+        if (self.needsVMFallback(value)) {
+            has_vm_fallback = true;
+            break;
+        }
     }
 
-    if (all_bool) {
+    if (all_bool and !has_vm_fallback) {
         const op_str = if (boolop.op == .And) " and " else " or ";
         for (boolop.values, 0..) |value, i| {
             if (i > 0) try self.emit(op_str);

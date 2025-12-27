@@ -63,13 +63,14 @@ pub fn memoryview_callable(value: []const u8) []const u8 {
 
 /// compile() builtin - compile Python source to code object
 /// Uses subprocess compilation to compile Python source code
-pub fn compile(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8) !*anyopaque {
+pub fn compile(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8, flags: i64) !*anyopaque {
     _ = filename; // TODO: store in code object for tracebacks
     _ = mode; // Mode is handled by the subprocess compiler
     const eval_cache = @import("../../Python/eval_cache.zig");
 
     // Use subprocess compilation to produce bytecode
-    const program = try eval_cache.compileViaSubprocess(allocator, source);
+    // Pass flags to the subprocess compiler for __future__ imports
+    const program = try eval_cache.compileViaSubprocessWithFlags(allocator, source, flags);
 
     // Return the code object (caller is responsible for cleanup)
     return @ptrCast(program.code);

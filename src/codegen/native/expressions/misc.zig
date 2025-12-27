@@ -20,6 +20,24 @@ const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
 
+/// Check if a string is all uppercase (for detecting constants)
+fn isAllUppercase(s: []const u8) bool {
+    if (s.len == 0) return false;
+    for (s) |c| {
+        // Allow underscores in constant names
+        if (c == '_') continue;
+        // Must be uppercase letter or digit
+        if (c >= 'A' and c <= 'Z') continue;
+        if (c >= '0' and c <= '9') continue;
+        return false;
+    }
+    // Must have at least one uppercase letter
+    for (s) |c| {
+        if (c >= 'A' and c <= 'Z') return true;
+    }
+    return false;
+}
+
 // ============================================
 // Misc expression helpers - auto-closing patterns
 // ============================================
@@ -396,9 +414,19 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                 // emit a reference to the runtime function using the local import
                 // e.g., operator.eq -> &operator.eq (operator is already imported)
                 // The module is imported at file top, so just use its local name
-                try self.emit("&");
-                // Use writeLocalVarName to handle renamed modules (e.g., copy -> copy_)
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), module_name);
+                //
+                // EXCEPTION: Constants (uppercase names starting with CO_, all caps names)
+                // should NOT have & prefix since they're values, not function pointers.
+                // e.g., __future__.CO_FUTURE_BARRY_AS_BDFL -> __future__.CO_FUTURE_BARRY_AS_BDFL
+                const is_constant = std.mem.startsWith(u8, attr_name, "CO_") or
+                    isAllUppercase(attr_name);
+                if (!is_constant) {
+                    try self.emit("&");
+                }
+                // Use writeEscapedIdent (not writeLocalVarName) to match module import generation
+                // Module imports use writeEscapedIdent: const operator = runtime.Lib.operator;
+                // So we must also use writeEscapedIdent: &operator.mod (not &operator_.mod)
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
                 try self.emit(".");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
             } else {

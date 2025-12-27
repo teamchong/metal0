@@ -303,11 +303,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     const import_path = info.direct_import orelse info.zig_import;
                     try self.emit("const ");
                     // For dotted names (e.g., test.pickletester), use writeEscapedDottedIdent
-                    // For simple names that would shadow methods (e.g., copy), use writeLocalVarName
+                    // For simple names, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
+                    // Module imports should keep their original names so usage matches (e.g., unittest.assertX)
                     if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                         try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                     } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
                     }
                     try self.emit(" = ");
                     if (import_path) |path| {
@@ -341,11 +342,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (stdlib_gen.hasModule(mod_name)) {
                 // Generate import from runtime.Lib
                 try self.emit("const ");
-                // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
+                // For dotted names, use writeEscapedDottedIdent; for simple names, use writeEscapedIdent
+                // Module imports should keep their original names so usage matches
                 if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                     try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                 } else {
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
                 }
                 try self.emit(" = runtime.Lib.");
                 // Replace dots with @"" for nested modules
@@ -1567,7 +1569,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emitIndent();
         try self.emit("    const is_wasm = __m0_builtin.os.tag == .wasi or __m0_builtin.os.tag == .freestanding;\n");
         try self.emitIndent();
-        try self.emitFmt("    if (comptime is_wasm) break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
+        try self.emit("    const is_lib = __m0_builtin.output_mode == .Lib or __m0_builtin.link_mode == .dynamic;\n");
+        try self.emitIndent();
+        try self.emitFmt("    if (comptime is_wasm or is_lib) break :__m{d}_sys_exec \"\";\n", .{sys_exec_id});
         try self.emitIndent();
         try self.emit("    const args = std.os.argv;\n");
         try self.emitIndent();
@@ -1691,11 +1695,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         // Prefer direct_import for DCE-friendly imports
                         const import_path = info.direct_import orelse info.zig_import;
                         try self.emit("const ");
-                        // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
+                        // For dotted names, use writeEscapedDottedIdent; for simple names, use writeEscapedIdent
+                        // Module imports should keep their original names so usage matches
                         if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         } else {
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
                         }
                         try self.emit(" = ");
                         if (import_path) |path| {
@@ -1715,11 +1720,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         // Prefer direct_import for DCE-friendly imports
                         const import_path = info.direct_import orelse info.zig_import;
                         try self.emit("const ");
-                        // For dotted names, use writeEscapedDottedIdent; for simple shadowing names, use writeLocalVarName
+                        // For dotted names, use writeEscapedDottedIdent; for simple names, use writeEscapedIdent
+                        // Module imports should keep their original names so usage matches
                         if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
                             try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                         } else {
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), mod_name);
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), mod_name);
                         }
                         try self.emit(" = ");
                         if (import_path) |path| {

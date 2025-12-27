@@ -71,12 +71,16 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (left_is_listlike and right_is_listlike) return .pyvalue;
             // UnifiedInt propagation (handles both small i64 and large BigInt)
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool arithmetic returns int (Python: False + False = 0, True + True = 2)
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             // Numeric promotion
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Sub => {
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool arithmetic returns int
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Mod => {
@@ -84,6 +88,8 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (string_traits.isString(left)) return .{ .string = .runtime };
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool arithmetic returns int
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Mult => {
@@ -97,17 +103,23 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             if (right_is_listlike and isIntegral(left)) return .pyvalue;
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool arithmetic returns int
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isNumeric(left) and isNumeric(right)) return promoteNumeric(left, right);
         },
         .Div => {
             // Path join: Path / string → Path
             if (left_tag == .path) return .path;
             // Python division always returns float for primitives
+            // Bool division returns float (True / True = 1.0)
+            if (left_tag == .bool or right_tag == .bool) return .float;
             if (isNumeric(left) and isNumeric(right)) return .float;
         },
         .FloorDiv => {
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool floor division returns int
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isNumeric(left) and isNumeric(right)) {
                 if (isFloating(left) or isFloating(right)) return .float;
                 return promoteNumeric(left, right);
@@ -142,6 +154,8 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             }
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool power returns int (True ** True = 1)
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isNumeric(left) and isNumeric(right)) {
                 if (isFloating(left) or isFloating(right)) return .float;
                 return promoteNumeric(left, right);
@@ -158,11 +172,24 @@ pub fn binaryResultTypeWithHints(op: BinOp, left: NativeType, right: NativeType,
             }
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool shift returns int (True << 2 = 4)
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
         },
-        .RShift, .BitAnd, .BitOr, .BitXor => {
+        .RShift => {
             // UnifiedInt propagation
             if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool shift returns int
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
+            if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
+        },
+        .BitAnd, .BitOr, .BitXor => {
+            // UnifiedInt propagation
+            if (left_needs_unified or right_needs_unified) return .unified_int;
+            // Bool & bool returns bool in Python (True & False = False)
+            // But bool & int or int & bool returns int
+            if (left_tag == .bool and right_tag == .bool) return .bool;
+            if (left_tag == .bool or right_tag == .bool) return .{ .int = .bounded };
             if (isIntegral(left) and isIntegral(right)) return promoteNumeric(left, right);
         },
     }

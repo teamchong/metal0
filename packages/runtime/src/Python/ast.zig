@@ -60,9 +60,10 @@ fn checkAugAssignToTuple(source: []const u8) bool {
     return false;
 }
 
-pub fn compile_builtin(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8) !*runtime.PyObject {
+pub fn compile_builtin(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8, flags: i64) !*runtime.PyObject {
     _ = filename; // unused for MVP
     _ = mode; // unused for MVP
+    _ = flags; // TODO: implement __future__ flag handling (barry_as_FLUFL, etc.)
 
     // Check for invalid syntax: augmented assignment to tuple
     if (checkAugAssignToTuple(source)) {

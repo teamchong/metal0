@@ -2034,6 +2034,11 @@ pub fn genClassMethods(
             // Generate method signature
             // Note: method_nesting_depth tracks whether we're inside a NESTED class inside a method
             // It's incremented when we enter a class inside a method body, not when we enter a method itself
+            // Two-Flow: Save and reset PyValue return flag for nested class methods
+            // Without this, the flag from outer function bleeds into nested methods like __contains__
+            const saved_returns_pyvalue = self.current_function_returns_pyvalue;
+            self.current_function_returns_pyvalue = false;
+            defer self.current_function_returns_pyvalue = saved_returns_pyvalue;
             try signature.genMethodSignatureWithSkip(self, class.name, method, mutates_self, needs_allocator, false, actually_uses_allocator);
 
             // Track method signature for default parameter handling at call sites

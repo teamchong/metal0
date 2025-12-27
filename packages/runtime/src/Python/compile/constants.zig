@@ -17,9 +17,10 @@ pub const OpCode = enum(u8) {
     Pow,
 
     // Unary operations
-    Invert, // Bitwise NOT ~
-    UAdd, // Unary + (type check only)
-    USub, // Unary - (negate)
+    Invert, // Bitwise NOT ~ (0x53)
+    UAdd, // Unary + (type check only) (0x51)
+    USub, // Unary - (negate) (0x50)
+    Not, // Boolean not (0x52)
 
     // Comparisons
     Eq,

@@ -863,7 +863,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     try b.writeIndent();
                     // Use unittest.expectError() which handles both error and non-error types
                     // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
-                    try b.writeFmt("if (!unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
+                    try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
                     b.dedent();
                     try b.writeIndent();
                     try b.write("}\n");
@@ -890,7 +890,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                                 try b.emitValue(expr_val, .{});
                                 try b.write(";\n");
                                 try b.writeIndent();
-                                try b.writeFmt("if (!unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
+                                try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
                                 b.dedent();
                                 try b.writeIndent();
                                 try b.write("}\n");

@@ -435,8 +435,15 @@ pub fn inferBuiltinCall(
                 }
                 return .{ .tuple = elem_types };
             }
+            // Unknown input type (range object, generator, etc.) - return unknown
+            // We can't know the element count at compile time, so we return unknown
+            // and let the for-loop codegen handle iteration properly
+            const arg_tag = @as(std.meta.Tag(NativeType), arg_type);
+            if (arg_tag == .unknown or arg_tag == .pyobject or arg_tag == .pyvalue) {
+                return .unknown;
+            }
         }
-        // Empty tuple or unknown element types
+        // Empty tuple for tuple() with no args
         return .{ .tuple = &[_]NativeType{} };
     }
 

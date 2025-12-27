@@ -5,7 +5,14 @@ const std = @import("std");
 const bytecode = @import("../compile.zig");
 
 pub fn compileViaSubprocess(allocator: std.mem.Allocator, source: []const u8) !bytecode.BytecodeProgram {
+    return compileViaSubprocessWithFlags(allocator, source, 0);
+}
+
+pub fn compileViaSubprocessWithFlags(allocator: std.mem.Allocator, source: []const u8, flags: i64) !bytecode.BytecodeProgram {
     // Build argv: ["metal0", "--emit-bytecode", source]
+    // If flags are specified, we need to pass them through Python's compile()
+    _ = flags; // TODO: Pass flags to subprocess or use Python's compile() directly
+
     const argv = [_][]const u8{ "metal0", "--emit-bytecode", source };
 
     // Spawn subprocess
