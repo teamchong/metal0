@@ -71,6 +71,10 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
     try self.emitIndent();
     try self.emit("pub const __logic_table__ = true;\n\n");
 
+    // Set flag so genFunctionSignature emits 'pub fn'
+    self.in_logic_table_class = true;
+    defer self.in_logic_table_class = false;
+
     // Collect method names for the methods array
     var method_names: std.ArrayListUnmanaged([]const u8) = .{};
     defer method_names.deinit(allocator);

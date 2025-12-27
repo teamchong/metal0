@@ -842,6 +842,9 @@ pub fn genFunctionSignature(
     } else if (self.target_wasm_browser and !std.mem.eql(u8, func.name, "main")) {
         // Export functions for WASM (except main which becomes _start)
         try self.emit("export fn ");
+    } else if (self.in_logic_table_class) {
+        // @logic_table methods need pub for external linking
+        try self.emit("pub fn ");
     } else {
         try self.emit("fn ");
     }
