@@ -37,6 +37,16 @@ const BuiltinModule = struct {
 var builtin_modules: std.ArrayList(BuiltinModule) = undefined;
 var builtin_modules_initialized = false;
 
+/// Static module registry entry for compile-time linked C extensions
+const StaticModuleEntry = struct {
+    name: []const u8,
+    init_fn: *const fn () callconv(.c) ?*cpython.PyObject,
+};
+
+/// Static module registry - populated at compile time with linked C extensions
+/// Currently empty - modules can be added here when statically linking C extensions
+const static_module_registry: []const StaticModuleEntry = &[_]StaticModuleEntry{};
+
 /// Initialize module system
 fn initModuleSystem() void {
     if (registry_initialized) return;
@@ -713,47 +723,101 @@ fn tryLoadSubmoduleExtension(base_path: []const u8, parts: []const []const u8) ?
 }
 
 // ============================================================================
-// STATIC MODULE LINKING
+// DYNAMIC MODULE LOADING (dlopen)
 // ============================================================================
-// All C extension modules are statically linked at compile time.
-// build.zig links the .so files, PyInit_* symbols are resolved at link time.
-// No dlopen - everything is static.
+// C extension modules are loaded dynamically at runtime using dlopen.
+// This works for ANY Python extension library (numpy, pandas, scipy, etc.)
+// without requiring hardcoded support for each.
 
 /// PyInit function type for C extension modules
 pub const PyInitFn = *const fn () callconv(.c) ?*cpython.PyObject;
 
-/// Static module registry - modules are registered at comptime when linked.
-/// When numpy/pandas .so files are linked via build.zig, their PyInit_* symbols
-/// become available and the registry can be populated.
-///
-/// For now, this is a placeholder that returns null for all modules.
-/// The actual static linking requires:
-/// 1. build.zig to link .so files via addObjectFile()
-/// 2. extern fn declarations for PyInit_* symbols
-/// 3. Registration of those symbols in the registry
-///
-/// TODO: Implement automatic discovery of linked modules.
-const static_module_registry: []const StaticModuleEntry = &[_]StaticModuleEntry{
-    // Empty until .so files are linked via build.zig
-};
+/// Cache of loaded dynamic libraries to avoid reloading
+var loaded_libs: std.StringHashMap(std.DynLib) = undefined;
+var loaded_libs_initialized = false;
 
-/// Registry mapping module names to their PyInit functions
-const StaticModuleEntry = struct {
-    name: []const u8,
-    init_fn: PyInitFn,
-};
-
-/// Try loading extension by name using static linking
-fn tryLoadPackageExtension(base_path: []const u8, subpath: []const u8, init_name: []const u8) ?*cpython.PyObject {
-    _ = base_path;
-    _ = subpath;
-    return loadStaticModule(init_name);
+fn initLoadedLibs() void {
+    if (loaded_libs_initialized) return;
+    loaded_libs = std.StringHashMap(std.DynLib).init(allocator);
+    loaded_libs_initialized = true;
 }
 
-/// Try loading extension from specific path using static linking (path is ignored)
+/// Get site-packages paths by querying Python's sys.path
+/// This is the proper way - ask Python itself where its packages are
+fn getSitePackagesPaths(alloc: std.mem.Allocator) ![][]const u8 {
+    // Run: python3 -c "import sys; print('\\n'.join(sys.path))"
+    const result = try std.process.Child.run(.{
+        .allocator = alloc,
+        .argv = &[_][]const u8{
+            "python3",
+            "-c",
+            "import sys; print('\\n'.join(p for p in sys.path if p))",
+        },
+    });
+    defer alloc.free(result.stdout);
+    defer alloc.free(result.stderr);
+
+    if (result.term != .Exited or result.term.Exited != 0) {
+        return error.PythonNotFound;
+    }
+
+    // Parse the output - each line is a path
+    var paths = std.ArrayList([]const u8).init(alloc);
+    var iter = std.mem.splitScalar(u8, result.stdout, '\n');
+    while (iter.next()) |line| {
+        if (line.len > 0) {
+            try paths.append(try alloc.dupe(u8, line));
+        }
+    }
+
+    return paths.toOwnedSlice();
+}
+
+/// Try loading extension from package path
+fn tryLoadPackageExtension(base_path: []const u8, subpath: []const u8, init_name: []const u8) ?*cpython.PyObject {
+    var path_buf: [1024]u8 = undefined;
+
+    for (getPlatformExtensions()) |ext| {
+        const path = std.fmt.bufPrintZ(&path_buf, "{s}{s}{s}", .{ base_path, subpath, ext }) catch continue;
+        if (loadSharedLibraryWithName(path, init_name)) |module| {
+            return module;
+        }
+    }
+
+    return null;
+}
+
+/// Try loading extension from specific path
 fn tryLoadExtension(base_path: []const u8, name: []const u8) ?*cpython.PyObject {
-    _ = base_path;
-    return loadStaticModule(name);
+    var path_buf: [1024]u8 = undefined;
+
+    // Convert module name dots to slashes for submodules
+    var name_path: [256]u8 = undefined;
+    var name_idx: usize = 0;
+    for (name) |c| {
+        if (c == '.') {
+            name_path[name_idx] = '/';
+        } else {
+            name_path[name_idx] = c;
+        }
+        name_idx += 1;
+        if (name_idx >= name_path.len - 1) break;
+    }
+
+    // Get base name (after last slash/dot)
+    var base_name = name;
+    if (std.mem.lastIndexOfScalar(u8, name, '.')) |dot| {
+        base_name = name[dot + 1 ..];
+    }
+
+    for (getPlatformExtensions()) |ext| {
+        const path = std.fmt.bufPrintZ(&path_buf, "{s}{s}{s}", .{ base_path, name_path[0..name_idx], ext }) catch continue;
+        if (loadSharedLibraryWithName(path, base_name)) |module| {
+            return module;
+        }
+    }
+
+    return null;
 }
 
 /// Load a statically linked C extension module by name
@@ -792,10 +856,67 @@ fn loadStaticModule(name: []const u8) ?*cpython.PyObject {
     return null;
 }
 
-/// Load module by init_name using static linking (path is ignored)
+/// Load module from shared library using dlopen
 fn loadSharedLibraryWithName(path: [:0]const u8, init_name: []const u8) ?*cpython.PyObject {
-    _ = path;
-    return loadStaticModule(init_name);
+    initLoadedLibs();
+
+    // Check cache first
+    const cached_key = allocator.dupe(u8, path) catch return loadStaticModule(init_name);
+    defer allocator.free(cached_key);
+
+    if (loaded_libs.get(cached_key)) |_| {
+        // Already loaded - check sys.modules
+        if (module_dict) |mod_dict| {
+            const init_z = allocator.dupeZ(u8, init_name) catch return null;
+            defer allocator.free(init_z);
+            if (PyDict_GetItemString(mod_dict, init_z)) |existing| {
+                Py_INCREF(existing);
+                return existing;
+            }
+        }
+    }
+
+    // Open the shared library using dlopen
+    const lib = std.DynLib.open(path) catch {
+        // If dlopen fails, fall back to static module lookup
+        return loadStaticModule(init_name);
+    };
+
+    // Build the PyInit_<modname> symbol name
+    var init_fn_name_buf: [256]u8 = undefined;
+    const init_fn_name = std.fmt.bufPrintZ(&init_fn_name_buf, "PyInit_{s}", .{init_name}) catch return null;
+
+    // Look up the PyInit function
+    const init_fn_ptr = lib.lookup(*const fn () callconv(.c) ?*cpython.PyObject, init_fn_name) orelse {
+        // Symbol not found - library might be a dependency, not a Python module
+        lib.close();
+        return loadStaticModule(init_name);
+    };
+
+    // Call the init function
+    const module = init_fn_ptr() orelse {
+        lib.close();
+        return null;
+    };
+
+    // Cache the library handle (keep it open so symbols remain valid)
+    const key_copy = allocator.dupe(u8, path) catch {
+        return module;
+    };
+    loaded_libs.put(key_copy, lib) catch {
+        allocator.free(key_copy);
+        // Still return module even if caching fails
+    };
+
+    // Add module to sys.modules
+    initModuleSystem();
+    if (module_dict) |mod_dict| {
+        const init_z = allocator.dupeZ(u8, init_name) catch return module;
+        defer allocator.free(init_z);
+        _ = PyDict_SetItemString(mod_dict, init_z, module);
+    }
+
+    return module;
 }
 
 /// Get platform-specific extension suffixes (kept for compatibility)

@@ -990,6 +990,7 @@ pub const concat = misc_utils.concat;
 // Dynamic attribute operations
 pub const dir_builtin = dynamic_attrs.dir_builtin;
 pub const getattr_builtin = dynamic_attrs.getattr_builtin;
+pub const structGetattr = dynamic_attrs.structGetattr;
 
 // Container operations - setEqual already exported via container_ops
 // Additional setEqual export for backward compat
