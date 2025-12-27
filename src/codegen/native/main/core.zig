@@ -1615,8 +1615,9 @@ pub const NativeCodegen = struct {
     /// Used for universal catch-all: any unsupported construct → VM execution
     pub fn needsVMFallback(self: *NativeCodegen, node: ast.Node) bool {
         switch (node) {
-            // Lambda always needs fallback (first-class functions)
-            .lambda => return true,
+            // Lambda has proper native codegen in lambda.zig (simple, capturing, inline)
+            // Don't use VM fallback for lambdas - they're handled natively
+            .lambda => return false,
 
             // Generator expressions need fallback (lazy evaluation)
             .genexp => return true,
@@ -1723,9 +1724,22 @@ pub const NativeCodegen = struct {
             },
 
             // Subscript on uncertain container
+            // IMPORTANT: PyValue variables should NOT fall back to VM eval!
+            // VM eval can't access local Zig variables. Instead, subscript.zig
+            // handles PyValue subscript/slice natively using .pyAt(), .pySlice(), etc.
             .subscript => |sub| {
                 if (sub.value.* == .name) {
                     const var_name = sub.value.name.id;
+                    // PyValue variables are handled natively in subscript.zig
+                    // Don't fall back - we can generate native PyValue subscript ops
+                    if (self.pyvalue_vars.contains(var_name)) {
+                        return false; // Native handling via subscript.zig
+                    }
+                    const renamed_name = self.var_renames.get(var_name) orelse var_name;
+                    if (self.pyvalue_vars.contains(renamed_name)) {
+                        return false; // Native handling via subscript.zig
+                    }
+                    // Only fall back for truly uncertain variables that aren't PyValue
                     if (self.isVarUncertain(var_name)) {
                         return true;
                     }
@@ -1757,6 +1771,14 @@ pub const NativeCodegen = struct {
                         return false;
                     }
                     if (self.import_aliases.contains(var_name)) {
+                        return false;
+                    }
+                    // From-imports (from X import Y) are also known - let genAttribute handle them
+                    // This handles os_helper.TESTFN when os_helper comes from "from test.support import os_helper"
+                    if (self.module_level_from_imports.contains(var_name)) {
+                        return false;
+                    }
+                    if (self.local_from_imports.contains(var_name)) {
                         return false;
                     }
                     if (self.isVarUncertain(var_name)) {
@@ -2068,10 +2090,10 @@ pub const NativeCodegen = struct {
                     .int => |i| builder_mod.ZigValue.int(i),
                     .float => |f| builder_mod.ZigValue.float(f),
                     .string => |s| builder_mod.ZigValue.string(s),
-                    .bool_ => |b| builder_mod.ZigValue.boolean(b),
+                    .bool => |b| builder_mod.ZigValue.boolean(b),
                     .none => builder_mod.ZigValue.null_(),
                     .bytes => |s| builder_mod.ZigValue.string(s),
-                    .complex_imag => builder_mod.ZigValue.pyvalue(.unknown),
+                    .bigint, .complex => builder_mod.ZigValue.pyvalue(.unknown),
                 };
             },
             .name => |n| {
@@ -2106,8 +2128,9 @@ pub const NativeCodegen = struct {
             else => {
                 // For complex expressions: emit to buffer, wrap as raw
                 // This is the escape hatch for expressions not yet fully migrated
+                const expressions = @import("../expressions.zig");
                 const start = self.output.items.len;
-                try expr_emitter.genExpr(self, node);
+                try expressions.genExpr(self, node);
                 const expr_str = try self.arena.allocator().dupe(u8, self.output.items[start..]);
                 self.output.shrinkRetainingCapacity(start);
                 return builder_mod.ZigValue.raw(expr_str);
@@ -2137,6 +2160,18 @@ pub const NativeCodegen = struct {
         try b.writeFmt(fmt, args);
         const output = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output);
+    }
+
+    /// Flush builder output to the main output buffer.
+    /// Use this after calling builder methods that don't auto-flush (like emitAssertEqualStmt).
+    /// This is the bridge between ZigBuilder and the main output buffer.
+    pub fn flushBuilder(self: *NativeCodegen) CodegenError!void {
+        if (self.builder) |b| {
+            const output = b.getBodyAndClear();
+            if (output.len > 0) {
+                try self.output.appendSlice(self.allocator, output);
+            }
+        }
     }
 
     /// Emit a variable name with proper escaping for Zig keywords and shadowing.

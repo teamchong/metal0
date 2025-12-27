@@ -364,6 +364,20 @@ pub fn toPathStr(comptime T: type, value: T) []const u8 {
         return value;
     }
 
+    // Pointer to array of u8 (string literal: *const [N:0]u8 or *const [N]u8)
+    if (info == .pointer and info.pointer.size == .one) {
+        const child_info = @typeInfo(info.pointer.child);
+        if (child_info == .array and child_info.array.child == u8) {
+            // Coerce to slice
+            return value[0..];
+        }
+    }
+
+    // Array of u8 (embedded string: [N]u8)
+    if (info == .array and info.array.child == u8) {
+        return &value;
+    }
+
     // PyValue - extract string field
     if (info == .@"union" and @hasField(T, "string")) {
         if (value == .string) {

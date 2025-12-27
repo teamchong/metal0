@@ -438,6 +438,31 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             }
             return;
         }
+
+        // Check if this is a from-import symbol (e.g., from test.support import os_helper)
+        // In this case, module_name is "os_helper" and we need to resolve os_helper.TESTFN
+        if (self.local_from_imports.get(module_name)) |source_module| {
+            // Resolve the full module path (e.g., test.support.os_helper)
+            const full_module = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ source_module, module_name }) catch module_name;
+
+            // Check if this full module has a Zig runtime implementation
+            if (self.import_registry.lookup(full_module)) |info| {
+                if (info.zig_import) |zig_path| {
+                    // Generate runtime path: runtime.test_support.os_helper.TESTFN
+                    try self.emit(zig_path);
+                    try self.emit(".");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                    return;
+                }
+            }
+
+            // Fallback: use the local module name directly
+            // The from-import should have generated a local import for the module
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+            return;
+        }
     }
 
     // Check if this is a __code__ attribute access on a function

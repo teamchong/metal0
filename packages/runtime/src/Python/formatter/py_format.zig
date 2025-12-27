@@ -12,6 +12,7 @@
 const std = @import("std");
 const format_spec = @import("format_spec.zig");
 const float_format = @import("float_format.zig");
+const PyValue = @import("../../Objects/object.zig").PyValue;
 const FormatSpec = format_spec.FormatSpec;
 const parseFormatSpec = format_spec.parseFormatSpec;
 const applyPadding = format_spec.applyPadding;
@@ -26,7 +27,13 @@ const formatFloat = float_format.formatFloat;
 
 /// Python format(value, format_spec) builtin
 pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: anytype) ![]const u8 {
-    const spec_str: []const u8 = if (@TypeOf(format_spec_str) == []const u8) format_spec_str else @as([]const u8, format_spec_str);
+    const FmtT = @TypeOf(format_spec_str);
+    const spec_str: []const u8 = if (FmtT == []const u8)
+        format_spec_str
+    else if (FmtT == PyValue)
+        format_spec_str.asString()
+    else
+        @as([]const u8, format_spec_str);
     var spec = parseFormatSpec(spec_str);
 
     // Check for invalid format spec combinations

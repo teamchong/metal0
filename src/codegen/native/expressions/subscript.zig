@@ -864,18 +864,34 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             } else if (needs_len) {
                 // Need length for upper bound - use block expression with bounds checking
                 const is_list = container_traits.isList(value_type);
+                const is_pyvalue = value_type == .pyvalue;
 
-                var em = self.exprEmitter();
-                var blk = try em.labeledBlock("slice", "__s", subscript.value.*);
-                try blk.emit("const __start = @min(");
+                if (is_pyvalue) {
+                    // Two-Flow: PyValue slicing without step (e.g., fmt[1:])
+                    // Extract string from PyValue then slice it
+                    var em = self.exprEmitter();
+                    var blk = try em.labeledBlock("pyslice", "__pv", subscript.value.*);
+                    // Get string from PyValue
+                    try blk.emit("const __s = __pv.asString(); const __start = @min(");
+                    if (slice_range.lower) |lower| {
+                        try genExpr(self, lower.*);
+                    } else {
+                        try self.emit("0");
+                    }
+                    try blk.emit(", __s.len); ");
+                    try blk.breakWith("if (__start <= __s.len) __s[__start..__s.len] else \"\"");
+                    try blk.close();
+                } else if (is_list) {
+                    var em = self.exprEmitter();
+                    var blk = try em.labeledBlock("slice", "__s", subscript.value.*);
+                    try blk.emit("const __start = @min(");
 
-                if (slice_range.lower) |lower| {
-                    try genSliceIndex(self, lower.*, true, is_list);
-                } else {
-                    try self.emit("0");
-                }
+                    if (slice_range.lower) |lower| {
+                        try genSliceIndex(self, lower.*, true, true);
+                    } else {
+                        try self.emit("0");
+                    }
 
-                if (is_list) {
                     // Get element type for empty array fallback
                     try blk.emit(", __s.items.len); ");
                     try blk.startBreak();
@@ -885,6 +901,16 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     try self.emit("{}");
                     try blk.close();
                 } else {
+                    var em = self.exprEmitter();
+                    var blk = try em.labeledBlock("slice", "__s", subscript.value.*);
+                    try blk.emit("const __start = @min(");
+
+                    if (slice_range.lower) |lower| {
+                        try genSliceIndex(self, lower.*, true, false);
+                    } else {
+                        try self.emit("0");
+                    }
+
                     try blk.emit(", __s.len); ");
                     try blk.breakWith("if (__start <= __s.len) __s[__start..__s.len] else \"\"");
                     try blk.close();

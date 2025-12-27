@@ -115,6 +115,7 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
 /// Generate source string expression for eval/exec
 /// Handles BinOp string/bytes concat specially using std.mem.concat
 /// Regular strings/expressions use genExpr
+/// IMPORTANT: PyValue variables need .asString() since runtime.eval expects []const u8
 fn genEvalSource(codegen: *NativeCodegen, source: ast.Node) CodegenError!void {
     switch (source) {
         .binop => |b| {
@@ -135,8 +136,26 @@ fn genEvalSource(codegen: *NativeCodegen, source: ast.Node) CodegenError!void {
             // For non-Add binops, fall through to genExpr
             try codegen.genExpr(source);
         },
+        .name => |n| {
+            // Check if this is a PyValue variable - need .asString() since eval expects []const u8
+            // PyValue variables occur when unpacking from VM fallback results or reassignment from VM ops
+            if (codegen.pyvalue_vars.contains(n.id)) {
+                try codegen.genExpr(source);
+                try codegen.emit(".asString()");
+                return;
+            }
+            // Check renamed name too
+            const renamed = codegen.var_renames.get(n.id) orelse n.id;
+            if (codegen.pyvalue_vars.contains(renamed)) {
+                try codegen.genExpr(source);
+                try codegen.emit(".asString()");
+                return;
+            }
+            // Not a PyValue - use normal genExpr
+            try codegen.genExpr(source);
+        },
         else => {
-            // For non-binop expressions, use normal genExpr
+            // For other expressions, use normal genExpr
             try codegen.genExpr(source);
         },
     }

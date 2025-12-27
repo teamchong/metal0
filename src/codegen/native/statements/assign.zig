@@ -581,7 +581,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
     for (assign.targets) |target| {
         if (target == .name) {
-            var var_name = target.name.id;
+            // IMPORTANT: Copy the variable name to arena memory immediately to prevent
+            // use-after-free when subsequent expression generation causes memory operations
+            // that could invalidate pointers into the original AST
+            var var_name: []const u8 = try self.arena.allocator().dupe(u8, target.name.id);
+            // DEBUG: verify the copy worked
+            std.debug.print("DEBUG: var_name after dupe = '{s}' (len={})\n", .{var_name, var_name.len});
             const original_var_name = var_name; // Keep for usage checks (before any renaming)
 
             // Skip function-aliasing assignments: genslices = rslices, permutations = rpermutation
@@ -1298,8 +1303,21 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // don't double-wrap
                     // EXCEPTION 2: List literals use the ArrayList expansion pattern (init + appends),
                     // which is incompatible with PyValue.from() wrapping
+                    // EXCEPTION 3: eval() calls already wrap result in PyValue.from() via genEval
                     const is_pyvalue_reassign = (declared_type == .pyvalue);
-                    const expr_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
+                    const binop_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
+                    // Check if this is an eval() call - genEval already wraps in PyValue.from()
+                    const is_eval_call = blk: {
+                        if (assign.value.* == .call) {
+                            const call = assign.value.call;
+                            if (call.func.* == .name) {
+                                const func_name = call.func.name.id;
+                                if (std.mem.eql(u8, func_name, "eval")) break :blk true;
+                            }
+                        }
+                        break :blk false;
+                    };
+                    const expr_produces_pyvalue = binop_produces_pyvalue or is_eval_call;
                     const is_list_literal = assign.value.* == .list;
                     reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue and !is_list_literal;
 
@@ -1627,6 +1645,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // For deques, add pointer discard to suppress "never mutated" warnings
             // Deques use `var` for .deinit() but may not be mutated at the variable level
             if (is_deque and is_first_assignment) {
+                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                try self.emit(";\n");
+            }
+
+            // For class instances, add pointer discard to suppress "unused local constant" warnings
+            // Class instances may only be used in conditionally compiled branches (e.g., inside if blocks)
+            // which can result in the variable appearing unused at the Zig level
+            if (type_traits.isClassInstance(value_type) and is_first_assignment) {
                 const actual_name = self.var_renames.get(var_name) orelse var_name;
                 try self.emitIndent();
                 try self.emit("_ = &");

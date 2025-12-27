@@ -164,12 +164,28 @@ fn findArg(args: anytype, placeholder: []const u8, positional_idx: *usize) []con
 
     // Handle tuple of key-value pairs: .{.{"key", "value"}, ...}
     if (info == .@"struct" and info.@"struct".is_tuple) {
-        // Empty placeholder {} means positional argument
+        // Empty placeholder {} means auto-positional argument
         if (placeholder.len == 0) {
             const idx = positional_idx.*;
             positional_idx.* += 1;
 
             // For positional, get the idx-th element's value (second item of tuple)
+            inline for (info.@"struct".fields, 0..) |_, field_idx| {
+                if (field_idx == idx) {
+                    const kv = args[field_idx];
+                    const kv_info = @typeInfo(@TypeOf(kv));
+                    if (kv_info == .@"struct" and kv_info.@"struct".is_tuple) {
+                        return kv[1]; // Value
+                    }
+                    return kv; // Direct value
+                }
+            }
+            return "";
+        }
+
+        // Numeric placeholder {0}, {1}, etc. - use explicit index
+        if (placeholder.len > 0 and placeholder[0] >= '0' and placeholder[0] <= '9') {
+            const idx = std.fmt.parseInt(usize, placeholder, 10) catch return "";
             inline for (info.@"struct".fields, 0..) |_, field_idx| {
                 if (field_idx == idx) {
                     const kv = args[field_idx];

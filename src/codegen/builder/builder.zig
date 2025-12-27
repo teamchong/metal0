@@ -136,6 +136,39 @@ pub const ZigBuilder = @import("zig_builder.zig").ZigBuilder;
 pub const FuncParam = @import("zig_builder.zig").FuncParam;
 pub const NameGen = @import("zig_builder.zig").NameGen;
 
+// Structured statement and expression types
+pub const ZigStatement = @import("zig_statement.zig").ZigStatement;
+pub const ConstDecl = @import("zig_statement.zig").ConstDecl;
+pub const VarDecl = @import("zig_statement.zig").VarDecl;
+pub const VarUndef = @import("zig_statement.zig").VarUndef;
+pub const Assign = @import("zig_statement.zig").Assign;
+pub const AugAssign = @import("zig_statement.zig").AugAssign;
+pub const AugOp = @import("zig_statement.zig").AugOp;
+pub const IfStmt = @import("zig_statement.zig").IfStmt;
+pub const WhileLoop = @import("zig_statement.zig").WhileLoop;
+pub const ForLoop = @import("zig_statement.zig").ForLoop;
+pub const Break = @import("zig_statement.zig").Break;
+pub const Continue = @import("zig_statement.zig").Continue;
+pub const Return = @import("zig_statement.zig").Return;
+pub const Block = @import("zig_statement.zig").Block;
+
+pub const ZigExpr = @import("zig_expr.zig").ZigExpr;
+pub const Binary = @import("zig_expr.zig").Binary;
+pub const Unary = @import("zig_expr.zig").Unary;
+pub const UnaryOp = @import("zig_expr.zig").UnaryOp;
+pub const BinaryOpKind = @import("zig_expr.zig").BinaryOpKind;
+pub const ResultType = @import("zig_expr.zig").ResultType;
+pub const Field = @import("zig_expr.zig").Field;
+pub const Subscript = @import("zig_expr.zig").Subscript;
+pub const Call = @import("zig_expr.zig").Call;
+pub const MethodCall = @import("zig_expr.zig").MethodCall;
+pub const Ternary = @import("zig_expr.zig").Ternary;
+pub const CompOp = @import("zig_value.zig").CompOp;
+pub const CertainType = @import("zig_value.zig").CertainType;
+
+// StatementBuilder - high-level API for structured codegen
+pub const StatementBuilder = @import("statement_builder.zig").StatementBuilder;
+
 // ============================================
 // Convenience functions
 // ============================================

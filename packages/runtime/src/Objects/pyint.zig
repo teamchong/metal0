@@ -545,6 +545,15 @@ pub const UnifiedInt = union(enum) {
         }
     }
 
+    /// Compare UnifiedInt with an i64 value
+    /// Used by pyAnyEql for cross-type comparison
+    pub fn eqlInt(self: Self, other: i64) bool {
+        return switch (self) {
+            .small => |v| v == other,
+            .big => |b| b.eqlInt(other),
+        };
+    }
+
     // ============================================================================
     // Conversions
     // ============================================================================

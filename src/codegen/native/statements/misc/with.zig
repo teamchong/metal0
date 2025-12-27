@@ -454,7 +454,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                         // Unittest context managers need hoisting too - err may be used after with block
                         // Skip if already hoisted or declared (handles multiple with assertRaises as err)
                         if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
-                            // Hoist as ContextManager type - use const since it's only assigned once
+                            // Hoist as ContextManager type - use var since captureException needs mutable
                             // Check for module-level function shadowing
                             const shadows_module_func = self.module_level_funcs.contains(var_name);
                             var actual_name = var_name;
@@ -466,7 +466,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                                 actual_name = renamed;
                             }
                             try self.emitIndent();
-                            try self.emit("const ");
+                            try self.emit("var ");
                             try self.emit(actual_name);
                             try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager.init();\n");
                             try self.hoisted_vars.put(var_name, {});
@@ -485,7 +485,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                         const cm_var_name = named.target.name.id;
                         const cm_expr = named.value.*;
                         if (isUnittestContextManager(cm_expr)) {
-                            // Hoist unittest context manager variable - use const since only assigned once
+                            // Hoist unittest context manager variable - use var since captureException needs mutable
                             // Skip if already hoisted or declared (handles multiple with assertRaises as err)
                             if (!self.isDeclared(cm_var_name) and !self.hoisted_vars.contains(cm_var_name)) {
                                 // Check for module-level function shadowing
@@ -499,7 +499,7 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                                     actual_cm_name = renamed_cm;
                                 }
                                 try self.emitIndent();
-                                try self.emit("const ");
+                                try self.emit("var ");
                                 try self.emit(actual_cm_name);
                                 try self.emit(": runtime.unittest.ContextManager = runtime.unittest.ContextManager.init();\n");
                                 try self.hoisted_vars.put(cm_var_name, {});
@@ -716,11 +716,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 const needs_decl = !is_hoisted and !is_declared;
 
                 // Only emit declaration if variable not already declared
-                // For repeated with statements using same variable, the const is already set
+                // For repeated with statements using same variable, the var is already set
                 if (needs_decl) {
                     try b.writeIndent();
-                    // Use const for context manager variables (they're read-only)
-                    try b.write("const ");
+                    // Use var for context manager variables (captureException needs mutable self)
+                    try b.write("var ");
                     try b.write(var_name);
                     try b.write(" = runtime.unittest.ContextManager.init();\n");
                     // Always discard pointer to suppress unused warning
@@ -764,7 +764,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         // Emit dummy ContextManager for assertRaises/assertRaisesRegex
                         try b.writeIndent();
                         if (needs_decl) {
-                            try b.write("const ");
+                            try b.write("var ");
                         }
                         // Capture escaped identifier
                         const start_pos = self.output.items.len;
@@ -810,6 +810,14 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         // For assertRaises/assertRaisesRegex, set context flag so builtins use catch instead of try
         // For assertWarns/assertLogs, just generate body normally
         const is_raises_context = isAssertRaisesContext(with_node.context_expr.*);
+
+        // Get context manager variable name if it exists (for captureException calls)
+        const cm_var_name: ?[]const u8 = if (with_node.optional_vars) |target| blk: {
+            if (target.* == .name) {
+                break :blk target.name.id;
+            }
+            break :blk null;
+        } else null;
 
         if (is_raises_context) {
             const was_in_assert_raises = self.in_assert_raises_context;
@@ -858,12 +866,19 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     try b.writeIndent();
                     try b.write("const __ar_val = ");
                     const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
-                    try b.emitValue(expr_val, .{});
+                    // Use .ignore error mode so error unions are passed directly to expectError
+                    // without try unwrapping them first
+                    try b.emitValue(expr_val, .{ .error_mode = .ignore });
                     try b.write(";\n");
                     try b.writeIndent();
                     // Use unittest.expectError() which handles both error and non-error types
                     // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
-                    try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
+                    // If error raised, capture exception info and break; otherwise fall through
+                    if (cm_var_name) |cm_name| {
+                        try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ {s}.captureException(); break :__ar_blk_{d} {{}}; }}\n", .{ cm_name, block_id });
+                    } else {
+                        try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                    }
                     b.dedent();
                     try b.writeIndent();
                     try b.write("}\n");
@@ -887,10 +902,16 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                                 try b.writeIndent();
                                 try b.write("const __ar_val = ");
                                 const expr_val = try self.captureExpr(nested_stmt.expr_stmt.value.*);
-                                try b.emitValue(expr_val, .{});
+                                // Use .ignore error mode so error unions are passed directly to expectError
+                                try b.emitValue(expr_val, .{ .error_mode = .ignore });
                                 try b.write(";\n");
                                 try b.writeIndent();
-                                try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) break :__ar_blk_{d} {{}};\n", .{block_id});
+                                // If error raised, capture exception info and break
+                                if (cm_var_name) |cm_name| {
+                                    try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ {s}.captureException(); break :__ar_blk_{d} {{}}; }}\n", .{ cm_name, block_id });
+                                } else {
+                                    try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                                }
                                 b.dedent();
                                 try b.writeIndent();
                                 try b.write("}\n");

@@ -14,7 +14,12 @@ pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("(blk_compile: { @panic(\"compile() requires at least 3 arguments\"); })");
         return;
     }
-    try self.emit("try runtime.compile_builtin(__global_allocator, ");
+    // In assertRaises context, don't emit try - let error propagate as error union
+    if (self.in_assert_raises_context) {
+        try self.emit("runtime.compile_builtin(__global_allocator, ");
+    } else {
+        try self.emit("try runtime.compile_builtin(__global_allocator, ");
+    }
     try self.genExpr(args[0]); // source
     try self.emit(", ");
     try self.genExpr(args[1]); // filename

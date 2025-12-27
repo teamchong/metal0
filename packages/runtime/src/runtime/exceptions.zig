@@ -23,6 +23,14 @@ threadlocal var last_exception_type: ?[]const u8 = null;
 threadlocal var last_exception_args: [8][]const u8 = .{""} ** 8;
 threadlocal var last_exception_args_len: usize = 0;
 
+/// Thread-local storage for SyntaxError attributes
+threadlocal var last_syntax_error_filename: ?[]const u8 = null;
+threadlocal var last_syntax_error_lineno: ?i64 = null;
+threadlocal var last_syntax_error_offset: ?i64 = null;
+threadlocal var last_syntax_error_text: ?[]const u8 = null;
+threadlocal var last_syntax_error_end_lineno: ?i64 = null;
+threadlocal var last_syntax_error_end_offset: ?i64 = null;
+
 /// Thread-local buffer for formatted exception messages (e.g., with repr values)
 threadlocal var exception_message_buffer: [512]u8 = undefined;
 
@@ -80,6 +88,48 @@ pub fn clearException() void {
     last_exception_type = null;
     last_exception_full = null;
     last_exception_args_len = 0;
+    // Clear SyntaxError attributes
+    last_syntax_error_filename = null;
+    last_syntax_error_lineno = null;
+    last_syntax_error_offset = null;
+    last_syntax_error_text = null;
+    last_syntax_error_end_lineno = null;
+    last_syntax_error_end_offset = null;
+}
+
+/// Set SyntaxError attributes
+pub fn setSyntaxError(
+    message: []const u8,
+    filename: ?[]const u8,
+    lineno: ?i64,
+    offset: ?i64,
+    text: ?[]const u8,
+) void {
+    setException("SyntaxError", message);
+    last_syntax_error_filename = filename;
+    last_syntax_error_lineno = lineno;
+    last_syntax_error_offset = offset;
+    last_syntax_error_text = text;
+}
+
+/// Get SyntaxError filename
+pub fn getSyntaxErrorFilename() ?[]const u8 {
+    return last_syntax_error_filename;
+}
+
+/// Get SyntaxError lineno
+pub fn getSyntaxErrorLineno() ?i64 {
+    return last_syntax_error_lineno;
+}
+
+/// Get SyntaxError offset
+pub fn getSyntaxErrorOffset() ?i64 {
+    return last_syntax_error_offset;
+}
+
+/// Get SyntaxError text
+pub fn getSyntaxErrorText() ?[]const u8 {
+    return last_syntax_error_text;
 }
 
 /// Python traceback object - represents a stack frame in the exception traceback

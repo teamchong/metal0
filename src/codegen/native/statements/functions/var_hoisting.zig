@@ -726,9 +726,9 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
                 // Check for known return types
                 if (c.func.* == .name) {
                     const fn_name = c.func.name.id;
-                    // eval() returns *PyObject
+                    // eval() returns PyValue (genEval wraps in PyValue.from())
                     if (std.mem.eql(u8, fn_name, "eval")) {
-                        return "*runtime.PyObject";
+                        return "runtime.PyValue";
                     }
                     // float() returns f64
                     if (std.mem.eql(u8, fn_name, "float")) {

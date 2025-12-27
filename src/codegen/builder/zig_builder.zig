@@ -1279,6 +1279,92 @@ pub const ZigBuilder = struct {
         try self.write(") return error.AssertionFailed");
     }
 
+    // ============================================
+    // Statement-level Assertion API
+    // ============================================
+    //
+    // These methods emit COMPLETE statements:
+    // - indent + assertion code + semicolon + newline
+    //
+    // Use these from assertions.zig for 100% builder migration.
+
+    /// Emit assertEqual as a complete statement
+    pub fn emitAssertEqualStmt(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertEqual(left, right);
+        try self.write(";\n");
+    }
+
+    /// Emit assertNotEqual as a complete statement
+    pub fn emitAssertNotEqualStmt(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertNotEqual(left, right);
+        try self.write(";\n");
+    }
+
+    /// Emit assertTrue as a complete statement
+    pub fn emitAssertTrueStmt(self: *ZigBuilder, value: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertTrue(value);
+        try self.write(";\n");
+    }
+
+    /// Emit assertFalse as a complete statement
+    pub fn emitAssertFalseStmt(self: *ZigBuilder, value: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertFalse(value);
+        try self.write(";\n");
+    }
+
+    /// Emit assertIs as a complete statement
+    pub fn emitAssertIsStmt(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertIs(left, right);
+        try self.write(";\n");
+    }
+
+    /// Emit assertIsNot as a complete statement
+    pub fn emitAssertIsNotStmt(self: *ZigBuilder, left: ZigValue, right: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertIsNot(left, right);
+        try self.write(";\n");
+    }
+
+    /// Emit assertIn as a complete statement
+    pub fn emitAssertInStmt(self: *ZigBuilder, element: ZigValue, container: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertIn(element, container);
+        try self.write(";\n");
+    }
+
+    /// Emit assertNotIn as a complete statement
+    pub fn emitAssertNotInStmt(self: *ZigBuilder, element: ZigValue, container: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertNotIn(element, container);
+        try self.write(";\n");
+    }
+
+    /// Emit ordering assertion as a complete statement (assertGreater, assertLess, etc)
+    pub fn emitAssertOrderingStmt(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertOrdering(op, left, right);
+        try self.write(";\n");
+    }
+
+    /// Emit assertIsNone as a complete statement
+    pub fn emitAssertIsNoneStmt(self: *ZigBuilder, value: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertIsNone(value);
+        try self.write(";\n");
+    }
+
+    /// Emit assertIsNotNone as a complete statement
+    pub fn emitAssertIsNotNoneStmt(self: *ZigBuilder, value: ZigValue) !void {
+        try self.writeIndent();
+        try self.emitAssertIsNotNone(value);
+        try self.write(";\n");
+    }
+
     /// Helper to emit bool conversion
     fn emitToBool(self: *ZigBuilder, value: ZigValue) !void {
         switch (value) {

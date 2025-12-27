@@ -6,7 +6,7 @@
 ///
 /// | Source          | Check               | Call Pattern            |
 /// |-----------------|---------------------|-------------------------|
-/// | Simple lambda   | `lambda_vars`       | `f(args)`               |
+/// | Simple lambda   | `lambda_vars`       | `f.call(args)`          |
 /// | Closure         | `closure_vars`      | `f.call(args)`          |
 /// | Regular func    | neither             | `f(args)`               |
 ///
@@ -930,12 +930,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             self.var_renames.get(raw_func_name) orelse
             raw_func_name;
 
-        // Check if this is a simple lambda (function pointer)
+        // Check if this is a simple lambda (inline struct with .call method)
         if (self.lambda_vars.contains(raw_func_name)) {
-            // Lambda call: square(5) -> square(5)
-            // Function pointers in Zig are called directly
+            // Lambda call: square(5) -> (try square.call(5))
+            // Inline struct lambdas need .call() method invocation
+            // Lambda return types may be error unions (!T), wrap with try
+            try self.emit("(try ");
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit("(");
+            try self.emit(".call(");
 
             for (call.args, 0..) |arg, i| {
                 if (i > 0) try self.emit(", ");
@@ -947,7 +949,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            try self.emit(")");
+            try self.emit("))");
             return;
         }
 

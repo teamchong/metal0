@@ -300,9 +300,28 @@ pub fn genFloorDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nat
 /// Generate modulo operation (or string formatting)
 /// Uses auto-close patterns to guarantee matching parentheses
 pub fn genModOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
-    if (string_traits.isString(left_type) or (binop.left.* == .constant and binop.left.constant.value == .string)) {
+    // String formatting: if left operand is string or bytes, use formatting not modulo
+    if (string_traits.isString(left_type) or string_traits.isBytes(left_type) or
+        (binop.left.* == .constant and binop.left.constant.value == .string))
+    {
         const genStringFormat = @import("./formatting.zig").genStringFormat;
         try genStringFormat(self, binop);
+        return;
+    }
+
+    // CRITICAL: If left operand is an anytype parameter (closure/nested function param),
+    // we MUST use runtime dispatch because it could be a string (formatting) or number (modulo).
+    // The type at call-site might be string, but inside the closure we only know it's anytype.
+    const left_is_anytype = if (binop.left.* == .name) self.anytype_params.contains(binop.left.name.id) else false;
+    if (left_is_anytype) {
+        try emitBinaryCall(self, "runtime.pyMod(__global_allocator, ", binop.left.*, binop.right.*);
+        return;
+    }
+
+    // For unknown types, use runtime dispatch which handles both string formatting and modulo
+    // This is critical for function parameters without type annotations
+    if (type_traits.isUnknown(left_type) or type_traits.isUnknown(right_type)) {
+        try emitBinaryCall(self, "runtime.pyMod(__global_allocator, ", binop.left.*, binop.right.*);
         return;
     }
     const semantics = operator_traits.getModuloSemantics(left_type, right_type);

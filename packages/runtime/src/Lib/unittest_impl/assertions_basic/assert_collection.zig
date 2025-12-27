@@ -9,6 +9,10 @@ const pythonEql = helpers.pythonEql;
 /// Helper to check if a type is string-like
 inline fn isStringLikeInline(comptime T: type) bool {
     const info = @typeInfo(T);
+    // Handle optional types - unwrap and check inner type
+    if (info == .optional) {
+        return isStringLikeInline(info.optional.child);
+    }
     if (info != .pointer) return false;
     const ptr = info.pointer;
     if (ptr.size == .slice and ptr.child == u8) return true;
@@ -31,8 +35,16 @@ pub fn assertIn(item: anytype, container: anytype) !void {
     };
 
     const found = if (comptime is_string_in_string) string_blk: {
-        const container_slice: []const u8 = container;
-        const item_slice: []const u8 = item;
+        // Handle optional container - unwrap if present, fail if null
+        const container_slice: []const u8 = if (comptime @typeInfo(ContainerType) == .optional)
+            (container orelse break :string_blk false)
+        else
+            container;
+        // Handle optional item - unwrap if present, fail if null
+        const item_slice: []const u8 = if (comptime @typeInfo(ItemType) == .optional)
+            (item orelse break :string_blk false)
+        else
+            item;
         break :string_blk std.mem.indexOf(u8, container_slice, item_slice) != null;
     } else elem_blk: {
         const container_info = @typeInfo(ContainerType);
@@ -113,8 +125,16 @@ pub fn assertNotIn(item: anytype, container: anytype) !void {
     };
 
     const found = if (comptime is_string_in_string) string_blk: {
-        const container_slice: []const u8 = container;
-        const item_slice: []const u8 = item;
+        // Handle optional container - unwrap if present, fail if null
+        const container_slice: []const u8 = if (comptime @typeInfo(ContainerType) == .optional)
+            (container orelse break :string_blk false)
+        else
+            container;
+        // Handle optional item - unwrap if present, fail if null
+        const item_slice: []const u8 = if (comptime @typeInfo(ItemType) == .optional)
+            (item orelse break :string_blk false)
+        else
+            item;
         break :string_blk std.mem.indexOf(u8, container_slice, item_slice) != null;
     } else elem_blk: {
         const container_info = @typeInfo(ContainerType);

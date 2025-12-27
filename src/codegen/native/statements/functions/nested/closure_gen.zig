@@ -474,6 +474,11 @@ pub fn genStandardClosure(
     var capture_renames = std.ArrayList([]const u8){};
     defer capture_renames.deinit(self.allocator);
 
+    // Track which captured variables we add to closure_vars so we can clean them up later
+    // This prevents captured variable names from polluting the outer scope's namespace
+    var added_closure_vars = std.ArrayList([]const u8){};
+    defer added_closure_vars.deinit(self.allocator);
+
     for (captured_vars) |var_name| {
         // Check if this is an AnyCallable-wrapped capture
         const var_type = self.getLocalVarType(var_name) orelse
@@ -482,8 +487,10 @@ pub fn genStandardClosure(
             .unknown;
 
         // Mark AnyCallable vars as closures so they get .call() treatment
+        // Track that we added this so it can be cleaned up after closure generation
         if (var_type == .unknown) {
             try self.closure_vars.put(var_name, {});
+            try added_closure_vars.append(self.allocator, var_name);
         }
 
         const rename = if (mutated_captures.contains(var_name))
@@ -599,6 +606,14 @@ pub fn genStandardClosure(
             _ = self.var_renames.swapRemove(var_name);
         }
         self.allocator.free(capture_renames.items[i]);
+    }
+
+    // Clean up closure_vars entries we added for captured variables
+    // This prevents captured variable names (like "args") from polluting the outer scope
+    // and causing "undeclared identifier" errors when the outer scope tries to assign
+    // a new variable with the same name
+    for (added_closure_vars.items) |var_name| {
+        _ = self.closure_vars.swapRemove(var_name);
     }
 
     self.popScope();

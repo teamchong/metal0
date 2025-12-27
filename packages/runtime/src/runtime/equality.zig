@@ -12,6 +12,7 @@ const CpythonPyObject = cpython.PyObject;
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
 const PyPowResult = @import("builtins/pow.zig").PyPowResult;
+const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
 
 /// Python-style containment check for slices
 /// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
@@ -469,13 +470,48 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         if (A == @import("../Objects/pyint.zig").UnifiedInt) {
             return a.eqlSimple(b);
         }
-        // Special case: slices need std.mem.eql
+        // Special case: slices need element-wise comparison with NaN identity handling
         if (a_info == .pointer and a_info.pointer.size == .slice) {
-            return std.mem.eql(a_info.pointer.child, a, b);
+            const ElemT = a_info.pointer.child;
+            if (a.len != b.len) return false;
+            // For float elements, use identity-based NaN comparison (Python semantics)
+            if (ElemT == f64) {
+                for (a, b) |a_item, b_item| {
+                    const a_bits: u64 = @bitCast(a_item);
+                    const b_bits: u64 = @bitCast(b_item);
+                    if (a_bits != b_bits) return false;
+                }
+                return true;
+            } else if (ElemT == f32) {
+                for (a, b) |a_item, b_item| {
+                    const a_bits: u32 = @bitCast(a_item);
+                    const b_bits: u32 = @bitCast(b_item);
+                    if (a_bits != b_bits) return false;
+                }
+                return true;
+            }
+            return std.mem.eql(ElemT, a, b);
         }
-        // Special case: ArrayLists need items comparison
+        // Special case: ArrayLists need items comparison with NaN identity handling
         if (a_info == .@"struct" and @hasField(A, "items") and @hasField(A, "capacity")) {
             const ElemT = std.meta.Elem(@TypeOf(a.items));
+            if (a.items.len != b.items.len) return false;
+            // For float elements, use identity-based NaN comparison (Python semantics: nan in [nan] == True)
+            if (ElemT == f64) {
+                for (a.items, b.items) |a_item, b_item| {
+                    const a_bits: u64 = @bitCast(a_item);
+                    const b_bits: u64 = @bitCast(b_item);
+                    if (a_bits != b_bits) return false;
+                }
+                return true;
+            } else if (ElemT == f32) {
+                for (a.items, b.items) |a_item, b_item| {
+                    const a_bits: u32 = @bitCast(a_item);
+                    const b_bits: u32 = @bitCast(b_item);
+                    if (a_bits != b_bits) return false;
+                }
+                return true;
+            }
             return std.mem.eql(ElemT, a.items, b.items);
         }
         // Special case: structs (tuples) - check for __eq__ method first
@@ -504,6 +540,27 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     }
 
     // Different types: handle common cases without recursion
+
+    // Handle optional types: ?T == T or T == ?T
+    if (comptime a_info == .optional) {
+        // Unwrap optional a and compare
+        if (a) |unwrapped_a| {
+            return pyAnyEql(unwrapped_a, b);
+        }
+        // a is null - only equal if b is also null
+        if (comptime b_info == .optional) {
+            return b == null;
+        }
+        return false;
+    }
+    if (comptime b_info == .optional) {
+        // Unwrap optional b and compare
+        if (b) |unwrapped_b| {
+            return pyAnyEql(a, unwrapped_b);
+        }
+        // b is null, a is not optional, so not equal
+        return false;
+    }
 
     // Handle type name comparison: pyTypeName(x) == SomeType
     // When comparing a string (type name) with a type,
@@ -615,6 +672,38 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         return false;
     }
 
+    // ArrayList vs ArrayList - element-wise comparison (handles NaN correctly)
+    if (a_is_arraylist and b_is_arraylist) {
+        const AElem = std.meta.Elem(@TypeOf(a.items));
+        const BElem = std.meta.Elem(@TypeOf(b.items));
+        if (a.items.len != b.items.len) return false;
+        // Same element type with f64 (floats) - use identity for NaN comparison
+        if (AElem == f64 and BElem == f64) {
+            for (a.items, b.items) |a_item, b_item| {
+                const a_nan = std.math.isNan(a_item);
+                const b_nan = std.math.isNan(b_item);
+                if (a_nan and b_nan) {
+                    // Both NaN - check identity via bitcast
+                    if (@as(u64, @bitCast(a_item)) != @as(u64, @bitCast(b_item))) return false;
+                } else if (a_nan or b_nan) {
+                    return false; // One is NaN, other is not
+                } else if (a_item != b_item) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        // Same element type - use std.mem.eql
+        if (AElem == BElem) {
+            return std.mem.eql(AElem, a.items, b.items);
+        }
+        // Different element types - compare element by element recursively
+        for (a.items, b.items) |a_item, b_item| {
+            if (!pyAnyEql(a_item, b_item)) return false;
+        }
+        return true;
+    }
+
     // Numeric coercion: int vs comptime_int, float vs comptime_float
     const a_is_int = a_info == .int or a_info == .comptime_int;
     const b_is_int = b_info == .int or b_info == .comptime_int;
@@ -625,7 +714,16 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     const a_is_float = a_info == .float or a_info == .comptime_float;
     const b_is_float = b_info == .float or b_info == .comptime_float;
     if (a_is_float and b_is_float) {
-        return @as(f64, a) == @as(f64, b);
+        // Use bitwise comparison to handle NaN identity (NaN == NaN should be true for containment)
+        // This matches Python's behavior where `nan in [nan]` is True (identity check)
+        return @as(u64, @bitCast(@as(f64, a))) == @as(u64, @bitCast(@as(f64, b)));
+    }
+    // Cross-type: float vs int (Python: 1.0 == 1 is True)
+    if (a_is_float and b_is_int) {
+        return @as(f64, a) == @as(f64, @floatFromInt(@as(i64, b)));
+    }
+    if (a_is_int and b_is_float) {
+        return @as(f64, @floatFromInt(@as(i64, a))) == @as(f64, b);
     }
 
     // PyPowResult vs float comparison
@@ -680,10 +778,33 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     // PyValue comparisons (without recursion)
     if (A == PyValue) {
         return switch (a) {
-            .int => |v| if (b_info == .comptime_int or b_info == .int) v == @as(i64, b) else false,
+            .int => |v| if (b_info == .comptime_int or b_info == .int) v == @as(i64, b) else if (B == UnifiedInt) b.eqlInt(v) else false,
             // Use bit-level comparison for floats to preserve signed zero and NaN identity
             .float => |v| if (b_info == .comptime_float or b_info == .float) @as(u64, @bitCast(v)) == @as(u64, @bitCast(@as(f64, b))) else false,
             .bool => |v| if (B == bool) v == b else false,
+            .ptr => |p| blk: {
+                // PyValue.ptr contains a *anyopaque - cast to *PyObject for type checks
+                const pyobj: *cpython.PyObject = @ptrCast(@alignCast(p));
+                // Compare with UnifiedInt if it's an int
+                if (B == UnifiedInt) {
+                    // Check PyBigIntObject first (arbitrary precision)
+                    if (cpython.PyBigInt_Check(pyobj)) {
+                        const bigint_obj: *cpython.PyBigIntObject = @ptrCast(@alignCast(p));
+                        // Compare BigInt vs UnifiedInt
+                        switch (b) {
+                            .small => |small_val| break :blk bigint_obj.value.eqlInt(small_val),
+                            .big => |big_ptr| break :blk bigint_obj.value.eql(big_ptr),
+                        }
+                    }
+                    // Then check PyLongObject (small integers)
+                    if (cpython.PyLong_Check(pyobj)) {
+                        const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(p));
+                        const int_val: i64 = int_obj.ob_digit;
+                        break :blk b.eqlInt(int_val);
+                    }
+                }
+                break :blk false;
+            },
             .string => |v| blk: {
                 // Handle []const u8 (slice)
                 if (b_info == .pointer and b_info.pointer.size == .slice and b_info.pointer.child == u8) {
@@ -778,6 +899,17 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             if (b_info == .comptime_float or b_info == .float) {
                 return fval == @as(f64, b);
             }
+        } else if (cpython.PyBigInt_Check(a)) {
+            // PyBigIntObject - arbitrary precision integer
+            const bigint_obj: *cpython.PyBigIntObject = @ptrCast(@alignCast(a));
+            if (B == UnifiedInt) {
+                return switch (b) {
+                    .small => |small_val| bigint_obj.value.eqlInt(small_val),
+                    .big => |big_ptr| bigint_obj.value.eql(big_ptr),
+                };
+            } else if (b_info == .comptime_int or b_info == .int) {
+                return bigint_obj.value.eqlInt(@as(i64, b));
+            }
         } else if (cpython.PyLong_Check(a)) {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
             if (b_info == .comptime_int or b_info == .int) {
@@ -787,6 +919,11 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
                 // Python: 0 == 0.0 returns True
                 const int_val: i64 = int_obj.ob_digit;
                 return @as(f64, @floatFromInt(int_val)) == @as(f64, b);
+            } else if (B == UnifiedInt) {
+                // Cross-type comparison: PyLongObject vs UnifiedInt
+                // Both represent Python integers, compare their values
+                const int_val: i64 = int_obj.ob_digit;
+                return b.eqlInt(int_val);
             }
         } else if (cpython.PyBool_Check(a)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
@@ -809,6 +946,17 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             if (a_info == .comptime_float or a_info == .float) {
                 return @as(f64, a) == fval;
             }
+        } else if (cpython.PyBigInt_Check(b)) {
+            // PyBigIntObject - arbitrary precision integer
+            const bigint_obj: *cpython.PyBigIntObject = @ptrCast(@alignCast(b));
+            if (A == UnifiedInt) {
+                return switch (a) {
+                    .small => |small_val| bigint_obj.value.eqlInt(small_val),
+                    .big => |big_ptr| bigint_obj.value.eql(big_ptr),
+                };
+            } else if (a_info == .comptime_int or a_info == .int) {
+                return bigint_obj.value.eqlInt(@as(i64, a));
+            }
         } else if (cpython.PyLong_Check(b)) {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
             if (a_info == .comptime_int or a_info == .int) {
@@ -818,6 +966,11 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
                 // Python: 0.0 == 0 returns True
                 const int_val: i64 = int_obj.ob_digit;
                 return @as(f64, a) == @as(f64, @floatFromInt(int_val));
+            } else if (A == UnifiedInt) {
+                // Cross-type comparison: UnifiedInt vs PyLongObject
+                // Both represent Python integers, compare their values
+                const int_val: i64 = int_obj.ob_digit;
+                return a.eqlInt(int_val);
             }
         } else if (cpython.PyBool_Check(b)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));

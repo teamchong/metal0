@@ -287,6 +287,15 @@ fn emitIdentityComparison(
 ) CodegenError!void {
     const is_is = (op == .Is);
 
+    // Same variable: x is x → always true, x is not x → always false
+    // This is critical for structs/containers where passing by value creates copies
+    if (left == .name and right == .name) {
+        if (std.mem.eql(u8, left.name.id, right.name.id)) {
+            try self.emit(if (is_is) "true" else "false");
+            return;
+        }
+    }
+
     // None identity check
     if (left_class == .none or right_class == .none) {
         // For anytype/optional params, use comptime type check

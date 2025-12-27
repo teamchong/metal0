@@ -280,6 +280,11 @@ pub const ContextManager = struct {
             self._message = exceptions.getExceptionMessage();
             self._type_name = exceptions.getExceptionType();
             self.args = exceptions.getExceptionArgs();
+            // Populate SyntaxError-specific attributes
+            self.filename = exceptions.getSyntaxErrorFilename();
+            self.lineno = exceptions.getSyntaxErrorLineno();
+            self.offset = exceptions.getSyntaxErrorOffset();
+            self.text = exceptions.getSyntaxErrorText();
         }
     };
 

@@ -1,6 +1,7 @@
 /// String representation functions (repr, str, etc.)
 const std = @import("std");
 const cpython = @import("../../cpython.zig");
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 /// PyBytes - Wrapper for Python bytes type
 /// Preserves type information for repr() to correctly output b'...' format
@@ -262,6 +263,38 @@ fn isStringPointer(comptime T: type) bool {
 pub fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     const T = @TypeOf(value);
 
+    // PyValue - handle all variants
+    if (T == PyValue) {
+        return switch (value) {
+            .string => |s| stringRepr(allocator, s),
+            .int => |i| std.fmt.allocPrint(allocator, "{d}", .{i}),
+            .float => |f| pythonFloatRepr(allocator, f),
+            .bool => |b| if (b) "True" else "False",
+            .none => "None",
+            .not_implemented => "NotImplemented",
+            .list => |list| std.fmt.allocPrint(allocator, "[<{d} items>]", .{list.items.len}),
+            .tuple => |tup| std.fmt.allocPrint(allocator, "(<{d} items>)", .{tup.len}),
+            .bigint => |bi| std.fmt.allocPrint(allocator, "{d}", .{bi}),
+            .complex => |c| blk: {
+                if (c.real == 0) break :blk std.fmt.allocPrint(allocator, "{d}j", .{c.imag});
+                break :blk std.fmt.allocPrint(allocator, "({d}+{d}j)", .{ c.real, c.imag });
+            },
+            .bytes => |b| bytesRepr(allocator, b.data),
+            .type_obj => |t| std.fmt.allocPrint(allocator, "<class '{s}'>", .{t.name}),
+            .object => |obj| blk: {
+                if (obj.vtable.class_name) |name| {
+                    break :blk std.fmt.allocPrint(allocator, "<{s} instance>", .{name});
+                }
+                break :blk "<object instance>";
+            },
+            .pylist => |pylist| blk: {
+                const size: usize = @intCast(pylist.ob_base.ob_size);
+                break :blk std.fmt.allocPrint(allocator, "[<{d} items>]", .{size});
+            },
+            .ptr => "<PyObject>",
+        };
+    }
+
     // PyBytes - format as b'...'
     if (T == PyBytes or (@typeInfo(T) == .@"struct" and @hasField(T, "data") and @hasDecl(T, "slice"))) {
         return bytesRepr(allocator, value.data);
@@ -388,6 +421,40 @@ pub fn pyRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
 /// Convert a value to its str string (without extra quotes on strings)
 pub fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     const T = @TypeOf(value);
+
+    // PyValue - handle all variants
+    if (T == PyValue) {
+        return switch (value) {
+            .string => |s| s,
+            .int => |i| std.fmt.allocPrint(allocator, "{d}", .{i}),
+            .float => |f| pythonFloatRepr(allocator, f),
+            .bool => |b| if (b) "True" else "False",
+            .none => "None",
+            .not_implemented => "NotImplemented",
+            .list => |list| std.fmt.allocPrint(allocator, "[<{d} items>]", .{list.items.len}),
+            .tuple => |tup| std.fmt.allocPrint(allocator, "(<{d} items>)", .{tup.len}),
+            .bigint => |bi| std.fmt.allocPrint(allocator, "{d}", .{bi}),
+            .complex => |c| blk: {
+                if (c.real == 0) break :blk std.fmt.allocPrint(allocator, "{d}j", .{c.imag});
+                break :blk std.fmt.allocPrint(allocator, "({d}+{d}j)", .{ c.real, c.imag });
+            },
+            .bytes => |b| blk: {
+                break :blk std.fmt.allocPrint(allocator, "b'{s}'", .{b.data});
+            },
+            .type_obj => |t| std.fmt.allocPrint(allocator, "<class '{s}'>", .{t.name}),
+            .object => |obj| blk: {
+                if (obj.vtable.class_name) |name| {
+                    break :blk std.fmt.allocPrint(allocator, "<{s} instance>", .{name});
+                }
+                break :blk "<object instance>";
+            },
+            .pylist => |pylist| blk: {
+                const size: usize = @intCast(pylist.ob_base.ob_size);
+                break :blk std.fmt.allocPrint(allocator, "[<{d} items>]", .{size});
+            },
+            .ptr => "<PyObject>",
+        };
+    }
 
     // String - no wrapping quotes
     if (T == []const u8 or T == []u8) {

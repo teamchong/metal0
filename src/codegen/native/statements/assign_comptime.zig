@@ -149,19 +149,15 @@ pub fn emitComptimeAssignment(
             try b.write(bool_str);
         },
         .string, .owned_string => |v| {
-            // Escape the string properly
-            try b.write("\"");
-            for (v) |c| {
-                switch (c) {
-                    '\n' => try b.write("\\n"),
-                    '\r' => try b.write("\\r"),
-                    '\t' => try b.write("\\t"),
-                    '\\' => try b.write("\\\\"),
-                    '"' => try b.write("\\\""),
-                    else => try writer.writeByte(c),
-                }
-            }
-            try b.write("\"");
+            // Use shared Python string escape handling from constants module
+            // This properly interprets Python escape sequences like \n -> newline
+            const constants = @import("../expressions/constants.zig");
+            // Flush builder buffer first, then emit string, then reopen builder
+            const output = b.getBodyAndClear();
+            try self.output.appendSlice(self.allocator, output);
+            try self.emit("\"");
+            try constants.emitZigStringContent(self, v, constants.StringContext.default);
+            try self.emit("\"");
         },
         .bytes, .owned_bytes => |v| {
             // Use runtime.builtins.bytesLiteral for Python bytes type

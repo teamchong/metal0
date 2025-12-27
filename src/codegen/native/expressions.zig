@@ -231,14 +231,25 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     // Nested class self-reference - also use @This()
                     try self.emit("@This()");
                 } else {
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                    // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
+                    if (self.imported_modules.contains(name_to_use)) {
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
+                    } else {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                    }
                     if (self.nested_class_names.contains(name_to_use)) {
                         try self.nested_class_zig_refs.put(name_to_use, {});
                     }
                 }
             } else {
-                // Use writeLocalVarName to handle keywords AND method shadowing
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
+                // This ensures consistency with module import generation in generator.zig
+                if (self.imported_modules.contains(name_to_use)) {
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
+                } else {
+                    // Use writeLocalVarName to handle keywords AND method shadowing
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
+                }
                 // Track that we referenced this nested class in generated Zig code
                 // This is used to determine which classes need _ = ClassName; suppression
                 if (self.nested_class_names.contains(name_to_use)) {
@@ -632,16 +643,15 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 }
 
                 // Determine format specifier based on inferred type
-                const expr_type = try self.type_inferrer.inferExpr(e.node.*);
-                const format_spec = switch (expr_type) {
-                    .int => "d",
-                    .float => "d",
-                    .string => "s",
-                    .bool => "any",
-                    else => "any",
-                };
+                var expr_type = try self.type_inferrer.inferExpr(e.node.*);
 
-                try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
+                // Check pyvalue_vars override - VM fallback variables are typed as PyValue at runtime
+                // even if static analysis inferred a specific type (e.g., string for x[1:])
+                if (e.node.* == .name) {
+                    if (self.pyvalue_vars.contains(e.node.name.id)) {
+                        expr_type = .pyvalue;
+                    }
+                }
 
                 // Generate expression code and capture it
                 const saved_output = self.output;
@@ -649,9 +659,35 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
 
                 try genExpr(self, e.node.*);
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
-                try args_list.append(self.allocator, expr_code);
 
                 self.output = saved_output;
+
+                // Handle based on type - must check pyvalue explicitly before falling through
+                if (expr_type == .pyvalue) {
+                    // For PyValue types, use runtime.builtins.pyStr to convert to string first
+                    try format_buf.writer(self.allocator).writeAll("{s}");
+                    const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                    try args_list.append(self.allocator, new_expr);
+                    self.allocator.free(expr_code);
+                } else if (expr_type == .int) {
+                    try format_buf.writer(self.allocator).writeAll("{d}");
+                    try args_list.append(self.allocator, expr_code);
+                } else if (expr_type == .float) {
+                    try format_buf.writer(self.allocator).writeAll("{d}");
+                    try args_list.append(self.allocator, expr_code);
+                } else if (string_traits.isString(expr_type)) {
+                    try format_buf.writer(self.allocator).writeAll("{s}");
+                    try args_list.append(self.allocator, expr_code);
+                } else if (expr_type == .bool) {
+                    try format_buf.writer(self.allocator).writeAll("{any}");
+                    try args_list.append(self.allocator, expr_code);
+                } else {
+                    // For uncertain/other types, also use runtime.builtins.pyStr
+                    try format_buf.writer(self.allocator).writeAll("{s}");
+                    const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                    try args_list.append(self.allocator, new_expr);
+                    self.allocator.free(expr_code);
+                }
             },
             .format_expr => |fe| {
                 // Prepend debug_text (e.g., "x=") if present for f"{x=:...}"
@@ -746,7 +782,15 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 }
 
                 // Expression with conversion specifier (!r, !s, !a)
-                const expr_type = try self.type_inferrer.inferExpr(ce.expr.*);
+                var expr_type = try self.type_inferrer.inferExpr(ce.expr.*);
+
+                // Check pyvalue_vars override - VM fallback variables are typed as PyValue at runtime
+                // even if static analysis inferred a specific type (e.g., string for x[1:])
+                if (ce.expr.* == .name) {
+                    if (self.pyvalue_vars.contains(ce.expr.name.id)) {
+                        expr_type = .pyvalue;
+                    }
+                }
 
                 // Generate expression code first
                 const saved_output = self.output;
@@ -761,28 +805,54 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                     if (string_traits.isString(expr_type)) {
                         try format_buf.writer(self.allocator).writeAll("'{s}'");
                         try args_list.append(self.allocator, expr_code);
-                    } else {
-                        // For non-strings, just use default formatting
-                        const format_spec = switch (expr_type) {
+                    } else if (expr_type == .int or expr_type == .float or expr_type == .bool) {
+                        // For known primitives, use Zig's format
+                        const format_spec: []const u8 = switch (expr_type) {
                             .int => "d",
                             .float => "d",
                             .bool => "any",
-                            else => "any",
+                            else => unreachable,
                         };
                         try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
                         try args_list.append(self.allocator, expr_code);
+                    } else if (expr_type == .pyvalue) {
+                        // For PyValue types, use runtime.builtins.pyRepr
+                        try format_buf.writer(self.allocator).writeAll("{s}");
+                        const new_expr = try std.fmt.allocPrint(self.allocator, "(runtime.builtins.pyRepr(__global_allocator, {s}) catch unreachable)", .{expr_code});
+                        try args_list.append(self.allocator, new_expr);
+                        self.allocator.free(expr_code);
+                    } else {
+                        // For other uncertain types, use runtime.builtins.pyRepr
+                        try format_buf.writer(self.allocator).writeAll("{s}");
+                        const new_expr = try std.fmt.allocPrint(self.allocator, "(runtime.builtins.pyRepr(__global_allocator, {s}) catch unreachable)", .{expr_code});
+                        try args_list.append(self.allocator, new_expr);
+                        self.allocator.free(expr_code);
                     }
                 } else {
                     // !s (str) and !a (ascii) - just convert to string
-                    const format_spec = switch (expr_type) {
-                        .int => "d",
-                        .float => "d",
-                        .string => "s",
-                        .bool => "any",
-                        else => "any",
-                    };
-                    try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
-                    try args_list.append(self.allocator, expr_code);
+                    if (string_traits.isString(expr_type)) {
+                        try format_buf.writer(self.allocator).writeAll("{s}");
+                        try args_list.append(self.allocator, expr_code);
+                    } else if (expr_type == .int or expr_type == .float) {
+                        const format_spec: []const u8 = if (expr_type == .int) "d" else "d";
+                        try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
+                        try args_list.append(self.allocator, expr_code);
+                    } else if (expr_type == .bool) {
+                        try format_buf.writer(self.allocator).writeAll("{any}");
+                        try args_list.append(self.allocator, expr_code);
+                    } else if (expr_type == .pyvalue) {
+                        // For PyValue types, use runtime.builtins.pyStr
+                        try format_buf.writer(self.allocator).writeAll("{s}");
+                        const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                        try args_list.append(self.allocator, new_expr);
+                        self.allocator.free(expr_code);
+                    } else {
+                        // For other uncertain types, use runtime.builtins.pyStr
+                        try format_buf.writer(self.allocator).writeAll("{s}");
+                        const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                        try args_list.append(self.allocator, new_expr);
+                        self.allocator.free(expr_code);
+                    }
                 }
             },
         }

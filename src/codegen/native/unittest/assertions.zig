@@ -9,6 +9,8 @@ const shared = @import("../shared_maps.zig");
 const PyToZigTypes = shared.PyTypeToZig;
 const zig_keywords = @import("utils.zig_keywords");
 const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
+const builder_mod = @import("codegen.builder");
+const CompOp = builder_mod.CompOp;
 
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {
@@ -840,159 +842,130 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     try self.emit(")) return error.AssertionFailed;\n");
 }
 
-pub const genAssertTrue = gen1ArgAssert("assertTrue");
-pub const genAssertFalse = gen1ArgAssert("assertFalse");
-pub const genAssertIsNone = gen1ArgAssert("assertIsNone");
-/// Generate code for assertGreater(a, b) - routes uncertain types to PyValue.gt()
+/// Generate assertTrue using ZigBuilder (100% builder migration)
+pub fn genAssertTrue(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 1) {
+        try self.emit("@compileError(\"assertTrue requires 1 argument\")");
+        return;
+    }
+    const value = try self.exprToValue(args[0]);
+    const b = try self.getBuilder();
+    try b.emitAssertTrueStmt(value);
+    try self.flushBuilder();
+}
+
+/// Generate assertFalse using ZigBuilder (100% builder migration)
+pub fn genAssertFalse(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 1) {
+        try self.emit("@compileError(\"assertFalse requires 1 argument\")");
+        return;
+    }
+    const value = try self.exprToValue(args[0]);
+    const b = try self.getBuilder();
+    try b.emitAssertFalseStmt(value);
+    try self.flushBuilder();
+}
+
+/// Generate assertIsNone using ZigBuilder (100% builder migration)
+pub fn genAssertIsNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 1) {
+        try self.emit("@compileError(\"assertIsNone requires 1 argument\")");
+        return;
+    }
+    const value = try self.exprToValue(args[0]);
+    const b = try self.getBuilder();
+    try b.emitAssertIsNoneStmt(value);
+    try self.flushBuilder();
+}
+/// Generate assertGreater using ZigBuilder (100% builder migration)
+/// Routes: certain numeric → native >, uncertain → PyValue.gt()
 pub fn genAssertGreater(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertGreater requires 2 arguments\")");
         return;
     }
-
-    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
-        type_b == .pyvalue or type_b == .unknown);
-
-    if (is_uncertain) {
-        // Route to PyValue.gt() - compiles ONCE
-        try self.emit("if (!runtime.PyValue.from(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(").gt(runtime.PyValue.from(");
-        try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;\n");
-    } else {
-        // Direct comparison for certain types - native speed
-        try self.emit("if (!(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(" > ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;\n");
-    }
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertOrderingStmt(CompOp.gt, left, right);
+    try self.flushBuilder();
 }
 
-/// Generate code for assertLess(a, b) - routes uncertain types to PyValue.lt()
+/// Generate assertLess using ZigBuilder (100% builder migration)
+/// Routes: certain numeric → native <, uncertain → PyValue.lt()
 pub fn genAssertLess(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertLess requires 2 arguments\")");
         return;
     }
-
-    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
-        type_b == .pyvalue or type_b == .unknown);
-
-    if (is_uncertain) {
-        // Route to PyValue.lt() - compiles ONCE
-        try self.emit("if (!runtime.PyValue.from(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(").lt(runtime.PyValue.from(");
-        try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;\n");
-    } else {
-        // Direct comparison for certain types - native speed
-        try self.emit("if (!(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(" < ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;\n");
-    }
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertOrderingStmt(CompOp.lt, left, right);
+    try self.flushBuilder();
 }
 
-/// Generate code for assertGreaterEqual(a, b) - routes uncertain types to PyValue.ge()
+/// Generate assertGreaterEqual using ZigBuilder (100% builder migration)
+/// Routes: certain numeric → native >=, uncertain → PyValue.ge()
 pub fn genAssertGreaterEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertGreaterEqual requires 2 arguments\")");
         return;
     }
-
-    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
-        type_b == .pyvalue or type_b == .unknown);
-
-    if (is_uncertain) {
-        // Route to PyValue.ge() - compiles ONCE
-        try self.emit("if (!runtime.PyValue.from(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(").ge(runtime.PyValue.from(");
-        try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;\n");
-    } else {
-        // Direct comparison for certain types - native speed
-        try self.emit("if (!(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(" >= ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;\n");
-    }
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertOrderingStmt(CompOp.ge, left, right);
+    try self.flushBuilder();
 }
 
-/// Generate code for assertLessEqual(a, b) - routes uncertain types to PyValue.le()
+/// Generate assertLessEqual using ZigBuilder (100% builder migration)
+/// Routes: certain numeric → native <=, uncertain → PyValue.le()
 pub fn genAssertLessEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertLessEqual requires 2 arguments\")");
         return;
     }
-
-    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
-        type_b == .pyvalue or type_b == .unknown);
-
-    if (is_uncertain) {
-        // Route to PyValue.le() - compiles ONCE
-        try self.emit("if (!runtime.PyValue.from(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(").le(runtime.PyValue.from(");
-        try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;\n");
-    } else {
-        // Direct comparison for certain types - native speed
-        try self.emit("if (!(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(" <= ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")) return error.AssertionFailed;\n");
-    }
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertOrderingStmt(CompOp.le, left, right);
+    try self.flushBuilder();
 }
 
-/// Generate code for assertNotEqual(a, b) - routes uncertain types to PyValue.eql()
+/// Generate assertNotEqual using ZigBuilder (100% builder migration)
+/// Routes: certain types → native !=, uncertain → !PyValue.eql()
 pub fn genAssertNotEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
         try self.emit("@compileError(\"assertNotEqual requires 2 arguments\")");
         return;
     }
-
-    const type_a = self.type_inferrer.inferExpr(args[0]) catch .unknown;
-    const type_b = self.type_inferrer.inferExpr(args[1]) catch .unknown;
-    const is_uncertain = (type_a == .pyvalue or type_a == .unknown or
-        type_b == .pyvalue or type_b == .unknown);
-
-    if (is_uncertain) {
-        // Route to PyValue.eql() with negation - compiles ONCE
-        try self.emit("if (runtime.PyValue.from(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(").eql(runtime.PyValue.from(");
-        try parent.genExpr(self, args[1]);
-        try self.emit("))) return error.AssertionFailed;\n");
-    } else {
-        // Use unittest fallback for certain types - handles structs, arrays, etc.
-        try self.emit("try unittest.assertNotEqual(");
-        try parent.genExpr(self, args[0]);
-        try self.emit(", ");
-        try parent.genExpr(self, args[1]);
-        try self.emit(")");
-    }
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertNotEqualStmt(left, right);
+    try self.flushBuilder();
 }
-pub const genAssertIsNotNone = gen1ArgAssert("assertIsNotNone");
+/// Generate assertIsNotNone using ZigBuilder (100% builder migration)
+pub fn genAssertIsNotNone(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 1) {
+        try self.emit("@compileError(\"assertIsNotNone requires 1 argument\")");
+        return;
+    }
+    const value = try self.exprToValue(args[0]);
+    const b = try self.getBuilder();
+    try b.emitAssertIsNotNoneStmt(value);
+    try self.flushBuilder();
+}
 pub const genAssertAlmostEqual = gen2ArgAssert("assertAlmostEqual");
 pub const genAssertNotAlmostEqual = gen2ArgAssert("assertNotAlmostEqual");
 pub const genAssertCountEqual = gen2ArgAssert("assertCountEqual");
@@ -1001,8 +974,33 @@ pub const genAssertNotRegex = gen2ArgAssert("assertNotRegex");
 pub const genAssertSetEqual = gen2ArgAssert("assertSetEqual");
 pub const genAssertDictEqual = gen2ArgAssert("assertDictEqual");
 pub const genAssertFloatsAreIdentical = gen2ArgAssert("assertFloatsAreIdentical");
-pub const genAssertIsNot = gen2ArgAssert("assertIsNot");
-pub const genAssertNotIn = gen2ArgAssert("assertNotIn");
+/// Generate assertIsNot using ZigBuilder (100% builder migration)
+pub fn genAssertIsNot(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertIsNot requires 2 arguments\")");
+        return;
+    }
+    const left = try self.exprToValue(args[0]);
+    const right = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertIsNotStmt(left, right);
+    try self.flushBuilder();
+}
+
+/// Generate assertNotIn using ZigBuilder (100% builder migration)
+pub fn genAssertNotIn(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = obj;
+    if (args.len < 2) {
+        try self.emit("@compileError(\"assertNotIn requires 2 arguments\")");
+        return;
+    }
+    const element = try self.exprToValue(args[0]);
+    const container = try self.exprToValue(args[1]);
+    const b = try self.getBuilder();
+    try b.emitAssertNotInStmt(element, container);
+    try self.flushBuilder();
+}
 
 /// Generate code for self.assertIs(a, b) - special handling for type() checks
 pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
