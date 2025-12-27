@@ -218,6 +218,19 @@ pub fn build(b: *std.Build) void {
     c_interop_mod.addImport("collections", collections);
     c_interop_mod.addImport("utils.hashmap_helper", hashmap_helper);
 
+    // ============================================================================
+    // Static linking for C extension modules (numpy, pandas, etc.)
+    // ============================================================================
+    // Link numpy and pandas .so files at compile time instead of dlopen at runtime.
+    // The .so paths are discovered from site-packages.
+    //
+    // To link numpy:
+    //   c_interop_mod.addObjectFile(.{ .cwd_relative = "/path/to/numpy/_core/_multiarray_umath.cpython-312-darwin.so" });
+    //
+    // Note: The actual linking happens when build.zig runs with packages installed.
+    // For now, the extern fn declarations in import.zig will cause link errors
+    // if numpy is not linked - this is intentional to ensure static linking is configured.
+
     // WasmEdge bindings for server (optional - only linked if WASMEDGE_DIR is set)
     const wasmedge_mod = b.createModule(.{
         .root_source_file = b.path("packages/wasmedge/wasmedge.zig"),

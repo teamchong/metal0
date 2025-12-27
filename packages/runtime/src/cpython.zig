@@ -341,6 +341,11 @@ pub var _Py_NoneStruct: PyNoneStruct = .{
 };
 pub const Py_None: *PyObject = @ptrCast(&_Py_NoneStruct);
 
+/// Check if object is None
+pub inline fn PyNone_Check(op: *PyObject) bool {
+    return op == Py_None;
+}
+
 // =============================================================================
 // CPython-compatible Reference Counting Macros
 // =============================================================================

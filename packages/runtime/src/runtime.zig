@@ -767,6 +767,7 @@ pub const PyTuple_Check = cpython.PyTuple_Check;
 pub const PyDict_Check = cpython.PyDict_Check;
 pub const PyUnicode_Check = cpython.PyUnicode_Check;
 pub const PyBytes_Check = cpython.PyBytes_Check;
+pub const PyNone_Check = cpython.PyNone_Check;
 pub const PyBigInt_Check = cpython.PyBigInt_Check;
 pub const PySet_Check = cpython.PySet_Check;
 pub const PyFrozenSet_Check = cpython.PyFrozenSet_Check;

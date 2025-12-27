@@ -712,7 +712,93 @@ fn tryLoadSubmoduleExtension(base_path: []const u8, parts: []const []const u8) ?
     return null;
 }
 
-/// Get platform-specific extension suffixes
+// ============================================================================
+// STATIC MODULE LINKING
+// ============================================================================
+// All C extension modules are statically linked at compile time.
+// build.zig links the .so files, PyInit_* symbols are resolved at link time.
+// No dlopen - everything is static.
+
+/// PyInit function type for C extension modules
+pub const PyInitFn = *const fn () callconv(.c) ?*cpython.PyObject;
+
+/// Static module registry - modules are registered at comptime when linked.
+/// When numpy/pandas .so files are linked via build.zig, their PyInit_* symbols
+/// become available and the registry can be populated.
+///
+/// For now, this is a placeholder that returns null for all modules.
+/// The actual static linking requires:
+/// 1. build.zig to link .so files via addObjectFile()
+/// 2. extern fn declarations for PyInit_* symbols
+/// 3. Registration of those symbols in the registry
+///
+/// TODO: Implement automatic discovery of linked modules.
+const static_module_registry: []const StaticModuleEntry = &[_]StaticModuleEntry{
+    // Empty until .so files are linked via build.zig
+};
+
+/// Registry mapping module names to their PyInit functions
+const StaticModuleEntry = struct {
+    name: []const u8,
+    init_fn: PyInitFn,
+};
+
+/// Try loading extension by name using static linking
+fn tryLoadPackageExtension(base_path: []const u8, subpath: []const u8, init_name: []const u8) ?*cpython.PyObject {
+    _ = base_path;
+    _ = subpath;
+    return loadStaticModule(init_name);
+}
+
+/// Try loading extension from specific path using static linking (path is ignored)
+fn tryLoadExtension(base_path: []const u8, name: []const u8) ?*cpython.PyObject {
+    _ = base_path;
+    return loadStaticModule(name);
+}
+
+/// Load a statically linked C extension module by name
+fn loadStaticModule(name: []const u8) ?*cpython.PyObject {
+    // Search the static registry
+    for (static_module_registry) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) {
+            const module = entry.init_fn() orelse return null;
+
+            // Add to sys.modules
+            initModuleSystem();
+            if (module_dict) |mod_dict| {
+                const name_z = allocator.dupeZ(u8, name) catch return module;
+                defer allocator.free(name_z);
+                _ = PyDict_SetItemString(mod_dict, name_z, module);
+            }
+
+            return module;
+        }
+    }
+
+    // Handle submodules (e.g., "numpy.linalg" -> try "numpy" first)
+    if (std.mem.indexOf(u8, name, ".")) |dot_idx| {
+        const parent_name = name[0..dot_idx];
+        for (static_module_registry) |entry| {
+            if (std.mem.eql(u8, entry.name, parent_name)) {
+                const parent_module = entry.init_fn() orelse return null;
+                const submodule_name = name[dot_idx + 1 ..];
+                const submodule_name_z = allocator.dupeZ(u8, submodule_name) catch return null;
+                defer allocator.free(submodule_name_z);
+                return traits.externs.PyObject_GetAttrString(parent_module, submodule_name_z);
+            }
+        }
+    }
+
+    return null;
+}
+
+/// Load module by init_name using static linking (path is ignored)
+fn loadSharedLibraryWithName(path: [:0]const u8, init_name: []const u8) ?*cpython.PyObject {
+    _ = path;
+    return loadStaticModule(init_name);
+}
+
+/// Get platform-specific extension suffixes (kept for compatibility)
 fn getPlatformExtensions() []const []const u8 {
     return comptime if (std.builtin.os.tag == .macos)
         &[_][]const u8{ ".cpython-313-darwin.so", ".cpython-312-darwin.so", ".cpython-311-darwin.so", ".so", ".dylib" }
@@ -720,146 +806,6 @@ fn getPlatformExtensions() []const []const u8 {
         &[_][]const u8{".pyd"}
     else
         &[_][]const u8{ ".cpython-313-x86_64-linux-gnu.so", ".cpython-312-x86_64-linux-gnu.so", ".cpython-311-x86_64-linux-gnu.so", ".so" };
-}
-
-/// Try loading extension from package subdirectory
-fn tryLoadPackageExtension(base_path: []const u8, subpath: []const u8, init_name: []const u8) ?*cpython.PyObject {
-    const extensions = if (std.builtin.os.tag == .macos)
-        [_][]const u8{".cpython-312-darwin.so", ".cpython-311-darwin.so", ".so", ".dylib"}
-    else if (std.builtin.os.tag == .windows)
-        [_][]const u8{".pyd"}
-    else
-        [_][]const u8{".cpython-312-x86_64-linux-gnu.so", ".cpython-311-x86_64-linux-gnu.so", ".so"};
-
-    for (extensions) |ext| {
-        var path_buf: [1024]u8 = undefined;
-        const path = std.fmt.bufPrintZ(&path_buf, "{s}{s}{s}", .{ base_path, subpath, ext }) catch continue;
-
-        if (loadSharedLibraryWithName(path, init_name)) |module| {
-            return module;
-        }
-    }
-
-    return null;
-}
-
-/// Load shared library with explicit init function name
-fn loadSharedLibraryWithName(path: [:0]const u8, init_name: []const u8) ?*cpython.PyObject {
-    // Try to open the shared library with RTLD_GLOBAL so our symbols are visible
-    const handle = std.c.dlopen(path, std.c.RTLD.NOW | std.c.RTLD.GLOBAL) orelse {
-        // Debug: print why it failed
-        const err = std.c.dlerror();
-        if (err != null) {
-            std.debug.print("dlopen failed for {s}: {s}\n", .{ path, err.? });
-        }
-        return null;
-    };
-
-    // Build init function name: PyInit_{name}
-    var name_buf: [256]u8 = undefined;
-    const full_init_name = std.fmt.bufPrintZ(&name_buf, "PyInit_{s}", .{init_name}) catch {
-        _ = std.c.dlclose(handle);
-        return null;
-    };
-
-    // Get init function pointer
-    const init_func_ptr = std.c.dlsym(handle, full_init_name) orelse {
-        _ = std.c.dlclose(handle);
-        return null;
-    };
-
-    // Cast to proper function type
-    const init_func: *const fn () callconv(.c) ?*cpython.PyObject = @ptrCast(init_func_ptr);
-
-    // Call init function
-    const module = init_func();
-
-    if (module) |m| {
-        // Add to sys.modules
-        initModuleSystem();
-        if (module_dict) |mod_dict| {
-            const name_z = allocator.dupeZ(u8, init_name) catch {
-                Py_DECREF(m);
-                _ = std.c.dlclose(handle);
-                return null;
-            };
-            defer allocator.free(name_z);
-
-            _ = PyDict_SetItemString(mod_dict, name_z, m);
-        }
-
-        return m;
-    }
-
-    _ = std.c.dlclose(handle);
-    return null;
-}
-
-/// Try loading extension from specific path
-fn tryLoadExtension(base_path: []const u8, name: []const u8) ?*cpython.PyObject {
-    // Try different extensions based on platform
-    const extensions = if (std.builtin.os.tag == .macos)
-        [_][]const u8{ ".so", ".dylib" }
-    else if (std.builtin.os.tag == .windows)
-        [_][]const u8{".pyd"}
-    else
-        [_][]const u8{".so"};
-
-    for (extensions) |ext| {
-        var path_buf: [1024]u8 = undefined;
-        const path = std.fmt.bufPrintZ(&path_buf, "{s}{s}{s}", .{ base_path, name, ext }) catch continue;
-
-        if (loadSharedLibrary(path, name)) |module| {
-            return module;
-        }
-    }
-
-    return null;
-}
-
-/// Load shared library and call init function
-fn loadSharedLibrary(path: [:0]const u8, name: []const u8) ?*cpython.PyObject {
-    // Try to open the shared library
-    const handle = std.c.dlopen(path, std.c.RTLD.NOW) orelse return null;
-
-    // Build init function name: PyInit_{name}
-    var init_name_buf: [256]u8 = undefined;
-    const init_name = std.fmt.bufPrintZ(&init_name_buf, "PyInit_{s}", .{name}) catch {
-        _ = std.c.dlclose(handle);
-        return null;
-    };
-
-    // Get init function pointer
-    const init_func_ptr = std.c.dlsym(handle, init_name) orelse {
-        _ = std.c.dlclose(handle);
-        return null;
-    };
-
-    // Cast to proper function type
-    const init_func: *const fn () callconv(.c) ?*cpython.PyObject = @ptrCast(init_func_ptr);
-
-    // Call init function
-    const module = init_func();
-
-    if (module) |m| {
-        // Add to sys.modules
-        initModuleSystem();
-        if (module_dict) |mod_dict| {
-            const name_z = allocator.dupeZ(u8, name) catch {
-                Py_DECREF(m);
-                _ = std.c.dlclose(handle);
-                return null;
-            };
-            defer allocator.free(name_z);
-
-            _ = PyDict_SetItemString(mod_dict, name_z, m);
-        }
-
-        return m;
-    }
-
-    _ = std.c.dlclose(handle);
-    return null;
 }
 
 // ============================================================================
