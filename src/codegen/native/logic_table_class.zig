@@ -60,60 +60,60 @@ pub fn hasLogicTableDecorator(class: ast.Node.ClassDef) bool {
 
 /// Extract table.column dependencies from an expression
 /// Finds patterns like: query.embedding, docs.vector, etc.
-/// Excludes self.* patterns
+/// Excludes self.* patterns and imported module references
 fn extractDependencies(
-    allocator: std.mem.Allocator,
+    self: *NativeCodegen,
     node: ast.Node,
     deps: *std.ArrayListUnmanaged(TableColumnDep),
 ) !void {
     switch (node) {
         .attribute => |attr| {
-            // Check if this is table.column (not self.*)
+            // Check if this is table.column (not self.* or imported_module.*)
             if (attr.value.* == .name) {
-                const table_name = attr.value.name.id;
-                // Skip self references
-                if (!std.mem.eql(u8, table_name, "self")) {
+                const name = attr.value.name.id;
+                // Skip self references and imported modules (checked via import_aliases)
+                const is_import = self.import_aliases.contains(name);
+                if (!std.mem.eql(u8, name, "self") and !is_import) {
                     // This is a table.column reference
-                    try deps.append(allocator, .{
-                        .table = table_name,
+                    try deps.append(self.allocator, .{
+                        .table = name,
                         .column = attr.attr,
                     });
                 }
             }
             // Recurse into nested expressions
-            try extractDependencies(allocator, attr.value.*, deps);
+            try extractDependencies(self, attr.value.*, deps);
         },
         .binop => |bin| {
-            try extractDependencies(allocator, bin.left.*, deps);
-            try extractDependencies(allocator, bin.right.*, deps);
+            try extractDependencies(self, bin.left.*, deps);
+            try extractDependencies(self, bin.right.*, deps);
         },
         .unaryop => |un| {
-            try extractDependencies(allocator, un.operand.*, deps);
+            try extractDependencies(self, un.operand.*, deps);
         },
         .call => |call| {
-            // Check function name
-            try extractDependencies(allocator, call.func.*, deps);
-            // Check arguments
+            // Don't extract function name as dependency (e.g., np.sum is not a table.column)
+            // Only extract dependencies from arguments
             for (call.args) |arg| {
-                try extractDependencies(allocator, arg, deps);
+                try extractDependencies(self, arg, deps);
             }
         },
         .if_expr => |ie| {
-            try extractDependencies(allocator, ie.condition.*, deps);
-            try extractDependencies(allocator, ie.body.*, deps);
-            try extractDependencies(allocator, ie.orelse_value.*, deps);
+            try extractDependencies(self, ie.condition.*, deps);
+            try extractDependencies(self, ie.body.*, deps);
+            try extractDependencies(self, ie.orelse_value.*, deps);
         },
         .subscript => |sub| {
-            try extractDependencies(allocator, sub.value.*, deps);
+            try extractDependencies(self, sub.value.*, deps);
         },
         .list => |l| {
             for (l.elts) |elt| {
-                try extractDependencies(allocator, elt, deps);
+                try extractDependencies(self, elt, deps);
             }
         },
         .tuple => |t| {
             for (t.elts) |elt| {
-                try extractDependencies(allocator, elt, deps);
+                try extractDependencies(self, elt, deps);
             }
         },
         else => {},
@@ -122,24 +122,24 @@ fn extractDependencies(
 
 /// Extract all dependencies from a method body
 fn extractMethodDependencies(
-    allocator: std.mem.Allocator,
+    self: *NativeCodegen,
     body: []const ast.Node,
 ) ![]TableColumnDep {
     var deps: std.ArrayListUnmanaged(TableColumnDep) = .{};
-    errdefer deps.deinit(allocator);
+    errdefer deps.deinit(self.allocator);
 
     for (body) |stmt| {
         switch (stmt) {
             .return_stmt => |ret| {
                 if (ret.value) |val| {
-                    try extractDependencies(allocator, val.*, &deps);
+                    try extractDependencies(self, val.*, &deps);
                 }
             },
             .assign => |assign| {
-                try extractDependencies(allocator, assign.value.*, &deps);
+                try extractDependencies(self, assign.value.*, &deps);
             },
             .expr_stmt => |expr| {
-                try extractDependencies(allocator, expr.value.*, &deps);
+                try extractDependencies(self, expr.value.*, &deps);
             },
             else => {},
         }
@@ -156,12 +156,12 @@ fn extractMethodDependencies(
             }
         }
         if (!found) {
-            try unique.append(allocator, dep);
+            try unique.append(self.allocator, dep);
         }
     }
-    deps.deinit(allocator);
+    deps.deinit(self.allocator);
 
-    return unique.toOwnedSlice(allocator);
+    return unique.toOwnedSlice(self.allocator);
 }
 
 /// Generate @logic_table class as a Zig struct with batch functions
@@ -195,7 +195,7 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
             try method_names.append(allocator, method.name);
 
             // Extract dependencies from method body
-            const deps = try extractMethodDependencies(allocator, method.body);
+            const deps = try extractMethodDependencies(self, method.body);
             defer allocator.free(deps);
 
             // Generate dependency metadata
@@ -325,11 +325,20 @@ fn genBatchExpr(
             try self.emit(")");
         },
         .call => |call| {
-            // Handle special functions
-            if (call.func.* == .name) {
-                const func_name = call.func.name.id;
+            // Extract function name from either direct call or method call
+            // e.g., sum(...) -> "sum", np.sum(...) -> "sum", np.linalg.norm(...) -> "norm"
+            const func_name: ?[]const u8 = blk: {
+                if (call.func.* == .name) {
+                    break :blk call.func.name.id;
+                } else if (call.func.* == .attribute) {
+                    // np.sum -> "sum", np.linalg.norm -> "norm"
+                    break :blk call.func.attribute.attr;
+                }
+                break :blk null;
+            };
 
-                if (std.mem.eql(u8, func_name, "sum")) {
+            if (func_name) |fname| {
+                if (std.mem.eql(u8, fname, "sum")) {
                     // sum(a * b) -> dot product
                     if (call.args.len > 0) {
                         try self.emit("blk: { var __sum: f32 = 0.0; var __j: usize = 0; while (__j < ");
@@ -351,7 +360,7 @@ fn genBatchExpr(
                     return;
                 }
 
-                if (std.mem.eql(u8, func_name, "norm")) {
+                if (std.mem.eql(u8, fname, "norm")) {
                     // norm(x) -> sqrt of sum of squares
                     if (call.args.len > 0) {
                         try self.emit("@sqrt(blk: { var __sum: f32 = 0.0; var __j: usize = 0; while (__j < ");
@@ -370,8 +379,13 @@ fn genBatchExpr(
                     return;
                 }
 
-                if (std.mem.eql(u8, func_name, "sqrt")) {
-                    try self.emit("@sqrt(");
+                if (std.mem.eql(u8, fname, "sqrt") or std.mem.eql(u8, fname, "log")) {
+                    // sqrt(x), log(x) -> @sqrt(x), @log(x)
+                    if (std.mem.eql(u8, fname, "sqrt")) {
+                        try self.emit("@sqrt(");
+                    } else {
+                        try self.emit("@log(");
+                    }
                     if (call.args.len > 0) {
                         try genBatchExpr(self, call.args[0], deps);
                     }
@@ -379,12 +393,80 @@ fn genBatchExpr(
                     return;
                 }
 
-                if (std.mem.eql(u8, func_name, "abs")) {
+                if (std.mem.eql(u8, fname, "abs")) {
                     try self.emit("@abs(");
                     if (call.args.len > 0) {
                         try genBatchExpr(self, call.args[0], deps);
                     }
                     try self.emit(")");
+                    return;
+                }
+
+                if (std.mem.eql(u8, fname, "minimum") or std.mem.eql(u8, fname, "min")) {
+                    // np.minimum(a, b) -> @min(a, b)
+                    try self.emit("@min(");
+                    if (call.args.len > 0) {
+                        try genBatchExpr(self, call.args[0], deps);
+                    }
+                    if (call.args.len > 1) {
+                        try self.emit(", ");
+                        try genBatchExpr(self, call.args[1], deps);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+
+                if (std.mem.eql(u8, fname, "maximum") or std.mem.eql(u8, fname, "max")) {
+                    // np.maximum(a, b) -> @max(a, b)
+                    try self.emit("@max(");
+                    if (call.args.len > 0) {
+                        try genBatchExpr(self, call.args[0], deps);
+                    }
+                    if (call.args.len > 1) {
+                        try self.emit(", ");
+                        try genBatchExpr(self, call.args[1], deps);
+                    }
+                    try self.emit(")");
+                    return;
+                }
+
+                if (std.mem.eql(u8, fname, "where")) {
+                    // np.where(cond, a, b) -> if (cond) a else b
+                    try self.emit("if (");
+                    if (call.args.len > 0) {
+                        try genBatchExpr(self, call.args[0], deps);
+                    }
+                    try self.emit(") ");
+                    if (call.args.len > 1) {
+                        try genBatchExpr(self, call.args[1], deps);
+                    }
+                    try self.emit(" else ");
+                    if (call.args.len > 2) {
+                        try genBatchExpr(self, call.args[2], deps);
+                    } else {
+                        try self.emit("0.0");
+                    }
+                    return;
+                }
+
+                if (std.mem.eql(u8, fname, "dot")) {
+                    // np.dot(a, b) -> sum of element-wise product
+                    if (call.args.len >= 2) {
+                        try self.emit("blk: { var __sum: f32 = 0.0; var __j: usize = 0; while (__j < ");
+                        if (call.args[0] == .attribute) {
+                            const attr = call.args[0].attribute;
+                            if (attr.value.* == .name) {
+                                try self.emitFmt("{s}_{s}.len", .{ attr.value.name.id, attr.attr });
+                            }
+                        } else {
+                            try self.emit("384");
+                        }
+                        try self.emit(") : (__j += 1) { __sum += ");
+                        try genBatchExpr(self, call.args[0], deps);
+                        try self.emit(" * ");
+                        try genBatchExpr(self, call.args[1], deps);
+                        try self.emit("; } break :blk __sum; }");
+                    }
                     return;
                 }
             }
