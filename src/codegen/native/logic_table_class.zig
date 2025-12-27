@@ -120,13 +120,15 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
     try self.emitIndent();
     try self.emit("};\n\n");
 
-    // Generate C-callable export wrappers at module level
+    // Generate C-callable export wrappers at module level ONLY when --emit-logic-table is used
     // These are free functions with export linkage that call the struct methods
-    try self.emit("// __logic_table_exports_begin__\n");
-    for (methods.items) |m| {
-        try genExportWrapper(self, class.name, m.name, m.func);
+    if (self.emit_logic_table_exports) {
+        try self.emit("// __logic_table_exports_begin__\n");
+        for (methods.items) |m| {
+            try genExportWrapper(self, class.name, m.name, m.func);
+        }
+        try self.emit("// __logic_table_exports_end__\n");
     }
-    try self.emit("// __logic_table_exports_end__\n");
 }
 
 /// Generate a C-callable export wrapper for a struct method

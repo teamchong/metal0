@@ -793,6 +793,10 @@ pub const NativeCodegen = struct {
     // When true, methods are emitted with 'pub fn' for external linking
     in_logic_table_class: bool,
 
+    // When true, generate C-callable export wrappers for @logic_table methods
+    // Only set when using --emit-logic-table flag
+    emit_logic_table_exports: bool,
+
     // Two-Flow: Track if current function returns PyValue (needs boxing at return)
     // Set when function has uncertain params or mixed return types
     current_function_returns_pyvalue: bool,
@@ -1101,6 +1105,7 @@ pub const NativeCodegen = struct {
             .current_function_body = null,
             .in_generator_function = false,
             .in_logic_table_class = false,
+            .emit_logic_table_exports = false,
             .current_function_returns_pyvalue = false,
             .inside_try_body = false,
             .inside_try_with_finally = false,
