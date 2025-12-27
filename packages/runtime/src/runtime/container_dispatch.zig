@@ -262,8 +262,12 @@ pub fn setPtrAt(comptime T: type, comptime E: type, container: T, index: usize, 
 /// Check if value is contained in array/slice/tuple/hashmap - for 'in' operator
 /// Handles: arrays, slices, ArrayList (.items), tuples, hash maps (sets/dicts)
 /// Compiles ONCE per type, not per 'in' expression
-pub fn contains(comptime T: type, container: T, value: GetElementType(T)) bool {
+/// Note: For type V where V != GetElementType(T), will attempt bitcast for float->u64 (Python set semantics)
+pub fn contains(comptime T: type, container: T, value: anytype) bool {
     const info = @typeInfo(T);
+    const V = @TypeOf(value);
+    const K = GetElementType(T);
+
     // Special handling for tuples - inline iterate over fields
     if (info == .@"struct" and info.@"struct".is_tuple) {
         inline for (info.@"struct".fields) |field| {
@@ -273,16 +277,20 @@ pub fn contains(comptime T: type, container: T, value: GetElementType(T)) bool {
     }
     // Special handling for hash maps (sets/dicts) - check key containment
     if (info == .@"struct" and @hasDecl(T, "contains")) {
+        // Handle type mismatch: f64 value in u64 keyed map (Python float sets use bitcast)
+        if (V == f64 and K == u64) {
+            return container.contains(@bitCast(value));
+        }
         // Use the map's built-in contains method
         return container.contains(value);
     }
     // Normal path for arrays/slices
     const slice = getSlice(T, container);
-    return std.mem.indexOfScalar(GetElementType(T), slice, value) != null;
+    return std.mem.indexOfScalar(K, slice, value) != null;
 }
 
 /// Check if value is NOT contained in array/slice - for 'not in' operator
-pub fn notContains(comptime T: type, container: T, value: GetElementType(T)) bool {
+pub fn notContains(comptime T: type, container: T, value: anytype) bool {
     return !contains(T, container, value);
 }
 

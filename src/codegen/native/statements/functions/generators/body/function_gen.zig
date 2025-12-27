@@ -1582,7 +1582,15 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
     // Pass method.body for pre-scan type inference (Solution 3 for forward refs)
-    try var_hoisting.emitHoistedDeclarations(self, scope_analysis_method.escaped_vars.items, method.args, method.body);
+    // Include vararg and kwarg names to prevent shadowing *args/**kwargs parameters
+    try var_hoisting.emitHoistedDeclarationsWithSpecialParams(
+        self,
+        scope_analysis_method.escaped_vars.items,
+        method.args,
+        method.body,
+        method.vararg,
+        method.kwarg,
+    );
 
     // Clear local variable types (new method scope)
     self.clearLocalVarTypes();
