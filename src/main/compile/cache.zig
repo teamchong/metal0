@@ -7,17 +7,29 @@
 const std = @import("std");
 const build_dirs = @import("../../build_dirs.zig");
 
-/// Compute SHA256 hash of source content
+/// Compute SHA256 hash of source content and compilation mode
 /// Optimization from zell: Only hash first 1MB for large files (100-1000x faster)
 /// For files >1MB, this provides excellent collision resistance with minimal cost
+/// Mode is included to invalidate cache when switching between build/run modes
+/// (build mode = module struct, run mode = main function for dlsym)
 pub fn computeHash(source: []const u8) [32]u8 {
-    var hash: [32]u8 = undefined;
+    return computeHashWithMode(source, "");
+}
+
+/// Compute hash including compilation mode
+pub fn computeHashWithMode(source: []const u8, mode: []const u8) [32]u8 {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
 
     // For large files, only hash first 1MB (zell optimization)
     const hash_prefix_size = 1024 * 1024; // 1MB
     const bytes_to_hash = @min(source.len, hash_prefix_size);
 
-    std.crypto.hash.sha2.Sha256.hash(source[0..bytes_to_hash], &hash, .{});
+    hasher.update(source[0..bytes_to_hash]);
+    // Include mode in hash to invalidate when switching build/run
+    hasher.update(mode);
+
+    var hash: [32]u8 = undefined;
+    hasher.final(&hash);
     return hash;
 }
 
@@ -28,12 +40,18 @@ pub fn getCachePath(allocator: std.mem.Allocator, bin_path: []const u8) ![]const
 }
 
 /// Check if recompilation is needed (compare source hash with cached hash)
+/// Mode is included in the hash to invalidate cache when switching build/run modes
 pub fn shouldRecompile(allocator: std.mem.Allocator, source: []const u8, bin_path: []const u8) !bool {
+    return shouldRecompileWithMode(allocator, source, bin_path, "");
+}
+
+/// Check if recompilation is needed with explicit mode
+pub fn shouldRecompileWithMode(allocator: std.mem.Allocator, source: []const u8, bin_path: []const u8, mode: []const u8) !bool {
     // Check if binary exists
     std.fs.cwd().access(bin_path, .{}) catch return true; // Binary missing, must compile
 
-    // Compute current source hash
-    const current_hash = computeHash(source);
+    // Compute current source hash (including mode)
+    const current_hash = computeHashWithMode(source, mode);
 
     // Read cached hash
     const cache_path = try getCachePath(allocator, bin_path);
@@ -58,7 +76,12 @@ pub fn shouldRecompile(allocator: std.mem.Allocator, source: []const u8, bin_pat
 
 /// Update cache with new source hash
 pub fn updateCache(allocator: std.mem.Allocator, source: []const u8, bin_path: []const u8) !void {
-    const hash = computeHash(source);
+    return updateCacheWithMode(allocator, source, bin_path, "");
+}
+
+/// Update cache with new source hash including compilation mode
+pub fn updateCacheWithMode(allocator: std.mem.Allocator, source: []const u8, bin_path: []const u8, mode: []const u8) !void {
+    const hash = computeHashWithMode(source, mode);
 
     // Convert hash to hex string (manually)
     var hex_buf: [64]u8 = undefined;

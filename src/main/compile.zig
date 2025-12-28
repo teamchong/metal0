@@ -626,7 +626,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const bin_path = try output.getFileOutputPath(aa, opts.input_file, opts.output_file, opts.binary);
 
     // Check if binary is up-to-date using content hash (unless --force)
-    const should_compile = opts.force or try cache.shouldRecompile(aa, source, bin_path);
+    // Mode is included in hash to invalidate cache when switching build/run modes
+    // (build mode = module struct, run mode = main function for dlsym)
+    const should_compile = opts.force or try cache.shouldRecompileWithMode(aa, source, bin_path, opts.mode);
 
     if (!should_compile) {
         // Output is up-to-date, skip compilation
@@ -975,8 +977,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
 
-    // Update cache with new hash
-    try cache.updateCache(aa, source, bin_path);
+    // Update cache with new hash (including mode for build/run differentiation)
+    try cache.updateCacheWithMode(aa, source, bin_path, opts.mode);
 
     // Write debug info file (if --debug flag set)
     if (debug_writer) |*dw| {
