@@ -147,6 +147,15 @@ pub fn build(b: *std.Build) void {
     runtime.addImport("netpoller", netpoller);
     runtime.addImport("scheduler", scheduler);
 
+    // C interop module - enables C extension support (numpy, pytorch, etc.)
+    const c_interop = b.addModule("c_interop", .{
+        .root_source_file = b.path("../packages/c_interop/src/registry.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    c_interop.addImport("runtime", runtime);
+    c_interop.addImport("utils.hashmap_helper", hashmap_helper);
+
     // ══════════════════════════════════════════════════════════════════════════
     // TEST EXECUTABLES - read from manifest file
     // ══════════════════════════════════════════════════════════════════════════
@@ -209,6 +218,7 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "utils.hashmap_helper", .module = hashmap_helper },
                     .{ .name = "utils.allocator_helper", .module = allocator_helper },
                     .{ .name = "bigint", .module = bigint },
+                    .{ .name = "c_interop", .module = c_interop },
                 },
             }),
         });

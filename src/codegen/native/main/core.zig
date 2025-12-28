@@ -24,6 +24,7 @@ const builder_mod = @import("codegen.builder");
 // Traits for type checking in exprToValue
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const bigint_ops = @import("../expressions/operators/bigint_ops.zig");
 const unified_int_ops = @import("../expressions/operators/unified_int_ops.zig");
 
@@ -1849,6 +1850,15 @@ pub const NativeCodegen = struct {
         // For name nodes, check local scope first
         if (node == .name) {
             const original_name = node.name.id;
+
+            // Check for Python singletons first (before any variable lookup)
+            if (std.mem.eql(u8, original_name, "True") or std.mem.eql(u8, original_name, "False")) {
+                return .@"bool";
+            }
+            if (std.mem.eql(u8, original_name, "None")) {
+                return .none;
+            }
+
             // Check if variable has been renamed (e.g., loop capture line -> __loop_line)
             const renamed_name = self.var_renames.get(original_name) orelse original_name;
             // Check if this variable was assigned from VM fallback (returns PyValue)
@@ -2252,6 +2262,11 @@ pub const NativeCodegen = struct {
                     return try self.captureExpr(node);
                 }
 
+                // Class instances need dunder method dispatch (__add__, __radd__, etc.)
+                if (type_traits.isClassInstance(left_type) or type_traits.isClassInstance(right_type)) {
+                    return try self.captureExpr(node);
+                }
+
                 // Unknown types need special handling (PyValue ops, class dunders, etc.)
                 if (left_type == .unknown or right_type == .unknown) {
                     return try self.captureExpr(node);
@@ -2295,6 +2310,12 @@ pub const NativeCodegen = struct {
                     bigint_ops.needsBigInt(operand_type) or
                     unified_int_ops.isUnifiedInt(operand_type))
                 {
+                    return try self.captureExpr(node);
+                }
+
+                // Boolean with negation (-), positive (+), or invert (~) needs special handling
+                // Python allows -True = -1, ~True = -2, but Zig doesn't allow these on bool
+                if (operand_type == .@"bool" and (u.op == .USub or u.op == .UAdd or u.op == .Invert)) {
                     return try self.captureExpr(node);
                 }
 
@@ -2376,18 +2397,17 @@ pub const NativeCodegen = struct {
                 return result;
             },
 
-            // Function calls - capture as raw expression
-            // Type inference happens at call site, not here
-            .call => |_| {
+            // Function calls have complex dispatch (builtins, methods, ctypes) - use captureExpr
+            .call => {
                 return try self.captureExpr(node);
             },
 
-            // Attribute access - use captureExpr for proper builder save/restore
+            // Attribute access has complex method/property handling - use captureExpr
             .attribute => {
                 return try self.captureExpr(node);
             },
 
-            // Subscript access - use captureExpr for proper builder save/restore
+            // Subscript access has complex slice/index handling - use captureExpr
             .subscript => {
                 return try self.captureExpr(node);
             },

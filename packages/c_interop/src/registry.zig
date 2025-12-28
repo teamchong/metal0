@@ -162,6 +162,22 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
             }
             break :blk null;
         },
+        .array => |arr| blk: {
+            // Convert Zig arrays to Python lists (for numpy.array etc.)
+            const list = traits.externs.PyList_New(@intCast(arr.len)) orelse break :blk null;
+            inline for (value, 0..) |elem, i| {
+                const py_elem = toPyObject(elem) orelse {
+                    traits.externs.Py_DECREF(list);
+                    break :blk null;
+                };
+                // PyList_SetItem steals reference
+                if (traits.externs.PyList_SetItem(list, @intCast(i), py_elem) != 0) {
+                    traits.externs.Py_DECREF(list);
+                    break :blk null;
+                }
+            }
+            break :blk list;
+        },
         .optional => if (value) |v| toPyObject(v) else traits.externs.Py_None(),
         else => null,
     };

@@ -61,6 +61,33 @@ pub fn memoryview_callable(value: []const u8) []const u8 {
     return value;
 }
 
+/// str() factory - converts any type to string representation
+/// Used by Python's str() builtin for type conversion
+pub fn str_factory(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+
+    // Bool
+    if (T == bool) {
+        return if (value) "True" else "False";
+    }
+
+    // String slices (pass through)
+    if (T == []const u8 or T == []u8) {
+        return value;
+    }
+
+    // Pointer to array of u8 (string literal)
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one) {
+        const Child = @typeInfo(T).pointer.child;
+        if (@typeInfo(Child) == .array and @typeInfo(Child).array.child == u8) {
+            return value;
+        }
+    }
+
+    // Default: empty string (caller should use allocating version for complex types)
+    return "";
+}
+
 /// compile() builtin - compile Python source to code object
 /// Uses subprocess compilation to compile Python source code
 pub fn compile(allocator: std.mem.Allocator, source: []const u8, filename: []const u8, mode: []const u8, flags: i64) !*anyopaque {

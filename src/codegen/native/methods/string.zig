@@ -461,39 +461,43 @@ pub const genStrIndex = genIndex;
 /// Generate code for text.encode(encoding="utf-8")
 /// In Zig, strings are already UTF-8, so this just returns the string as bytes
 pub fn genEncode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // Just return the string - Zig strings are UTF-8 bytes already
-    // The encoding argument is consumed via runtime.discard to prevent "unused" errors
-    // and avoid "pointless discard of local constant" when arg is already a variable
+    // string.encode(encoding) - encode string to bytes using codec
+    // Returns PyBytes wrapped in PyValue for type compatibility
     if (args.len > 0) {
-        // Generate: encode_blk: { runtime.discard(encoding_arg); break :encode_blk text; }
-        var em = self.exprEmitter();
-        const id = em.reserveLabelId();
-        try self.emitFmt("encode_{d}: {{ runtime.discard(", .{id});
+        // Use runtime.Lib.encodings.encode(allocator, string, encoding, "strict")
+        // Wrap result in PyBytes then PyValue for type compatibility
+        try self.emit("runtime.PyValue.from(runtime.builtins.PyBytes.init(try runtime.Lib.encodings.encode(__global_allocator, ");
+        try self.genExpr(obj);
+        try self.emit(", ");
         try self.genExpr(args[0]);
-        try self.emitFmt("); break :encode_{d} ", .{id});
-        try self.genExpr(obj);
-        try self.emit("; }");
+        try self.emit(", \"strict\")))");
     } else {
+        // Default to UTF-8 encoding - wrap in PyBytes then PyValue
+        try self.emit("runtime.PyValue.from(runtime.builtins.PyBytes.init(");
         try self.genExpr(obj);
+        try self.emit("))");
     }
 }
 
 /// Generate code for bytes.decode(encoding="utf-8")
-/// In Zig, bytes and strings are already UTF-8, so this just returns the bytes as string
+/// Decode bytes to string using the specified codec
 pub fn genDecode(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // Just return the bytes - Zig bytes are UTF-8 strings already
-    // The encoding argument is consumed via runtime.discard to prevent "unused" errors
+    // bytes.decode(encoding) - decode bytes to string using codec
+    // Wrap result in PyValue for type compatibility
     if (args.len > 0) {
-        // Generate: decode_blk: { runtime.discard(encoding_arg); break :decode_blk bytes; }
-        var em = self.exprEmitter();
-        const id = em.reserveLabelId();
-        try self.emitFmt("decode_{d}: {{ runtime.discard(", .{id});
+        // Use runtime.Lib.encodings.decode(allocator, bytes.data, encoding, "strict")
+        // Note: bytes objects may be PyBytes struct, need to handle both cases
+        try self.emit("runtime.PyValue.from(try runtime.Lib.encodings.decode(__global_allocator, runtime.extractBytesData(");
+        try self.genExpr(obj);
+        try self.emit("), ");
         try self.genExpr(args[0]);
-        try self.emitFmt("); break :decode_{d} ", .{id});
-        try self.genExpr(obj);
-        try self.emit("; }");
+        try self.emit(", \"strict\"))");
     } else {
+        // Default to UTF-8 decoding (Zig bytes are already UTF-8)
+        // For PyBytes, extract .data and wrap in PyValue
+        try self.emit("runtime.PyValue.from(runtime.extractBytesData(");
         try self.genExpr(obj);
+        try self.emit("))");
     }
 }
 

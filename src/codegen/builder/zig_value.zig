@@ -195,6 +195,9 @@ pub const ZigValue = union(enum) {
     /// Binary operation result (deferred evaluation)
     binop_result: BinOpResultValue,
 
+    /// Unary operation result (deferred evaluation)
+    unaryop_result: UnaryOpResultValue,
+
     /// Raw Zig expression (escape hatch for complex cases)
     /// Use sparingly - prefer structured values
     raw_expr: []const u8,
@@ -204,6 +207,9 @@ pub const ZigValue = union(enum) {
 
     /// Index/subscript access (obj[index])
     subscript: SubscriptValue,
+
+    /// Function call result (func(args))
+    call_result: CallResultValue,
 
     // ============================================
     // Type information
@@ -221,8 +227,10 @@ pub const ZigValue = union(enum) {
             .array, .struct_literal => .certain,
             .method_result => |m| m.confidence,
             .binop_result => |b| b.confidence,
+            .unaryop_result => |u| u.confidence,
             .field_access => |f| f.confidence,
             .subscript => |s| s.confidence,
+            .call_result => |c| c.confidence,
             .raw_expr => .certain, // Raw expressions are user-controlled
             .none => .certain,
         };
@@ -479,6 +487,31 @@ pub const SubscriptValue = struct {
     /// Index value
     index: *const ZigValue,
     /// Access confidence
+    confidence: TypeConfidence,
+};
+
+/// Function call result value
+pub const CallResultValue = struct {
+    /// Function being called (name or expression)
+    func: *const ZigValue,
+    /// Arguments
+    args: []const ZigValue,
+    /// Result confidence (from return type inference)
+    confidence: TypeConfidence,
+    /// Optional return type hint (for optimization)
+    return_type_hint: ?CertainType = null,
+};
+
+/// Import UnaryOp from zig_expr to avoid duplication
+pub const UnaryOp = @import("zig_expr.zig").UnaryOp;
+
+/// Unary operation result value
+pub const UnaryOpResultValue = struct {
+    /// Operator
+    op: UnaryOp,
+    /// Operand
+    operand: *const ZigValue,
+    /// Result confidence
     confidence: TypeConfidence,
 };
 

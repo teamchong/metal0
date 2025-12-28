@@ -18,11 +18,15 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // str(bytes, encoding) - decode bytes to string
-    // In Zig, bytes are already []const u8, so just return the bytes
-    // Encoding argument is ignored (UTF-8 is the only encoding we support)
+    // str(bytes, encoding) - decode bytes to string using codec
     if (args.len >= 2) {
+        // Use runtime.Lib.encodings.decode(allocator, bytes.data, encoding, "strict")
+        // Note: bytes literals return PyBytes struct, need to extract .data
+        try self.emit("(try runtime.Lib.encodings.decode(__global_allocator, (");
         try self.genExpr(args[0]);
+        try self.emit(").data, ");
+        try self.genExpr(args[1]);
+        try self.emit(", \"strict\"))");
         return;
     }
 
@@ -191,10 +195,15 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // bytes(str, encoding) - encode string to bytes
-    // In Zig, strings are already []const u8, so just return the string
+    // bytes(str, encoding) - encode string to bytes using codec
     if (args.len >= 2) {
+        // Use runtime.Lib.encodings.encode(allocator, string, encoding, "strict")
+        // Wrap result in PyBytes to match Python semantics
+        try self.emit("runtime.builtins.PyBytes.init(try runtime.Lib.encodings.encode(__global_allocator, ");
         try self.genExpr(args[0]);
+        try self.emit(", ");
+        try self.genExpr(args[1]);
+        try self.emit(", \"strict\"))");
         return;
     }
 

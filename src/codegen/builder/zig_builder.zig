@@ -38,6 +38,9 @@ const TypeConfidence = @import("zig_value.zig").TypeConfidence;
 const CertainType = @import("zig_value.zig").CertainType;
 const CompOp = @import("zig_value.zig").CompOp;
 const BinOp = @import("zig_value.zig").BinOp;
+const UnaryOp = @import("zig_value.zig").UnaryOp;
+const UnaryOpResultValue = @import("zig_value.zig").UnaryOpResultValue;
+const CallResultValue = @import("zig_value.zig").CallResultValue;
 
 const ZigType = @import("zig_type.zig").ZigType;
 const TypePool = @import("zig_type.zig").TypePool;
@@ -477,6 +480,9 @@ pub const ZigBuilder = struct {
             .binop_result => |b| {
                 try self.emitBinOpResult(b);
             },
+            .unaryop_result => |u| {
+                try self.emitUnaryOpResult(u);
+            },
             .field_access => |f| {
                 try self.emitValueCore(f.obj.*);
                 try self.writeFmt(".{s}", .{f.field});
@@ -487,7 +493,25 @@ pub const ZigBuilder = struct {
                 try self.emitValueCore(s.index.*);
                 try self.write("]");
             },
+            .call_result => |c| {
+                try self.emitCallResult(c);
+            },
         }
+    }
+
+    /// Type-aware function call emission
+    fn emitCallResult(self: *ZigBuilder, c: CallResultValue) Allocator.Error!void {
+        // Emit function
+        try self.emitValueCore(c.func.*);
+        try self.write("(");
+
+        // Emit arguments
+        for (c.args, 0..) |arg, i| {
+            if (i > 0) try self.write(", ");
+            try self.emitValueCore(arg);
+        }
+
+        try self.write(")");
     }
 
     /// Type-aware binary operation emission
@@ -601,22 +625,13 @@ pub const ZigBuilder = struct {
             }
         }
 
-        // Uncertain or incompatible types: use PyValue method calls
+        // Uncertain or incompatible types: use PyValue method calls for supported ops
+        // PyValue only has: add, sub, mul, div
         const method_name: ?[]const u8 = switch (b.op) {
             .add => "add",
             .sub => "sub",
             .mul => "mul",
             .div => "div",
-            .floor_div => "floordiv",
-            .mod => "mod",
-            .pow => "pow",
-            .bit_and => "bitAnd",
-            .bit_or => "bitOr",
-            .bit_xor => "bitXor",
-            .lshift => "shl",
-            .rshift => "shr",
-            .@"and" => null, // Short-circuit, special handling
-            .@"or" => null, // Short-circuit, special handling
             else => null,
         };
 
@@ -628,6 +643,21 @@ pub const ZigBuilder = struct {
             try self.emitValueCore(rhs);
             try self.write("))");
             return;
+        }
+
+        // For unsupported PyValue ops, fall back to native with type coercion
+        // This handles: floor_div, mod, pow, bitwise ops, shifts
+        switch (b.op) {
+            .floor_div, .mod, .pow, .bit_and, .bit_or, .bit_xor, .lshift, .rshift => {
+                // Native operation with parentheses for safety
+                try self.write("((");
+                try self.emitValueCore(lhs);
+                try self.writeFmt(") {s} (", .{binOpStr(b.op)});
+                try self.emitValueCore(rhs);
+                try self.write("))");
+                return;
+            },
+            else => {},
         }
 
         // Logical and/or: short-circuit evaluation
@@ -661,6 +691,78 @@ pub const ZigBuilder = struct {
         try self.emitValueCore(lhs);
         try self.writeFmt(" {s} ", .{binOpStr(b.op)});
         try self.emitValueCore(rhs);
+    }
+
+    /// Type-aware unary operation emission
+    /// Checks confidence and type to decide between native ops and PyValue methods
+    fn emitUnaryOpResult(self: *ZigBuilder, u: UnaryOpResultValue) Allocator.Error!void {
+        const operand = u.operand.*;
+        const conf = operand.confidence();
+
+        switch (u.op) {
+            .neg => {
+                // Negation: -x
+                if (conf == .certain) {
+                    // Native negation for numeric types
+                    try self.write("-(");
+                    try self.emitValueCore(operand);
+                    try self.write(")");
+                } else {
+                    // PyValue negation
+                    try self.write("runtime.PyValue.from(");
+                    try self.emitValueCore(operand);
+                    try self.write(").neg()");
+                }
+            },
+            .pos => {
+                // Positive: +x (usually no-op, but converts to numeric)
+                if (conf == .certain) {
+                    // For certain types, just emit the value (+ is no-op on numbers)
+                    try self.emitValueCore(operand);
+                } else {
+                    // For uncertain, call pos() for type checking
+                    try self.write("runtime.PyValue.from(");
+                    try self.emitValueCore(operand);
+                    try self.write(").pos()");
+                }
+            },
+            .bit_not => {
+                // Bitwise not: ~x
+                if (conf == .certain) {
+                    // Native bitwise not for integers
+                    try self.write("~(");
+                    try self.emitValueCore(operand);
+                    try self.write(")");
+                } else {
+                    // PyValue bitwise not
+                    try self.write("runtime.PyValue.from(");
+                    try self.emitValueCore(operand);
+                    try self.write(").bitNot()");
+                }
+            },
+            .not_ => {
+                // Logical not: not x
+                if (conf == .certain) {
+                    // For boolean, use Zig !
+                    const ty = operand.certainType();
+                    if (ty == .bool_) {
+                        try self.write("!(");
+                        try self.emitValueCore(operand);
+                        try self.write(")");
+                    } else {
+                        // For other types, check truthiness
+                        try self.write("!runtime.toBool(");
+                        try self.emitValueCore(operand);
+                        try self.write(")");
+                    }
+                } else {
+                    // PyValue logical not
+                    try self.write("!runtime.toBool(runtime.PyValue.from(");
+                    try self.emitValueCore(operand);
+                    try self.write("))");
+                }
+            },
+        }
     }
 
     fn writeEscapedString(self: *ZigBuilder, s: []const u8) !void {
@@ -964,6 +1066,82 @@ pub const ZigBuilder = struct {
         try self.writeFmt(" {s} ", .{binOpStr(op)});
         try self.emitValue(rhs, EmitConfig.forExpression().withParens());
         try self.write(";\n");
+    }
+
+    /// Create a unary operation value (deferred evaluation)
+    pub fn unaryOp(self: *ZigBuilder, op: UnaryOp, operand: ZigValue) !ZigValue {
+        // Allocate storage for operand
+        const operand_ptr = try self.allocator.create(ZigValue);
+        operand_ptr.* = operand;
+
+        // Determine result confidence - preserve operand confidence
+        const confidence = operand.confidence();
+
+        return .{ .unaryop_result = .{
+            .op = op,
+            .operand = operand_ptr,
+            .confidence = confidence,
+        } };
+    }
+
+    /// Create a field access value (obj.field) with type confidence
+    pub fn fieldAccess(self: *ZigBuilder, obj: ZigValue, field: []const u8, confidence: TypeConfidence) !ZigValue {
+        const obj_ptr = try self.allocator.create(ZigValue);
+        obj_ptr.* = obj;
+
+        return .{ .field_access = .{
+            .obj = obj_ptr,
+            .field = field,
+            .confidence = confidence,
+        } };
+    }
+
+    /// Create a subscript access value (container[index]) with type confidence
+    pub fn subscript(self: *ZigBuilder, container: ZigValue, index: ZigValue, confidence: TypeConfidence) !ZigValue {
+        const container_ptr = try self.allocator.create(ZigValue);
+        container_ptr.* = container;
+        const index_ptr = try self.allocator.create(ZigValue);
+        index_ptr.* = index;
+
+        return .{ .subscript = .{
+            .container = container_ptr,
+            .index = index_ptr,
+            .confidence = confidence,
+        } };
+    }
+
+    /// Create a method call value (receiver.method(args)) with type confidence
+    pub fn methodCall(self: *ZigBuilder, receiver: ZigValue, method: []const u8, args: []const ZigValue, confidence: TypeConfidence) !ZigValue {
+        const receiver_ptr = try self.allocator.create(ZigValue);
+        receiver_ptr.* = receiver;
+
+        // Copy args array
+        const args_copy = try self.allocator.alloc(ZigValue, args.len);
+        @memcpy(args_copy, args);
+
+        return .{ .method_result = .{
+            .receiver = receiver_ptr,
+            .method = method,
+            .args = args_copy,
+            .confidence = confidence,
+        } };
+    }
+
+    /// Create a function call value (func(args)) with type confidence
+    pub fn call(self: *ZigBuilder, func: ZigValue, args: []const ZigValue, confidence: TypeConfidence) !ZigValue {
+        const func_ptr = try self.allocator.create(ZigValue);
+        func_ptr.* = func;
+
+        // Copy args array
+        const args_copy = try self.allocator.alloc(ZigValue, args.len);
+        @memcpy(args_copy, args);
+
+        return .{ .call_result = .{
+            .func = func_ptr,
+            .args = args_copy,
+            .confidence = confidence,
+            .return_type_hint = null,
+        } };
     }
 
     // ============================================

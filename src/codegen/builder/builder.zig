@@ -108,8 +108,10 @@ pub const ArrayValue = @import("zig_value.zig").ArrayValue;
 pub const StructLiteralValue = @import("zig_value.zig").StructLiteralValue;
 pub const MethodResultValue = @import("zig_value.zig").MethodResultValue;
 pub const BinOpResultValue = @import("zig_value.zig").BinOpResultValue;
+pub const UnaryOpResultValue = @import("zig_value.zig").UnaryOpResultValue;
 pub const FieldAccessValue = @import("zig_value.zig").FieldAccessValue;
 pub const SubscriptValue = @import("zig_value.zig").SubscriptValue;
+pub const CallResultValue = @import("zig_value.zig").CallResultValue;
 
 pub const ZigType = @import("zig_type.zig").ZigType;
 pub const TypePool = @import("zig_type.zig").TypePool;

@@ -103,6 +103,23 @@ pub fn strLiteral(data: []const u8) []const u8 {
     return data;
 }
 
+/// Extract bytes data from either PyBytes or []const u8
+/// This is a generic helper for codegen that handles both cases
+pub fn extractBytesData(value: anytype) []const u8 {
+    const T = @TypeOf(value);
+    if (T == PyBytes) {
+        return value.data;
+    } else if (T == []const u8) {
+        return value;
+    } else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one) {
+        // Pointer to array (e.g., *const [5]u8)
+        return value[0..];
+    } else {
+        // Assume it's an array type
+        return &value;
+    }
+}
+
 /// Format bytes as Python bytes repr: b'...' with non-printable bytes escaped
 pub fn bytesRepr(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
     var buf = std.ArrayListUnmanaged(u8){};
