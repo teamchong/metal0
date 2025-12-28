@@ -71,6 +71,15 @@ pub const traits = @import("objects/typetraits.zig");
 pub const helpers = @import("optimization_helpers.zig");
 
 // ============================================================================
+// Plugin System for External Library Customization
+// ============================================================================
+
+/// External library plugins (numpy, pandas, etc.)
+/// Usage: const plugins = @import("c_interop").plugins;
+///        if (plugins.getPlugin("numpy")) |np| { ... }
+pub const plugins = @import("plugins/plugins.zig");
+
+// ============================================================================
 // Re-export PyObject modules for complete C API coverage
 // ============================================================================
 
