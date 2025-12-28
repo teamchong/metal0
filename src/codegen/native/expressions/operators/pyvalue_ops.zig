@@ -1,9 +1,10 @@
 /// PyValue (Two-Flow) operations for uncertain type operands
 /// Handles runtime-polymorphic arithmetic using runtime.PyValue methods
 ///
-/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// MIGRATION STATUS: Fully migrated to ZigBuilder pattern
 /// - Uses captureExpr() to bridge AST expressions to ZigValue
-/// - Emits using emitZigValue() for type-safe output
+/// - Uses builder.write() for all output
+/// - Uses self.emitZigValue() for ZigValue emission
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -12,30 +13,6 @@ const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
-
-// ============================================
-// PyValue operation helpers - auto-closing patterns
-// ============================================
-
-/// Emit operand wrapped in runtime.PyValue.from(), with comptime literal casting if needed
-fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node, operand: ZigValue) CodegenError!void {
-    try self.emit("runtime.PyValue.from(");
-    if (isComptimeLiteral(expr)) {
-        // Cast comptime literal to concrete type
-        if (isComptimeFloat(expr)) {
-            try self.emit("@as(f64, ");
-        } else {
-            try self.emit("@as(i64, ");
-        }
-        try self.emitZigValue(operand);
-        try self.emit(")");
-    } else {
-        try self.emitZigValue(operand);
-    }
-    try self.emit(")");
-}
 
 /// PyValue method names for binary operations
 pub const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
@@ -143,6 +120,8 @@ pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         return;
     };
 
+    const b = try self.getBuilder();
+
     // Capture operands as ZigValues
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
@@ -152,19 +131,35 @@ pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
 
     // Emit: (runtime.PyValue.from(...)).method(runtime.PyValue.from(...))
-    // Uses auto-close patterns for guaranteed bracket matching
-    const LeftCtx = struct { s: *NativeCodegen, l: ast.Node, lo: ZigValue };
-    try self.withParensCtx(LeftCtx{ .s = self, .l = binop.left.*, .lo = left_operand }, struct {
-        pub fn f(_: *NativeCodegen, ctx: LeftCtx) CodegenError!void {
-            try emitPyValueFrom(ctx.s, ctx.l, ctx.lo);
+    try b.write("(runtime.PyValue.from(");
+    // Handle comptime literal casting for left operand
+    if (isComptimeLiteral(binop.left.*)) {
+        if (isComptimeFloat(binop.left.*)) {
+            try b.write("@as(f64, ");
+        } else {
+            try b.write("@as(i64, ");
         }
-    }.f);
-    try self.emit(".");
-    try self.emit(method_name);
-    const RightCtx = struct { s: *NativeCodegen, r: ast.Node, ro: ZigValue };
-    try self.withParensCtx(RightCtx{ .s = self, .r = binop.right.*, .ro = right_operand }, struct {
-        pub fn f(_: *NativeCodegen, ctx: RightCtx) CodegenError!void {
-            try emitPyValueFrom(ctx.s, ctx.r, ctx.ro);
+        try self.emitZigValue(left_operand);
+        try b.write(")");
+    } else {
+        try self.emitZigValue(left_operand);
+    }
+    try b.write(")).");
+    try b.write(method_name);
+    try b.write("(runtime.PyValue.from(");
+    // Handle comptime literal casting for right operand
+    if (isComptimeLiteral(binop.right.*)) {
+        if (isComptimeFloat(binop.right.*)) {
+            try b.write("@as(f64, ");
+        } else {
+            try b.write("@as(i64, ");
         }
-    }.f);
+        try self.emitZigValue(right_operand);
+        try b.write(")");
+    } else {
+        try self.emitZigValue(right_operand);
+    }
+    try b.write("))");
+
+    try self.flushBuilder();
 }
