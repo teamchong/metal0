@@ -210,14 +210,14 @@ fn fileio_readall(self: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     }
 
     // Read in chunks and accumulate
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result: std.ArrayList(u8) = .{};
+    defer result.deinit(allocator);
 
     var chunk: [8192]u8 = undefined;
     while (true) {
         const bytes_read = posix.read(@intCast(fileio.fd), &chunk) catch break;
         if (bytes_read == 0) break;
-        result.appendSlice(chunk[0..bytes_read]) catch break;
+        result.appendSlice(allocator, chunk[0..bytes_read]) catch break;
     }
 
     return pybytes.PyBytes_FromStringAndSize(@ptrCast(result.items.ptr), @intCast(result.items.len));

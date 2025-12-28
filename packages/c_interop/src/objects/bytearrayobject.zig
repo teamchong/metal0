@@ -161,8 +161,8 @@ pub export fn PyByteArray_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpyt
         const iternext = iter_type.tp_iternext orelse return null;
 
         // Collect bytes into a dynamic buffer
-        var buffer = std.ArrayList(u8).init(allocator);
-        defer buffer.deinit();
+        var buffer: std.ArrayList(u8) = .{};
+        defer buffer.deinit(allocator);
 
         while (true) {
             const item = iternext(iterator);
@@ -180,7 +180,7 @@ pub export fn PyByteArray_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpyt
                     // Value out of range
                     return null;
                 }
-                buffer.append(@intCast(val)) catch return null;
+                buffer.append(allocator, @intCast(val)) catch return null;
             } else {
                 // Not an integer
                 return null;

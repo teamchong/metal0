@@ -131,21 +131,21 @@ pub fn destroy(id: InterpreterId) InterpreterError!void {
 }
 
 /// List all interpreter IDs
-pub fn list_all(allocator: std.mem.Allocator) InterpreterError![]InterpreterId {
-    var ids = std.ArrayList(InterpreterId).init(allocator);
-    errdefer ids.deinit();
+pub fn list_all(alloc: std.mem.Allocator) InterpreterError![]InterpreterId {
+    var ids: std.ArrayList(InterpreterId) = .{};
+    errdefer ids.deinit(alloc);
 
     // Always include main interpreter
-    ids.append(0) catch return error.OutOfMemory;
+    ids.append(alloc, 0) catch return error.OutOfMemory;
 
     // Add sub-interpreters
     for (interpreters) |slot| {
         if (slot) |interp| {
-            ids.append(interp.id) catch return error.OutOfMemory;
+            ids.append(alloc, interp.id) catch return error.OutOfMemory;
         }
     }
 
-    return ids.toOwnedSlice() catch error.OutOfMemory;
+    return ids.toOwnedSlice(alloc) catch error.OutOfMemory;
 }
 
 /// Check if interpreter exists

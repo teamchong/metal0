@@ -50,16 +50,15 @@ pub const Channel = struct {
 
     id: ChannelId,
     allocator: std.mem.Allocator,
-    queue: std.ArrayList(ChannelMessage),
+    queue: std.ArrayList(ChannelMessage) = .{},
     closed: bool = false,
     mutex: std.Thread.Mutex = .{},
     max_size: ?usize = null,
 
-    pub fn init(allocator: std.mem.Allocator, id: ChannelId, max_size: ?usize) Self {
+    pub fn init(alloc: std.mem.Allocator, id: ChannelId, max_size: ?usize) Self {
         return Self{
             .id = id,
-            .allocator = allocator,
-            .queue = std.ArrayList(ChannelMessage).init(allocator),
+            .allocator = alloc,
             .max_size = max_size,
         };
     }
@@ -69,7 +68,7 @@ pub const Channel = struct {
         for (self.queue.items) |msg| {
             self.allocator.free(msg.data);
         }
-        self.queue.deinit();
+        self.queue.deinit(self.allocator);
     }
 
     pub fn send(self: *Self, data: []const u8, interp_id: i64) ChannelError!void {
@@ -88,7 +87,7 @@ pub const Channel = struct {
         const copied = self.allocator.dupe(u8, data) catch return error.OutOfMemory;
         errdefer self.allocator.free(copied);
 
-        self.queue.append(ChannelMessage{
+        self.queue.append(self.allocator, ChannelMessage{
             .data = copied,
             .interpreter_id = interp_id,
         }) catch return error.OutOfMemory;
@@ -224,16 +223,16 @@ pub fn getCount(id: ChannelId) ChannelError!usize {
 
 /// List all channel IDs
 pub fn list_all(alloc: std.mem.Allocator) ChannelError![]ChannelId {
-    var ids = std.ArrayList(ChannelId).init(alloc);
-    errdefer ids.deinit();
+    var ids: std.ArrayList(ChannelId) = .{};
+    errdefer ids.deinit(alloc);
 
     for (channels) |slot| {
         if (slot) |channel| {
-            ids.append(channel.id) catch return error.OutOfMemory;
+            ids.append(alloc, channel.id) catch return error.OutOfMemory;
         }
     }
 
-    return ids.toOwnedSlice() catch error.OutOfMemory;
+    return ids.toOwnedSlice(alloc) catch error.OutOfMemory;
 }
 
 /// Check if channel exists

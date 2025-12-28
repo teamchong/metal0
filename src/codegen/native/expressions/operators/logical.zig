@@ -1,9 +1,10 @@
 /// Logical operations: and, or, not
 /// Handles Python value-based semantics (returns actual values, not just booleans)
 ///
-/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// MIGRATION STATUS: Fully migrated to ZigBuilder pattern
 /// - Uses captureExpr() to bridge AST expressions to ZigValue
-/// - Emits using emitZigValue() for type-safe output
+/// - Uses builder.write() for all output
+/// - Uses builder.emitValueCore() for ZigValue emission
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -15,54 +16,13 @@ const expr_emitter = @import("../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
-// MIGRATED TO ZIGBUILDER
-
-// ============================================
-// Logical operation helpers - auto-closing patterns
-// ============================================
-
-/// Emit runtime.toBool(operand)
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("runtime.toBool");
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-        }
-    }.f);
-}
-
-/// Emit runtime.toBool((try runtime.pyOr/pyAnd(alloc, a, b)))
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitRuntimePyBoolOp(self: *NativeCodegen, is_or: bool, a_operand: ZigValue, b_operand: ZigValue) CodegenError!void {
-    try self.emit("runtime.toBool");
-    const Ctx = struct { a: ZigValue, b: ZigValue, or_op: bool };
-    try self.withParensCtx(Ctx{ .a = a_operand, .b = b_operand, .or_op = is_or }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            const Inner = struct { a: ZigValue, b: ZigValue };
-            if (ctx.or_op) {
-                try s.emit("try runtime.pyOr");
-            } else {
-                try s.emit("try runtime.pyAnd");
-            }
-            try s.withParensCtx(Inner{ .a = ctx.a, .b = ctx.b }, struct {
-                pub fn g(si: *NativeCodegen, inner: Inner) CodegenError!void {
-                    try si.emit("__global_allocator, ");
-                    try si.emitZigValue(inner.a);
-                    try si.emit(", ");
-                    try si.emitZigValue(inner.b);
-                }
-            }.g);
-        }
-    }.f);
-}
-
 /// Generate boolean operations (and, or)
 /// Python's and/or return the actual values, not booleans:
 /// - "a or b" returns a if truthy, else b
 /// - "a and b" returns a if falsy, else b
 pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!void {
+    const b = try self.getBuilder();
+
     // Check if all values are booleans AND don't need VM fallback
     // VM fallback produces PyValue, not bool, so we can't use simple Zig and/or
     var all_bool = true;
@@ -84,10 +44,11 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     if (all_bool and !has_vm_fallback) {
         const op_str = if (boolop.op == .And) " and " else " or ";
         for (boolop.values, 0..) |value, i| {
-            if (i > 0) try self.emit(op_str);
+            if (i > 0) try b.write(op_str);
             const operand = try self.captureExpr(value);
             try self.emitZigValue(operand);
         }
+        try self.flushBuilder();
         return;
     }
 
@@ -97,11 +58,11 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     // We generate nested ternary expressions
     if (boolop.values.len == 2) {
         const a = boolop.values[0];
-        const b = boolop.values[1];
+        const b_val = boolop.values[1];
 
         // Infer types of both values
         const a_type = try self.inferExprScoped(a);
-        const b_type = try self.inferExprScoped(b);
+        const b_type = try self.inferExprScoped(b_val);
         const a_tag = @as(std.meta.Tag(@TypeOf(a_type)), a_type);
         const b_tag = @as(std.meta.Tag(@TypeOf(b_type)), b_type);
 
@@ -113,7 +74,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         // - VM fallback expressions return *PyObject which is incompatible with native types
         const types_compatible = blk: {
             // VM fallback returns *PyObject - always incompatible with native types
-            if (self.needsVMFallback(a) or self.needsVMFallback(b)) break :blk false;
+            if (self.needsVMFallback(a) or self.needsVMFallback(b_val)) break :blk false;
             if (a_tag != b_tag) break :blk false;
             if (type_traits.isClassInstance(a_type)) {
                 break :blk std.mem.eql(u8, a_type.class_instance, b_type.class_instance);
@@ -129,17 +90,32 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
 
             // Capture operands as ZigValues
             const a_operand = try self.captureExpr(a);
-            const b_operand = try self.captureExpr(b);
+            const b_operand = try self.captureExpr(b_val);
 
-            try emitRuntimePyBoolOp(self, boolop.op == .Or, a_operand, b_operand);
+            // Emit: runtime.toBool(try runtime.pyOr/pyAnd(__global_allocator, a, b))
+            try b.write("runtime.toBool(");
+            if (boolop.op == .Or) {
+                try b.write("try runtime.pyOr(");
+            } else {
+                try b.write("try runtime.pyAnd(");
+            }
+            try b.write("__global_allocator, ");
+            try self.emitZigValue(a_operand);
+            try b.write(", ");
+            try self.emitZigValue(b_operand);
+            try b.write("))");
+            try self.flushBuilder();
             return;
         }
+
+        // Flush builder before using exprEmitter (which uses emit directly)
+        try self.flushBuilder();
 
         // Use unique label to avoid redefinition with nested boolean ops
         var em = self.exprEmitter();
         var blk = try em.labeledBlock("boolop", "_a", a);
         try blk.emit("const _b = ");
-        try genExpr(self, b);
+        try genExpr(self, b_val);
         try blk.emit("; ");
 
         // Generate type-appropriate truthiness check
@@ -170,8 +146,12 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     // For more than 2 values, use simple approach (may not be fully correct but handles common cases)
     const op_str = if (boolop.op == .And) " and " else " or ";
     for (boolop.values, 0..) |value, i| {
-        if (i > 0) try self.emit(op_str);
+        if (i > 0) try b.write(op_str);
         const operand = try self.captureExpr(value);
-        try emitToBool(self, operand);
+        // Emit: runtime.toBool(operand)
+        try b.write("runtime.toBool(");
+        try self.emitZigValue(operand);
+        try b.write(")");
     }
+    try self.flushBuilder();
 }

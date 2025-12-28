@@ -41,22 +41,24 @@ pub const SpamList = struct {
     const Self = @This();
 
     /// Internal list storage
-    items: std.ArrayList(i64),
+    items: std.ArrayList(i64) = .{},
+    /// Allocator stored for deinit
+    allocator: std.mem.Allocator,
     /// Custom state attribute
     state: i32 = 0,
 
-    pub fn init(allocator: std.mem.Allocator) Self {
+    pub fn init(alloc: std.mem.Allocator) Self {
         return Self{
-            .items = std.ArrayList(i64).init(allocator),
+            .allocator = alloc,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.items.deinit();
+        self.items.deinit(self.allocator);
     }
 
     pub fn append(self: *Self, item: i64) !void {
-        try self.items.append(item);
+        try self.items.append(self.allocator, item);
     }
 
     pub fn len(self: *const Self) usize {
