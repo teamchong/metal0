@@ -39,14 +39,14 @@ export fn PyGC_Collect() callconv(.c) isize {
     const objects = getTrackedObjects();
 
     // Mark and sweep: find objects with refcount 0 that are still tracked
-    var to_remove = std.ArrayList(*cpython.PyObject).init(allocator);
-    defer to_remove.deinit();
+    var to_remove: std.ArrayList(*cpython.PyObject) = .{};
+    defer to_remove.deinit(allocator);
 
     var it = objects.iterator();
     while (it.next()) |entry| {
         const obj = entry.key_ptr.*;
         if (obj.ob_refcnt <= 0) {
-            to_remove.append(obj) catch continue;
+            to_remove.append(allocator, obj) catch continue;
             collected += 1;
         }
     }

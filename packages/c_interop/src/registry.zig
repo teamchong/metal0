@@ -49,14 +49,14 @@ pub fn isPackageSupported(package_name: []const u8) bool {
 pub fn getSupportedPackages(allocator: std.mem.Allocator) ![]const []const u8 {
     const registry = try getGlobalRegistry();
 
-    var packages = std.ArrayList([]const u8).init(allocator);
-    defer packages.deinit();
+    var packages: std.ArrayList([]const u8) = .{};
+    errdefer packages.deinit(allocator);
 
     for (registry.mappings) |mapping| {
-        try packages.append(mapping.package_name);
+        try packages.append(allocator, mapping.package_name);
     }
 
-    return packages.toOwnedSlice();
+    return packages.toOwnedSlice(allocator);
 }
 
 // ============================================================================

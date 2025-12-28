@@ -278,16 +278,16 @@ pub const MappingRegistry = struct {
 
     /// Get all libraries needed for detected imports
     pub fn getRequiredLibraries(self: *const MappingRegistry, allocator: std.mem.Allocator) ![]const LibraryInfo {
-        var libs = std.ArrayList(LibraryInfo).init(allocator);
-        defer libs.deinit();
+        var libs: std.ArrayList(LibraryInfo) = .{};
+        errdefer libs.deinit(allocator);
 
         for (self.mappings) |mapping| {
             for (mapping.libraries) |lib| {
-                try libs.append(lib);
+                try libs.append(allocator, lib);
             }
         }
 
-        return libs.toOwnedSlice();
+        return libs.toOwnedSlice(allocator);
     }
 };
 

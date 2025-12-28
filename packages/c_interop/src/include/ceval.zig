@@ -955,13 +955,13 @@ const InternalThreadState = struct {
 };
 
 /// Thread state pool for reuse
-var thread_state_pool: std.ArrayList(*InternalThreadState) = undefined;
+var thread_state_pool: std.ArrayList(*InternalThreadState) = .{};
 var thread_state_pool_initialized: bool = false;
 
 fn initThreadStatePool() void {
     if (thread_state_pool_initialized) return;
     thread_state_pool_initialized = true;
-    thread_state_pool = std.ArrayList(*InternalThreadState).init(std.heap.c_allocator);
+    // In Zig 0.15, ArrayList is unmanaged - already initialized with .{}
 }
 
 /// Create new thread state
