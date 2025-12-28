@@ -327,7 +327,9 @@ pub const bigIntDivmod = types_mod.bigIntDivmod;
 pub const bigIntCompare = types_mod.bigIntCompare;
 
 /// Type constructor callables (list, tuple, dict, set, frozenset, deque, defaultdict, complex)
+/// Note: int is NOT exported here to avoid conflict with issubclass(x, int)
 pub const cons_mod = @import("builtins/constructors.zig");
+pub const int_factory = cons_mod.int; // Factory for defaultdict(int), NOT the type
 pub const list = cons_mod.list;
 pub const tuple = cons_mod.tuple;
 pub const dict = cons_mod.dict;
@@ -1232,4 +1234,74 @@ pub fn pySetContainsPV(py_set: PyValue, item: PyValue) bool {
         else => return false,
     };
     return map_ptr.contains(key);
+}
+
+// =============================================================================
+// Type Conversion Helper - for type(x) where type is a Zig type passed as anytype
+// =============================================================================
+
+/// Convert a value to a target type at comptime.
+/// This is used for patterns like `type(i)` where `type` is an anytype parameter
+/// holding a Zig type like i64 or f64.
+///
+/// Example: typeConvert(i64, 3.5) -> 3
+/// Example: typeConvert(f64, 42) -> 42.0
+pub fn typeConvert(comptime T: type, value: anytype) T {
+    const V = @TypeOf(value);
+
+    // Same type - return as-is
+    if (T == V) return value;
+
+    const t_info = @typeInfo(T);
+    const v_info = @typeInfo(V);
+
+    // Target is integer
+    if (t_info == .int) {
+        if (v_info == .int or v_info == .comptime_int) {
+            return @intCast(value);
+        }
+        if (v_info == .float or v_info == .comptime_float) {
+            return @intFromFloat(value);
+        }
+    }
+
+    // Target is float
+    if (t_info == .float) {
+        if (v_info == .int or v_info == .comptime_int) {
+            return @floatFromInt(value);
+        }
+        if (v_info == .float or v_info == .comptime_float) {
+            return @floatCast(value);
+        }
+    }
+
+    @compileError("typeConvert: cannot convert " ++ @typeName(V) ++ " to " ++ @typeName(T));
+}
+
+/// Like typeConvert but always returns f64.
+/// Used for pow() and other math operations that require float arguments.
+///
+/// Example: typeConvertFloat(i64, 42) -> 42.0
+/// Example: typeConvertFloat(f64, 42) -> 42.0
+pub fn typeConvertFloat(comptime T: type, value: anytype) f64 {
+    const converted = typeConvert(T, value);
+    const info = @typeInfo(@TypeOf(converted));
+    if (info == .float) return @floatCast(converted);
+    if (info == .int) return @floatFromInt(converted);
+    @compileError("typeConvertFloat: result is not numeric");
+}
+
+/// Convert any numeric value to f64.
+/// Handles i64, f64, and other numeric types uniformly.
+/// Used when a variable of unknown numeric type needs to be used as f64.
+///
+/// Example: numericToFloat(42_i64) -> 42.0
+/// Example: numericToFloat(3.14_f64) -> 3.14
+pub fn numericToFloat(value: anytype) f64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    if (info == .float) return @floatCast(value);
+    if (info == .int or info == .comptime_int) return @floatFromInt(value);
+    if (info == .comptime_float) return @floatCast(value);
+    @compileError("numericToFloat: expected numeric type, got " ++ @typeName(T));
 }

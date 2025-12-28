@@ -26,6 +26,22 @@ fn emitBuiltinStart(self: *NativeCodegen, builtin: []const u8) CodegenError!void
     try self.emit("(");
 }
 
+/// Check if an expression is a type conversion call pattern: type(x), cls(x), etc.
+/// These are calls where the function name is a parameter that could hold a Zig type (i64, f64)
+fn isTypeConversionCall(node: ast.Node) bool {
+    if (node != .call) return false;
+    const call = node.call;
+    if (call.func.* != .name) return false;
+    if (call.args.len != 1) return false;
+    const func_name = call.func.name.id;
+    // Type-like parameter names that could hold Zig types (i64, f64)
+    return std.mem.eql(u8, func_name, "type") or
+        std.mem.eql(u8, func_name, "cls") or
+        std.mem.eql(u8, func_name, "klass") or
+        std.mem.eql(u8, func_name, "class_") or
+        std.mem.eql(u8, func_name, "typ");
+}
+
 /// Check if argument is None constant
 fn isNoneArg(arg: ast.Node) bool {
     if (arg == .constant) {
@@ -295,12 +311,22 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
 
         // Convert base to f64
-        if (base_is_int) {
+        // Check if base is a type conversion call (type(x) where type is an anytype param)
+        const base_is_type_call = isTypeConversionCall(args[0]);
+        if (base_is_type_call) {
+            // Use typeConvertFloat which handles both int and float target types
+            try self.emit("runtime.builtins.typeConvertFloat(");
+            try self.genExpr(args[0].call.func.*);
+            try self.emit(", ");
+            try self.genExpr(args[0].call.args[0]);
+            try self.emit(")");
+        } else if (base_is_int) {
             try self.emit("@as(f64, @floatFromInt(");
             try self.genExpr(args[0]);
             try self.emit("))");
         } else {
-            try self.emit("@as(f64, ");
+            // Unknown type - use numericToFloat which handles both int and float
+            try self.emit("runtime.builtins.numericToFloat(");
             try self.genExpr(args[0]);
             try self.emit(")");
         }
@@ -308,12 +334,22 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(", ");
 
         // Convert exp to f64
-        if (exp_is_int) {
+        // Check if exp is a type conversion call
+        const exp_is_type_call = isTypeConversionCall(args[1]);
+        if (exp_is_type_call) {
+            // Use typeConvertFloat which handles both int and float target types
+            try self.emit("runtime.builtins.typeConvertFloat(");
+            try self.genExpr(args[1].call.func.*);
+            try self.emit(", ");
+            try self.genExpr(args[1].call.args[0]);
+            try self.emit(")");
+        } else if (exp_is_int) {
             try self.emit("@as(f64, @floatFromInt(");
             try self.genExpr(args[1]);
             try self.emit("))");
         } else {
-            try self.emit("@as(f64, ");
+            // Unknown type - use numericToFloat which handles both int and float
+            try self.emit("runtime.builtins.numericToFloat(");
             try self.genExpr(args[1]);
             try self.emit(")");
         }

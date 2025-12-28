@@ -758,6 +758,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
+            // Check if this is a lazy class attribute call (B.bar() where bar is a lazy attr)
+            // Lazy attrs are functions that need allocator: B.bar(__global_allocator)
+            var is_lazy_class_attr_call = false;
+            if (attr.value.* == .name) {
+                const base_name = attr.value.name.id;
+                var lazy_key_buf: [256]u8 = undefined;
+                const lazy_key = std.fmt.bufPrint(&lazy_key_buf, "{s}.{s}", .{ base_name, attr.attr }) catch base_name;
+                if (self.lazy_class_attrs.contains(lazy_key)) {
+                    is_lazy_class_attr_call = true;
+                }
+            }
+
             // Generic method call: obj.method(args)
             // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
             // IMPORTANT: Numeric literals need parentheses: 1.__round__() -> (1).__round__()
@@ -780,8 +792,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
             try self.emit("(");
 
-            // For module calls or class method calls, add allocator as first argument only if needed
-            const allocator_emitted = (is_module_call or is_class_method_call or is_nested_class_method_call) and needs_alloc;
+            // For lazy class attr calls, module calls, or class method calls, add allocator as first argument
+            const allocator_emitted = (is_lazy_class_attr_call or is_module_call or is_class_method_call or is_nested_class_method_call) and (needs_alloc or is_lazy_class_attr_call);
             if (allocator_emitted) {
                 const alloc_name = "__global_allocator";
                 try self.emit(alloc_name);
@@ -1147,11 +1159,33 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Generate: func.init(args) for anytype parameters that are likely types
         // EXCEPTION: If called with starred args (e.g., op(*instances)), it's a function call
         // not a type constructor - functions like operator.eq need direct call, not .init()
+        // EXCEPTION: Parameters named 'type', 'cls', 'klass' might be Python type constructors
+        // (int, float, etc.) which can't use .init() - use VM fallback for these
         const has_starred_args = for (call.args) |arg| {
             if (arg == .starred) break true;
         } else false;
 
+        // Check if parameter might be a Python type constructor (int, float, etc.)
+        // These are commonly named 'type', 'cls', 'klass', 'class_' and need type conversion
+        const might_be_python_type = std.mem.eql(u8, raw_func_name, "type") or
+            std.mem.eql(u8, raw_func_name, "cls") or
+            std.mem.eql(u8, raw_func_name, "klass") or
+            std.mem.eql(u8, raw_func_name, "class_") or
+            std.mem.eql(u8, raw_func_name, "typ");
+
         if (is_callable_anytype_param and !has_starred_args) {
+            // If parameter might be a Python type constructor, use typeConvert
+            // Python types like int/float become Zig types (i64/f64) when passed as anytype
+            // type(i) should convert i to the target type using runtime.builtins.typeConvert
+            if (might_be_python_type and call.args.len == 1) {
+                try self.emit("runtime.builtins.typeConvert(");
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+                try self.emit(", ");
+                try genExpr(self, call.args[0]);
+                try self.emit(")");
+                return;
+            }
+
             // Use .init() pattern for anytype params - works for types like staticmethod/classmethod
             // that are passed as arguments and then called to construct instances
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
