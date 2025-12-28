@@ -1,9 +1,10 @@
 /// BigInt operations: context structs, helpers, and binary operations
 /// Handles arbitrary-precision integer arithmetic using runtime.bigint_ops
 ///
-/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// MIGRATION STATUS: Partially migrated to ZigBuilder pattern
 /// - Uses captureExpr() to bridge AST expressions to ZigValue
-/// - Emits using emitZigValue() for type-safe output
+/// - Uses builder.write() for main generators
+/// - Context structs still use emit for callback compatibility
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -14,46 +15,45 @@ const NativeType = @import("../../../../analysis/native_types/core.zig").NativeT
 const expr_emitter = @import("../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
+const ZigBuilder = builder_mod.ZigBuilder;
 
 // ============================================
-// BigInt operation helpers - auto-closing patterns
+// BigInt operation helpers - builder pattern
 // ============================================
 
-/// Emit runtime.bigint_ops.fromInt(allocator, value)
-fn emitBigIntFromInt(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("runtime.bigint_ops.fromInt(__global_allocator, ");
+/// Emit runtime.bigint_ops.fromInt(allocator, value) using builder
+fn emitBigIntFromInt(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
+    try b.write("runtime.bigint_ops.fromInt(__global_allocator, ");
     try self.emitZigValue(operand);
-    try self.emit(")");
+    try b.write(")");
 }
 
-/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value)))
-fn emitBigIntFromIntCast(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
+/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value))) using builder
+fn emitBigIntFromIntCast(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
+    try b.write("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
     try self.emitZigValue(operand);
-    try self.emit(")))");
+    try b.write(")))");
 }
 
-/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value))
-fn emitBigIntFromI64Cast(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
+/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value)) using builder
+fn emitBigIntFromI64Cast(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
+    try b.write("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
     try self.emitZigValue(operand);
-    try self.emit("))");
+    try b.write("))");
 }
 
-/// Emit shift operand: @as(usize, @intCast(value))
-fn emitShiftOperand(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("@as(usize, @intCast(");
+/// Emit shift operand: @as(usize, @intCast(value)) using builder
+fn emitShiftOperand(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
+    try b.write("@as(usize, @intCast(");
     try self.emitZigValue(operand);
-    try self.emit("))");
+    try b.write("))");
 }
 
-/// Emit pow exponent: @as(u32, @intCast(value))
-fn emitPowExponent(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("@as(u32, @intCast(");
+/// Emit pow exponent: @as(u32, @intCast(value)) using builder
+fn emitPowExponent(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
+    try b.write("@as(u32, @intCast(");
     try self.emitZigValue(operand);
-    try self.emit("))");
+    try b.write("))");
 }
 
 /// BigInt method names for standard binary operations (left.method(&right, allocator))
@@ -308,53 +308,38 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     // Capture operands as ZigValues
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
+    const b = try self.getBuilder();
 
     // Get the runtime helper function name
     const op_name = @tagName(binop.op);
     const runtime_fn = BigIntRuntimeOps.get(op_name) orelse {
         // Unsupported operation - use VM fallback for drop-in CPython replacement
+        try self.flushBuilder();
         try self.emitVMFallback(.{ .binop = binop });
         return;
     };
 
     // Emit: runtime.bigint_ops.xxx(left, right, allocator)
-    // Uses auto-close pattern for guaranteed bracket matching
-    try self.emit("runtime.bigint_ops.");
-    try self.emit(runtime_fn);
-    const Ctx = struct {
-        s: *NativeCodegen,
-        lt: NativeType,
-        lo: ZigValue,
-        rt: NativeType,
-        ro: ZigValue,
-        op: ast.Operator,
-    };
-    try self.withParensCtx(Ctx{
-        .s = self,
-        .lt = left_type,
-        .lo = left_operand,
-        .rt = right_type,
-        .ro = right_operand,
-        .op = binop.op,
-    }, struct {
-        pub fn f(si: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            // Emit left operand (convert to BigInt if needed)
-            try emitBigIntOperandValue(ctx.s, ctx.lt, ctx.lo);
-            try si.emit(", ");
+    try b.write("runtime.bigint_ops.");
+    try b.write(runtime_fn);
+    try b.write("(");
 
-            // For shift/pow operations, right operand is a primitive (usize/u32)
-            if (ctx.op == .LShift or ctx.op == .RShift) {
-                try emitShiftOperand(ctx.s, ctx.ro);
-            } else if (ctx.op == .Pow) {
-                try emitPowExponent(ctx.s, ctx.ro);
-            } else {
-                // Standard binary ops: right operand is also BigInt
-                try emitBigIntOperandValue(ctx.s, ctx.rt, ctx.ro);
-            }
+    // Emit left operand (convert to BigInt if needed)
+    try emitBigIntOperandValue(self, b, left_type, left_operand);
+    try b.write(", ");
 
-            try si.emit(", __global_allocator");
-        }
-    }.f);
+    // For shift/pow operations, right operand is a primitive (usize/u32)
+    if (binop.op == .LShift or binop.op == .RShift) {
+        try emitShiftOperand(self, b, right_operand);
+    } else if (binop.op == .Pow) {
+        try emitPowExponent(self, b, right_operand);
+    } else {
+        // Standard binary ops: right operand is also BigInt
+        try emitBigIntOperandValue(self, b, right_type, right_operand);
+    }
+
+    try b.write(", __global_allocator)");
+    try self.flushBuilder();
 }
 
 /// Emit an operand as a BigInt value (AST node version)
@@ -389,23 +374,23 @@ pub fn emitBigIntOperand(self: *NativeCodegen, op_type: NativeType, node: *const
     }
 }
 
-/// Emit an operand as a BigInt value (ZigValue version)
+/// Emit an operand as a BigInt value (ZigValue version) using builder
 /// Handles conversion from i64, i128, or existing BigInt
-fn emitBigIntOperandValue(self: *NativeCodegen, op_type: NativeType, operand: ZigValue) CodegenError!void {
+fn emitBigIntOperandValue(self: *NativeCodegen, b: *ZigBuilder, op_type: NativeType, operand: ZigValue) CodegenError!void {
     if (op_type == .bigint) {
         // Already BigInt - emit directly
         try self.emitZigValue(operand);
     } else if (op_type == .int) {
         if (op_type.int.needsBigInt()) {
             // Large int (i128) - use fromInt with cast
-            try emitBigIntFromIntCast(self, operand);
+            try emitBigIntFromIntCast(self, b, operand);
         } else {
             // Normal i64
-            try emitBigIntFromInt(self, operand);
+            try emitBigIntFromInt(self, b, operand);
         }
     } else {
         // Unknown type - try to convert as i64
-        try emitBigIntFromI64Cast(self, operand);
+        try emitBigIntFromI64Cast(self, b, operand);
     }
 }
 
