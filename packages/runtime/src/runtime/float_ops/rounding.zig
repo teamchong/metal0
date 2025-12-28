@@ -66,7 +66,14 @@ pub const IntResult = union(enum) {
         _ = options;
         switch (self) {
             .small => |v| try writer.print("{d}", .{v}),
-            .big => |b| try writer.print("{s}", .{b.toString(allocator_helper.fast_allocator) catch "BigInt"}),
+            .big => |b| {
+                // Avoid type coercion issue in Zig 0.15 with catch returning different types
+                if (b.toString(allocator_helper.fast_allocator)) |s| {
+                    try writer.print("{s}", .{s});
+                } else |_| {
+                    try writer.writeAll("BigInt");
+                }
+            },
         }
     }
 };

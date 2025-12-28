@@ -427,7 +427,14 @@ pub const PyValue = union(enum) {
                 if (items.len == 1) try writer.writeAll(",");
                 try writer.writeAll(")");
             },
-            .bigint => |v| try writer.print("{s}", .{v.toString(allocator_helper.fast_allocator, 10) catch "<bigint>"}),
+            .bigint => |v| {
+                // Avoid type coercion issue in Zig 0.15 with catch returning different types
+                if (v.toString(allocator_helper.fast_allocator, 10)) |s| {
+                    try writer.print("{s}", .{s});
+                } else |_| {
+                    try writer.writeAll("<bigint>");
+                }
+            },
             .complex => |v| {
                 if (v.imag >= 0) {
                     try writer.print("({d}+{d}j)", .{ v.real, v.imag });
@@ -436,7 +443,20 @@ pub const PyValue = union(enum) {
                 }
             },
             .type_obj => |t| try writer.print("<class '{s}'>", .{t.name}),
-            .ptr => try writer.writeAll("<ptr>"),
+            .ptr => try writer.writeAll("<PyObject>"),
+            .not_implemented => try writer.writeAll("NotImplemented"),
+            .object => |obj| {
+                if (obj.vtable.class_name) |name| {
+                    try writer.print("<{s} instance>", .{name});
+                } else {
+                    try writer.writeAll("<object instance>");
+                }
+            },
+            .pylist => |pylist| {
+                // For CPython lists returned from c_interop, use PyObject_Repr
+                const size: usize = @intCast(pylist.ob_base.ob_size);
+                try writer.print("[<{d} items>]", .{size});
+            },
         }
     }
 
