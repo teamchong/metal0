@@ -904,7 +904,7 @@ pub export fn PyObject_GetItem(op: ?*cpython.PyObject, key: ?*cpython.PyObject) 
         if (seq.sq_item) |item_func| {
             // Convert key to index
             const pylong = @import("longobject.zig");
-            if (pylong.PyLong_Check(key.?)) {
+            if (pylong.PyLong_Check(key.?) != 0) {
                 const index = pylong.PyLong_AsLong(key.?);
                 if (index >= 0) {
                     return item_func(obj, index);
@@ -945,7 +945,7 @@ pub export fn PyObject_SetItem(op: ?*cpython.PyObject, key: ?*cpython.PyObject, 
         if (seq.sq_ass_item) |ass_item| {
             // Convert key to index
             const pylong = @import("longobject.zig");
-            if (pylong.PyLong_Check(key.?)) {
+            if (pylong.PyLong_Check(key.?) != 0) {
                 const index = pylong.PyLong_AsLong(key.?);
                 if (index >= 0) {
                     return ass_item(obj, index, value);

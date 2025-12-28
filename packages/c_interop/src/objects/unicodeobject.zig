@@ -368,6 +368,22 @@ fn unicode_hash(obj: *cpython.PyObject) callconv(.c) isize {
 // ============================================================================
 // Tests
 // ============================================================================
+// INTERNAL HELPERS (for use by other c_interop modules)
+// ============================================================================
+
+/// Create Unicode from C string (internal helper)
+pub fn createFromCString(str: [*:0]const u8) ?*cpython.PyObject {
+    return PyUnicode_FromString(str);
+}
+
+/// Create Unicode from slice (internal helper)
+pub fn createFromSlice(str: []const u8) ?*cpython.PyObject {
+    return PyUnicode_FromStringAndSize(str.ptr, @intCast(str.len));
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
 
 test "PyASCIIObject layout" {
     // PyASCIIObject: ob_base(16) + length(8) + hash(8) + state(4) = 36 bytes + padding = 40 bytes

@@ -617,6 +617,38 @@ pub const ModuleNotFoundErrorConfig = struct {
 pub const ModuleNotFoundError = exception_impl.ExceptionImpl(ModuleNotFoundErrorConfig);
 
 // ============================================================================
+//                    EXCEPTION TYPE OBJECTS (PyExc_* globals)
+// ============================================================================
+
+// These are global exception type objects used by PyErr_SetString, etc.
+// In CPython these point to type objects in the heap, but we use static singletons
+// Note: These are placeholder type objects for API compatibility
+
+var _exc_type_base: cpython.PyTypeObject = undefined;
+pub var PyExc_BaseException: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_Exception: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_TypeError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_ValueError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_KeyError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_IndexError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_AttributeError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_RuntimeError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_NameError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_OSError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_IOError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_MemoryError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_OverflowError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_ZeroDivisionError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_StopIteration: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_ImportError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_ModuleNotFoundError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_SyntaxError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_SystemError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_NotImplementedError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_LookupError: *cpython.PyTypeObject = &_exc_type_base;
+pub var PyExc_AssertionError: *cpython.PyTypeObject = &_exc_type_base;
+
+// ============================================================================
 //                          C API EXPORTS
 // ============================================================================
 

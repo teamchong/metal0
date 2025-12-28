@@ -852,6 +852,16 @@ pub export fn PyDict_GetItemBatch(obj: *cpython.PyObject, keys: [*]*cpython.PyOb
 }
 
 // ============================================================================
+// Internal helpers (for use by other c_interop modules)
+// ============================================================================
+
+/// Create new empty dictionary (internal helper)
+/// Note: allocator parameter is ignored - uses global c_allocator
+pub fn create(_: std.mem.Allocator) ?*cpython.PyObject {
+    return PyDict_New();
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

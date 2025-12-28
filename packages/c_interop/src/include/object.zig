@@ -813,6 +813,38 @@ pub inline fn _PyLong_DigitCount(op: *const PyLongObject) usize {
 }
 
 // ============================================================================
+// REFERENCE COUNTING MACROS (CPython-compatible inline versions)
+// ============================================================================
+
+/// Increment reference count (CPython macro)
+pub inline fn Py_INCREF(op: ?*PyObject) void {
+    if (op) |obj| {
+        obj.ob_refcnt += 1;
+    }
+}
+
+/// Decrement reference count (CPython macro)
+pub inline fn Py_DECREF(op: ?*PyObject) void {
+    if (op) |obj| {
+        obj.ob_refcnt -= 1;
+        // Note: deallocation handled elsewhere - this is just the inline macro
+    }
+}
+
+/// Increment and return (Py_NewRef)
+pub inline fn Py_NewRef(op: ?*PyObject) ?*PyObject {
+    Py_INCREF(op);
+    return op;
+}
+
+/// Decrement and set to null (Py_CLEAR)
+pub inline fn Py_CLEAR(op: *?*PyObject) void {
+    const tmp = op.*;
+    op.* = null;
+    Py_DECREF(tmp);
+}
+
+// ============================================================================
 // COMPILE-TIME LAYOUT VERIFICATION
 // ============================================================================
 

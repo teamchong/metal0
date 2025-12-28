@@ -674,34 +674,21 @@ pub const externs = struct {
         current_error_msg = null;
     }
 
-    // Integer operations - create PyLongObject
+    // Integer operations - delegate to longobject.zig for version-aware handling
     pub fn PyLong_FromLong(val: c_long) ?*cpython.PyObject {
-        return PyLong_FromLongLong(@intCast(val));
+        return pylong.PyLong_FromLong(val);
     }
 
     pub fn PyLong_FromLongLong(val: c_longlong) ?*cpython.PyObject {
-        const obj = allocator.create(cpython.PyLongObject) catch return null;
-        obj.* = cpython.PyLongObject{
-            .ob_base = .{
-                .ob_base = .{
-                    .ob_refcnt = 1,
-                    .ob_type = &pylong.PyLong_Type,
-                },
-                .ob_size = 1,
-            },
-            .ob_digit = .{@intCast(val)},
-        };
-        return @ptrCast(obj);
+        return pylong.PyLong_FromLongLong(val);
     }
 
     pub fn PyLong_AsLong(op: *cpython.PyObject) c_long {
-        const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(op));
-        return @intCast(long_obj.ob_digit[0]);
+        return pylong.PyLong_AsLong(op);
     }
 
     pub fn PyLong_AsLongLong(op: *cpython.PyObject) c_longlong {
-        const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(op));
-        return @intCast(long_obj.ob_digit[0]);
+        return pylong.PyLong_AsLongLong(op);
     }
 
     // Float operations - create PyFloatObject
@@ -748,92 +735,38 @@ pub const externs = struct {
         return @ptrCast(&_Py_FalseStruct);
     }
 
-    // Tuple operations
+    // Tuple operations - delegate to tupleobject.zig for proper flexible array handling
     pub fn PyTuple_New(size: isize) ?*cpython.PyObject {
-        const usize_val: usize = @intCast(size);
-        const items = allocator.alloc(*cpython.PyObject, usize_val) catch return null;
-        const obj = allocator.create(cpython.PyTupleObject) catch {
-            allocator.free(items);
-            return null;
-        };
-        obj.* = cpython.PyTupleObject{
-            .ob_base = .{
-                .ob_base = .{ .ob_refcnt = 1, .ob_type = &pytuple.PyTuple_Type },
-                .ob_size = size,
-            },
-            .ob_item = items.ptr,
-        };
-        return @ptrCast(obj);
+        return pytuple.PyTuple_New(size);
     }
 
     pub fn PyTuple_GetItem(op: *cpython.PyObject, idx: isize) ?*cpython.PyObject {
-        const tuple: *cpython.PyTupleObject = @ptrCast(@alignCast(op));
-        if (idx < 0 or idx >= tuple.ob_base.ob_size) return null;
-        return tuple.ob_item[@intCast(idx)];
+        return pytuple.PyTuple_GetItem(op, idx);
     }
 
     pub fn PyTuple_SetItem(op: *cpython.PyObject, idx: isize, value: *cpython.PyObject) c_int {
-        const tuple: *cpython.PyTupleObject = @ptrCast(@alignCast(op));
-        if (idx < 0 or idx >= tuple.ob_base.ob_size) return -1;
-        tuple.ob_item[@intCast(idx)] = value;
-        return 0;
+        return pytuple.PyTuple_SetItem(op, idx, value);
     }
 
     pub fn PyTuple_Size(op: *cpython.PyObject) isize {
-        const tuple: *cpython.PyTupleObject = @ptrCast(@alignCast(op));
-        return tuple.ob_base.ob_size;
+        return pytuple.PyTuple_Size(op);
     }
 
-    // List operations
+    // List operations - delegate to listobject.zig
     pub fn PyList_New(size: isize) ?*cpython.PyObject {
-        const usize_val: usize = @intCast(size);
-        const items = allocator.alloc(*cpython.PyObject, usize_val) catch return null;
-        const obj = allocator.create(cpython.PyListObject) catch {
-            allocator.free(items);
-            return null;
-        };
-        obj.* = cpython.PyListObject{
-            .ob_base = .{
-                .ob_base = .{ .ob_refcnt = 1, .ob_type = &pylist.PyList_Type },
-                .ob_size = size,
-            },
-            .ob_item = items.ptr,
-            .allocated = size,
-        };
-        return @ptrCast(obj);
+        return pylist.PyList_New(size);
     }
 
     pub fn PyList_GetItem(op: *cpython.PyObject, idx: isize) ?*cpython.PyObject {
-        const list: *cpython.PyListObject = @ptrCast(@alignCast(op));
-        if (idx < 0 or idx >= list.ob_base.ob_size) return null;
-        return list.ob_item[@intCast(idx)];
+        return pylist.PyList_GetItem(op, idx);
     }
 
     pub fn PyList_SetItem(op: *cpython.PyObject, idx: isize, value: *cpython.PyObject) c_int {
-        const list: *cpython.PyListObject = @ptrCast(@alignCast(op));
-        if (idx < 0 or idx >= list.ob_base.ob_size) return -1;
-        list.ob_item[@intCast(idx)] = value;
-        return 0;
+        return pylist.PyList_SetItem(op, idx, value);
     }
 
     pub fn PyList_Append(op: *cpython.PyObject, value: *cpython.PyObject) c_int {
-        const list: *cpython.PyListObject = @ptrCast(@alignCast(op));
-        const new_size = list.ob_base.ob_size + 1;
-        if (new_size > list.allocated) {
-            // Need to grow - double capacity
-            const new_cap = @max(list.allocated * 2, 8);
-            const old_slice = list.ob_item[0..@intCast(list.ob_base.ob_size)];
-            const new_items = allocator.alloc(*cpython.PyObject, @intCast(new_cap)) catch return -1;
-            @memcpy(new_items[0..old_slice.len], old_slice);
-            if (list.allocated > 0) {
-                allocator.free(list.ob_item[0..@intCast(list.allocated)]);
-            }
-            list.ob_item = new_items.ptr;
-            list.allocated = @intCast(new_cap);
-        }
-        list.ob_item[@intCast(list.ob_base.ob_size)] = value;
-        list.ob_base.ob_size = new_size;
-        return 0;
+        return pylist.PyList_Append(op, value);
     }
 
     // Unicode operations - use existing pyunicode module
