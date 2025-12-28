@@ -184,7 +184,7 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
 }
 
 /// Generate call to C extension module via Python C API
-/// Example: np.array([1, 2, 3]) -> c_interop.callModuleFunction("numpy", "array", .{args}).?
+/// Example: np.array([1, 2, 3]) -> runtime.PyValue.from(c_interop.callModuleFunction("numpy", "array", .{args}).?)
 fn generateCExtensionCall(
     self: *NativeCodegen,
     module_alias: []const u8,
@@ -196,9 +196,10 @@ fn generateCExtensionCall(
     // Resolve alias to actual module name (e.g., "np" -> "numpy")
     const actual_module_name = self.c_extension_modules.get(module_alias) orelse module_alias;
 
-    // Generate: c_interop.callModuleFunction("module_name", "func_name", .{args...}).?
+    // Generate: runtime.PyValue.from(c_interop.callModuleFunction("module_name", "func_name", .{args...}).?)
     // Use .? to unwrap optional - if null, it means Python call failed
-    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
+    // PyValue.from() handles *cpython.PyObject -> PyValue conversion automatically
+    try self.emit("runtime.PyValue.from(c_interop.callModuleFunction(\"");
     try self.emit(actual_module_name);
     try self.emit("\", \"");
     try self.emit(func_name);
@@ -210,11 +211,11 @@ fn generateCExtensionCall(
         try expressions.genExpr(self, arg);
     }
 
-    try self.emit("}).?))");
+    try self.emit("}).?)");
 }
 
 /// Generate call to C extension submodule via Python C API
-/// Example: np.linalg.norm(x) -> c_interop.callModuleFunction("numpy.linalg", "norm", .{args}).?
+/// Example: np.linalg.norm(x) -> runtime.PyValue.from(c_interop.callModuleFunction("numpy.linalg", "norm", .{args}).?)
 fn generateNestedCExtensionCall(
     self: *NativeCodegen,
     compound_module: []const u8,
@@ -223,8 +224,9 @@ fn generateNestedCExtensionCall(
 ) CodegenError!void {
     const expressions = @import("expressions.zig");
 
-    // Generate: c_interop.callModuleFunction("module.submodule", "func_name", .{args...}).?
-    try self.emit("@as(*runtime.PyObject, @ptrCast(c_interop.callModuleFunction(\"");
+    // Generate: runtime.PyValue.from(c_interop.callModuleFunction("module.submodule", "func_name", .{args...}).?)
+    // PyValue.from() handles *cpython.PyObject -> PyValue conversion automatically
+    try self.emit("runtime.PyValue.from(c_interop.callModuleFunction(\"");
     try self.emit(compound_module);
     try self.emit("\", \"");
     try self.emit(func_name);
@@ -236,7 +238,7 @@ fn generateNestedCExtensionCall(
         try expressions.genExpr(self, arg);
     }
 
-    try self.emit("}).?))");
+    try self.emit("}).?)");
 }
 
 /// Generate direct C library call (zero PyObject* overhead)

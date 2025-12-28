@@ -600,6 +600,20 @@ pub const PyValue = union(enum) {
         return self.isTruthy();
     }
 
+    /// Get underlying pointer for c_interop method calls
+    /// Returns *anyopaque that can be cast to *cpython.PyObject for C extension calls
+    pub fn toPtr(self: PyValue) *anyopaque {
+        return switch (self) {
+            .ptr => |p| p,
+            .object => |o| o.ptr,
+            .pylist => |p| @ptrCast(@alignCast(p)),
+            .list => |l| @ptrCast(@alignCast(l)),
+            .type_obj => |t| @ptrCast(@alignCast(t)),
+            // For other types, return null pointer (will fail at runtime if used incorrectly)
+            else => @ptrFromInt(0),
+        };
+    }
+
     /// Create PyValue from any type (runtime version)
     /// Only supports simple types that don't need allocation for tuples/structs
     /// For tuples/structs, use fromAlloc() which properly allocates
