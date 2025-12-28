@@ -1487,9 +1487,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
 
     // PHASE 6: Generate main function (script mode only)
-    // Use 'export' to make symbol visible via dlsym for shared library mode
+    // Use 'pub' for Zig 0.15 compatibility - 'export' can't have error return type
     // For WASM: Zig's std.start automatically exports _start if main exists
-    try self.emit("export fn main() ");
+    try self.emit("pub fn main() ");
     // Main returns !void if allocator or runtime is used (runtime functions can fail)
     if (analysis.needs_allocator or analysis.needs_runtime) {
         try self.emit("!void {\n");

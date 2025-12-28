@@ -3,9 +3,15 @@ pub const cli = @import("main/cli.zig");
 pub const compile = @import("main/compile.zig");
 pub const cache = @import("main/compile/cache.zig");
 pub const utils = @import("main/utils.zig");
+pub const api = @import("api.zig");
 
 // Re-export main() for binary entry point
 pub const main = cli.main;
+
+// Re-export programmatic API
+pub const compileWithSchema = api.compileWithSchema;
+pub const SchemaTypeHints = api.SchemaTypeHints;
+pub const ColumnType = api.ColumnType;
 
 // Re-export CompileOptions struct
 pub const CompileOptions = struct {
