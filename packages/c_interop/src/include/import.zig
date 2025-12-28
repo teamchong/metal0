@@ -34,7 +34,7 @@ const BuiltinModule = struct {
     init_func: *const fn () callconv(.c) ?*cpython.PyObject,
 };
 
-var builtin_modules: std.ArrayList(BuiltinModule) = undefined;
+var builtin_modules: std.ArrayList(BuiltinModule) = .{};
 var builtin_modules_initialized = false;
 
 /// Static module registry entry for compile-time linked C extensions
@@ -61,7 +61,7 @@ fn initModuleSystem() void {
 fn initBuiltinModules() void {
     if (builtin_modules_initialized) return;
 
-    builtin_modules = std.ArrayList(BuiltinModule).init(allocator);
+    // In Zig 0.15, ArrayList is unmanaged - already initialized with .{}
     builtin_modules_initialized = true;
 }
 
@@ -72,7 +72,7 @@ fn initBuiltinModules() void {
 /// Import module by name (simple version)
 ///
 /// CPython: PyObject* PyImport_ImportModule(const char *name)
-export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     initModuleSystem();
 
     const name_str = std.mem.span(name);
@@ -435,23 +435,19 @@ export fn PyImport_ExtendInittab(newtab: [*]PyImport_Inittab) callconv(.c) c_int
 /// ============================================================================
 
 /// Cached search paths from environment discovery
-var cached_search_paths: ?std.ArrayList([]const u8) = null;
+var cached_search_paths: std.ArrayList([]const u8) = .{};
 var search_paths_initialized: bool = false;
 
 /// Get search paths dynamically from environment
 fn getSearchPaths() []const []const u8 {
     if (search_paths_initialized) {
-        if (cached_search_paths) |paths| {
-            return paths.items;
-        }
+        return cached_search_paths.items;
     }
 
     search_paths_initialized = true;
-    cached_search_paths = std.ArrayList([]const u8).init(allocator);
-    var paths = &cached_search_paths.?;
 
     // Always include current directory
-    paths.append("./") catch {};
+    cached_search_paths.append(allocator, "./") catch {};
 
     // 1. Check PYTHONPATH environment variable
     // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
@@ -460,7 +456,7 @@ fn getSearchPaths() []const []const u8 {
         while (it.next()) |path| {
             if (path.len > 0) {
                 const p = allocator.dupeZ(u8, path) catch continue;
-                paths.append(p) catch {};
+                cached_search_paths.append(allocator, p) catch {};
             }
         }
     }
@@ -479,7 +475,7 @@ fn getSearchPaths() []const []const u8 {
         // mise path pattern
         const mise_path = std.fmt.bufPrint(&buf, "{s}/.local/share/mise/installs/python/latest/lib/python{s}/site-packages/", .{ home, ver }) catch continue;
         if (directoryExists(mise_path)) {
-            paths.append(allocator.dupe(u8, mise_path) catch continue) catch {};
+            cached_search_paths.append(allocator, allocator.dupe(u8, mise_path) catch continue) catch {};
         }
     }
 
@@ -488,7 +484,7 @@ fn getSearchPaths() []const []const u8 {
         var buf: [512]u8 = undefined;
         const pyenv_path = std.fmt.bufPrint(&buf, "{s}/.pyenv/versions/{s}.*/lib/python{s}/site-packages/", .{ home, ver, ver }) catch continue;
         if (directoryExists(pyenv_path)) {
-            paths.append(allocator.dupe(u8, pyenv_path) catch continue) catch {};
+            cached_search_paths.append(allocator, allocator.dupe(u8, pyenv_path) catch continue) catch {};
         }
     }
 
@@ -498,7 +494,7 @@ fn getSearchPaths() []const []const u8 {
             var buf: [256]u8 = undefined;
             const brew_path = std.fmt.bufPrint(&buf, "/opt/homebrew/lib/python{s}/site-packages/", .{ver}) catch continue;
             if (directoryExists(brew_path)) {
-                paths.append(allocator.dupe(u8, brew_path) catch continue) catch {};
+                cached_search_paths.append(allocator, allocator.dupe(u8, brew_path) catch continue) catch {};
             }
         }
     }
@@ -510,12 +506,12 @@ fn getSearchPaths() []const []const u8 {
             // Standard system path
             const sys_path = std.fmt.bufPrint(&buf, "/usr/lib/python{s}/site-packages/", .{ver}) catch continue;
             if (directoryExists(sys_path)) {
-                paths.append(allocator.dupe(u8, sys_path) catch continue) catch {};
+                cached_search_paths.append(allocator, allocator.dupe(u8, sys_path) catch continue) catch {};
             }
             // dist-packages (Debian/Ubuntu)
             const dist_path = std.fmt.bufPrint(&buf, "/usr/lib/python{s}/dist-packages/", .{ver}) catch continue;
             if (directoryExists(dist_path)) {
-                paths.append(allocator.dupe(u8, dist_path) catch continue) catch {};
+                cached_search_paths.append(allocator, allocator.dupe(u8, dist_path) catch continue) catch {};
             }
         }
     }
@@ -527,7 +523,7 @@ fn getSearchPaths() []const []const u8 {
             var buf: [512]u8 = undefined;
             const venv_path = std.fmt.bufPrint(&buf, "{s}/lib/python{s}/site-packages/", .{ venv, ver }) catch continue;
             if (directoryExists(venv_path)) {
-                paths.append(allocator.dupe(u8, venv_path) catch continue) catch {};
+                cached_search_paths.append(allocator, allocator.dupe(u8, venv_path) catch continue) catch {};
             }
         }
     }
@@ -537,11 +533,11 @@ fn getSearchPaths() []const []const u8 {
         var buf: [256]u8 = undefined;
         const local_venv = std.fmt.bufPrint(&buf, ".venv/lib/python{s}/site-packages/", .{ver}) catch continue;
         if (directoryExists(local_venv)) {
-            paths.append(allocator.dupe(u8, local_venv) catch continue) catch {};
+            cached_search_paths.append(allocator, allocator.dupe(u8, local_venv) catch continue) catch {};
         }
     }
 
-    return paths.items;
+    return cached_search_paths.items;
 }
 
 /// Check if a directory exists
@@ -556,12 +552,12 @@ fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
     const search_paths = getSearchPaths();
 
     // Split name into package parts (e.g., "numpy.core" -> ["numpy", "core"])
-    var parts = std.ArrayList([]const u8).init(allocator);
-    defer parts.deinit();
+    var parts: std.ArrayList([]const u8) = .{};
+    defer parts.deinit(allocator);
 
     var it = std.mem.splitScalar(u8, name, '.');
     while (it.next()) |part| {
-        parts.append(part) catch continue;
+        parts.append(allocator, part) catch continue;
     }
 
     if (parts.items.len == 0) return null;
@@ -762,15 +758,15 @@ fn getSitePackagesPaths(alloc: std.mem.Allocator) ![][]const u8 {
     }
 
     // Parse the output - each line is a path
-    var paths = std.ArrayList([]const u8).init(alloc);
+    var paths: std.ArrayList([]const u8) = .{};
     var iter = std.mem.splitScalar(u8, result.stdout, '\n');
     while (iter.next()) |line| {
         if (line.len > 0) {
-            try paths.append(try alloc.dupe(u8, line));
+            try paths.append(alloc, try alloc.dupe(u8, line));
         }
     }
 
-    return paths.toOwnedSlice();
+    return paths.toOwnedSlice(alloc);
 }
 
 /// Try loading extension from package path
