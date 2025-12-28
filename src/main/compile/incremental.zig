@@ -452,7 +452,7 @@ const MODULE_OBJECTS = [_]ModuleObject{
     // packages/tokenizer/
     .{ .src = "packages/tokenizer/src/tokenizer.zig", .obj = "packages/tokenizer/src/tokenizer.o", .name = "tokenizer", .deps = &.{ "json", "utils.hashmap_helper" } },
 
-    // packages/runtime/ (main runtime - last, has most deps)
+    // packages/runtime/ (main runtime - has most deps)
     .{ .src = "packages/runtime/src/runtime.zig", .obj = "packages/runtime/src/runtime.o", .name = "runtime", .deps = &.{
         "utils.hashmap_helper",
         "utils.allocator_helper",
@@ -463,6 +463,12 @@ const MODULE_OBJECTS = [_]ModuleObject{
         "green_thread",
         "netpoller",
         "scheduler",
+    } },
+
+    // packages/c_interop/ (c extension support - depends on runtime)
+    .{ .src = "packages/c_interop/src/registry.zig", .obj = "packages/c_interop/src/registry.o", .name = "c_interop", .deps = &.{
+        "runtime",
+        "utils.hashmap_helper",
     } },
 };
 
@@ -697,6 +703,8 @@ pub fn compileWithPrecompiledObjects(allocator: std.mem.Allocator, zig_code: []c
     try args.append(aa, "utils.hashmap_helper");
     try args.append(aa, "--dep");
     try args.append(aa, "utils.allocator_helper");
+    try args.append(aa, "--dep");
+    try args.append(aa, "c_interop");
     try args.append(aa, try std.fmt.allocPrint(aa, "-Mmain={s}", .{tmp_path}));
 
     // Module definitions (needed for type info even though .o has the code)
