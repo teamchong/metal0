@@ -7,7 +7,10 @@
 /// - power_div_ops.zig: Power, division, floor division, modulo, matrix mul
 /// - unary_ops.zig: Unary operations (not, -, +, ~)
 ///
-/// MIGRATION STATUS: Using ZigBuilder - imports added
+/// MIGRATION STATUS: Fully migrated to ZigBuilder pattern
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Uses builder.write() for all output
+/// - Uses self.emitZigValue() for ZigValue emission
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -23,45 +26,42 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
+const ZigBuilder = builder_mod.ZigBuilder;
 
 // ============================================
-// Arithmetic operation helpers - auto-closing patterns
+// Arithmetic operation helpers - builder pattern
 // ============================================
 
 /// Emit dunder method call: try left.method(__global_allocator, right)
-/// Uses auto-close pattern to guarantee matching parentheses
 fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, right: ast.Node) CodegenError!void {
-    try self.emit("try ");
-    try genExpr(self, left);
-    try self.emit(".");
-    try self.emit(method);
-    const Ctx = struct { r: ast.Node };
-    try self.withParensCtx(Ctx{ .r = right }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit("__global_allocator, ");
-            try genExpr(s, ctx.r);
-        }
-    }.f);
+    const b = try self.getBuilder();
+    const left_val = try self.captureExpr(left);
+    const right_val = try self.captureExpr(right);
+    try b.write("try ");
+    try self.emitZigValue(left_val);
+    try b.write(".");
+    try b.write(method);
+    try b.write("(__global_allocator, ");
+    try self.emitZigValue(right_val);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 /// Emit runtime.addNum or runtime.subtractNum(left, right)
-/// Uses auto-close pattern to guarantee matching parentheses
 fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const left_val = try self.captureExpr(left);
+    const right_val = try self.captureExpr(right);
     if (is_add) {
-        try self.emit("runtime.addNum");
+        try b.write("runtime.addNum(");
     } else {
-        try self.emit("runtime.subtractNum");
+        try b.write("runtime.subtractNum(");
     }
-    const Ctx = struct { l: ast.Node, r: ast.Node };
-    try self.withParensCtx(Ctx{ .l = left, .r = right }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try genExpr(s, ctx.l);
-            try s.emit(", ");
-            try genExpr(s, ctx.r);
-        }
-    }.f);
+    try self.emitZigValue(left_val);
+    try b.write(", ");
+    try self.emitZigValue(right_val);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 // Import specialized modules
