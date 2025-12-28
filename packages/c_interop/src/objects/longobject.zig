@@ -88,7 +88,7 @@ fn long_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 fn long_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    const unicode = @import("../include/unicodeobject.zig");
+    const unicode = @import("unicodeobject.zig");
     const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
     const val = getLongValue(long_obj);
 

@@ -381,6 +381,33 @@ pub fn createFromSlice(str: []const u8) ?*cpython.PyObject {
     return PyUnicode_FromStringAndSize(str.ptr, @intCast(str.len));
 }
 
+/// Get UTF-8 as C string (internal helper wrapping asUTF8)
+pub fn PyUnicode_AsUTF8(obj: ?*cpython.PyObject) ?[*:0]const u8 {
+    if (obj) |o| {
+        return asUTF8(o);
+    }
+    return null;
+}
+
+/// Get UTF-8 with size (internal helper)
+pub fn PyUnicode_AsUTF8AndSize(obj: ?*cpython.PyObject, size: ?*isize) ?[*:0]const u8 {
+    if (obj) |o| {
+        if (size) |s| {
+            s.* = getLength(o);
+        }
+        return asUTF8(o);
+    }
+    return null;
+}
+
+/// Check if object is unicode (returns c_int for C API compatibility)
+pub fn PyUnicode_Check(obj: ?*cpython.PyObject) c_int {
+    if (obj) |o| {
+        return if (isUnicode(o)) 1 else 0;
+    }
+    return 0;
+}
+
 // ============================================================================
 // TESTS
 // ============================================================================

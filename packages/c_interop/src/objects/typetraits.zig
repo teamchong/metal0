@@ -490,13 +490,13 @@ pub fn setError(comptime exc_type: []const u8, message: [*:0]const u8) void {
 fn getExceptionType(comptime name: []const u8) *cpython.PyTypeObject {
     const exc = @import("../exception_types.zig");
     return switch (name[0]) {
-        'T' => &exc.PyExc_TypeError,
-        'V' => &exc.PyExc_ValueError,
-        'K' => &exc.PyExc_KeyError,
-        'I' => &exc.PyExc_IndexError,
-        'A' => &exc.PyExc_AttributeError,
-        'R' => &exc.PyExc_RuntimeError,
-        else => &exc.PyExc_RuntimeError,
+        'T' => exc.PyExc_TypeError,
+        'V' => exc.PyExc_ValueError,
+        'K' => exc.PyExc_KeyError,
+        'I' => exc.PyExc_IndexError,
+        'A' => exc.PyExc_AttributeError,
+        'R' => exc.PyExc_RuntimeError,
+        else => exc.PyExc_RuntimeError,
     };
 }
 

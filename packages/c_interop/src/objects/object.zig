@@ -97,13 +97,13 @@ pub export fn _Py_Dealloc(op: ?*cpython.PyObject) void {
 }
 
 /// Destructor for _Py_NoneStruct
-fn none_dealloc(self: ?*cpython.PyObject) callconv(.C) void {
+fn none_dealloc(self: ?*cpython.PyObject) callconv(.c) void {
     _ = self;
     // None is a singleton, should never be deallocated
 }
 
 /// Repr for None
-fn none_repr(self: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn none_repr(self: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = self;
     const pyunicode = @import("unicodeobject.zig");
     return pyunicode.PyUnicode_FromString("None");
@@ -172,13 +172,13 @@ pub export var _Py_NoneStruct: cpython.PyObject = .{
 };
 
 /// Destructor for NotImplemented
-fn notimpl_dealloc(self: ?*cpython.PyObject) callconv(.C) void {
+fn notimpl_dealloc(self: ?*cpython.PyObject) callconv(.c) void {
     _ = self;
     // NotImplemented is a singleton
 }
 
 /// Repr for NotImplemented
-fn notimpl_repr(self: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn notimpl_repr(self: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = self;
     const pyunicode = @import("unicodeobject.zig");
     return pyunicode.PyUnicode_FromString("NotImplemented");
@@ -455,9 +455,9 @@ pub export fn PyObject_RichCompare(v: ?*cpython.PyObject, w: ?*cpython.PyObject,
         const pybool = @import("boolobject.zig");
         const same = (v == w);
         if (op == Py_EQ) {
-            return if (same) pybool.Py_True else pybool.Py_False;
+            return if (same) pybool.Py_True() else pybool.Py_False();
         } else {
-            return if (same) pybool.Py_False else pybool.Py_True;
+            return if (same) pybool.Py_False() else pybool.Py_True();
         }
     }
 
@@ -505,7 +505,7 @@ pub export fn PyObject_Hash(op: ?*cpython.PyObject) isize {
 }
 
 /// Hash that doesn't raise exceptions, returns -1 for unhashable
-pub export fn PyObject_HashNotImplemented(self: ?*cpython.PyObject) callconv(.C) isize {
+pub export fn PyObject_HashNotImplemented(self: ?*cpython.PyObject) callconv(.c) isize {
     _ = self;
     return -1;
 }
@@ -1120,7 +1120,7 @@ pub export fn PyObject_Dir(op: ?*cpython.PyObject) ?*cpython.PyObject {
         while (pydict.PyDict_Next(type_dict, &pos, &key, &value) != 0) {
             if (key != null) {
                 cpython.Py_INCREF(key.?);
-                _ = pylist.PyList_Append(result, key.?);
+                _ = pylist.PyList_Append(result.?, key.?);
             }
         }
     }
@@ -1211,7 +1211,7 @@ pub export fn PyObject_Format(op: ?*cpython.PyObject, format_spec: ?*cpython.PyO
                     } else {
                         cpython.Py_INCREF(spec.?);
                     }
-                    _ = pytuple.PyTuple_SetItem(args.?, 0, spec);
+                    _ = pytuple.PyTuple_SetItem(args.?, 0, spec.?);
 
                     const result = call.PyObject_Call(format_method.?, args.?, null);
                     if (result != null) {
