@@ -455,8 +455,8 @@ fn set_resize(set: *PySetObject, minused: isize) c_int {
     const new_table = allocator.alloc(setentry, @intCast(newsize)) catch return -1;
     @memset(new_table, setentry{ .key = null, .hash = 0 });
 
-    // Set new table
-    set.table = new_table.ptr;
+    // Set new table - convert many-pointer to single pointer
+    set.table = @ptrCast(new_table.ptr);
     set.mask = newsize - 1;
     set.fill = set.used;
 

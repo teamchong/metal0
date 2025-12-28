@@ -691,7 +691,7 @@ pub export fn PyException_GetCause(exc: *cpython.PyObject) callconv(.c) ?*cpytho
     // Cast to exception type and get cause field
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
     if (base_exc.cause) |cause| {
-        _ = traits.incref(@ptrCast(cause));
+        _ = traits.incref(@as(*cpython.PyObject, @ptrCast(cause)));
         return @ptrCast(cause);
     }
     return null;
@@ -703,7 +703,7 @@ pub export fn PyException_SetCause(exc: *cpython.PyObject, cause: ?*cpython.PyOb
 
     // DECREF old cause
     if (base_exc.cause) |old_cause| {
-        traits.decref(@ptrCast(old_cause));
+        traits.decref(@as(*cpython.PyObject, @ptrCast(old_cause)));
     }
 
     // Set new cause (steals reference)
@@ -714,7 +714,7 @@ pub export fn PyException_SetCause(exc: *cpython.PyObject, cause: ?*cpython.PyOb
 pub export fn PyException_GetContext(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
     if (base_exc.context) |context| {
-        _ = traits.incref(@ptrCast(context));
+        _ = traits.incref(@as(*cpython.PyObject, @ptrCast(context)));
         return @ptrCast(context);
     }
     return null;
@@ -726,7 +726,7 @@ pub export fn PyException_SetContext(exc: *cpython.PyObject, context: ?*cpython.
 
     // DECREF old context
     if (base_exc.context) |old_context| {
-        traits.decref(@ptrCast(old_context));
+        traits.decref(@as(*cpython.PyObject, @ptrCast(old_context)));
     }
 
     // Set new context (steals reference)
@@ -737,7 +737,7 @@ pub export fn PyException_SetContext(exc: *cpython.PyObject, context: ?*cpython.
 pub export fn PyException_GetTraceback(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
     if (base_exc.traceback) |tb| {
-        _ = traits.incref(@ptrCast(tb));
+        _ = traits.incref(@as(*cpython.PyObject, @ptrCast(tb)));
         return @ptrCast(tb);
     }
     return null;
@@ -749,7 +749,7 @@ pub export fn PyException_SetTraceback(exc: *cpython.PyObject, tb: ?*cpython.PyO
 
     // DECREF old traceback
     if (base_exc.traceback) |old_tb| {
-        traits.decref(@ptrCast(old_tb));
+        traits.decref(@as(*cpython.PyObject, @ptrCast(old_tb)));
     }
 
     // Set new traceback
@@ -771,8 +771,9 @@ pub export fn PyException_GetArgs(exc: *cpython.PyObject) callconv(.c) ?*cpython
         const tuple = @import("tupleobject.zig").PyTuple_New(1) orelse
             return @import("noneobject.zig").Py_None();
 
-        // Set item at index 0
-        _ = @import("tupleobject.zig").PyTuple_SetItem(tuple, 0, @ptrCast(traits.incref(@ptrCast(&msg.ob_base))));
+        // Set item at index 0 - cast message to PyObject
+        const msg_obj: *cpython.PyObject = @ptrCast(msg);
+        _ = @import("tupleobject.zig").PyTuple_SetItem(tuple, 0, traits.incref(msg_obj));
         return tuple;
     }
 
@@ -787,16 +788,17 @@ pub export fn PyException_SetArgs(exc: *cpython.PyObject, args: *cpython.PyObjec
 
     // Check if args is a tuple with at least one element
     const tuple_obj = @import("tupleobject.zig");
-    if (tuple_obj.PyTuple_Check(args)) {
+    if (tuple_obj.PyTuple_Check(args) != 0) {
         const size = tuple_obj.PyTuple_Size(args);
         if (size > 0) {
             // Get first element and set as message
             if (tuple_obj.PyTuple_GetItem(args, 0)) |first| {
                 // Check if it's a string
-                if (@import("unicodeobject.zig").PyUnicode_Check(first)) {
+                if (@import("unicodeobject.zig").PyUnicode_Check(first) != 0) {
                     // Decref old message if exists
                     if (base_exc.message) |old| {
-                        traits.decref(@ptrCast(&old.ob_base));
+                        const old_obj: *cpython.PyObject = @ptrCast(old);
+                        traits.decref(old_obj);
                     }
                     base_exc.message = @ptrCast(@alignCast(traits.incref(first)));
                 }

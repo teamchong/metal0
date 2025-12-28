@@ -662,23 +662,13 @@ pub var PyExc_AssertionError: *cpython.PyTypeObject = &_exc_type_base;
 
 /// Create a new ValueError with message
 pub export fn PyErr_NewException_ValueError(message: [*:0]const u8) callconv(.c) ?*PyObject {
-    // Convert C string to PyUnicodeObject for args
+    // Convert C string to PyUnicodeObject for message
     const pyunicode = @import("objects/unicodeobject.zig");
-    const pytuple = @import("objects/tupleobject.zig");
 
-    const msg_obj = pyunicode.PyUnicode_FromString(message);
-    var args: ?*PyObject = null;
-    if (msg_obj != null) {
-        args = pytuple.PyTuple_New(1);
-        if (args != null) {
-            _ = pytuple.PyTuple_SetItem(args.?, 0, msg_obj.?);
-        } else {
-            cpython.Py_DECREF(msg_obj.?);
-        }
-    }
+    const msg_obj: ?*PyUnicodeObject = @ptrCast(pyunicode.PyUnicode_FromString(message));
 
-    const exc = ValueError.init(allocator, args) catch {
-        if (args) |a| cpython.Py_DECREF(a);
+    const exc = ValueError.init(allocator, msg_obj) catch {
+        if (msg_obj) |m| cpython.Py_DECREF(@ptrCast(m));
         return null;
     };
     return @ptrCast(&exc.ob_base);

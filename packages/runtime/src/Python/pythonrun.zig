@@ -71,9 +71,12 @@ pub fn exec(
 pub fn execWithScope(
     allocator: std.mem.Allocator,
     source: []const u8,
-    globals: ?*runtime.PyObject,
-    locals: ?*runtime.PyObject,
+    _globals: ?*runtime.PyObject,
+    _locals: ?*runtime.PyObject,
 ) anyerror!void {
+    // globals/locals parameters not yet implemented in bytecode VM
+    _ = _globals;
+    _ = _locals;
     // Use eval_cache which handles both expressions and statements
     // via bytecode VM and subprocess fallback
     const result = eval_cache.evalCached(allocator, source) catch |err| {
@@ -93,39 +96,15 @@ pub fn execWithScope(
             var vm = bytecode_mod.VM.init(allocator);
             defer vm.deinit();
 
-            // Set globals from dict if provided
-            if (globals) |g| {
-                vm.setGlobals(@ptrCast(g)) catch {};
-            }
-
-            // Set locals from dict if provided (locals override globals)
-            if (locals) |l| {
-                vm.setLocals(@ptrCast(l)) catch {};
-            }
+            // TODO: globals and locals scope support not yet implemented in bytecode VM
+            // When implemented, pass globals/locals to VM and export back after execution
 
             // Execute and ignore result (exec doesn't return)
             _ = vm.execute(&program) catch |exec_err| {
                 // NoReturnValue is OK for statements
-                if (exec_err == error.NoReturnValue) {
-                    // Export any new/modified variables back to dicts
-                    if (globals) |g| {
-                        vm.exportGlobals(@ptrCast(g)) catch {};
-                    }
-                    if (locals) |l| {
-                        vm.exportLocals(@ptrCast(l)) catch {};
-                    }
-                    return;
-                }
+                if (exec_err == error.NoReturnValue) return;
                 return exec_err;
             };
-
-            // Export any new/modified variables back to dicts
-            if (globals) |g| {
-                vm.exportGlobals(@ptrCast(g)) catch {};
-            }
-            if (locals) |l| {
-                vm.exportLocals(@ptrCast(l)) catch {};
-            }
             return;
         }
         return err;

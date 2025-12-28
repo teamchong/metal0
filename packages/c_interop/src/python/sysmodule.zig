@@ -80,13 +80,13 @@ fn ensureSysInitialized() void {
     const pytuple = @import("../objects/tupleobject.zig");
     const version_info = pytuple.PyTuple_New(5);
     if (version_info) |vi| {
-        pytuple.PyTuple_SetItem(vi, 0, pylong.PyLong_FromLong(3));
-        pytuple.PyTuple_SetItem(vi, 1, pylong.PyLong_FromLong(12));
-        pytuple.PyTuple_SetItem(vi, 2, pylong.PyLong_FromLong(0));
-        pytuple.PyTuple_SetItem(vi, 3, pyunicode.PyUnicode_FromString("final"));
-        pytuple.PyTuple_SetItem(vi, 4, pylong.PyLong_FromLong(0));
+        if (pylong.PyLong_FromLong(3)) |v| _ = pytuple.PyTuple_SetItem(vi, 0, v);
+        if (pylong.PyLong_FromLong(12)) |v| _ = pytuple.PyTuple_SetItem(vi, 1, v);
+        if (pylong.PyLong_FromLong(0)) |v| _ = pytuple.PyTuple_SetItem(vi, 2, v);
+        if (pyunicode.PyUnicode_FromString("final")) |v| _ = pytuple.PyTuple_SetItem(vi, 3, v);
+        if (pylong.PyLong_FromLong(0)) |v| _ = pytuple.PyTuple_SetItem(vi, 4, v);
         _ = pydict.PyDict_SetItemString(sys_dict.?, "version_info", vi);
-        traits.decref(vi);
+        _ = traits.decref(vi);
     }
 
     // sys.platform
@@ -182,13 +182,18 @@ pub export fn PySys_GetSizeOf(obj: *cpython.PyObject) callconv(.c) isize {
     return size;
 }
 
+// C library variadic printf functions and stderr (not in std.c in Zig 0.15)
+extern "c" fn vprintf(format: [*:0]const u8, va: @import("std").builtin.VaList) c_int;
+extern "c" fn vfprintf(stream: *anyopaque, format: [*:0]const u8, va: @import("std").builtin.VaList) c_int;
+extern "c" var __stderrp: *anyopaque; // stderr on macOS
+
 /// Write formatted output to sys.stdout
 /// Uses C printf format strings
 pub export fn PySys_WriteStdout(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
-    _ = std.c.vprintf(format, va);
+    _ = vprintf(format, va);
 }
 
 /// Write formatted output to sys.stderr
@@ -198,7 +203,7 @@ pub export fn PySys_WriteStderr(format: [*:0]const u8, ...) callconv(.c) void {
     defer @cVaEnd(&va);
 
     // vfprintf to stderr
-    _ = std.c.vfprintf(std.c.stderr, format, va);
+    _ = vfprintf(__stderrp, format, va);
 }
 
 /// Format and write to sys.stdout
@@ -207,7 +212,7 @@ pub export fn PySys_FormatStdout(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
-    _ = std.c.vprintf(format, va);
+    _ = vprintf(format, va);
 }
 
 /// Format and write to sys.stderr
@@ -216,7 +221,7 @@ pub export fn PySys_FormatStderr(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
-    _ = std.c.vfprintf(std.c.stderr, format, va);
+    _ = vfprintf(__stderrp, format, va);
 }
 
 /// Add warning option to sys.warnoptions

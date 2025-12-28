@@ -352,9 +352,7 @@ pub export fn PyType_Ready(type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
     }
 
     // 10. Set ob_type to metatype if not set
-    if (@intFromPtr(type_obj.ob_base.ob_base.ob_type) == 0 or
-        type_obj.ob_base.ob_base.ob_type == undefined)
-    {
+    if (@intFromPtr(type_obj.ob_base.ob_base.ob_type) == 0) {
         type_obj.ob_base.ob_base.ob_type = &PyType_Type;
     }
 
@@ -512,15 +510,16 @@ pub export fn PyType_GenericAlloc(type_obj: *cpython.PyTypeObject, nitems: isize
     const basic_size: usize = @intCast(type_obj.tp_basicsize);
     const item_size: usize = @intCast(type_obj.tp_itemsize);
     const num_items: usize = @intCast(nitems);
-    
+
     const total_size = basic_size + (item_size * num_items);
-    
-    const memory = allocator.alignedAlloc(u8, @alignOf(cpython.PyObject), total_size) catch return null;
-    
-    const obj = @as(*cpython.PyObject, @ptrCast(@alignCast(memory.ptr)));
+
+    // Use regular alloc - PyObject alignment will be handled by pointer casting
+    const memory = allocator.alloc(u8, total_size) catch return null;
+
+    const obj: *cpython.PyObject = @ptrCast(@alignCast(memory.ptr));
     obj.ob_refcnt = 1;
     obj.ob_type = type_obj;
-    
+
     return obj;
 }
 
@@ -543,27 +542,27 @@ pub fn PyType_GetBuiltinType(name: [*:0]const u8) ?*cpython.PyTypeObject {
     } else if (std.mem.eql(u8, name_slice, "object")) {
         return &PyBaseObject_Type;
     } else if (std.mem.eql(u8, name_slice, "int")) {
-        return @import("../objects/longobject.zig").getPyLongType();
+        return &@import("../objects/longobject.zig").PyLong_Type;
     } else if (std.mem.eql(u8, name_slice, "str")) {
-        return @import("../objects/unicodeobject.zig").getPyUnicodeType();
+        return &@import("../objects/unicodeobject.zig").PyUnicode_Type;
     } else if (std.mem.eql(u8, name_slice, "float")) {
-        return @import("../objects/floatobject.zig").getPyFloatType();
+        return &@import("../objects/floatobject.zig").PyFloat_Type;
     } else if (std.mem.eql(u8, name_slice, "list")) {
-        return @import("../objects/listobject.zig").getPyListType();
+        return &@import("../objects/listobject.zig").PyList_Type;
     } else if (std.mem.eql(u8, name_slice, "dict")) {
-        return @import("../objects/dictobject.zig").getPyDictType();
+        return &@import("../objects/dictobject.zig").PyDict_Type;
     } else if (std.mem.eql(u8, name_slice, "tuple")) {
-        return @import("../objects/tupleobject.zig").getPyTupleType();
+        return &@import("../objects/tupleobject.zig").PyTuple_Type;
     } else if (std.mem.eql(u8, name_slice, "bool")) {
-        return @import("../objects/boolobject.zig").getPyBoolType();
+        return &@import("../objects/boolobject.zig").PyBool_Type;
     } else if (std.mem.eql(u8, name_slice, "bytes")) {
-        return @import("../objects/bytesobject.zig").getPyBytesType();
+        return &@import("../objects/bytesobject.zig").PyBytes_Type;
     } else if (std.mem.eql(u8, name_slice, "set")) {
-        return @import("../objects/setobject.zig").getPySetType();
+        return &@import("../objects/setobject.zig").PySet_Type;
     } else if (std.mem.eql(u8, name_slice, "frozenset")) {
-        return @import("../objects/setobject.zig").getPyFrozenSetType();
+        return &@import("../objects/setobject.zig").PyFrozenSet_Type;
     } else if (std.mem.eql(u8, name_slice, "NoneType")) {
-        return @import("../objects/noneobject.zig").getPyNoneType();
+        return &@import("../objects/noneobject.zig").PyNone_Type;
     }
 
     return null;
@@ -684,33 +683,34 @@ pub export fn PyType_GetFlags(type_obj: *cpython.PyTypeObject) callconv(.c) c_ul
 /// Get slot value from type
 pub export fn PyType_GetSlot(type_obj: *cpython.PyTypeObject, slot: c_int) callconv(.c) ?*anyopaque {
     // Slot IDs from CPython's typeslots.inc
+    // Use @constCast because slot functions may be const in PyTypeObject but CPython returns void*
     return switch (slot) {
-        1 => @ptrCast(type_obj.tp_dealloc),
-        2 => @ptrCast(type_obj.tp_getattr),
-        3 => @ptrCast(type_obj.tp_setattr),
-        4 => @ptrCast(type_obj.tp_repr),
-        5 => @ptrCast(type_obj.tp_hash),
-        6 => @ptrCast(type_obj.tp_call),
-        7 => @ptrCast(type_obj.tp_str),
-        8 => @ptrCast(type_obj.tp_getattro),
-        9 => @ptrCast(type_obj.tp_setattro),
-        10 => @ptrCast(type_obj.tp_as_buffer),
-        12 => @ptrCast(type_obj.tp_traverse),
-        13 => @ptrCast(type_obj.tp_clear),
-        14 => @ptrCast(type_obj.tp_richcompare),
-        15 => @ptrCast(type_obj.tp_iter),
-        16 => @ptrCast(type_obj.tp_iternext),
-        17 => @ptrCast(type_obj.tp_methods),
-        18 => @ptrCast(type_obj.tp_members),
-        19 => @ptrCast(type_obj.tp_getset),
-        20 => @ptrCast(type_obj.tp_base),
-        22 => @ptrCast(type_obj.tp_descr_get),
-        23 => @ptrCast(type_obj.tp_descr_set),
-        25 => @ptrCast(type_obj.tp_init),
-        26 => @ptrCast(type_obj.tp_alloc),
-        27 => @ptrCast(type_obj.tp_new),
-        28 => @ptrCast(type_obj.tp_free),
-        30 => @ptrCast(type_obj.tp_finalize),
+        1 => @ptrCast(@constCast(type_obj.tp_dealloc)),
+        2 => @ptrCast(@constCast(type_obj.tp_getattr)),
+        3 => @ptrCast(@constCast(type_obj.tp_setattr)),
+        4 => @ptrCast(@constCast(type_obj.tp_repr)),
+        5 => @ptrCast(@constCast(type_obj.tp_hash)),
+        6 => @ptrCast(@constCast(type_obj.tp_call)),
+        7 => @ptrCast(@constCast(type_obj.tp_str)),
+        8 => @ptrCast(@constCast(type_obj.tp_getattro)),
+        9 => @ptrCast(@constCast(type_obj.tp_setattro)),
+        10 => @ptrCast(@constCast(type_obj.tp_as_buffer)),
+        12 => @ptrCast(@constCast(type_obj.tp_traverse)),
+        13 => @ptrCast(@constCast(type_obj.tp_clear)),
+        14 => @ptrCast(@constCast(type_obj.tp_richcompare)),
+        15 => @ptrCast(@constCast(type_obj.tp_iter)),
+        16 => @ptrCast(@constCast(type_obj.tp_iternext)),
+        17 => @ptrCast(@constCast(type_obj.tp_methods)),
+        18 => @ptrCast(@constCast(type_obj.tp_members)),
+        19 => @ptrCast(@constCast(type_obj.tp_getset)),
+        20 => @ptrCast(@constCast(type_obj.tp_base)),
+        22 => @ptrCast(@constCast(type_obj.tp_descr_get)),
+        23 => @ptrCast(@constCast(type_obj.tp_descr_set)),
+        25 => @ptrCast(@constCast(type_obj.tp_init)),
+        26 => @ptrCast(@constCast(type_obj.tp_alloc)),
+        27 => @ptrCast(@constCast(type_obj.tp_new)),
+        28 => @ptrCast(@constCast(type_obj.tp_free)),
+        30 => @ptrCast(@constCast(type_obj.tp_finalize)),
         else => null,
     };
 }
@@ -824,35 +824,36 @@ fn PyType_FromSpecWithBasesAndDoc(spec: *cpython.PyType_Spec, bases: ?*cpython.P
 
 /// Apply a slot value to a type object
 fn applySlot(type_obj: *cpython.PyTypeObject, slot_id: c_int, pfunc: ?*anyopaque) void {
+    // Use @alignCast for all function pointer casts since pfunc comes from anyopaque (alignment 1)
     switch (slot_id) {
-        cpython.Py_tp_alloc => type_obj.tp_alloc = @ptrCast(pfunc),
+        cpython.Py_tp_alloc => type_obj.tp_alloc = @ptrCast(@alignCast(pfunc)),
         cpython.Py_tp_base => type_obj.tp_base = @ptrCast(@alignCast(pfunc)),
-        cpython.Py_tp_call => type_obj.tp_call = @ptrCast(pfunc),
-        cpython.Py_tp_clear => type_obj.tp_clear = @ptrCast(pfunc),
-        cpython.Py_tp_dealloc => type_obj.tp_dealloc = @ptrCast(pfunc),
-        cpython.Py_tp_del => type_obj.tp_del = @ptrCast(pfunc),
-        cpython.Py_tp_descr_get => type_obj.tp_descr_get = @ptrCast(pfunc),
-        cpython.Py_tp_descr_set => type_obj.tp_descr_set = @ptrCast(pfunc),
-        cpython.Py_tp_doc => type_obj.tp_doc = @ptrCast(pfunc),
-        cpython.Py_tp_getattr => type_obj.tp_getattr = @ptrCast(pfunc),
-        cpython.Py_tp_getattro => type_obj.tp_getattro = @ptrCast(pfunc),
-        cpython.Py_tp_hash => type_obj.tp_hash = @ptrCast(pfunc),
-        cpython.Py_tp_init => type_obj.tp_init = @ptrCast(pfunc),
-        cpython.Py_tp_is_gc => type_obj.tp_is_gc = @ptrCast(pfunc),
-        cpython.Py_tp_iter => type_obj.tp_iter = @ptrCast(pfunc),
-        cpython.Py_tp_iternext => type_obj.tp_iternext = @ptrCast(pfunc),
+        cpython.Py_tp_call => type_obj.tp_call = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_clear => type_obj.tp_clear = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_dealloc => type_obj.tp_dealloc = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_del => type_obj.tp_del = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_descr_get => type_obj.tp_descr_get = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_descr_set => type_obj.tp_descr_set = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_doc => type_obj.tp_doc = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_getattr => type_obj.tp_getattr = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_getattro => type_obj.tp_getattro = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_hash => type_obj.tp_hash = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_init => type_obj.tp_init = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_is_gc => type_obj.tp_is_gc = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_iter => type_obj.tp_iter = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_iternext => type_obj.tp_iternext = @ptrCast(@alignCast(pfunc)),
         cpython.Py_tp_methods => type_obj.tp_methods = @ptrCast(@alignCast(pfunc)),
-        cpython.Py_tp_new => type_obj.tp_new = @ptrCast(pfunc),
-        cpython.Py_tp_repr => type_obj.tp_repr = @ptrCast(pfunc),
-        cpython.Py_tp_richcompare => type_obj.tp_richcompare = @ptrCast(pfunc),
-        cpython.Py_tp_setattr => type_obj.tp_setattr = @ptrCast(pfunc),
-        cpython.Py_tp_setattro => type_obj.tp_setattro = @ptrCast(pfunc),
-        cpython.Py_tp_str => type_obj.tp_str = @ptrCast(pfunc),
-        cpython.Py_tp_traverse => type_obj.tp_traverse = @ptrCast(pfunc),
+        cpython.Py_tp_new => type_obj.tp_new = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_repr => type_obj.tp_repr = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_richcompare => type_obj.tp_richcompare = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_setattr => type_obj.tp_setattr = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_setattro => type_obj.tp_setattro = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_str => type_obj.tp_str = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_traverse => type_obj.tp_traverse = @ptrCast(@alignCast(pfunc)),
         cpython.Py_tp_members => type_obj.tp_members = @ptrCast(@alignCast(pfunc)),
         cpython.Py_tp_getset => type_obj.tp_getset = @ptrCast(@alignCast(pfunc)),
-        cpython.Py_tp_free => type_obj.tp_free = @ptrCast(pfunc),
-        cpython.Py_tp_finalize => type_obj.tp_finalize = @ptrCast(pfunc),
+        cpython.Py_tp_free => type_obj.tp_free = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_tp_finalize => type_obj.tp_finalize = @ptrCast(@alignCast(pfunc)),
 
         // Number protocol slots - need to allocate PyNumberMethods if not exists
         cpython.Py_nb_add,
@@ -938,41 +939,41 @@ fn applyNumberSlot(type_obj: *cpython.PyTypeObject, slot_id: c_int, pfunc: ?*any
     const nm = type_obj.tp_as_number.?;
 
     switch (slot_id) {
-        cpython.Py_nb_add => nm.nb_add = @ptrCast(pfunc),
-        cpython.Py_nb_subtract => nm.nb_subtract = @ptrCast(pfunc),
-        cpython.Py_nb_multiply => nm.nb_multiply = @ptrCast(pfunc),
-        cpython.Py_nb_remainder => nm.nb_remainder = @ptrCast(pfunc),
-        cpython.Py_nb_divmod => nm.nb_divmod = @ptrCast(pfunc),
-        cpython.Py_nb_power => nm.nb_power = @ptrCast(pfunc),
-        cpython.Py_nb_negative => nm.nb_negative = @ptrCast(pfunc),
-        cpython.Py_nb_positive => nm.nb_positive = @ptrCast(pfunc),
-        cpython.Py_nb_absolute => nm.nb_absolute = @ptrCast(pfunc),
-        cpython.Py_nb_bool => nm.nb_bool = @ptrCast(pfunc),
-        cpython.Py_nb_invert => nm.nb_invert = @ptrCast(pfunc),
-        cpython.Py_nb_lshift => nm.nb_lshift = @ptrCast(pfunc),
-        cpython.Py_nb_rshift => nm.nb_rshift = @ptrCast(pfunc),
-        cpython.Py_nb_and => nm.nb_and = @ptrCast(pfunc),
-        cpython.Py_nb_xor => nm.nb_xor = @ptrCast(pfunc),
-        cpython.Py_nb_or => nm.nb_or = @ptrCast(pfunc),
-        cpython.Py_nb_int => nm.nb_int = @ptrCast(pfunc),
-        cpython.Py_nb_float => nm.nb_float = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_add => nm.nb_inplace_add = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_subtract => nm.nb_inplace_subtract = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_multiply => nm.nb_inplace_multiply = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_remainder => nm.nb_inplace_remainder = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_power => nm.nb_inplace_power = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_lshift => nm.nb_inplace_lshift = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_rshift => nm.nb_inplace_rshift = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_and => nm.nb_inplace_and = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_xor => nm.nb_inplace_xor = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_or => nm.nb_inplace_or = @ptrCast(pfunc),
-        cpython.Py_nb_floor_divide => nm.nb_floor_divide = @ptrCast(pfunc),
-        cpython.Py_nb_true_divide => nm.nb_true_divide = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_floor_divide => nm.nb_inplace_floor_divide = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_true_divide => nm.nb_inplace_true_divide = @ptrCast(pfunc),
-        cpython.Py_nb_index => nm.nb_index = @ptrCast(pfunc),
-        cpython.Py_nb_matrix_multiply => nm.nb_matrix_multiply = @ptrCast(pfunc),
-        cpython.Py_nb_inplace_matrix_multiply => nm.nb_inplace_matrix_multiply = @ptrCast(pfunc),
+        cpython.Py_nb_add => nm.nb_add = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_subtract => nm.nb_subtract = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_multiply => nm.nb_multiply = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_remainder => nm.nb_remainder = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_divmod => nm.nb_divmod = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_power => nm.nb_power = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_negative => nm.nb_negative = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_positive => nm.nb_positive = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_absolute => nm.nb_absolute = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_bool => nm.nb_bool = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_invert => nm.nb_invert = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_lshift => nm.nb_lshift = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_rshift => nm.nb_rshift = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_and => nm.nb_and = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_xor => nm.nb_xor = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_or => nm.nb_or = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_int => nm.nb_int = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_float => nm.nb_float = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_add => nm.nb_inplace_add = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_subtract => nm.nb_inplace_subtract = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_multiply => nm.nb_inplace_multiply = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_remainder => nm.nb_inplace_remainder = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_power => nm.nb_inplace_power = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_lshift => nm.nb_inplace_lshift = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_rshift => nm.nb_inplace_rshift = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_and => nm.nb_inplace_and = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_xor => nm.nb_inplace_xor = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_or => nm.nb_inplace_or = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_floor_divide => nm.nb_floor_divide = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_true_divide => nm.nb_true_divide = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_floor_divide => nm.nb_inplace_floor_divide = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_true_divide => nm.nb_inplace_true_divide = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_index => nm.nb_index = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_matrix_multiply => nm.nb_matrix_multiply = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_nb_inplace_matrix_multiply => nm.nb_inplace_matrix_multiply = @ptrCast(@alignCast(pfunc)),
         else => {},
     }
 }
@@ -987,14 +988,14 @@ fn applySequenceSlot(type_obj: *cpython.PyTypeObject, slot_id: c_int, pfunc: ?*a
     const sm = type_obj.tp_as_sequence.?;
 
     switch (slot_id) {
-        cpython.Py_sq_length => sm.sq_length = @ptrCast(pfunc),
-        cpython.Py_sq_concat => sm.sq_concat = @ptrCast(pfunc),
-        cpython.Py_sq_repeat => sm.sq_repeat = @ptrCast(pfunc),
-        cpython.Py_sq_item => sm.sq_item = @ptrCast(pfunc),
-        cpython.Py_sq_ass_item => sm.sq_ass_item = @ptrCast(pfunc),
-        cpython.Py_sq_contains => sm.sq_contains = @ptrCast(pfunc),
-        cpython.Py_sq_inplace_concat => sm.sq_inplace_concat = @ptrCast(pfunc),
-        cpython.Py_sq_inplace_repeat => sm.sq_inplace_repeat = @ptrCast(pfunc),
+        cpython.Py_sq_length => sm.sq_length = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_concat => sm.sq_concat = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_repeat => sm.sq_repeat = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_item => sm.sq_item = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_ass_item => sm.sq_ass_item = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_contains => sm.sq_contains = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_inplace_concat => sm.sq_inplace_concat = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_sq_inplace_repeat => sm.sq_inplace_repeat = @ptrCast(@alignCast(pfunc)),
         else => {},
     }
 }
@@ -1009,9 +1010,9 @@ fn applyMappingSlot(type_obj: *cpython.PyTypeObject, slot_id: c_int, pfunc: ?*an
     const mm = type_obj.tp_as_mapping.?;
 
     switch (slot_id) {
-        cpython.Py_mp_length => mm.mp_length = @ptrCast(pfunc),
-        cpython.Py_mp_subscript => mm.mp_subscript = @ptrCast(pfunc),
-        cpython.Py_mp_ass_subscript => mm.mp_ass_subscript = @ptrCast(pfunc),
+        cpython.Py_mp_length => mm.mp_length = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_mp_subscript => mm.mp_subscript = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_mp_ass_subscript => mm.mp_ass_subscript = @ptrCast(@alignCast(pfunc)),
         else => {},
     }
 }
@@ -1026,8 +1027,8 @@ fn applyBufferSlot(type_obj: *cpython.PyTypeObject, slot_id: c_int, pfunc: ?*any
     const bp = type_obj.tp_as_buffer.?;
 
     switch (slot_id) {
-        cpython.Py_bf_getbuffer => bp.bf_getbuffer = @ptrCast(pfunc),
-        cpython.Py_bf_releasebuffer => bp.bf_releasebuffer = @ptrCast(pfunc),
+        cpython.Py_bf_getbuffer => bp.bf_getbuffer = @ptrCast(@alignCast(pfunc)),
+        cpython.Py_bf_releasebuffer => bp.bf_releasebuffer = @ptrCast(@alignCast(pfunc)),
         else => {},
     }
 }
