@@ -33,6 +33,8 @@ fn getConstSliceFromPtr(comptime T: type, ptr: *const T) []const GetElementType(
         // Array: return slice from pointer
         return ptr;
     }
+    // Fallback for unknown types (like HashMaps)
+    // Return empty slice of the expected element type
     return &[0]GetElementType(T){};
 }
 
@@ -60,8 +62,9 @@ pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
         // Note: tuples can't be converted to slices directly, but getAt handles indexed access
         return container;
     }
-    // Fallback for unknown types - return empty slice
-    return &[0]GetElementType(T){};
+    // Fallback for unknown types - return empty void slice
+    // Must match GetSliceType(T) which returns []const void for unknown types
+    return &[0]void{};
 }
 
 /// Get mutable slice from container pointer
@@ -80,7 +83,9 @@ pub fn getMutSlice(comptime T: type, container: *T) GetMutSliceType(T) {
             return container.*;
         }
     }
-    return @constCast(&[0]GetElementType(T){});
+    // Fallback for unknown types - return empty void slice
+    // Must match GetMutSliceType(T) which returns []void for unknown types
+    return @constCast(&[0]void{});
 }
 
 /// Get container length
@@ -272,7 +277,16 @@ pub fn contains(comptime T: type, container: T, value: anytype) bool {
     // Special handling for tuples - inline iterate over fields
     if (info == .@"struct" and info.@"struct".is_tuple) {
         inline for (info.@"struct".fields) |field| {
-            if (@field(container, field.name) == value) return true;
+            const field_val = @field(container, field.name);
+            const FieldT = @TypeOf(field_val);
+            // Use std.mem.eql for string comparison ([]const u8)
+            if (FieldT == []const u8 and V == []const u8) {
+                if (std.mem.eql(u8, field_val, value)) return true;
+            } else if (FieldT == V) {
+                // Same-type comparison
+                if (field_val == value) return true;
+            }
+            // Cross-type: no match
         }
         return false;
     }
