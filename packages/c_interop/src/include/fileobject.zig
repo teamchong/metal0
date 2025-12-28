@@ -22,7 +22,7 @@ pub const PyFileObject = extern struct {
 // ============================================================================
 
 /// Check if object is a file-like object (has write method)
-export fn PyFile_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyFile_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     // Check for file-like objects (have read/write methods)
     const type_obj = cpython.Py_TYPE(obj);
 
@@ -49,7 +49,7 @@ export fn PyFile_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 // ============================================================================
 
 /// Write object to file using its repr
-export fn PyFile_WriteObject(obj: *cpython.PyObject, file: *cpython.PyObject, flags: c_int) callconv(.c) c_int {
+pub export fn PyFile_WriteObject(obj: *cpython.PyObject, file: *cpython.PyObject, flags: c_int) callconv(.c) c_int {
     _ = flags;
 
     // Get string representation
@@ -66,7 +66,7 @@ export fn PyFile_WriteObject(obj: *cpython.PyObject, file: *cpython.PyObject, fl
 
 /// Write C string to file object
 /// Calls the file's write() method if available, otherwise writes to stdout
-export fn PyFile_WriteString(str: [*:0]const u8, file: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyFile_WriteString(str: [*:0]const u8, file: *cpython.PyObject) callconv(.c) c_int {
     const cstr = std.mem.span(str);
     if (cstr.len == 0) return 0;
 
@@ -147,7 +147,7 @@ fn file_dealloc(self: *cpython.PyObject) callconv(.c) void {
 }
 
 /// Create file object from file descriptor
-export fn PyFile_FromFd(fd: c_int, name: ?[*:0]const u8, mode: [*:0]const u8, buffering: c_int, encoding: ?[*:0]const u8, errors: ?[*:0]const u8, newline: ?[*:0]const u8, closefd: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyFile_FromFd(fd: c_int, name: ?[*:0]const u8, mode: [*:0]const u8, buffering: c_int, encoding: ?[*:0]const u8, errors: ?[*:0]const u8, newline: ?[*:0]const u8, closefd: c_int) callconv(.c) ?*cpython.PyObject {
     _ = buffering;
     _ = encoding;
     _ = errors;
@@ -172,7 +172,7 @@ export fn PyFile_FromFd(fd: c_int, name: ?[*:0]const u8, mode: [*:0]const u8, bu
 }
 
 /// Read a line from file
-export fn PyFile_GetLine(file: *cpython.PyObject, n: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyFile_GetLine(file: *cpython.PyObject, n: c_int) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("../objects/unicodeobject.zig");
 
     // Check if it's our file wrapper

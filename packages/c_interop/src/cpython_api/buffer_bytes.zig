@@ -8,7 +8,7 @@ const traits = @import("../objects/typetraits.zig");
 
 // --- PyBuffer_* Functions ---
 
-export fn PyBuffer_FromContiguous(view: *cpython.Py_buffer, buf: [*]const u8, len: isize, order: u8) callconv(.c) c_int {
+pub export fn PyBuffer_FromContiguous(view: *cpython.Py_buffer, buf: [*]const u8, len: isize, order: u8) callconv(.c) c_int {
     _ = order;
     if (view.buf) |dest| {
         @memcpy(@as([*]u8, @ptrCast(dest))[0..@intCast(len)], buf[0..@intCast(len)]);
@@ -16,7 +16,7 @@ export fn PyBuffer_FromContiguous(view: *cpython.Py_buffer, buf: [*]const u8, le
     return 0;
 }
 
-export fn PyBuffer_ToContiguous(buf: [*]u8, view: *const cpython.Py_buffer, len: isize, order: u8) callconv(.c) c_int {
+pub export fn PyBuffer_ToContiguous(buf: [*]u8, view: *const cpython.Py_buffer, len: isize, order: u8) callconv(.c) c_int {
     _ = order;
     if (view.buf) |src| {
         @memcpy(buf[0..@intCast(len)], @as([*]const u8, @ptrCast(src))[0..@intCast(len)]);
@@ -26,14 +26,14 @@ export fn PyBuffer_ToContiguous(buf: [*]u8, view: *const cpython.Py_buffer, len:
 
 // --- PyBytes_* Functions ---
 
-export fn PyBytes_DecodeEscape(s: [*]const u8, len: isize, errors: ?[*:0]const u8, is_unicode: c_int, recode_encoding: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyBytes_DecodeEscape(s: [*]const u8, len: isize, errors: ?[*:0]const u8, is_unicode: c_int, recode_encoding: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     _ = is_unicode;
     _ = recode_encoding;
     return pybytes.PyBytes_FromStringAndSize(s, len);
 }
 
-export fn PyBytes_FromFormatV(format: [*:0]const u8, va: std.builtin.VaList) callconv(.c) ?*cpython.PyObject {
+pub export fn PyBytes_FromFormatV(format: [*:0]const u8, va: std.builtin.VaList) callconv(.c) ?*cpython.PyObject {
     // Format string similar to printf, output as bytes
     const fmt = std.mem.span(format);
     var va_copy = va;
@@ -92,7 +92,7 @@ export fn PyBytes_FromFormatV(format: [*:0]const u8, va: std.builtin.VaList) cal
     return pybytes.PyBytes_FromStringAndSize(@ptrCast(&buf), @intCast(buf_idx));
 }
 
-export fn PyBytes_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyBytes_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // If already bytes, incref and return
     if (pybytes.PyBytes_Check(obj) != 0) {
         traits.incref(obj);

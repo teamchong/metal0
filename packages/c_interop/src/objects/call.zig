@@ -250,7 +250,8 @@ pub export fn PyObject_CallMethodObjArgs(obj: ?*PyObject, name: ?*PyObject, arg0
 // ============================================================================
 
 /// Check if object is callable
-pub export fn PyCallable_Check(obj: ?*PyObject) c_int {
+/// Note: Use objects/object.zig for the exported version (has more complete __call__ check)
+fn PyCallable_Check_internal(obj: ?*PyObject) c_int {
     if (obj == null) return 0;
     const tp = obj.?.ob_type orelse return 0;
     return if (tp.tp_call != null) 1 else 0;

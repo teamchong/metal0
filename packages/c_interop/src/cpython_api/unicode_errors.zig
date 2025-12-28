@@ -20,7 +20,7 @@ pub const PyUnicodeErrorObject = extern struct {
 
 // --- PyUnicodeDecodeError_* ---
 
-export fn PyUnicodeDecodeError_Create(encoding: [*:0]const u8, object: [*]const u8, length: isize, start: isize, end: isize, reason: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeDecodeError_Create(encoding: [*:0]const u8, object: [*]const u8, length: isize, start: isize, end: isize, reason: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const err_obj = std.heap.c_allocator.create(PyUnicodeErrorObject) catch return null;
     err_obj.* = .{
         .ob_base = .{
@@ -36,7 +36,7 @@ export fn PyUnicodeDecodeError_Create(encoding: [*:0]const u8, object: [*]const 
     return @ptrCast(err_obj);
 }
 
-export fn PyUnicodeDecodeError_GetEncoding(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeDecodeError_GetEncoding(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.encoding) |enc| {
         traits.incref(enc);
@@ -45,13 +45,13 @@ export fn PyUnicodeDecodeError_GetEncoding(exc: *cpython.PyObject) callconv(.c) 
     return pyunicode.PyUnicode_FromString("utf-8");
 }
 
-export fn PyUnicodeDecodeError_GetEnd(exc: *cpython.PyObject, end: *isize) callconv(.c) c_int {
+pub export fn PyUnicodeDecodeError_GetEnd(exc: *cpython.PyObject, end: *isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     end.* = err_obj.end;
     return 0;
 }
 
-export fn PyUnicodeDecodeError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeDecodeError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.object) |obj| {
         traits.incref(obj);
@@ -60,7 +60,7 @@ export fn PyUnicodeDecodeError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*
     return null;
 }
 
-export fn PyUnicodeDecodeError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeDecodeError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.reason) |r| {
         traits.incref(r);
@@ -69,19 +69,19 @@ export fn PyUnicodeDecodeError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*
     return pyunicode.PyUnicode_FromString("decode error");
 }
 
-export fn PyUnicodeDecodeError_GetStart(exc: *cpython.PyObject, start: *isize) callconv(.c) c_int {
+pub export fn PyUnicodeDecodeError_GetStart(exc: *cpython.PyObject, start: *isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     start.* = err_obj.start;
     return 0;
 }
 
-export fn PyUnicodeDecodeError_SetEnd(exc: *cpython.PyObject, end: isize) callconv(.c) c_int {
+pub export fn PyUnicodeDecodeError_SetEnd(exc: *cpython.PyObject, end: isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     err_obj.end = end;
     return 0;
 }
 
-export fn PyUnicodeDecodeError_SetReason(exc: *cpython.PyObject, reason: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicodeDecodeError_SetReason(exc: *cpython.PyObject, reason: *cpython.PyObject) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.reason) |old| {
         traits.decref(old);
@@ -91,7 +91,7 @@ export fn PyUnicodeDecodeError_SetReason(exc: *cpython.PyObject, reason: *cpytho
     return 0;
 }
 
-export fn PyUnicodeDecodeError_SetStart(exc: *cpython.PyObject, start: isize) callconv(.c) c_int {
+pub export fn PyUnicodeDecodeError_SetStart(exc: *cpython.PyObject, start: isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     err_obj.start = start;
     return 0;
@@ -99,7 +99,7 @@ export fn PyUnicodeDecodeError_SetStart(exc: *cpython.PyObject, start: isize) ca
 
 // --- PyUnicodeEncodeError_* ---
 
-export fn PyUnicodeEncodeError_GetEncoding(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeEncodeError_GetEncoding(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.encoding) |enc| {
         traits.incref(enc);
@@ -108,13 +108,13 @@ export fn PyUnicodeEncodeError_GetEncoding(exc: *cpython.PyObject) callconv(.c) 
     return pyunicode.PyUnicode_FromString("utf-8");
 }
 
-export fn PyUnicodeEncodeError_GetEnd(exc: *cpython.PyObject, end: *isize) callconv(.c) c_int {
+pub export fn PyUnicodeEncodeError_GetEnd(exc: *cpython.PyObject, end: *isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     end.* = err_obj.end;
     return 0;
 }
 
-export fn PyUnicodeEncodeError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeEncodeError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.object) |obj| {
         traits.incref(obj);
@@ -123,7 +123,7 @@ export fn PyUnicodeEncodeError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*
     return null;
 }
 
-export fn PyUnicodeEncodeError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeEncodeError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.reason) |r| {
         traits.incref(r);
@@ -132,19 +132,19 @@ export fn PyUnicodeEncodeError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*
     return pyunicode.PyUnicode_FromString("encode error");
 }
 
-export fn PyUnicodeEncodeError_GetStart(exc: *cpython.PyObject, start: *isize) callconv(.c) c_int {
+pub export fn PyUnicodeEncodeError_GetStart(exc: *cpython.PyObject, start: *isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     start.* = err_obj.start;
     return 0;
 }
 
-export fn PyUnicodeEncodeError_SetEnd(exc: *cpython.PyObject, end: isize) callconv(.c) c_int {
+pub export fn PyUnicodeEncodeError_SetEnd(exc: *cpython.PyObject, end: isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     err_obj.end = end;
     return 0;
 }
 
-export fn PyUnicodeEncodeError_SetReason(exc: *cpython.PyObject, reason: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicodeEncodeError_SetReason(exc: *cpython.PyObject, reason: *cpython.PyObject) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.reason) |old| {
         traits.decref(old);
@@ -154,7 +154,7 @@ export fn PyUnicodeEncodeError_SetReason(exc: *cpython.PyObject, reason: *cpytho
     return 0;
 }
 
-export fn PyUnicodeEncodeError_SetStart(exc: *cpython.PyObject, start: isize) callconv(.c) c_int {
+pub export fn PyUnicodeEncodeError_SetStart(exc: *cpython.PyObject, start: isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     err_obj.start = start;
     return 0;
@@ -162,13 +162,13 @@ export fn PyUnicodeEncodeError_SetStart(exc: *cpython.PyObject, start: isize) ca
 
 // --- PyUnicodeTranslateError_* ---
 
-export fn PyUnicodeTranslateError_GetEnd(exc: *cpython.PyObject, end: *isize) callconv(.c) c_int {
+pub export fn PyUnicodeTranslateError_GetEnd(exc: *cpython.PyObject, end: *isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     end.* = err_obj.end;
     return 0;
 }
 
-export fn PyUnicodeTranslateError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeTranslateError_GetObject(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.object) |obj| {
         traits.incref(obj);
@@ -177,7 +177,7 @@ export fn PyUnicodeTranslateError_GetObject(exc: *cpython.PyObject) callconv(.c)
     return null;
 }
 
-export fn PyUnicodeTranslateError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicodeTranslateError_GetReason(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.reason) |r| {
         traits.incref(r);
@@ -186,19 +186,19 @@ export fn PyUnicodeTranslateError_GetReason(exc: *cpython.PyObject) callconv(.c)
     return pyunicode.PyUnicode_FromString("translate error");
 }
 
-export fn PyUnicodeTranslateError_GetStart(exc: *cpython.PyObject, start: *isize) callconv(.c) c_int {
+pub export fn PyUnicodeTranslateError_GetStart(exc: *cpython.PyObject, start: *isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     start.* = err_obj.start;
     return 0;
 }
 
-export fn PyUnicodeTranslateError_SetEnd(exc: *cpython.PyObject, end: isize) callconv(.c) c_int {
+pub export fn PyUnicodeTranslateError_SetEnd(exc: *cpython.PyObject, end: isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     err_obj.end = end;
     return 0;
 }
 
-export fn PyUnicodeTranslateError_SetReason(exc: *cpython.PyObject, reason: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicodeTranslateError_SetReason(exc: *cpython.PyObject, reason: *cpython.PyObject) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     if (err_obj.reason) |old| {
         traits.decref(old);
@@ -208,7 +208,7 @@ export fn PyUnicodeTranslateError_SetReason(exc: *cpython.PyObject, reason: *cpy
     return 0;
 }
 
-export fn PyUnicodeTranslateError_SetStart(exc: *cpython.PyObject, start: isize) callconv(.c) c_int {
+pub export fn PyUnicodeTranslateError_SetStart(exc: *cpython.PyObject, start: isize) callconv(.c) c_int {
     const err_obj: *PyUnicodeErrorObject = @ptrCast(@alignCast(exc));
     err_obj.start = start;
     return 0;

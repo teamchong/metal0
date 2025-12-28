@@ -292,7 +292,8 @@ pub export fn PyIter_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 ///
 /// CPython: PyObject* PyObject_GetIter(PyObject *obj)
 /// Returns: Iterator object or null on error
-pub export fn PyObject_GetIter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+/// Note: Use objects/object.zig for the exported version (handles null)
+fn PyObject_GetIter_internal(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     // Try tp_iter first

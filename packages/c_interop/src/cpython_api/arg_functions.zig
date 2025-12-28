@@ -9,14 +9,14 @@ const pyunicode = @import("../objects/unicodeobject.zig");
 const pytuple = @import("../objects/tupleobject.zig");
 const pydict = @import("../objects/dictobject.zig");
 
-export fn PyArg_Parse(args: *cpython.PyObject, format: [*:0]const u8, ...) callconv(.C) c_int {
+pub export fn PyArg_Parse(args: *cpython.PyObject, format: [*:0]const u8, ...) callconv(.C) c_int {
     // Single argument parse - use same logic as ParseTuple
     var va = @cVaStart();
     defer @cVaEnd(&va);
     return parseArgsWithVa(args, format, &va);
 }
 
-export fn PyArg_UnpackTuple(args: *cpython.PyObject, name: [*:0]const u8, min: isize, max: isize, ...) callconv(.C) c_int {
+pub export fn PyArg_UnpackTuple(args: *cpython.PyObject, name: [*:0]const u8, min: isize, max: isize, ...) callconv(.C) c_int {
     _ = name;
     const tuple = @as(*cpython.PyTupleObject, @ptrCast(args));
     const size = tuple.ob_base.ob_size;
@@ -34,18 +34,18 @@ export fn PyArg_UnpackTuple(args: *cpython.PyObject, name: [*:0]const u8, min: i
     return 1;
 }
 
-export fn PyArg_ValidateKeywordArguments(kwargs: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyArg_ValidateKeywordArguments(kwargs: *cpython.PyObject) callconv(.c) c_int {
     // Validate all keys are strings
     if (pydict.PyDict_Check(kwargs) == 0) return 0;
     return 1;
 }
 
-export fn PyArg_VaParse(args: *cpython.PyObject, format: [*:0]const u8, va: std.builtin.VaList) callconv(.c) c_int {
+pub export fn PyArg_VaParse(args: *cpython.PyObject, format: [*:0]const u8, va: std.builtin.VaList) callconv(.c) c_int {
     var va_copy = va;
     return parseArgsWithVa(args, format, &va_copy);
 }
 
-export fn PyArg_VaParseTupleAndKeywords(args: *cpython.PyObject, kwargs: ?*cpython.PyObject, format: [*:0]const u8, kwlist: [*]const ?[*:0]const u8, va: std.builtin.VaList) callconv(.c) c_int {
+pub export fn PyArg_VaParseTupleAndKeywords(args: *cpython.PyObject, kwargs: ?*cpython.PyObject, format: [*:0]const u8, kwlist: [*]const ?[*:0]const u8, va: std.builtin.VaList) callconv(.c) c_int {
     _ = kwargs;
     _ = kwlist;
     var va_copy = va;

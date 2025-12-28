@@ -23,7 +23,7 @@ const traits = @import("../objects/typetraits.zig");
 /// Args: tuple of positional arguments
 /// Kwargs: dict of keyword arguments (can be null)
 /// Returns: Result object or null on error
-export fn PyObject_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(callable);
 
     if (type_obj.tp_call) |call_func| {
@@ -40,7 +40,7 @@ export fn PyObject_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kw
 /// CPython: PyObject* PyObject_CallObject(PyObject *callable, PyObject *args)
 /// Args: tuple of arguments or null (for no args)
 /// Returns: Result object or null on error
-export fn PyObject_CallObject(callable: *cpython.PyObject, args: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallObject(callable: *cpython.PyObject, args: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return PyObject_Call(callable, args orelse &_Py_EmptyTuple, null);
 }
 
@@ -61,7 +61,7 @@ var _Py_EmptyTuple: cpython.PyObject = .{
 ///
 /// CPython: PyObject* PyObject_Str(PyObject *obj)
 /// Returns: String representation or null on error
-export fn PyObject_Str(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Str(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_str) |str_func| {
@@ -76,7 +76,7 @@ export fn PyObject_Str(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 ///
 /// CPython: PyObject* PyObject_Repr(PyObject *obj)
 /// Returns: Repr string or null on error
-export fn PyObject_Repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_repr) |repr_func| {
@@ -96,7 +96,7 @@ export fn PyObject_Repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
 ///
 /// CPython: PyObject* PyObject_Type(PyObject *obj)
 /// Returns: Type object (new reference)
-export fn PyObject_Type(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
+pub export fn PyObject_Type(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     return traits.incref(@as(*cpython.PyObject, @ptrCast(type_obj)));
 }
@@ -109,7 +109,7 @@ export fn PyObject_Type(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
 ///
 /// CPython: int PyObject_IsTrue(PyObject *obj)
 /// Returns: 1 if true, 0 if false, -1 on error
-export fn PyObject_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (traits.toBool(obj)) 1 else 0;
 }
 
@@ -117,7 +117,7 @@ export fn PyObject_IsTrue(obj: *cpython.PyObject) callconv(.c) c_int {
 ///
 /// CPython: int PyObject_Not(PyObject *obj)
 /// Returns: 0 if true, 1 if false, -1 on error
-export fn PyObject_Not(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_Not(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (traits.toBool(obj)) 0 else 1;
 }
 
@@ -138,7 +138,7 @@ pub const Py_GE: c_int = 5;
 /// CPython: PyObject* PyObject_RichCompare(PyObject *a, PyObject *b, int op)
 /// Op: One of Py_LT, Py_LE, Py_EQ, Py_NE, Py_GT, Py_GE
 /// Returns: Comparison result (usually bool) or null on error
-export fn PyObject_RichCompare(a: *cpython.PyObject, b: *cpython.PyObject, op: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_RichCompare(a: *cpython.PyObject, b: *cpython.PyObject, op: c_int) callconv(.c) ?*cpython.PyObject {
     const bool_mod = @import("../objects/boolobject.zig");
 
     // Try a's tp_richcompare first
@@ -180,7 +180,7 @@ export fn PyObject_RichCompare(a: *cpython.PyObject, b: *cpython.PyObject, op: c
 ///
 /// CPython: int PyObject_RichCompareBool(PyObject *a, PyObject *b, int op)
 /// Returns: 1 if true, 0 if false, -1 on error
-export fn PyObject_RichCompareBool(a: *cpython.PyObject, b: *cpython.PyObject, op: c_int) callconv(.c) c_int {
+pub export fn PyObject_RichCompareBool(a: *cpython.PyObject, b: *cpython.PyObject, op: c_int) callconv(.c) c_int {
     // Fast path for identity
     if (a == b) {
         return switch (op) {
@@ -204,7 +204,7 @@ export fn PyObject_RichCompareBool(a: *cpython.PyObject, b: *cpython.PyObject, o
 ///
 /// CPython: Py_hash_t PyObject_Hash(PyObject *obj)
 /// Returns: Hash value or -1 on error
-export fn PyObject_Hash(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyObject_Hash(obj: *cpython.PyObject) callconv(.c) isize {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_hash) |hash_func| {
@@ -224,7 +224,7 @@ export fn PyObject_Hash(obj: *cpython.PyObject) callconv(.c) isize {
 ///
 /// CPython: Py_ssize_t PyObject_Length(PyObject *obj)
 /// Returns: Length or -1 on error
-export fn PyObject_Length(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyObject_Length(obj: *cpython.PyObject) callconv(.c) isize {
     if (traits.getLength(obj)) |len| {
         return len;
     }
@@ -233,7 +233,7 @@ export fn PyObject_Length(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Alias for PyObject_Length
-export fn PyObject_Size(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyObject_Size(obj: *cpython.PyObject) callconv(.c) isize {
     return PyObject_Length(obj);
 }
 
@@ -245,7 +245,7 @@ export fn PyObject_Size(obj: *cpython.PyObject) callconv(.c) isize {
 ///
 /// CPython: PyObject* PyObject_GetItem(PyObject *obj, PyObject *key)
 /// Returns: Item value or null on error
-export fn PyObject_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Try mapping protocol first
     if (traits.getItemByKey(obj, key)) |item| {
         return item;
@@ -268,7 +268,7 @@ export fn PyObject_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callc
 ///
 /// CPython: int PyObject_SetItem(PyObject *obj, PyObject *key, PyObject *value)
 /// Returns: 0 on success, -1 on error
-export fn PyObject_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
     // Try mapping protocol first
     if (traits.setItemByKey(obj, key, value)) {
         return 0;
@@ -291,7 +291,7 @@ export fn PyObject_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value
 ///
 /// CPython: int PyObject_DelItem(PyObject *obj, PyObject *key)
 /// Returns: 0 on success, -1 on error
-export fn PyObject_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
     // Try mapping protocol first (pass null for value = deletion)
     if (traits.setItemByKey(obj, key, null)) {
         return 0;
@@ -321,7 +321,7 @@ export fn PyObject_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callc
 ///
 /// CPython: PyObject* PyObject_ASCII(PyObject *obj)
 /// Returns: ASCII string representation or null on error
-export fn PyObject_ASCII(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_ASCII(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Delegate to full implementation in object.zig
     const object_mod = @import("../objects/object.zig");
     return object_mod.PyObject_ASCII(obj);
@@ -331,7 +331,7 @@ export fn PyObject_ASCII(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
 ///
 /// CPython: PyObject* PyObject_Bytes(PyObject *obj)
 /// Returns: Bytes object or null on error
-export fn PyObject_Bytes(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Bytes(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // If already bytes, incref and return
     if (traits.isBytes(obj)) {
         return traits.incref(obj);

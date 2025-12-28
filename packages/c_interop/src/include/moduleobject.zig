@@ -248,7 +248,7 @@ pub var PyModuleDef_Type: cpython.PyTypeObject = .{
 /// Create module from definition (Python 3 API)
 ///
 /// CPython: PyObject* PyModule_Create2(struct PyModuleDef *def, int module_api_version)
-export fn PyModule_Create2(def: *PyModuleDef, api_version: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyModule_Create2(def: *PyModuleDef, api_version: c_int) callconv(.c) ?*cpython.PyObject {
     // Validate API version (PYTHON_API_VERSION from Python.h is 1013 for 3.12)
     const PYTHON_API_VERSION: c_int = 1013;
     if (api_version != PYTHON_API_VERSION and api_version != 0) {
@@ -311,7 +311,7 @@ export fn PyModule_Create2(def: *PyModuleDef, api_version: c_int) callconv(.c) ?
 /// Get module dictionary
 ///
 /// CPython: PyObject* PyModule_GetDict(PyObject *module)
-export fn PyModule_GetDict(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyModule_GetDict(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const mod: *PyModuleObject = @ptrCast(@alignCast(module));
     return mod.md_dict;
 }
@@ -319,7 +319,7 @@ export fn PyModule_GetDict(module: *cpython.PyObject) callconv(.c) ?*cpython.PyO
 /// Get module name (returns borrowed reference)
 ///
 /// CPython: const char* PyModule_GetName(PyObject *module)
-export fn PyModule_GetName(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
+pub export fn PyModule_GetName(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
     const mod: *PyModuleObject = @ptrCast(@alignCast(module));
 
     if (mod.md_name) |name| {
@@ -332,7 +332,7 @@ export fn PyModule_GetName(module: *cpython.PyObject) callconv(.c) ?[*:0]const u
 /// Get module filename
 ///
 /// CPython: const char* PyModule_GetFilename(PyObject *module)
-export fn PyModule_GetFilename(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
+pub export fn PyModule_GetFilename(module: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
     const mod = @as(*PyModuleObject, @ptrCast(module));
 
     if (mod.md_dict) |dict| {
@@ -348,7 +348,7 @@ export fn PyModule_GetFilename(module: *cpython.PyObject) callconv(.c) ?[*:0]con
 /// Add object to module (steals reference on success)
 ///
 /// CPython: int PyModule_AddObject(PyObject *module, const char *name, PyObject *value)
-export fn PyModule_AddObject(module: *cpython.PyObject, name: [*:0]const u8, obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyModule_AddObject(module: *cpython.PyObject, name: [*:0]const u8, obj: *cpython.PyObject) callconv(.c) c_int {
     const mod = @as(*PyModuleObject, @ptrCast(module));
 
     if (mod.md_dict) |dict| {
@@ -366,7 +366,7 @@ export fn PyModule_AddObject(module: *cpython.PyObject, name: [*:0]const u8, obj
 /// Add object to module (keeps reference)
 ///
 /// CPython: int PyModule_AddObjectRef(PyObject *module, const char *name, PyObject *value)
-export fn PyModule_AddObjectRef(module: *cpython.PyObject, name: [*:0]const u8, obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyModule_AddObjectRef(module: *cpython.PyObject, name: [*:0]const u8, obj: *cpython.PyObject) callconv(.c) c_int {
     const mod = @as(*PyModuleObject, @ptrCast(module));
 
     if (mod.md_dict) |dict| {
@@ -379,7 +379,7 @@ export fn PyModule_AddObjectRef(module: *cpython.PyObject, name: [*:0]const u8, 
 /// Add integer constant to module
 ///
 /// CPython: int PyModule_AddIntConstant(PyObject *module, const char *name, long value)
-export fn PyModule_AddIntConstant(module: *cpython.PyObject, name: [*:0]const u8, value: c_long) callconv(.c) c_int {
+pub export fn PyModule_AddIntConstant(module: *cpython.PyObject, name: [*:0]const u8, value: c_long) callconv(.c) c_int {
     const int_obj = PyLong_FromLong(value);
     if (int_obj == null) return -1;
 
@@ -394,7 +394,7 @@ export fn PyModule_AddIntConstant(module: *cpython.PyObject, name: [*:0]const u8
 /// Add string constant to module
 ///
 /// CPython: int PyModule_AddStringConstant(PyObject *module, const char *name, const char *value)
-export fn PyModule_AddStringConstant(module: *cpython.PyObject, name: [*:0]const u8, value: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyModule_AddStringConstant(module: *cpython.PyObject, name: [*:0]const u8, value: [*:0]const u8) callconv(.c) c_int {
     const str_obj = PyUnicode_FromString(value);
     if (str_obj == null) return -1;
 
@@ -409,7 +409,7 @@ export fn PyModule_AddStringConstant(module: *cpython.PyObject, name: [*:0]const
 /// Add type to module
 ///
 /// CPython: int PyModule_AddType(PyObject *module, PyTypeObject *type)
-export fn PyModule_AddType(module: *cpython.PyObject, type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
+pub export fn PyModule_AddType(module: *cpython.PyObject, type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
     const type_name = std.mem.span(type_obj.tp_name);
 
     // Find last component of dotted name
@@ -433,7 +433,7 @@ export fn PyModule_AddType(module: *cpython.PyObject, type_obj: *cpython.PyTypeO
 /// Set module docstring
 ///
 /// CPython: int PyModule_SetDocString(PyObject *module, const char *doc)
-export fn PyModule_SetDocString(module: *cpython.PyObject, doc: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyModule_SetDocString(module: *cpython.PyObject, doc: [*:0]const u8) callconv(.c) c_int {
     const mod = @as(*PyModuleObject, @ptrCast(module));
 
     if (mod.md_dict) |dict| {
@@ -451,7 +451,7 @@ export fn PyModule_SetDocString(module: *cpython.PyObject, doc: [*:0]const u8) c
 /// Get module state
 ///
 /// CPython: void* PyModule_GetState(PyObject *module)
-export fn PyModule_GetState(module: *cpython.PyObject) callconv(.c) ?*anyopaque {
+pub export fn PyModule_GetState(module: *cpython.PyObject) callconv(.c) ?*anyopaque {
     const mod: *PyModuleObject = @ptrCast(@alignCast(module));
     return mod.md_state;
 }
@@ -459,25 +459,25 @@ export fn PyModule_GetState(module: *cpython.PyObject) callconv(.c) ?*anyopaque 
 /// Get module definition
 ///
 /// CPython: struct PyModuleDef* PyModule_GetDef(PyObject *module)
-export fn PyModule_GetDef(module: *cpython.PyObject) callconv(.c) ?*PyModuleDef {
+pub export fn PyModule_GetDef(module: *cpython.PyObject) callconv(.c) ?*PyModuleDef {
     const mod: *PyModuleObject = @ptrCast(@alignCast(module));
     return mod.md_def;
 }
 
 /// Check if object is a module
-export fn PyModule_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyModule_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyModule_Type) 1 else 0;
 }
 
 /// Check if object is exactly a module (not subclass)
-export fn PyModule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyModule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyModule_Type) 1 else 0;
 }
 
 /// Initialize module definition
 ///
 /// CPython: PyObject* PyModuleDef_Init(struct PyModuleDef *def)
-export fn PyModuleDef_Init(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyModuleDef_Init(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject {
     // Initialize m_base
     def.m_base.ob_base = .{
         .ob_refcnt = 1,
@@ -500,7 +500,7 @@ var next_module_index: usize = 0;
 
 /// Add a module to the interpreter state's list of modules
 /// Returns module index on success, -1 on error
-export fn PyState_AddModule(module: *cpython.PyObject, def: *PyModuleDef) callconv(.c) c_int {
+pub export fn PyState_AddModule(module: *cpython.PyObject, def: *PyModuleDef) callconv(.c) c_int {
     if (next_module_index >= module_registry.len) return -1;
 
     // Store module at the def's index (or assign one)
@@ -518,7 +518,7 @@ export fn PyState_AddModule(module: *cpython.PyObject, def: *PyModuleDef) callco
 
 /// Find a module by its definition
 /// Returns the module or null if not found
-export fn PyState_FindModule(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyState_FindModule(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject {
     if (def.m_base.m_index <= 0) return null;
 
     const idx: usize = @intCast(def.m_base.m_index);
@@ -529,7 +529,7 @@ export fn PyState_FindModule(def: *PyModuleDef) callconv(.c) ?*cpython.PyObject 
 
 /// Remove a module from the interpreter state
 /// Returns 0 on success, -1 on error
-export fn PyState_RemoveModule(def: *PyModuleDef) callconv(.c) c_int {
+pub export fn PyState_RemoveModule(def: *PyModuleDef) callconv(.c) c_int {
     if (def.m_base.m_index <= 0) return -1;
 
     const idx: usize = @intCast(def.m_base.m_index);

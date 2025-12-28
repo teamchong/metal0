@@ -315,7 +315,7 @@ pub var PyDateTime_DeltaType: cpython.PyTypeObject = .{
 // ============================================================================
 
 /// Check if object is a date (or subclass)
-export fn PyDate_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDate_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj == &PyDateTime_DateType) return 1;
     if (type_obj == &PyDateTime_DateTimeType) return 1; // datetime is subclass of date
@@ -328,12 +328,12 @@ export fn PyDate_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Check if object is exactly a date
-export fn PyDate_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDate_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyDateTime_DateType) 1 else 0;
 }
 
 /// Check if object is a datetime (or subclass)
-export fn PyDateTime_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj == &PyDateTime_DateTimeType) return 1;
     if (type_obj.tp_name) |name| {
@@ -344,12 +344,12 @@ export fn PyDateTime_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Check if object is exactly a datetime
-export fn PyDateTime_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyDateTime_DateTimeType) 1 else 0;
 }
 
 /// Check if object is a time (or subclass)
-export fn PyTime_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyTime_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj == &PyDateTime_TimeType) return 1;
     if (type_obj.tp_name) |name| {
@@ -360,12 +360,12 @@ export fn PyTime_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Check if object is exactly a time
-export fn PyTime_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyTime_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyDateTime_TimeType) 1 else 0;
 }
 
 /// Check if object is a timedelta (or subclass)
-export fn PyDelta_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDelta_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj == &PyDateTime_DeltaType) return 1;
     if (type_obj.tp_name) |name| {
@@ -376,7 +376,7 @@ export fn PyDelta_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Check if object is exactly a timedelta
-export fn PyDelta_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDelta_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyDateTime_DeltaType) 1 else 0;
 }
 
@@ -386,7 +386,7 @@ export fn PyDelta_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
 
 /// Create a new date object
 /// CPython: PyObject* PyDate_FromDate(int year, int month, int day)
-export fn PyDate_FromDate(year: c_int, month: c_int, day: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDate_FromDate(year: c_int, month: c_int, day: c_int) callconv(.c) ?*cpython.PyObject {
     const mem = PyObject_Malloc(@sizeOf(PyDateTime_Date)) orelse return null;
     const date: *PyDateTime_Date = @ptrCast(@alignCast(mem));
 
@@ -412,13 +412,13 @@ export fn PyDate_FromDate(year: c_int, month: c_int, day: c_int) callconv(.c) ?*
 
 /// Create a new time object
 /// CPython: PyObject* PyTime_FromTime(int hour, int minute, int second, int usecond)
-export fn PyTime_FromTime(hour: c_int, minute: c_int, second: c_int, usecond: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyTime_FromTime(hour: c_int, minute: c_int, second: c_int, usecond: c_int) callconv(.c) ?*cpython.PyObject {
     return PyTime_FromTimeAndFold(hour, minute, second, usecond, 0);
 }
 
 /// Create a new time object with fold
 /// CPython: PyObject* PyTime_FromTimeAndFold(int hour, int minute, int second, int usecond, int fold)
-export fn PyTime_FromTimeAndFold(hour: c_int, minute: c_int, second: c_int, usecond: c_int, fold: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyTime_FromTimeAndFold(hour: c_int, minute: c_int, second: c_int, usecond: c_int, fold: c_int) callconv(.c) ?*cpython.PyObject {
     _ = fold;
     const mem = PyObject_Malloc(@sizeOf(PyDateTime_Time)) orelse return null;
     const time: *PyDateTime_Time = @ptrCast(@alignCast(mem));
@@ -448,13 +448,13 @@ export fn PyTime_FromTimeAndFold(hour: c_int, minute: c_int, second: c_int, usec
 
 /// Create a new datetime object
 /// CPython: PyObject* PyDateTime_FromDateAndTime(int year, int month, int day, int hour, int minute, int second, int usecond)
-export fn PyDateTime_FromDateAndTime(year: c_int, month: c_int, day: c_int, hour: c_int, minute: c_int, second: c_int, usecond: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDateTime_FromDateAndTime(year: c_int, month: c_int, day: c_int, hour: c_int, minute: c_int, second: c_int, usecond: c_int) callconv(.c) ?*cpython.PyObject {
     return PyDateTime_FromDateAndTimeAndFold(year, month, day, hour, minute, second, usecond, 0);
 }
 
 /// Create a new datetime object with fold
 /// CPython: PyObject* PyDateTime_FromDateAndTimeAndFold(...)
-export fn PyDateTime_FromDateAndTimeAndFold(year: c_int, month: c_int, day: c_int, hour: c_int, minute: c_int, second: c_int, usecond: c_int, fold: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDateTime_FromDateAndTimeAndFold(year: c_int, month: c_int, day: c_int, hour: c_int, minute: c_int, second: c_int, usecond: c_int, fold: c_int) callconv(.c) ?*cpython.PyObject {
     _ = fold;
     const mem = PyObject_Malloc(@sizeOf(PyDateTime_DateTime)) orelse return null;
     const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(mem));
@@ -489,7 +489,7 @@ export fn PyDateTime_FromDateAndTimeAndFold(year: c_int, month: c_int, day: c_in
 
 /// Create a new timedelta object
 /// CPython: PyObject* PyDelta_FromDSU(int days, int seconds, int useconds)
-export fn PyDelta_FromDSU(days: c_int, seconds: c_int, useconds: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDelta_FromDSU(days: c_int, seconds: c_int, useconds: c_int) callconv(.c) ?*cpython.PyObject {
     const mem = PyObject_Malloc(@sizeOf(PyDateTime_Delta)) orelse return null;
     const delta: *PyDateTime_Delta = @ptrCast(@alignCast(mem));
 
@@ -528,7 +528,7 @@ export fn PyDelta_FromDSU(days: c_int, seconds: c_int, useconds: c_int) callconv
 // ============================================================================
 
 /// Get year from date/datetime
-export fn PyDateTime_GET_YEAR(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_GET_YEAR(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return (@as(c_int, dt.data[0]) << 8) | @as(c_int, dt.data[1]);
@@ -540,7 +540,7 @@ export fn PyDateTime_GET_YEAR(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Get month from date/datetime
-export fn PyDateTime_GET_MONTH(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_GET_MONTH(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return dt.data[2];
@@ -552,7 +552,7 @@ export fn PyDateTime_GET_MONTH(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Get day from date/datetime
-export fn PyDateTime_GET_DAY(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_GET_DAY(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return dt.data[3];
@@ -564,7 +564,7 @@ export fn PyDateTime_GET_DAY(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Get hour from time/datetime
-export fn PyDateTime_DATE_GET_HOUR(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DATE_GET_HOUR(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return dt.data[4];
@@ -573,7 +573,7 @@ export fn PyDateTime_DATE_GET_HOUR(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Get minute from time/datetime
-export fn PyDateTime_DATE_GET_MINUTE(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DATE_GET_MINUTE(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return dt.data[5];
@@ -582,7 +582,7 @@ export fn PyDateTime_DATE_GET_MINUTE(obj: *cpython.PyObject) callconv(.c) c_int 
 }
 
 /// Get second from time/datetime
-export fn PyDateTime_DATE_GET_SECOND(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DATE_GET_SECOND(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return dt.data[6];
@@ -591,7 +591,7 @@ export fn PyDateTime_DATE_GET_SECOND(obj: *cpython.PyObject) callconv(.c) c_int 
 }
 
 /// Get microsecond from time/datetime
-export fn PyDateTime_DATE_GET_MICROSECOND(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DATE_GET_MICROSECOND(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDateTime_Check(obj) != 0) {
         const dt: *PyDateTime_DateTime = @ptrCast(@alignCast(obj));
         return (@as(c_int, dt.data[7]) << 16) | (@as(c_int, dt.data[8]) << 8) | @as(c_int, dt.data[9]);
@@ -600,7 +600,7 @@ export fn PyDateTime_DATE_GET_MICROSECOND(obj: *cpython.PyObject) callconv(.c) c
 }
 
 /// Get hour from time object
-export fn PyDateTime_TIME_GET_HOUR(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_TIME_GET_HOUR(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyTime_Check(obj) != 0) {
         const time: *PyDateTime_Time = @ptrCast(@alignCast(obj));
         return time.data[0];
@@ -609,7 +609,7 @@ export fn PyDateTime_TIME_GET_HOUR(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Get minute from time object
-export fn PyDateTime_TIME_GET_MINUTE(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_TIME_GET_MINUTE(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyTime_Check(obj) != 0) {
         const time: *PyDateTime_Time = @ptrCast(@alignCast(obj));
         return time.data[1];
@@ -618,7 +618,7 @@ export fn PyDateTime_TIME_GET_MINUTE(obj: *cpython.PyObject) callconv(.c) c_int 
 }
 
 /// Get second from time object
-export fn PyDateTime_TIME_GET_SECOND(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_TIME_GET_SECOND(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyTime_Check(obj) != 0) {
         const time: *PyDateTime_Time = @ptrCast(@alignCast(obj));
         return time.data[2];
@@ -627,7 +627,7 @@ export fn PyDateTime_TIME_GET_SECOND(obj: *cpython.PyObject) callconv(.c) c_int 
 }
 
 /// Get microsecond from time object
-export fn PyDateTime_TIME_GET_MICROSECOND(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_TIME_GET_MICROSECOND(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyTime_Check(obj) != 0) {
         const time: *PyDateTime_Time = @ptrCast(@alignCast(obj));
         return (@as(c_int, time.data[3]) << 16) | (@as(c_int, time.data[4]) << 8) | @as(c_int, time.data[5]);
@@ -636,7 +636,7 @@ export fn PyDateTime_TIME_GET_MICROSECOND(obj: *cpython.PyObject) callconv(.c) c
 }
 
 /// Get days from timedelta
-export fn PyDateTime_DELTA_GET_DAYS(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DELTA_GET_DAYS(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDelta_Check(obj) != 0) {
         const delta: *PyDateTime_Delta = @ptrCast(@alignCast(obj));
         return delta.days;
@@ -645,7 +645,7 @@ export fn PyDateTime_DELTA_GET_DAYS(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Get seconds from timedelta
-export fn PyDateTime_DELTA_GET_SECONDS(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DELTA_GET_SECONDS(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDelta_Check(obj) != 0) {
         const delta: *PyDateTime_Delta = @ptrCast(@alignCast(obj));
         return delta.seconds;
@@ -654,7 +654,7 @@ export fn PyDateTime_DELTA_GET_SECONDS(obj: *cpython.PyObject) callconv(.c) c_in
 }
 
 /// Get microseconds from timedelta
-export fn PyDateTime_DELTA_GET_MICROSECONDS(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDateTime_DELTA_GET_MICROSECONDS(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyDelta_Check(obj) != 0) {
         const delta: *PyDateTime_Delta = @ptrCast(@alignCast(obj));
         return delta.microseconds;
@@ -751,7 +751,7 @@ fn time_from_time_fold_stub(_: c_int, _: c_int, _: c_int, _: c_int, _: ?*cpython
 /// Import datetime C API
 /// Returns pointer to PyDateTime_CAPI or null
 /// C extensions call this to get access to datetime type constructors
-export fn PyDateTime_IMPORT() callconv(.c) ?*PyDateTime_CAPI {
+pub export fn PyDateTime_IMPORT() callconv(.c) ?*PyDateTime_CAPI {
     initDatetimeCAPI();
     if (datetime_capi) |*capi| {
         return capi;
@@ -765,7 +765,7 @@ export fn PyDateTime_IMPORT() callconv(.c) ?*PyDateTime_CAPI {
 
 /// Create datetime from POSIX timestamp
 /// CPython: PyObject* PyDateTime_FromTimestamp(PyObject *args)
-export fn PyDateTime_FromTimestamp(args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDateTime_FromTimestamp(args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
     const pylong = @import("../objects/longobject.zig");
     const pyfloat = @import("../objects/floatobject.zig");
@@ -846,7 +846,7 @@ fn daysInMonth(month: c_int, is_leap: bool) i64 {
 
 /// Create date from POSIX timestamp
 /// CPython: PyObject* PyDate_FromTimestamp(PyObject *args)
-export fn PyDate_FromTimestamp(args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDate_FromTimestamp(args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
     const pylong = @import("../objects/longobject.zig");
     const pyfloat = @import("../objects/floatobject.zig");

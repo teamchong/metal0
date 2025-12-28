@@ -8,12 +8,12 @@ const cpython = @import("object.zig");
 const traits = @import("../objects/typetraits.zig");
 
 /// Check if object is a sequence
-export fn PySequence_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySequence_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (traits.isSequence(obj)) 1 else 0;
 }
 
 /// Get sequence length
-export fn PySequence_Size(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySequence_Size(obj: *cpython.PyObject) callconv(.c) isize {
     if (traits.getLength(obj)) |len| {
         return len;
     }
@@ -22,12 +22,12 @@ export fn PySequence_Size(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Alias for PySequence_Size
-export fn PySequence_Length(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySequence_Length(obj: *cpython.PyObject) callconv(.c) isize {
     return PySequence_Size(obj);
 }
 
 /// Concatenate sequences
-export fn PySequence_Concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_Concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_sequence) |seq_procs| {
@@ -41,7 +41,7 @@ export fn PySequence_Concat(a: *cpython.PyObject, b: *cpython.PyObject) callconv
 }
 
 /// Repeat sequence
-export fn PySequence_Repeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_Repeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_as_sequence) |seq_procs| {
@@ -55,7 +55,7 @@ export fn PySequence_Repeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?
 }
 
 /// Get item by index
-export fn PySequence_GetItem(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_GetItem(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cpython.PyObject {
     if (traits.getItem(obj, i)) |item| {
         return item;
     }
@@ -64,7 +64,7 @@ export fn PySequence_GetItem(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cp
 }
 
 /// Set item by index
-export fn PySequence_SetItem(obj: *cpython.PyObject, i: isize, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySequence_SetItem(obj: *cpython.PyObject, i: isize, value: *cpython.PyObject) callconv(.c) c_int {
     if (traits.setItem(obj, i, value)) {
         return 0;
     }
@@ -73,7 +73,7 @@ export fn PySequence_SetItem(obj: *cpython.PyObject, i: isize, value: *cpython.P
 }
 
 /// Delete item by index
-export fn PySequence_DelItem(obj: *cpython.PyObject, i: isize) callconv(.c) c_int {
+pub export fn PySequence_DelItem(obj: *cpython.PyObject, i: isize) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_as_sequence) |seq_procs| {
@@ -87,7 +87,7 @@ export fn PySequence_DelItem(obj: *cpython.PyObject, i: isize) callconv(.c) c_in
 }
 
 /// Get slice [i:j]
-export fn PySequence_GetSlice(obj: *cpython.PyObject, i: isize, j: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_GetSlice(obj: *cpython.PyObject, i: isize, j: isize) callconv(.c) ?*cpython.PyObject {
     const list = @import("../objects/listobject.zig");
     const tuple = @import("../objects/tupleobject.zig");
 
@@ -153,7 +153,7 @@ export fn PySequence_GetSlice(obj: *cpython.PyObject, i: isize, j: isize) callco
 }
 
 /// Set slice [i:j] = v
-export fn PySequence_SetSlice(obj: *cpython.PyObject, i: isize, j: isize, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySequence_SetSlice(obj: *cpython.PyObject, i: isize, j: isize, value: *cpython.PyObject) callconv(.c) c_int {
     const list = @import("../objects/listobject.zig");
 
     // Only lists support slice assignment
@@ -166,7 +166,7 @@ export fn PySequence_SetSlice(obj: *cpython.PyObject, i: isize, j: isize, value:
 }
 
 /// Delete slice [i:j]
-export fn PySequence_DelSlice(obj: *cpython.PyObject, i: isize, j: isize) callconv(.c) c_int {
+pub export fn PySequence_DelSlice(obj: *cpython.PyObject, i: isize, j: isize) callconv(.c) c_int {
     const list = @import("../objects/listobject.zig");
 
     // Only lists support slice deletion
@@ -179,7 +179,7 @@ export fn PySequence_DelSlice(obj: *cpython.PyObject, i: isize, j: isize) callco
 }
 
 /// Check if item is in sequence
-export fn PySequence_Contains(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySequence_Contains(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_as_sequence) |seq_procs| {
@@ -208,7 +208,7 @@ export fn PySequence_Contains(obj: *cpython.PyObject, value: *cpython.PyObject) 
 }
 
 /// Count occurrences of value
-export fn PySequence_Count(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySequence_Count(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) isize {
     const len = PySequence_Size(obj);
     if (len < 0) return -1;
 
@@ -229,7 +229,7 @@ export fn PySequence_Count(obj: *cpython.PyObject, value: *cpython.PyObject) cal
 }
 
 /// Find first index of value
-export fn PySequence_Index(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySequence_Index(obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) isize {
     const len = PySequence_Size(obj);
     if (len < 0) return -1;
 
@@ -250,7 +250,7 @@ export fn PySequence_Index(obj: *cpython.PyObject, value: *cpython.PyObject) cal
 }
 
 /// Convert sequence to list
-export fn PySequence_List(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_List(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const list = @import("../objects/listobject.zig");
 
     // If already a list, return a copy
@@ -286,7 +286,7 @@ export fn PySequence_List(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObjec
 }
 
 /// Convert sequence to tuple
-export fn PySequence_Tuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_Tuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const tuple = @import("../objects/tupleobject.zig");
     const list = @import("../objects/listobject.zig");
 
@@ -318,7 +318,7 @@ export fn PySequence_Tuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObje
 
 /// Fast sequence (for iteration)
 /// Returns a list or tuple view of the sequence (for fast item access)
-export fn PySequence_Fast(obj: *cpython.PyObject, message: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_Fast(obj: *cpython.PyObject, message: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     // If already list or tuple, just incref and return
     if (traits.isList(obj) or traits.isTuple(obj)) {
         return traits.incref(obj);
@@ -333,7 +333,7 @@ export fn PySequence_Fast(obj: *cpython.PyObject, message: [*:0]const u8) callco
 }
 
 /// Get item from fast sequence (no bounds checking)
-export fn PySequence_Fast_GET_ITEM(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_Fast_GET_ITEM(obj: *cpython.PyObject, i: isize) callconv(.c) ?*cpython.PyObject {
     const list = @import("../objects/listobject.zig");
     const tuple = @import("../objects/tupleobject.zig");
 
@@ -349,7 +349,7 @@ export fn PySequence_Fast_GET_ITEM(obj: *cpython.PyObject, i: isize) callconv(.c
 }
 
 /// Get size of fast sequence
-export fn PySequence_Fast_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySequence_Fast_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
     const list = @import("../objects/listobject.zig");
     const tuple = @import("../objects/tupleobject.zig");
 
@@ -364,7 +364,7 @@ export fn PySequence_Fast_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Get underlying array of fast sequence (for direct pointer access)
-export fn PySequence_Fast_ITEMS(obj: *cpython.PyObject) callconv(.c) ?[*]*cpython.PyObject {
+pub export fn PySequence_Fast_ITEMS(obj: *cpython.PyObject) callconv(.c) ?[*]*cpython.PyObject {
     const list = @import("../objects/listobject.zig");
     const tuple = @import("../objects/tupleobject.zig");
 
@@ -381,7 +381,7 @@ export fn PySequence_Fast_ITEMS(obj: *cpython.PyObject) callconv(.c) ?[*]*cpytho
 }
 
 /// In-place concatenate
-export fn PySequence_InPlaceConcat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_InPlaceConcat(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_sequence) |seq_procs| {
@@ -395,7 +395,7 @@ export fn PySequence_InPlaceConcat(a: *cpython.PyObject, b: *cpython.PyObject) c
 }
 
 /// In-place repeat
-export fn PySequence_InPlaceRepeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PySequence_InPlaceRepeat(obj: *cpython.PyObject, count: isize) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_sequence) |seq_procs| {

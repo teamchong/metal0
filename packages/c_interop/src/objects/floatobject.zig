@@ -269,7 +269,7 @@ pub export fn PyFloat_FromDouble(value: f64) callconv(.c) ?*cpython.PyObject {
     return createFloat(value);
 }
 
-export fn PyFloat_FromString(str: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyFloat_FromString(str: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const unicode = @import("../include/unicodeobject.zig");
 
     // Get string content
@@ -294,7 +294,7 @@ pub export fn PyFloat_AsDouble(obj: *cpython.PyObject) callconv(.c) f64 {
     return getFloatValue(@ptrCast(@alignCast(obj)));
 }
 
-export fn PyFloat_GetInfo() callconv(.c) ?*cpython.PyObject {
+pub export fn PyFloat_GetInfo() callconv(.c) ?*cpython.PyObject {
     // Return a tuple with float info (simplified version)
     // CPython returns a named tuple, we return a regular tuple with key values
     const tuple = @import("tupleobject.zig");
@@ -316,11 +316,11 @@ export fn PyFloat_GetInfo() callconv(.c) ?*cpython.PyObject {
     return result;
 }
 
-export fn PyFloat_GetMax() callconv(.c) f64 {
+pub export fn PyFloat_GetMax() callconv(.c) f64 {
     return std.math.floatMax(f64);
 }
 
-export fn PyFloat_GetMin() callconv(.c) f64 {
+pub export fn PyFloat_GetMin() callconv(.c) f64 {
     return std.math.floatMin(f64);
 }
 
@@ -329,7 +329,7 @@ export fn PyFloat_GetMin() callconv(.c) f64 {
 // ============================================================================
 
 /// PyFloat_Pack2 - Pack f64 to IEEE 754 half-precision (2 bytes)
-export fn PyFloat_Pack2(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
+pub export fn PyFloat_Pack2(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
     // Convert to f16 and store
     const f16_val: f16 = @floatCast(x);
     const bits: u16 = @bitCast(f16_val);
@@ -347,7 +347,7 @@ export fn PyFloat_Pack2(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
 }
 
 /// PyFloat_Pack4 - Pack f64 to IEEE 754 single-precision (4 bytes)
-export fn PyFloat_Pack4(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
+pub export fn PyFloat_Pack4(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
     const f32_val: f32 = @floatCast(x);
     const bits: u32 = @bitCast(f32_val);
 
@@ -366,7 +366,7 @@ export fn PyFloat_Pack4(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
 }
 
 /// PyFloat_Pack8 - Pack f64 to IEEE 754 double-precision (8 bytes)
-export fn PyFloat_Pack8(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
+pub export fn PyFloat_Pack8(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
     const bits: u64 = @bitCast(x);
 
     if (le != 0) {
@@ -392,7 +392,7 @@ export fn PyFloat_Pack8(x: f64, p: [*]u8, le: c_int) callconv(.c) c_int {
 }
 
 /// PyFloat_Unpack2 - Unpack IEEE 754 half-precision (2 bytes) to f64
-export fn PyFloat_Unpack2(p: [*]const u8, le: c_int) callconv(.c) f64 {
+pub export fn PyFloat_Unpack2(p: [*]const u8, le: c_int) callconv(.c) f64 {
     var bits: u16 = undefined;
     if (le != 0) {
         bits = @as(u16, p[0]) | (@as(u16, p[1]) << 8);
@@ -404,7 +404,7 @@ export fn PyFloat_Unpack2(p: [*]const u8, le: c_int) callconv(.c) f64 {
 }
 
 /// PyFloat_Unpack4 - Unpack IEEE 754 single-precision (4 bytes) to f64
-export fn PyFloat_Unpack4(p: [*]const u8, le: c_int) callconv(.c) f64 {
+pub export fn PyFloat_Unpack4(p: [*]const u8, le: c_int) callconv(.c) f64 {
     var bits: u32 = undefined;
     if (le != 0) {
         bits = @as(u32, p[0]) | (@as(u32, p[1]) << 8) | (@as(u32, p[2]) << 16) | (@as(u32, p[3]) << 24);
@@ -416,7 +416,7 @@ export fn PyFloat_Unpack4(p: [*]const u8, le: c_int) callconv(.c) f64 {
 }
 
 /// PyFloat_Unpack8 - Unpack IEEE 754 double-precision (8 bytes) to f64
-export fn PyFloat_Unpack8(p: [*]const u8, le: c_int) callconv(.c) f64 {
+pub export fn PyFloat_Unpack8(p: [*]const u8, le: c_int) callconv(.c) f64 {
     var bits: u64 = undefined;
     if (le != 0) {
         bits = @as(u64, p[0]) | (@as(u64, p[1]) << 8) | (@as(u64, p[2]) << 16) | (@as(u64, p[3]) << 24) |
@@ -436,7 +436,7 @@ pub export fn PyFloat_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyFloat_Type) 1 else 0;
 }
 
-export fn PyFloat_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyFloat_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyFloat_Type) 1 else 0;
 }
 

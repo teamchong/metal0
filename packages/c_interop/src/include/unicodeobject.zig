@@ -250,7 +250,7 @@ fn PyUnicode_FromStringAndSize_internal(str: [*]const u8, size: isize) callconv(
 ///
 /// CPython: const char* PyUnicode_AsUTF8(PyObject *obj)
 /// Returns: Null-terminated C string or null on error
-export fn PyUnicode_AsUTF8(obj: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
+pub export fn PyUnicode_AsUTF8(obj: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
     if (PyUnicode_Check(obj) == 0) {
         setTypeError("expected str object");
         return null;
@@ -263,7 +263,7 @@ export fn PyUnicode_AsUTF8(obj: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
 ///
 /// CPython: const char* PyUnicode_AsUTF8AndSize(PyObject *obj, Py_ssize_t *size)
 /// Returns: C string and writes size to size pointer
-export fn PyUnicode_AsUTF8AndSize(obj: *cpython.PyObject, size: *isize) callconv(.c) ?[*:0]const u8 {
+pub export fn PyUnicode_AsUTF8AndSize(obj: *cpython.PyObject, size: *isize) callconv(.c) ?[*:0]const u8 {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     if (getUnicodeData(obj)) |d| size.* = @intCast(d.byte_length);
     return str;
@@ -277,7 +277,7 @@ export fn PyUnicode_AsUTF8AndSize(obj: *cpython.PyObject, size: *isize) callconv
 ///
 /// CPython: Py_ssize_t PyUnicode_GetLength(PyObject *obj)
 /// Returns: Character count (not byte count) or -1 on error
-export fn PyUnicode_GetLength(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyUnicode_GetLength(obj: *cpython.PyObject) callconv(.c) isize {
     if (PyUnicode_Check(obj) == 0) {
         setTypeError("expected str object");
         return -1;
@@ -290,7 +290,7 @@ export fn PyUnicode_GetLength(obj: *cpython.PyObject) callconv(.c) isize {
 ///
 /// CPython: int PyUnicode_Check(PyObject *obj)
 /// Returns: 1 if unicode, 0 otherwise
-export fn PyUnicode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     ensureUnicodeTypeInit();
 
     const type_obj = cpython.Py_TYPE(obj);
@@ -317,7 +317,7 @@ export fn PyUnicode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 ///
 /// CPython: PyObject* PyUnicode_Concat(PyObject *left, PyObject *right)
 /// Returns: New concatenated string or null on error
-export fn PyUnicode_Concat(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Concat(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Type check
     if (PyUnicode_Check(left) == 0 or PyUnicode_Check(right) == 0) {
         setTypeError("can only concatenate str (not other types)");
@@ -357,7 +357,7 @@ export fn PyUnicode_Concat(left: *cpython.PyObject, right: *cpython.PyObject) ca
 ///
 /// CPython: PyObject* PyUnicode_Format(PyObject *format, PyObject *args)
 /// Returns: Formatted string or null on error
-export fn PyUnicode_Format(format: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Format(format: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const fmt_str = PyUnicode_AsUTF8(format) orelse return null;
     const fmt = std.mem.span(fmt_str);
 
@@ -557,7 +557,7 @@ export fn PyUnicode_Format(format: *cpython.PyObject, args: *cpython.PyObject) c
 ///
 /// CPython: PyObject* PyUnicode_Join(PyObject *separator, PyObject *seq)
 /// Returns: Joined string or null on error
-export fn PyUnicode_Join(separator: *cpython.PyObject, seq: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Join(separator: *cpython.PyObject, seq: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const sep_str = PyUnicode_AsUTF8(separator) orelse return null;
     const sep_slice = std.mem.span(sep_str);
 
@@ -637,7 +637,7 @@ export fn PyUnicode_Join(separator: *cpython.PyObject, seq: *cpython.PyObject) c
 ///
 /// CPython: PyObject* PyUnicode_Split(PyObject *s, PyObject *sep, Py_ssize_t maxsplit)
 /// Returns: List of substrings or null on error
-export fn PyUnicode_Split(s: *cpython.PyObject, sep: ?*cpython.PyObject, maxsplit: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Split(s: *cpython.PyObject, sep: ?*cpython.PyObject, maxsplit: isize) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(s) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -713,7 +713,7 @@ export fn PyUnicode_Split(s: *cpython.PyObject, sep: ?*cpython.PyObject, maxspli
 ///
 /// CPython: PyObject* PyUnicode_DecodeUTF8(const char *s, Py_ssize_t size, const char *errors)
 /// Returns: Unicode object or null on error
-export fn PyUnicode_DecodeUTF8(s: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_DecodeUTF8(s: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors; // Simplified: ignore error handling mode
     return PyUnicode_FromStringAndSize(s, size);
 }
@@ -723,7 +723,7 @@ export fn PyUnicode_DecodeUTF8(s: [*]const u8, size: isize, errors: ?[*:0]const 
 /// CPython: PyObject* PyUnicode_DecodeLocale(const char *str, const char *errors)
 /// Returns: Unicode object or null on error
 /// Note: Simplified - assumes locale is UTF-8 compatible
-export fn PyUnicode_DecodeLocale(str: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_DecodeLocale(str: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors; // Simplified: assume UTF-8 locale
     return PyUnicode_FromString(str);
 }
@@ -732,7 +732,7 @@ export fn PyUnicode_DecodeLocale(str: [*:0]const u8, errors: ?[*:0]const u8) cal
 ///
 /// CPython: PyObject* PyUnicode_DecodeLocaleAndSize(const char *str, Py_ssize_t len, const char *errors)
 /// Returns: Unicode object or null on error
-export fn PyUnicode_DecodeLocaleAndSize(str: [*]const u8, len: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_DecodeLocaleAndSize(str: [*]const u8, len: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors; // Simplified: assume UTF-8 locale
     return PyUnicode_FromStringAndSize(str, len);
 }
@@ -741,7 +741,7 @@ export fn PyUnicode_DecodeLocaleAndSize(str: [*]const u8, len: isize, errors: ?[
 ///
 /// CPython: PyObject* PyUnicode_EncodeLocale(PyObject *unicode, const char *errors)
 /// Returns: Bytes object or null on error
-export fn PyUnicode_EncodeLocale(unicode: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_EncodeLocale(unicode: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     // Simplified: just return UTF-8 encoding
     return PyUnicode_AsUTF8String(unicode);
@@ -751,7 +751,7 @@ export fn PyUnicode_EncodeLocale(unicode: *cpython.PyObject, errors: ?[*:0]const
 ///
 /// CPython: PyObject* PyUnicode_AsUTF8String(PyObject *obj)
 /// Returns: Bytes object or null on error
-export fn PyUnicode_AsUTF8String(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_AsUTF8String(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     var size: isize = 0;
     const str = PyUnicode_AsUTF8AndSize(obj, &size) orelse return null;
 
@@ -763,7 +763,7 @@ export fn PyUnicode_AsUTF8String(obj: *cpython.PyObject) callconv(.c) ?*cpython.
 ///
 /// CPython: int PyUnicode_Compare(PyObject *left, PyObject *right)
 /// Returns: -1 (less), 0 (equal), 1 (greater), -1 on error
-export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) callconv(.c) c_int {
     if (PyUnicode_Check(left) == 0 or PyUnicode_Check(right) == 0) {
         setTypeError("can only compare str objects");
         return -1;
@@ -784,7 +784,7 @@ export fn PyUnicode_Compare(left: *cpython.PyObject, right: *cpython.PyObject) c
 ///
 /// CPython: int PyUnicode_Contains(PyObject *container, PyObject *element)
 /// Returns: 1 if contains, 0 if not, -1 on error
-export fn PyUnicode_Contains(container: *cpython.PyObject, element: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_Contains(container: *cpython.PyObject, element: *cpython.PyObject) callconv(.c) c_int {
     if (PyUnicode_Check(container) == 0 or PyUnicode_Check(element) == 0) {
         setTypeError("can only check str containment");
         return -1;
@@ -807,7 +807,7 @@ export fn PyUnicode_Contains(container: *cpython.PyObject, element: *cpython.PyO
 ///
 /// CPython: PyObject* PyUnicode_Replace(PyObject *str, PyObject *substr, PyObject *replstr, Py_ssize_t maxcount)
 /// Returns: New string with replacements or null on error
-export fn PyUnicode_Replace(str_obj: *cpython.PyObject, substr: *cpython.PyObject, replstr: *cpython.PyObject, maxcount: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Replace(str_obj: *cpython.PyObject, substr: *cpython.PyObject, replstr: *cpython.PyObject, maxcount: isize) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(str_obj) orelse return null;
     const old = PyUnicode_AsUTF8(substr) orelse return null;
     const new = PyUnicode_AsUTF8(replstr) orelse return null;
@@ -870,7 +870,7 @@ export fn PyUnicode_Replace(str_obj: *cpython.PyObject, substr: *cpython.PyObjec
 ///
 /// CPython: PyObject* PyUnicode_Lower(PyObject *obj)
 /// Returns: Lowercase string or null on error
-export fn PyUnicode_Lower(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Lower(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -888,7 +888,7 @@ export fn PyUnicode_Lower(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObjec
 ///
 /// CPython: PyObject* PyUnicode_Upper(PyObject *obj)
 /// Returns: Uppercase string or null on error
-export fn PyUnicode_Upper(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Upper(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -906,7 +906,7 @@ export fn PyUnicode_Upper(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObjec
 ///
 /// CPython: PyObject* PyUnicode_Strip(PyObject *obj)
 /// Returns: Stripped string or null on error
-export fn PyUnicode_Strip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Strip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -929,7 +929,7 @@ export fn PyUnicode_Strip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObjec
 ///
 /// CPython: PyObject* PyUnicode_LStrip(PyObject *obj)
 /// Returns: Left-stripped string or null on error
-export fn PyUnicode_LStrip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_LStrip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -945,7 +945,7 @@ export fn PyUnicode_LStrip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObje
 ///
 /// CPython: PyObject* PyUnicode_RStrip(PyObject *obj)
 /// Returns: Right-stripped string or null on error
-export fn PyUnicode_RStrip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_RStrip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -962,7 +962,7 @@ export fn PyUnicode_RStrip(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObje
 /// CPython: int PyUnicode_Tailmatch(PyObject *str, PyObject *substr, Py_ssize_t start, Py_ssize_t end, int direction)
 /// direction: -1 for startswith, 1 for endswith
 /// Returns: 1 if match, 0 if not, -1 on error
-export fn PyUnicode_Tailmatch(str_obj: *cpython.PyObject, substr: *cpython.PyObject, start: isize, end: isize, direction: c_int) callconv(.c) c_int {
+pub export fn PyUnicode_Tailmatch(str_obj: *cpython.PyObject, substr: *cpython.PyObject, start: isize, end: isize, direction: c_int) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(str_obj) orelse return -1;
     const prefix = PyUnicode_AsUTF8(substr) orelse return -1;
 
@@ -1005,7 +1005,7 @@ export fn PyUnicode_Tailmatch(str_obj: *cpython.PyObject, substr: *cpython.PyObj
 /// CPython: Py_ssize_t PyUnicode_Find(PyObject *str, PyObject *substr, Py_ssize_t start, Py_ssize_t end, int direction)
 /// direction: 1 for forward, -1 for reverse
 /// Returns: Index of first match or -1 if not found, -2 on error
-export fn PyUnicode_Find(str_obj: *cpython.PyObject, substr: *cpython.PyObject, start: isize, end: isize, direction: c_int) callconv(.c) isize {
+pub export fn PyUnicode_Find(str_obj: *cpython.PyObject, substr: *cpython.PyObject, start: isize, end: isize, direction: c_int) callconv(.c) isize {
     const str = PyUnicode_AsUTF8(str_obj) orelse return -2;
     const needle = PyUnicode_AsUTF8(substr) orelse return -2;
 
@@ -1044,7 +1044,7 @@ export fn PyUnicode_Find(str_obj: *cpython.PyObject, substr: *cpython.PyObject, 
 ///
 /// CPython: Py_ssize_t PyUnicode_Count(PyObject *str, PyObject *substr, Py_ssize_t start, Py_ssize_t end)
 /// Returns: Count of non-overlapping occurrences, -1 on error
-export fn PyUnicode_Count(str_obj: *cpython.PyObject, substr: *cpython.PyObject, start: isize, end: isize) callconv(.c) isize {
+pub export fn PyUnicode_Count(str_obj: *cpython.PyObject, substr: *cpython.PyObject, start: isize, end: isize) callconv(.c) isize {
     const str = PyUnicode_AsUTF8(str_obj) orelse return -1;
     const needle = PyUnicode_AsUTF8(substr) orelse return -1;
 
@@ -1084,7 +1084,7 @@ export fn PyUnicode_Count(str_obj: *cpython.PyObject, substr: *cpython.PyObject,
 ///
 /// CPython: PyObject* PyUnicode_Substring(PyObject *str, Py_ssize_t start, Py_ssize_t end)
 /// Returns: New string with slice or null on error
-export fn PyUnicode_Substring(str_obj: *cpython.PyObject, start: isize, end: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Substring(str_obj: *cpython.PyObject, start: isize, end: isize) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(str_obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -1108,7 +1108,7 @@ export fn PyUnicode_Substring(str_obj: *cpython.PyObject, start: isize, end: isi
 ///
 /// CPython: PyObject* PyUnicode_Title(PyObject *str)
 /// Returns: Title-cased string or null on error
-export fn PyUnicode_Title(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Title(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -1136,7 +1136,7 @@ export fn PyUnicode_Title(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObjec
 ///
 /// CPython: PyObject* PyUnicode_Capitalize(PyObject *str)
 /// Returns: Capitalized string or null on error
-export fn PyUnicode_Capitalize(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_Capitalize(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -1157,7 +1157,7 @@ export fn PyUnicode_Capitalize(obj: *cpython.PyObject) callconv(.c) ?*cpython.Py
 ///
 /// CPython: PyObject* PyUnicode_SwapCase(PyObject *str)
 /// Returns: Swapped-case string or null on error
-export fn PyUnicode_SwapCase(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_SwapCase(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str = PyUnicode_AsUTF8(obj) orelse return null;
     const str_slice = std.mem.span(str);
 
@@ -1181,7 +1181,7 @@ export fn PyUnicode_SwapCase(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyOb
 /// Check if string is alphanumeric
 ///
 /// Returns: 1 if all alphanumeric and not empty, 0 otherwise
-export fn PyUnicode_IsAlnum(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsAlnum(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 
@@ -1196,7 +1196,7 @@ export fn PyUnicode_IsAlnum(obj: *cpython.PyObject) callconv(.c) c_int {
 /// Check if string is alphabetic
 ///
 /// Returns: 1 if all alphabetic and not empty, 0 otherwise
-export fn PyUnicode_IsAlpha(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsAlpha(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 
@@ -1211,7 +1211,7 @@ export fn PyUnicode_IsAlpha(obj: *cpython.PyObject) callconv(.c) c_int {
 /// Check if string is all digits
 ///
 /// Returns: 1 if all digits and not empty, 0 otherwise
-export fn PyUnicode_IsDigit(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsDigit(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 
@@ -1226,7 +1226,7 @@ export fn PyUnicode_IsDigit(obj: *cpython.PyObject) callconv(.c) c_int {
 /// Check if string is all lowercase
 ///
 /// Returns: 1 if all lowercase letters and has at least one cased char, 0 otherwise
-export fn PyUnicode_IsLower(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsLower(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 
@@ -1241,7 +1241,7 @@ export fn PyUnicode_IsLower(obj: *cpython.PyObject) callconv(.c) c_int {
 /// Check if string is all uppercase
 ///
 /// Returns: 1 if all uppercase letters and has at least one cased char, 0 otherwise
-export fn PyUnicode_IsUpper(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsUpper(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 
@@ -1256,7 +1256,7 @@ export fn PyUnicode_IsUpper(obj: *cpython.PyObject) callconv(.c) c_int {
 /// Check if string is whitespace
 ///
 /// Returns: 1 if all whitespace and not empty, 0 otherwise
-export fn PyUnicode_IsSpace(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsSpace(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 
@@ -1271,7 +1271,7 @@ export fn PyUnicode_IsSpace(obj: *cpython.PyObject) callconv(.c) c_int {
 /// Check if string is title-cased
 ///
 /// Returns: 1 if title-cased, 0 otherwise
-export fn PyUnicode_IsTitle(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyUnicode_IsTitle(obj: *cpython.PyObject) callconv(.c) c_int {
     const str = PyUnicode_AsUTF8(obj) orelse return 0;
     const str_slice = std.mem.span(str);
 

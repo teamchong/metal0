@@ -219,7 +219,7 @@ pub var PyContextVar_Type: cpython.PyTypeObject = .{
 // ============================================================================
 
 /// Create a new empty context
-export fn PyContext_New() callconv(.c) ?*cpython.PyObject {
+pub export fn PyContext_New() callconv(.c) ?*cpython.PyObject {
     const ctx = allocator.create(PyContext) catch return null;
 
     ctx.ob_base.ob_refcnt = 1;
@@ -236,7 +236,7 @@ export fn PyContext_New() callconv(.c) ?*cpython.PyObject {
 }
 
 /// Copy a context
-export fn PyContext_Copy(ctx: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyContext_Copy(ctx: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const src: *PyContext = @ptrCast(@alignCast(ctx));
     const new_ctx = allocator.create(PyContext) catch return null;
 
@@ -260,7 +260,7 @@ export fn PyContext_Copy(ctx: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
 }
 
 /// Copy the current context
-export fn PyContext_CopyCurrent() callconv(.c) ?*cpython.PyObject {
+pub export fn PyContext_CopyCurrent() callconv(.c) ?*cpython.PyObject {
     if (current_context) |ctx| {
         return PyContext_Copy(@ptrCast(&ctx.ob_base));
     }
@@ -271,7 +271,7 @@ export fn PyContext_CopyCurrent() callconv(.c) ?*cpython.PyObject {
 
 /// Enter a context (make it current)
 /// Returns 0 on success, -1 on error
-export fn PyContext_Enter(ctx: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyContext_Enter(ctx: *cpython.PyObject) callconv(.c) c_int {
     const context: *PyContext = @ptrCast(@alignCast(ctx));
 
     // Save previous context
@@ -286,7 +286,7 @@ export fn PyContext_Enter(ctx: *cpython.PyObject) callconv(.c) c_int {
 
 /// Exit a context (restore previous)
 /// Returns 0 on success, -1 on error
-export fn PyContext_Exit(ctx: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyContext_Exit(ctx: *cpython.PyObject) callconv(.c) c_int {
     const context: *PyContext = @ptrCast(@alignCast(ctx));
 
     if (current_context != context) {
@@ -309,7 +309,7 @@ export fn PyContext_Exit(ctx: *cpython.PyObject) callconv(.c) c_int {
 // ============================================================================
 
 /// Create a new context variable
-export fn PyContextVar_New(name: [*:0]const u8, default_value: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyContextVar_New(name: [*:0]const u8, default_value: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const var_obj = allocator.create(PyContextVar) catch return null;
 
     var_obj.ob_base.ob_refcnt = 1;
@@ -326,7 +326,7 @@ export fn PyContextVar_New(name: [*:0]const u8, default_value: ?*cpython.PyObjec
 /// Get value of context variable
 /// Returns 0 on success with value in *val, -1 on error
 /// If not set and no default, sets LookupError
-export fn PyContextVar_Get(var_obj: *cpython.PyObject, default_value: ?*cpython.PyObject, val: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyContextVar_Get(var_obj: *cpython.PyObject, default_value: ?*cpython.PyObject, val: *?*cpython.PyObject) callconv(.c) c_int {
     const cv: *PyContextVar = @ptrCast(@alignCast(var_obj));
 
     // Check current context
@@ -359,7 +359,7 @@ export fn PyContextVar_Get(var_obj: *cpython.PyObject, default_value: ?*cpython.
 
 /// Set value of context variable
 /// Returns token that can be used to reset, or null on error
-export fn PyContextVar_Set(var_obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyContextVar_Set(var_obj: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Ensure we have a current context
     if (current_context == null) {
         const ctx = PyContext_New();
@@ -394,7 +394,7 @@ export fn PyContextVar_Set(var_obj: *cpython.PyObject, value: *cpython.PyObject)
 
 /// Reset context variable to previous value using token
 /// Returns 0 on success, -1 on error
-export fn PyContextVar_Reset(var_obj: *cpython.PyObject, token: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyContextVar_Reset(var_obj: *cpython.PyObject, token: *cpython.PyObject) callconv(.c) c_int {
     _ = var_obj;
     const tok: *PyContextToken = @ptrCast(@alignCast(token));
 

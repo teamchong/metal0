@@ -8,15 +8,15 @@ const pynone = @import("../objects/noneobject.zig");
 const pyslice = @import("../objects/sliceobject.zig");
 
 // Getter functions (for dlsym lookup)
-export fn _get_Py_True() callconv(.c) *cpython.PyObject {
+pub export fn _get_Py_True() callconv(.c) *cpython.PyObject {
     return @ptrCast(&pybool._Py_TrueStruct);
 }
 
-export fn _get_Py_False() callconv(.c) *cpython.PyObject {
+pub export fn _get_Py_False() callconv(.c) *cpython.PyObject {
     return @ptrCast(&pybool._Py_FalseStruct);
 }
 
-export fn _get_Py_None() callconv(.c) *cpython.PyObject {
+pub export fn _get_Py_None() callconv(.c) *cpython.PyObject {
     return pynone.Py_None();
 }
 

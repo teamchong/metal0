@@ -13,12 +13,12 @@ const Py_INCREF = traits.externs.Py_INCREF;
 const Py_DECREF = traits.externs.Py_DECREF;
 
 /// Check if object is a mapping
-export fn PyMapping_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMapping_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (traits.isMapping(obj)) 1 else 0;
 }
 
 /// Get mapping length
-export fn PyMapping_Size(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyMapping_Size(obj: *cpython.PyObject) callconv(.c) isize {
     if (traits.getLength(obj)) |len| {
         return len;
     }
@@ -27,12 +27,12 @@ export fn PyMapping_Size(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Alias for PyMapping_Size
-export fn PyMapping_Length(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyMapping_Length(obj: *cpython.PyObject) callconv(.c) isize {
     return PyMapping_Size(obj);
 }
 
 /// Get item by key
-export fn PyMapping_GetItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMapping_GetItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     const unicode = @import("unicodeobject.zig");
 
@@ -50,7 +50,7 @@ export fn PyMapping_GetItemString(obj: *cpython.PyObject, key: [*:0]const u8) ca
 }
 
 /// Set item by key
-export fn PyMapping_SetItemString(obj: *cpython.PyObject, key: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMapping_SetItemString(obj: *cpython.PyObject, key: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     const unicode = @import("unicodeobject.zig");
 
@@ -68,7 +68,7 @@ export fn PyMapping_SetItemString(obj: *cpython.PyObject, key: [*:0]const u8, va
 }
 
 /// Delete item by key
-export fn PyMapping_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyMapping_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     const unicode = @import("unicodeobject.zig");
 
@@ -86,7 +86,7 @@ export fn PyMapping_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) ca
 }
 
 /// Check if key exists
-export fn PyMapping_HasKeyString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyMapping_HasKeyString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
     const item = PyMapping_GetItemString(obj, key);
     if (item != null) {
         Py_DECREF(item.?);
@@ -100,7 +100,7 @@ export fn PyMapping_HasKeyString(obj: *cpython.PyObject, key: [*:0]const u8) cal
 }
 
 /// Check if key exists (object key)
-export fn PyMapping_HasKey(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMapping_HasKey(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_mapping) |map_procs| {
@@ -117,7 +117,7 @@ export fn PyMapping_HasKey(obj: *cpython.PyObject, key: *cpython.PyObject) callc
 }
 
 /// Get keys as a list
-export fn PyMapping_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMapping_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pydict = @import("../objects/dictobject.zig");
     const pylist = @import("../objects/listobject.zig");
     const type_obj = cpython.Py_TYPE(obj);
@@ -162,7 +162,7 @@ export fn PyMapping_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
 }
 
 /// Get values as a list
-export fn PyMapping_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMapping_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pydict = @import("../objects/dictobject.zig");
     const pylist = @import("../objects/listobject.zig");
     const type_obj = cpython.Py_TYPE(obj);
@@ -198,7 +198,7 @@ export fn PyMapping_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObje
 }
 
 /// Get items as a list of (key, value) tuples
-export fn PyMapping_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMapping_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pydict = @import("../objects/dictobject.zig");
     const pylist = @import("../objects/listobject.zig");
     const type_obj = cpython.Py_TYPE(obj);

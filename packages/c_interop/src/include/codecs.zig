@@ -51,7 +51,7 @@ var num_error_handlers: usize = 0;
 /// search_function should be a callable that takes encoding name and returns codec tuple
 /// Returns 0 on success, -1 on error
 /// STATUS: IMPLEMENTED - stores search function in registry
-export fn PyCodec_Register(search_function: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyCodec_Register(search_function: *cpython.PyObject) callconv(.c) c_int {
     if (num_search_functions >= MAX_SEARCH_FUNCTIONS) {
         PyErr_SetString(@ptrFromInt(0), "codec search function registry full");
         return -1;
@@ -67,7 +67,7 @@ export fn PyCodec_Register(search_function: *cpython.PyObject) callconv(.c) c_in
 /// Unregister a codec search function
 /// Returns 0 on success, -1 on error
 /// STATUS: IMPLEMENTED - removes search function from registry
-export fn PyCodec_Unregister(search_function: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyCodec_Unregister(search_function: *cpython.PyObject) callconv(.c) c_int {
     var i: usize = 0;
     while (i < num_search_functions) : (i += 1) {
         if (search_functions[i] == search_function) {
@@ -88,7 +88,7 @@ export fn PyCodec_Unregister(search_function: *cpython.PyObject) callconv(.c) c_
 /// Encode an object using the specified encoding
 /// Returns encoded bytes object or null on error
 /// STATUS: IMPLEMENTED - UTF-8, UTF-16, UTF-32, ASCII, Latin-1, cp1252
-export fn PyCodec_Encode(obj: *cpython.PyObject, encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_Encode(obj: *cpython.PyObject, encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     const unicode = @import("unicodeobject.zig");
     const bytes = @import("../objects/bytesobject.zig");
@@ -350,7 +350,7 @@ fn decodeUtf8Codepoint(data: []const u8) !Utf8Codepoint {
 /// Decode an object using the specified encoding
 /// Returns decoded string object or null on error
 /// STATUS: IMPLEMENTED - UTF-8, UTF-16, UTF-32, ASCII, Latin-1, cp1252
-export fn PyCodec_Decode(obj: *cpython.PyObject, encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_Decode(obj: *cpython.PyObject, encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     const unicode = @import("unicodeobject.zig");
     const bytes = @import("../objects/bytesobject.zig");
@@ -656,7 +656,7 @@ fn encodeCodepointUtf8(codepoint: u32, output: []u8) usize {
 /// Get encoder function for the specified encoding
 /// Returns callable encoder or null on error
 /// STATUS: NOT_IMPLEMENTED - use PyCodec_Encode directly
-export fn PyCodec_Encoder(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_Encoder(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     // Codec function objects not implemented - use PyCodec_Encode directly
     PyErr_SetString(@ptrFromInt(0), "PyCodec_Encoder: use PyCodec_Encode directly");
@@ -666,7 +666,7 @@ export fn PyCodec_Encoder(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObje
 /// Get decoder function for the specified encoding
 /// Returns callable decoder or null on error
 /// STATUS: NOT_IMPLEMENTED - use PyCodec_Decode directly
-export fn PyCodec_Decoder(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_Decoder(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     // Codec function objects not implemented - use PyCodec_Decode directly
     PyErr_SetString(@ptrFromInt(0), "PyCodec_Decoder: use PyCodec_Decode directly");
@@ -676,7 +676,7 @@ export fn PyCodec_Decoder(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObje
 /// Get incremental encoder for the specified encoding
 /// Returns IncrementalEncoder instance or null on error
 /// STATUS: NOT_IMPLEMENTED - streaming codecs not supported
-export fn PyCodec_IncrementalEncoder(encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_IncrementalEncoder(encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     _ = errors;
     // Streaming codecs not implemented
@@ -687,7 +687,7 @@ export fn PyCodec_IncrementalEncoder(encoding: [*:0]const u8, errors: ?[*:0]cons
 /// Get incremental decoder for the specified encoding
 /// Returns IncrementalDecoder instance or null on error
 /// STATUS: NOT_IMPLEMENTED - streaming codecs not supported
-export fn PyCodec_IncrementalDecoder(encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_IncrementalDecoder(encoding: [*:0]const u8, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     _ = errors;
     // Streaming codecs not implemented
@@ -698,7 +698,7 @@ export fn PyCodec_IncrementalDecoder(encoding: [*:0]const u8, errors: ?[*:0]cons
 /// Get stream reader for the specified encoding
 /// Returns StreamReader instance or null on error
 /// STATUS: NOT_IMPLEMENTED - stream wrappers not supported
-export fn PyCodec_StreamReader(encoding: [*:0]const u8, stream: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_StreamReader(encoding: [*:0]const u8, stream: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     _ = stream;
     _ = errors;
@@ -710,7 +710,7 @@ export fn PyCodec_StreamReader(encoding: [*:0]const u8, stream: *cpython.PyObjec
 /// Get stream writer for the specified encoding
 /// Returns StreamWriter instance or null on error
 /// STATUS: NOT_IMPLEMENTED - stream wrappers not supported
-export fn PyCodec_StreamWriter(encoding: [*:0]const u8, stream: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_StreamWriter(encoding: [*:0]const u8, stream: *cpython.PyObject, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     _ = stream;
     _ = errors;
@@ -722,7 +722,7 @@ export fn PyCodec_StreamWriter(encoding: [*:0]const u8, stream: *cpython.PyObjec
 /// Look up codec info for the specified encoding
 /// Returns codec tuple (encoder, decoder, stream_reader, stream_writer) or null
 /// STATUS: NOT_IMPLEMENTED - codec tuples not supported
-export fn PyCodec_Lookup(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_Lookup(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = encoding;
     // Codec tuples not implemented - use PyCodec_Encode/Decode directly
     PyErr_SetString(@ptrFromInt(0), "PyCodec_Lookup: use PyCodec_Encode/Decode directly");
@@ -732,7 +732,7 @@ export fn PyCodec_Lookup(encoding: [*:0]const u8) callconv(.c) ?*cpython.PyObjec
 /// Check if a codec is known
 /// Returns 1 if known, 0 if unknown, -1 on error
 /// STATUS: IMPLEMENTED - all supported encodings
-export fn PyCodec_KnownEncoding(encoding: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyCodec_KnownEncoding(encoding: [*:0]const u8) callconv(.c) c_int {
     const enc_name = normalizeEncodingName(std.mem.span(encoding));
 
     // Known encodings - all supported by PyCodec_Encode/PyCodec_Decode
@@ -779,24 +779,24 @@ export fn PyCodec_KnownEncoding(encoding: [*:0]const u8) callconv(.c) c_int {
 // PyUnicode_AsUTF8String is in cpython_unicode.zig
 
 /// Encode Unicode object to ASCII bytes
-export fn PyUnicode_AsASCIIString(unicode: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_AsASCIIString(unicode: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return PyCodec_Encode(unicode, "ascii", "strict");
 }
 
 /// Encode Unicode object to Latin-1 bytes
-export fn PyUnicode_AsLatin1String(unicode: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_AsLatin1String(unicode: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return PyCodec_Encode(unicode, "latin-1", "strict");
 }
 
 /// Decode UTF-8 bytes to Unicode object
-export fn PyUnicode_DecodeUTF8Codec(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_DecodeUTF8Codec(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     const unicode = @import("unicodeobject.zig");
     return unicode.PyUnicode_FromStringAndSize(data, size);
 }
 
 /// Decode ASCII bytes to Unicode object
-export fn PyUnicode_DecodeASCII(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_DecodeASCII(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     const unicode = @import("unicodeobject.zig");
 
@@ -813,7 +813,7 @@ export fn PyUnicode_DecodeASCII(data: [*]const u8, size: isize, errors: ?[*:0]co
 }
 
 /// Decode Latin-1 bytes to Unicode object
-export fn PyUnicode_DecodeLatin1(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyUnicode_DecodeLatin1(data: [*]const u8, size: isize, errors: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = errors;
     const unicode = @import("unicodeobject.zig");
 
@@ -825,7 +825,7 @@ export fn PyUnicode_DecodeLatin1(data: [*]const u8, size: isize, errors: ?[*:0]c
 /// Register error handler for codec errors
 /// handler should be a callable that takes UnicodeError and returns replacement
 /// STATUS: IMPLEMENTED - stores custom error handlers
-export fn PyCodec_RegisterError(name: [*:0]const u8, error_handler: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyCodec_RegisterError(name: [*:0]const u8, error_handler: *cpython.PyObject) callconv(.c) c_int {
     const name_slice = std.mem.span(name);
     if (name_slice.len >= 64) {
         PyErr_SetString(@ptrFromInt(0), "error handler name too long");
@@ -866,7 +866,7 @@ export fn PyCodec_RegisterError(name: [*:0]const u8, error_handler: *cpython.PyO
 /// Look up error handler by name
 /// Returns new reference to error handler callable or null
 /// STATUS: IMPLEMENTED - returns registered handlers, built-in names return null
-export fn PyCodec_LookupError(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCodec_LookupError(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const name_slice = std.mem.span(name);
 
     // Check built-in error handlers (these are handled inline by encode/decode)

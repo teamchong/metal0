@@ -52,7 +52,7 @@ const PyUnicode_AsUTF8 = traits.externs.PyUnicode_AsUTF8;
 ///   O - PyObject* (PyObject**)
 ///   | - optional marker (everything after is optional)
 ///
-export fn PyArg_ParseTuple(args: *cpython.PyObject, format: [*:0]const u8, ...) callconv(.C) c_int {
+pub export fn PyArg_ParseTuple(args: *cpython.PyObject, format: [*:0]const u8, ...) callconv(.C) c_int {
     // Get tuple
     const tuple = @as(*cpython.PyTupleObject, @ptrCast(args));
 
@@ -207,7 +207,7 @@ export fn PyArg_ParseTuple(args: *cpython.PyObject, format: [*:0]const u8, ...) 
 }
 
 /// Parse tuple and keywords (extended version)
-export fn PyArg_ParseTupleAndKeywords(
+pub export fn PyArg_ParseTupleAndKeywords(
     args: *cpython.PyObject,
     kwargs: ?*cpython.PyObject,
     format: [*:0]const u8,
@@ -376,7 +376,7 @@ fn getArgOrKwarg(
 }
 
 /// Build Python value from C values (inverse of ParseTuple)
-export fn Py_BuildValue(format: [*:0]const u8, ...) callconv(.C) ?*cpython.PyObject {
+pub export fn Py_BuildValue(format: [*:0]const u8, ...) callconv(.C) ?*cpython.PyObject {
     const pynone = @import("../objects/noneobject.zig");
     const pyunicode = @import("../objects/unicodeobject.zig");
     const pybytes = @import("../objects/bytesobject.zig");

@@ -21,81 +21,81 @@ const type_ = @import("../include/typeslots.zig");
 const buffer = @import("../include/buffer.zig");
 
 // Basic type exports
-export fn _get_PyLong_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyLong_Type() callconv(.c) *cpython.PyTypeObject {
     return &pylong.PyLong_Type;
 }
 
-export fn _get_PyFloat_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyFloat_Type() callconv(.c) *cpython.PyTypeObject {
     return &pyfloat.PyFloat_Type;
 }
 
-export fn _get_PyBool_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyBool_Type() callconv(.c) *cpython.PyTypeObject {
     return &pybool.PyBool_Type;
 }
 
-export fn _get_PyBytes_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyBytes_Type() callconv(.c) *cpython.PyTypeObject {
     return &pybytes.PyBytes_Type;
 }
 
-export fn _get_PyUnicode_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyUnicode_Type() callconv(.c) *cpython.PyTypeObject {
     return &pyunicode.PyUnicode_Type;
 }
 
-export fn _get_PyList_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyList_Type() callconv(.c) *cpython.PyTypeObject {
     return &pylist.PyList_Type;
 }
 
-export fn _get_PyTuple_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyTuple_Type() callconv(.c) *cpython.PyTypeObject {
     return &pytuple.PyTuple_Type;
 }
 
-export fn _get_PyDict_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyDict_Type() callconv(.c) *cpython.PyTypeObject {
     return &pydict.PyDict_Type;
 }
 
-export fn _get_PySet_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PySet_Type() callconv(.c) *cpython.PyTypeObject {
     return &pyset.PySet_Type;
 }
 
-export fn _get_PyFrozenSet_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyFrozenSet_Type() callconv(.c) *cpython.PyTypeObject {
     return &pyset.PyFrozenSet_Type;
 }
 
-export fn _get_PySlice_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PySlice_Type() callconv(.c) *cpython.PyTypeObject {
     return &pyslice.PySlice_Type;
 }
 
-export fn _get_PyType_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyType_Type() callconv(.c) *cpython.PyTypeObject {
     return &type_.PyType_Type;
 }
 
-export fn _get_PyBaseObject_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyBaseObject_Type() callconv(.c) *cpython.PyTypeObject {
     return &type_.PyBaseObject_Type;
 }
 
 // CFunction and Method types
-export fn _get_PyCFunction_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyCFunction_Type() callconv(.c) *cpython.PyTypeObject {
     return &pymethod.PyCFunction_Type;
 }
 
-export fn _get_PyMethodDescr_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyMethodDescr_Type() callconv(.c) *cpython.PyTypeObject {
     return &pymethod.PyMethodDescr_Type;
 }
 
-export fn _get_PyMemberDescr_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyMemberDescr_Type() callconv(.c) *cpython.PyTypeObject {
     return &pymethod.PyMemberDescr_Type;
 }
 
-export fn _get_PyGetSetDescr_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyGetSetDescr_Type() callconv(.c) *cpython.PyTypeObject {
     return &pymethod.PyGetSetDescr_Type;
 }
 
 // Complex type
-export fn _get_PyComplex_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyComplex_Type() callconv(.c) *cpython.PyTypeObject {
     return &pycomplex.PyComplex_Type;
 }
 
 // MemoryView type export
-export fn _get_PyMemoryView_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyMemoryView_Type() callconv(.c) *cpython.PyTypeObject {
     return &buffer.PyMemoryView_Type;
 }

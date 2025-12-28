@@ -22,7 +22,7 @@ const cpython = @import("object.zig");
 /// Increment reference count of object
 ///
 /// CPython: void Py_INCREF(PyObject *op)
-export fn Py_INCREF(op: *anyopaque) callconv(.c) void {
+pub export fn Py_INCREF(op: *anyopaque) callconv(.c) void {
     const obj = @as(*cpython.PyObject, @ptrCast(@alignCast(op)));
     obj.ob_refcnt += 1;
 }
@@ -30,7 +30,7 @@ export fn Py_INCREF(op: *anyopaque) callconv(.c) void {
 /// Decrement reference count, destroy object if reaches zero
 ///
 /// CPython: void Py_DECREF(PyObject *op)
-export fn Py_DECREF(op: *anyopaque) callconv(.c) void {
+pub export fn Py_DECREF(op: *anyopaque) callconv(.c) void {
     const obj = @as(*cpython.PyObject, @ptrCast(@alignCast(op)));
     obj.ob_refcnt -= 1;
 
@@ -46,7 +46,7 @@ export fn Py_DECREF(op: *anyopaque) callconv(.c) void {
 /// Null-safe increment reference count
 ///
 /// CPython: void Py_XINCREF(PyObject *op)
-export fn Py_XINCREF(op: ?*anyopaque) callconv(.c) void {
+pub export fn Py_XINCREF(op: ?*anyopaque) callconv(.c) void {
     if (op) |obj_ptr| {
         Py_INCREF(obj_ptr);
     }
@@ -55,7 +55,7 @@ export fn Py_XINCREF(op: ?*anyopaque) callconv(.c) void {
 /// Null-safe decrement reference count
 ///
 /// CPython: void Py_XDECREF(PyObject *op)
-export fn Py_XDECREF(op: ?*anyopaque) callconv(.c) void {
+pub export fn Py_XDECREF(op: ?*anyopaque) callconv(.c) void {
     if (op) |obj_ptr| {
         Py_DECREF(obj_ptr);
     }
@@ -76,7 +76,7 @@ export fn Py_XDECREF(op: ?*anyopaque) callconv(.c) void {
 ///
 /// Example: Building a list from existing objects
 ///   Py_INCREF_Batch(items.ptr, items.len);
-export fn Py_INCREF_Batch(objs: [*]*cpython.PyObject, count: usize) callconv(.c) void {
+pub export fn Py_INCREF_Batch(objs: [*]*cpython.PyObject, count: usize) callconv(.c) void {
     for (0..count) |i| {
         objs[i].ob_refcnt += 1;
     }
@@ -85,7 +85,7 @@ export fn Py_INCREF_Batch(objs: [*]*cpython.PyObject, count: usize) callconv(.c)
 /// Batch decrement reference count for array of objects
 /// Collects objects needing destruction, then destroys in batch
 /// 2-5x faster than calling Py_DECREF in a loop
-export fn Py_DECREF_Batch(objs: [*]*cpython.PyObject, count: usize) callconv(.c) void {
+pub export fn Py_DECREF_Batch(objs: [*]*cpython.PyObject, count: usize) callconv(.c) void {
     // Phase 1: Decrement all refcounts (fast loop, no branches except zero-check)
     var destroy_count: usize = 0;
     for (0..count) |i| {
@@ -109,7 +109,7 @@ export fn Py_DECREF_Batch(objs: [*]*cpython.PyObject, count: usize) callconv(.c)
 }
 
 /// Null-safe batch increment
-export fn Py_XINCREF_Batch(objs: [*]?*cpython.PyObject, count: usize) callconv(.c) void {
+pub export fn Py_XINCREF_Batch(objs: [*]?*cpython.PyObject, count: usize) callconv(.c) void {
     for (0..count) |i| {
         if (objs[i]) |obj| {
             obj.ob_refcnt += 1;
@@ -118,7 +118,7 @@ export fn Py_XINCREF_Batch(objs: [*]?*cpython.PyObject, count: usize) callconv(.
 }
 
 /// Null-safe batch decrement
-export fn Py_XDECREF_Batch(objs: [*]?*cpython.PyObject, count: usize) callconv(.c) void {
+pub export fn Py_XDECREF_Batch(objs: [*]?*cpython.PyObject, count: usize) callconv(.c) void {
     for (0..count) |i| {
         if (objs[i]) |obj| {
             obj.ob_refcnt -= 1;

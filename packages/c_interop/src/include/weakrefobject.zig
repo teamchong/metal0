@@ -44,7 +44,7 @@ fn weakref_dealloc(self: *cpython.PyObject) callconv(.c) void {
 }
 
 /// Create new weak reference
-export fn PyWeakref_NewRef(obj: *cpython.PyObject, callback: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyWeakref_NewRef(obj: *cpython.PyObject, callback: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Check if object is weakly referencable
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj.tp_weaklistoffset == 0) {
@@ -66,7 +66,7 @@ export fn PyWeakref_NewRef(obj: *cpython.PyObject, callback: ?*cpython.PyObject)
 }
 
 /// Get object from weak reference (returns borrowed reference)
-export fn PyWeakref_GetObject(ref: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyWeakref_GetObject(ref: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Check if this is actually a weakref
     if (cpython.Py_TYPE(ref) != &PyWeakref_RefType) {
         // Not a weakref - return as-is
@@ -85,12 +85,12 @@ export fn PyWeakref_GetObject(ref: *cpython.PyObject) callconv(.c) ?*cpython.PyO
 }
 
 /// Check if object is a weak reference
-export fn PyWeakref_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyWeakref_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyWeakref_RefType) 1 else 0;
 }
 
 /// Check if weak reference is still alive
-export fn PyWeakref_CheckRef(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyWeakref_CheckRef(obj: *cpython.PyObject) callconv(.c) c_int {
     if (cpython.Py_TYPE(obj) != &PyWeakref_RefType) return 0;
     const wr: *PyWeakReference = @ptrCast(@alignCast(obj));
     if (wr.wr_object) |o| {
@@ -100,14 +100,14 @@ export fn PyWeakref_CheckRef(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Create weak proxy (transparent weak reference)
-export fn PyWeakref_NewProxy(obj: *cpython.PyObject, callback: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyWeakref_NewProxy(obj: *cpython.PyObject, callback: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // For now, same as NewRef - proper implementation would create a transparent proxy
     return PyWeakref_NewRef(obj, callback);
 }
 
 /// Get referenced object (Python 3.13+ API)
 /// Returns new reference or null if dead (unlike GetObject which returns borrowed)
-export fn PyWeakref_GetRef(ref: *cpython.PyObject, pobj: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyWeakref_GetRef(ref: *cpython.PyObject, pobj: *?*cpython.PyObject) callconv(.c) c_int {
     // Get the object
     const obj = PyWeakref_GetObject(ref);
     if (obj) |o| {

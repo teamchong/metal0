@@ -128,7 +128,7 @@ fn ensureSysInitialized() void {
 
 /// Get sys module attribute by name
 /// Returns borrowed reference to sys.{name} or null if not found
-export fn PySys_GetObject(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PySys_GetObject(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     ensureSysInitialized();
 
     if (sys_dict) |dict| {
@@ -141,7 +141,7 @@ export fn PySys_GetObject(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
 
 /// Set sys module attribute
 /// Steals reference to value
-export fn PySys_SetObject(name: [*:0]const u8, value: ?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PySys_SetObject(name: [*:0]const u8, value: ?*cpython.PyObject) callconv(.c) c_int {
     ensureSysInitialized();
 
     if (sys_dict) |dict| {
@@ -160,14 +160,14 @@ export fn PySys_SetObject(name: [*:0]const u8, value: ?*cpython.PyObject) callco
 /// Set sys.path to the given path list
 /// path should be a list of directory strings
 /// STATUS: STUB - no-op (imports resolved at compile time)
-export fn PySys_SetPath(path: [*:0]const u8) callconv(.c) void {
+pub export fn PySys_SetPath(path: [*:0]const u8) callconv(.c) void {
     _ = path;
     // Import paths resolved at compile time - runtime sys.path not used
 }
 
 /// Get size of Python object in bytes
 /// Equivalent to sys.getsizeof()
-export fn PySys_GetSizeOf(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySys_GetSizeOf(obj: *cpython.PyObject) callconv(.c) isize {
     const type_obj = cpython.Py_TYPE(obj);
 
     // Basic size from type
@@ -184,7 +184,7 @@ export fn PySys_GetSizeOf(obj: *cpython.PyObject) callconv(.c) isize {
 
 /// Write formatted output to sys.stdout
 /// Uses C printf format strings
-export fn PySys_WriteStdout(format: [*:0]const u8, ...) callconv(.c) void {
+pub export fn PySys_WriteStdout(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
@@ -193,7 +193,7 @@ export fn PySys_WriteStdout(format: [*:0]const u8, ...) callconv(.c) void {
 
 /// Write formatted output to sys.stderr
 /// Uses C printf format strings
-export fn PySys_WriteStderr(format: [*:0]const u8, ...) callconv(.c) void {
+pub export fn PySys_WriteStderr(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
@@ -203,7 +203,7 @@ export fn PySys_WriteStderr(format: [*:0]const u8, ...) callconv(.c) void {
 
 /// Format and write to sys.stdout
 /// Similar to PySys_WriteStdout but with explicit formatting
-export fn PySys_FormatStdout(format: [*:0]const u8, ...) callconv(.c) void {
+pub export fn PySys_FormatStdout(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
@@ -212,7 +212,7 @@ export fn PySys_FormatStdout(format: [*:0]const u8, ...) callconv(.c) void {
 
 /// Format and write to sys.stderr
 /// Similar to PySys_WriteStderr but with explicit formatting
-export fn PySys_FormatStderr(format: [*:0]const u8, ...) callconv(.c) void {
+pub export fn PySys_FormatStderr(format: [*:0]const u8, ...) callconv(.c) void {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
@@ -222,7 +222,7 @@ export fn PySys_FormatStderr(format: [*:0]const u8, ...) callconv(.c) void {
 /// Add warning option to sys.warnoptions
 /// Equivalent to -W command line option
 /// STATUS: STUB - no-op (warnings not implemented)
-export fn PySys_AddWarnOption(option: [*:0]const u8) callconv(.c) void {
+pub export fn PySys_AddWarnOption(option: [*:0]const u8) callconv(.c) void {
     _ = option;
     // Warning options not tracked
 }
@@ -230,7 +230,7 @@ export fn PySys_AddWarnOption(option: [*:0]const u8) callconv(.c) void {
 /// Add directory to sys.path at the beginning
 /// Used for adding import paths dynamically
 /// STATUS: STUB - no-op (sys.argv/sys.path not tracked)
-export fn PySys_SetArgvEx(argc: c_int, argv: [*][*:0]u8, updatepath: c_int) callconv(.c) void {
+pub export fn PySys_SetArgvEx(argc: c_int, argv: [*][*:0]u8, updatepath: c_int) callconv(.c) void {
     _ = argc;
     _ = argv;
     _ = updatepath;
@@ -239,20 +239,20 @@ export fn PySys_SetArgvEx(argc: c_int, argv: [*][*:0]u8, updatepath: c_int) call
 
 /// Set sys.argv from command line arguments
 /// Convenience wrapper that always updates path
-export fn PySys_SetArgv(argc: c_int, argv: [*][*:0]u8) callconv(.c) void {
+pub export fn PySys_SetArgv(argc: c_int, argv: [*][*:0]u8) callconv(.c) void {
     PySys_SetArgvEx(argc, argv, 1);
 }
 
 /// Get the current recursion limit
 /// Default is usually 1000
-export fn Py_GetRecursionLimit() callconv(.c) c_int {
+pub export fn Py_GetRecursionLimit() callconv(.c) c_int {
     return 1000; // Default CPython recursion limit
 }
 
 /// Set the maximum recursion depth
 /// Used to prevent stack overflow in deep recursion
 /// STATUS: STUB - no-op (native stack limit used instead)
-export fn Py_SetRecursionLimit(limit: c_int) callconv(.c) void {
+pub export fn Py_SetRecursionLimit(limit: c_int) callconv(.c) void {
     _ = limit;
     // Native stack limits used instead of Python recursion tracking
 }
@@ -260,7 +260,7 @@ export fn Py_SetRecursionLimit(limit: c_int) callconv(.c) void {
 /// Check if current recursion depth exceeds limit
 /// Returns 1 if too deep, 0 otherwise
 /// STATUS: STUB - always returns 0 (not too deep)
-export fn Py_EnterRecursiveCall(where: [*:0]const u8) callconv(.c) c_int {
+pub export fn Py_EnterRecursiveCall(where: [*:0]const u8) callconv(.c) c_int {
     _ = where;
     // Native stack limits handle recursion depth - always allow
     return 0; // Not too deep
@@ -269,6 +269,6 @@ export fn Py_EnterRecursiveCall(where: [*:0]const u8) callconv(.c) c_int {
 /// Exit recursive call tracking
 /// Should be called when exiting a recursive function
 /// STATUS: STUB - no-op
-export fn Py_LeaveRecursiveCall() callconv(.c) void {
+pub export fn Py_LeaveRecursiveCall() callconv(.c) void {
     // Native stack limits used - no tracking needed
 }

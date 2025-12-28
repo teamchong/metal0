@@ -8,7 +8,7 @@ const traits = @import("../objects/typetraits.zig");
 const allocator = std.heap.c_allocator;
 
 /// Fill buffer info from object
-export fn PyBuffer_FillInfo(
+pub export fn PyBuffer_FillInfo(
     view: *cpython.Py_buffer,
     obj: ?*cpython.PyObject,
     buf: ?*anyopaque,
@@ -40,7 +40,7 @@ export fn PyBuffer_FillInfo(
 }
 
 /// Get buffer from object
-export fn PyObject_GetBuffer(
+pub export fn PyObject_GetBuffer(
     obj: *cpython.PyObject,
     view: *cpython.Py_buffer,
     flags: c_int,
@@ -59,7 +59,7 @@ export fn PyObject_GetBuffer(
 }
 
 /// Release buffer
-export fn PyBuffer_Release(view: *cpython.Py_buffer) callconv(.c) void {
+pub export fn PyBuffer_Release(view: *cpython.Py_buffer) callconv(.c) void {
     if (view.obj) |obj| {
         const type_obj = cpython.Py_TYPE(obj);
 
@@ -89,7 +89,7 @@ export fn PyBuffer_Release(view: *cpython.Py_buffer) callconv(.c) void {
 }
 
 /// Get buffer size from format string
-export fn PyBuffer_SizeFromFormat(format: [*:0]const u8) callconv(.c) isize {
+pub export fn PyBuffer_SizeFromFormat(format: [*:0]const u8) callconv(.c) isize {
     const fmt = std.mem.span(format);
 
     // Simple format codes
@@ -109,7 +109,7 @@ export fn PyBuffer_SizeFromFormat(format: [*:0]const u8) callconv(.c) isize {
 }
 
 /// Check if buffer is contiguous
-export fn PyBuffer_IsContiguous(view: *const cpython.Py_buffer, fort: u8) callconv(.c) c_int {
+pub export fn PyBuffer_IsContiguous(view: *const cpython.Py_buffer, fort: u8) callconv(.c) c_int {
     // If no strides, it's C-contiguous by default
     if (view.strides == null) {
         return if (fort == 'C' or fort == 'c' or fort == 'A' or fort == 'a') 1 else 0;
@@ -155,7 +155,7 @@ export fn PyBuffer_IsContiguous(view: *const cpython.Py_buffer, fort: u8) callco
 }
 
 /// Fill contiguous strides
-export fn PyBuffer_FillContiguousStrides(
+pub export fn PyBuffer_FillContiguousStrides(
     ndim: c_int,
     shape: [*]isize,
     strides: [*]isize,
@@ -183,7 +183,7 @@ export fn PyBuffer_FillContiguousStrides(
 }
 
 /// Get pointer to buffer data
-export fn PyBuffer_GetPointer(
+pub export fn PyBuffer_GetPointer(
     view: *cpython.Py_buffer,
     indices: [*]isize,
 ) callconv(.c) ?*anyopaque {
@@ -213,7 +213,7 @@ export fn PyBuffer_GetPointer(
 }
 
 /// Copy data between buffer objects
-export fn PyObject_CopyData(
+pub export fn PyObject_CopyData(
     dest: *cpython.PyObject,
     src: *cpython.PyObject,
 ) callconv(.c) c_int {
@@ -245,7 +245,7 @@ export fn PyObject_CopyData(
 }
 
 /// Check if object supports buffer protocol
-export fn PyObject_CheckBuffer(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_CheckBuffer(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_as_buffer) |buffer_procs| {

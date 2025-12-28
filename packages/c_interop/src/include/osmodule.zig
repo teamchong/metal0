@@ -12,7 +12,7 @@ const Py_DECREF = traits.externs.Py_DECREF;
 
 /// Safe snprintf implementation
 /// Returns number of characters written (excluding null terminator)
-export fn PyOS_snprintf(str: [*]u8, size: usize, format: [*:0]const u8, ...) callconv(.c) c_int {
+pub export fn PyOS_snprintf(str: [*]u8, size: usize, format: [*:0]const u8, ...) callconv(.c) c_int {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
@@ -21,13 +21,13 @@ export fn PyOS_snprintf(str: [*]u8, size: usize, format: [*:0]const u8, ...) cal
 
 /// Safe vsnprintf with va_list
 /// Returns number of characters written (excluding null terminator)
-export fn PyOS_vsnprintf(str: [*]u8, size: usize, format: [*:0]const u8, va: *std.builtin.VaList) callconv(.c) c_int {
+pub export fn PyOS_vsnprintf(str: [*]u8, size: usize, format: [*:0]const u8, va: *std.builtin.VaList) callconv(.c) c_int {
     return std.c.vsnprintf(str, size, format, va.*);
 }
 
 /// Case-insensitive string comparison
 /// Returns 0 if equal, <0 if s1 < s2, >0 if s1 > s2
-export fn PyOS_stricmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyOS_stricmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
     var i: usize = 0;
     while (true) : (i += 1) {
         const c1 = std.ascii.toLower(s1[i]);
@@ -40,7 +40,7 @@ export fn PyOS_stricmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int 
 
 /// Case-insensitive string comparison (first n characters)
 /// Returns 0 if equal, <0 if s1 < s2, >0 if s1 > s2
-export fn PyOS_strnicmp(s1: [*:0]const u8, s2: [*:0]const u8, n: usize) callconv(.c) c_int {
+pub export fn PyOS_strnicmp(s1: [*:0]const u8, s2: [*:0]const u8, n: usize) callconv(.c) c_int {
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const c1 = std.ascii.toLower(s1[i]);
@@ -54,7 +54,7 @@ export fn PyOS_strnicmp(s1: [*:0]const u8, s2: [*:0]const u8, n: usize) callconv
 
 /// Convert path-like object to filesystem path string
 /// Returns new reference to path string or null on error
-export fn PyOS_FSPath(path: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyOS_FSPath(path: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(path);
 
     // Check if object has __fspath__ method via tp_methods
@@ -84,7 +84,7 @@ var interrupt_flag: std.atomic.Value(bool) = std.atomic.Value(bool).init(false);
 
 /// Callback to execute before fork()
 /// Used to prepare for process forking
-export fn PyOS_BeforeFork() callconv(.c) void {
+pub export fn PyOS_BeforeFork() callconv(.c) void {
     // Mark that we're entering a fork
     in_fork = true;
     // Metal0 AOT: No interpreter locks needed since there's no GIL.
@@ -93,7 +93,7 @@ export fn PyOS_BeforeFork() callconv(.c) void {
 
 /// Callback to execute after fork() in parent process
 /// Used to restore parent state after fork
-export fn PyOS_AfterFork_Parent() callconv(.c) void {
+pub export fn PyOS_AfterFork_Parent() callconv(.c) void {
     // Clear fork flag
     in_fork = false;
     // Release any locks acquired in PyOS_BeforeFork
@@ -101,7 +101,7 @@ export fn PyOS_AfterFork_Parent() callconv(.c) void {
 
 /// Callback to execute after fork() in child process
 /// Used to reinitialize child state after fork
-export fn PyOS_AfterFork_Child() callconv(.c) void {
+pub export fn PyOS_AfterFork_Child() callconv(.c) void {
     // Clear fork flag
     in_fork = false;
     // In child process after fork, we need to:
@@ -113,13 +113,13 @@ export fn PyOS_AfterFork_Child() callconv(.c) void {
 
 /// Compatibility wrapper for AfterFork
 /// Calls AfterFork_Parent() (legacy behavior)
-export fn PyOS_AfterFork() callconv(.c) void {
+pub export fn PyOS_AfterFork() callconv(.c) void {
     PyOS_AfterFork_Parent();
 }
 
 /// Initialize random number generator
 /// Returns 0 on success, -1 on error
-export fn _PyOS_URandom(buffer: [*]u8, size: isize) callconv(.c) c_int {
+pub export fn _PyOS_URandom(buffer: [*]u8, size: isize) callconv(.c) c_int {
     if (size <= 0) return 0;
 
     const buf_slice = buffer[0..@intCast(size)];
@@ -132,7 +132,7 @@ export fn _PyOS_URandom(buffer: [*]u8, size: isize) callconv(.c) c_int {
 
 /// Get interrupt status
 /// Returns 1 if interrupt occurred (Ctrl+C), 0 otherwise
-export fn PyOS_InterruptOccurred() callconv(.c) c_int {
+pub export fn PyOS_InterruptOccurred() callconv(.c) c_int {
     // Check and clear the interrupt flag
     if (interrupt_flag.swap(false, .seq_cst)) {
         return 1; // Interrupt occurred
@@ -141,7 +141,7 @@ export fn PyOS_InterruptOccurred() callconv(.c) c_int {
 }
 
 /// Set interrupt flag (called from signal handler)
-export fn PyErr_SetInterruptEx(signum: c_int) callconv(.c) c_int {
+pub export fn PyErr_SetInterruptEx(signum: c_int) callconv(.c) c_int {
     _ = signum;
     interrupt_flag.store(true, .seq_cst);
     return 0;
@@ -149,7 +149,7 @@ export fn PyErr_SetInterruptEx(signum: c_int) callconv(.c) c_int {
 
 /// Initialize signal handling
 /// Sets up handlers for SIGINT, SIGTERM, etc.
-export fn PyOS_InitInterrupts() callconv(.c) void {
+pub export fn PyOS_InitInterrupts() callconv(.c) void {
     // Set up SIGINT handler to set interrupt flag
     // Note: On most systems, Zig's std.os.Sigaction can be used, but for
     // maximum compatibility with C extensions, we leave this as a no-op
@@ -159,14 +159,14 @@ export fn PyOS_InitInterrupts() callconv(.c) void {
 
 /// Finalize signal handling
 /// Restores original signal handlers
-export fn PyOS_FiniInterrupts() callconv(.c) void {
+pub export fn PyOS_FiniInterrupts() callconv(.c) void {
     // Clear the interrupt flag
     interrupt_flag.store(false, .seq_cst);
 }
 
 /// Read line from stdin with optional prompt
 /// Returns allocated string or null on EOF/error
-export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [*:0]const u8) callconv(.c) [*:0]u8 {
+pub export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [*:0]const u8) callconv(.c) [*:0]u8 {
     // Print prompt to stdout
     _ = std.c.fprintf(stdout_, "%s", prompt);
     _ = std.c.fflush(stdout_);
@@ -197,7 +197,7 @@ export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [*:0]
 
 /// Convert double to string
 /// Returns newly allocated string (caller must free with PyMem_Free)
-export fn PyOS_double_to_string(val: f64, format_code: u8, precision: c_int, flags: c_int, ptype: ?*c_int) callconv(.c) ?[*:0]u8 {
+pub export fn PyOS_double_to_string(val: f64, format_code: u8, precision: c_int, flags: c_int, ptype: ?*c_int) callconv(.c) ?[*:0]u8 {
     _ = flags;
 
     // Set type if requested
@@ -246,7 +246,7 @@ export fn PyOS_double_to_string(val: f64, format_code: u8, precision: c_int, fla
 
 /// Convert string to double
 /// Returns the parsed value, sets endptr to first unconverted char
-export fn PyOS_string_to_double(s: [*:0]const u8, endptr: ?*[*:0]const u8, overflow_exception: ?*cpython.PyObject) callconv(.c) f64 {
+pub export fn PyOS_string_to_double(s: [*:0]const u8, endptr: ?*[*:0]const u8, overflow_exception: ?*cpython.PyObject) callconv(.c) f64 {
     _ = overflow_exception;
 
     const str = std.mem.span(s);

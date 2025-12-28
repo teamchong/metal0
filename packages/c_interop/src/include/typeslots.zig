@@ -256,7 +256,7 @@ fn type_new(metatype: *cpython.PyTypeObject, args: *cpython.PyObject, kwargs: ?*
 }
 
 /// Check if object is a type (instance of PyType_Type or subclass)
-export fn PyType_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyType_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     const flags = type_obj.tp_flags;
     // Check TYPE_SUBCLASS flag
@@ -264,13 +264,13 @@ export fn PyType_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Check if object is exactly PyType_Type
-export fn PyType_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyType_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyType_Type) 1 else 0;
 }
 
 /// Finalize type object - initializes inherited slots and type metadata
 /// This is critical for C extensions that create custom types
-export fn PyType_Ready(type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
+pub export fn PyType_Ready(type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
     // Already ready?
     if ((type_obj.tp_flags & Py_TPFLAGS_READY) != 0) {
         return 0;
@@ -508,7 +508,7 @@ fn default_tp_free(obj: ?*anyopaque) callconv(.c) void {
 }
 
 /// Generic type allocation
-export fn PyType_GenericAlloc(type_obj: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GenericAlloc(type_obj: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyObject {
     const basic_size: usize = @intCast(type_obj.tp_basicsize);
     const item_size: usize = @intCast(type_obj.tp_itemsize);
     const num_items: usize = @intCast(nitems);
@@ -525,7 +525,7 @@ export fn PyType_GenericAlloc(type_obj: *cpython.PyTypeObject, nitems: isize) ca
 }
 
 /// Generic new
-export fn PyType_GenericNew(type_obj: *cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GenericNew(type_obj: *cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = args;
     _ = kwargs;
 
@@ -570,7 +570,7 @@ pub fn PyType_GetBuiltinType(name: [*:0]const u8) ?*cpython.PyTypeObject {
 }
 
 /// Check if type is subtype
-export fn PyType_IsSubtype(a: *cpython.PyTypeObject, b: *cpython.PyTypeObject) callconv(.c) c_int {
+pub export fn PyType_IsSubtype(a: *cpython.PyTypeObject, b: *cpython.PyTypeObject) callconv(.c) c_int {
     if (a == b) return 1;
     
     // Check base chain
@@ -584,7 +584,7 @@ export fn PyType_IsSubtype(a: *cpython.PyTypeObject, b: *cpython.PyTypeObject) c
 }
 
 /// Get type name
-export fn PyType_GetName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GetName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("../objects/unicodeobject.zig");
     if (type_obj.tp_name) |name| {
         return pyunicode.PyUnicode_FromString(name);
@@ -593,14 +593,14 @@ export fn PyType_GetName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython
 }
 
 /// Get type qualified name
-export fn PyType_GetQualName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GetQualName(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     // For now, same as GetName
     return PyType_GetName(type_obj);
 }
 
 /// Get type module
 /// For heap types (PEP 3121), returns the module that defined this type
-export fn PyType_GetModule(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GetModule(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     const pydict = @import("../objects/dictobject.zig");
 
     // Check if type has a __dict__
@@ -642,7 +642,7 @@ export fn PyType_GetModule(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpyth
 
 /// Get type module state
 /// Returns the per-module state for heap types (PEP 3121)
-export fn PyType_GetModuleState(type_obj: *cpython.PyTypeObject) callconv(.c) ?*anyopaque {
+pub export fn PyType_GetModuleState(type_obj: *cpython.PyTypeObject) callconv(.c) ?*anyopaque {
     // First get the module
     const module = PyType_GetModule(type_obj);
     if (module) |mod| {
@@ -662,7 +662,7 @@ export fn PyType_GetModuleState(type_obj: *cpython.PyTypeObject) callconv(.c) ?*
 
 /// Modified type (invalidate caches)
 /// Called when a type's __dict__ or MRO changes
-export fn PyType_Modified(type_obj: *cpython.PyTypeObject) callconv(.c) void {
+pub export fn PyType_Modified(type_obj: *cpython.PyTypeObject) callconv(.c) void {
     // Increment version tag to invalidate attribute caches
     type_obj.tp_version_tag +%= 1;
 
@@ -672,17 +672,17 @@ export fn PyType_Modified(type_obj: *cpython.PyTypeObject) callconv(.c) void {
 }
 
 /// Has feature flag
-export fn PyType_HasFeature(type_obj: *cpython.PyTypeObject, feature: c_ulong) callconv(.c) c_int {
+pub export fn PyType_HasFeature(type_obj: *cpython.PyTypeObject, feature: c_ulong) callconv(.c) c_int {
     return if ((type_obj.tp_flags & feature) != 0) 1 else 0;
 }
 
 /// Get flags
-export fn PyType_GetFlags(type_obj: *cpython.PyTypeObject) callconv(.c) c_ulong {
+pub export fn PyType_GetFlags(type_obj: *cpython.PyTypeObject) callconv(.c) c_ulong {
     return type_obj.tp_flags;
 }
 
 /// Get slot value from type
-export fn PyType_GetSlot(type_obj: *cpython.PyTypeObject, slot: c_int) callconv(.c) ?*anyopaque {
+pub export fn PyType_GetSlot(type_obj: *cpython.PyTypeObject, slot: c_int) callconv(.c) ?*anyopaque {
     // Slot IDs from CPython's typeslots.inc
     return switch (slot) {
         1 => @ptrCast(type_obj.tp_dealloc),
@@ -716,27 +716,27 @@ export fn PyType_GetSlot(type_obj: *cpython.PyTypeObject, slot: c_int) callconv(
 }
 
 /// Check fast subclass flag
-export fn PyType_FastSubclass(type_obj: *cpython.PyTypeObject, flag: c_ulong) callconv(.c) c_int {
+pub export fn PyType_FastSubclass(type_obj: *cpython.PyTypeObject, flag: c_ulong) callconv(.c) c_int {
     return if ((type_obj.tp_flags & flag) != 0) 1 else 0;
 }
 
 /// Get base type
-export fn PyType_GetBase(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyTypeObject {
+pub export fn PyType_GetBase(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyTypeObject {
     return type_obj.tp_base;
 }
 
 /// Get type dict
-export fn PyType_GetDict(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GetDict(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     return type_obj.tp_dict;
 }
 
 /// Get type bases tuple
-export fn PyType_GetBases(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GetBases(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     return type_obj.tp_bases;
 }
 
 /// Get type MRO (Method Resolution Order)
-export fn PyType_GetMRO(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_GetMRO(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     return type_obj.tp_mro;
 }
 
@@ -750,12 +750,12 @@ pub const Py_TPFLAGS_DEFAULT: c_ulong = Py_TPFLAGS_HAVE_GC;
 
 /// PyType_FromSpec - Create a type from a spec (PEP 384)
 /// This is the standard way for C extensions to create heap types
-export fn PyType_FromSpec(spec: *cpython.PyType_Spec) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_FromSpec(spec: *cpython.PyType_Spec) callconv(.c) ?*cpython.PyObject {
     return PyType_FromSpecWithBasesAndDoc(spec, null, null);
 }
 
 /// PyType_FromSpecWithBases - Create type with explicit bases
-export fn PyType_FromSpecWithBasesInternal(spec: *cpython.PyType_Spec, bases: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyType_FromSpecWithBasesInternal(spec: *cpython.PyType_Spec, bases: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return PyType_FromSpecWithBasesAndDoc(spec, bases, null);
 }
 

@@ -254,7 +254,7 @@ pub export fn PySet_Size(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Get set size (macro version)
-export fn PySet_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PySet_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
     return PySet_Size(obj);
 }
 
@@ -416,7 +416,7 @@ pub export fn PySet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PySet_Type) 1 else 0;
 }
 
-export fn PySet_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySet_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PySet_Type) 1 else 0;
 }
 
@@ -424,7 +424,7 @@ pub export fn PyFrozenSet_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) 1 else 0;
 }
 
-export fn PyFrozenSet_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyFrozenSet_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyFrozenSet_Type) 1 else 0;
 }
 

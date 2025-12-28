@@ -24,7 +24,7 @@ const PendingCallQueue = struct {
     var mutex: std.Thread.Mutex = .{};
 };
 
-export fn Py_AddPendingCall(func: ?*const fn (?*anyopaque) callconv(.c) c_int, arg: ?*anyopaque) callconv(.c) c_int {
+pub export fn Py_AddPendingCall(func: ?*const fn (?*anyopaque) callconv(.c) c_int, arg: ?*anyopaque) callconv(.c) c_int {
     if (func) |f| {
         PendingCallQueue.mutex.lock();
         defer PendingCallQueue.mutex.unlock();
@@ -43,20 +43,20 @@ export fn Py_AddPendingCall(func: ?*const fn (?*anyopaque) callconv(.c) c_int, a
     return -1;
 }
 
-export fn Py_BytesMain(argc: c_int, argv: [*][*:0]u8) callconv(.c) c_int {
+pub export fn Py_BytesMain(argc: c_int, argv: [*][*:0]u8) callconv(.c) c_int {
     _ = argc;
     _ = argv;
     return 0;
 }
 
-export fn Py_Dealloc(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_Dealloc(obj: *cpython.PyObject) callconv(.c) void {
     const tp = cpython.Py_TYPE(obj);
     if (tp.tp_dealloc) |dealloc| {
         dealloc(obj);
     }
 }
 
-export fn Py_DecodeLocale(arg: [*:0]const u8, size: ?*usize) callconv(.c) ?[*:0]u8 {
+pub export fn Py_DecodeLocale(arg: [*:0]const u8, size: ?*usize) callconv(.c) ?[*:0]u8 {
     _ = size;
     // Return copy of input (simplified - real impl handles locale)
     const len = std.mem.len(arg);
@@ -65,7 +65,7 @@ export fn Py_DecodeLocale(arg: [*:0]const u8, size: ?*usize) callconv(.c) ?[*:0]
     return result.ptr;
 }
 
-export fn Py_EncodeLocale(text: [*:0]const u8, error_pos: ?*usize) callconv(.c) ?[*:0]u8 {
+pub export fn Py_EncodeLocale(text: [*:0]const u8, error_pos: ?*usize) callconv(.c) ?[*:0]u8 {
     _ = error_pos;
     const len = std.mem.len(text);
     const result = std.heap.c_allocator.allocSentinel(u8, len, 0) catch return null;
@@ -73,7 +73,7 @@ export fn Py_EncodeLocale(text: [*:0]const u8, error_pos: ?*usize) callconv(.c) 
     return result.ptr;
 }
 
-export fn Py_GetConstant(constant_id: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_GetConstant(constant_id: c_int) callconv(.c) ?*cpython.PyObject {
     return switch (constant_id) {
         0 => pynone.Py_None(), // Py_CONSTANT_NONE
         1 => @ptrCast(&pybool._Py_FalseStruct), // Py_CONSTANT_FALSE
@@ -82,7 +82,7 @@ export fn Py_GetConstant(constant_id: c_int) callconv(.c) ?*cpython.PyObject {
     };
 }
 
-export fn Py_GetConstantBorrowed(constant_id: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_GetConstantBorrowed(constant_id: c_int) callconv(.c) ?*cpython.PyObject {
     return Py_GetConstant(constant_id);
 }
 
@@ -92,27 +92,27 @@ const ThreadLocalState = struct {
     var mutex: std.Thread.Mutex = .{};
 };
 
-export fn Py_GetThreadLocal_Addr() callconv(.c) ?*anyopaque {
+pub export fn Py_GetThreadLocal_Addr() callconv(.c) ?*anyopaque {
     ThreadLocalState.mutex.lock();
     defer ThreadLocalState.mutex.unlock();
     return &ThreadLocalState.tls_value;
 }
 
-export fn Py_Is(x: *cpython.PyObject, y: *cpython.PyObject) callconv(.c) c_int {
+pub export fn Py_Is(x: *cpython.PyObject, y: *cpython.PyObject) callconv(.c) c_int {
     return if (x == y) 1 else 0;
 }
 
-export fn Py_IsFinalizing() callconv(.c) c_int {
+pub export fn Py_IsFinalizing() callconv(.c) c_int {
     return 0; // Not finalizing
 }
 
-export fn Py_Main(argc: c_int, argv: [*][*:0]u8) callconv(.c) c_int {
+pub export fn Py_Main(argc: c_int, argv: [*][*:0]u8) callconv(.c) c_int {
     _ = argc;
     _ = argv;
     return 0;
 }
 
-export fn Py_MakePendingCalls() callconv(.c) c_int {
+pub export fn Py_MakePendingCalls() callconv(.c) c_int {
     // Execute all pending calls
     PendingCallQueue.mutex.lock();
     const count = PendingCallQueue.count;
@@ -152,7 +152,7 @@ const ReprTracker = struct {
     }
 };
 
-export fn Py_ReprEnter(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn Py_ReprEnter(obj: *cpython.PyObject) callconv(.c) c_int {
     ReprTracker.mutex.lock();
     defer ReprTracker.mutex.unlock();
 
@@ -170,7 +170,7 @@ export fn Py_ReprEnter(obj: *cpython.PyObject) callconv(.c) c_int {
     return 0; // Tracking full, allow anyway
 }
 
-export fn Py_ReprLeave(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_ReprLeave(obj: *cpython.PyObject) callconv(.c) void {
     ReprTracker.mutex.lock();
     defer ReprTracker.mutex.unlock();
 
@@ -179,19 +179,19 @@ export fn Py_ReprLeave(obj: *cpython.PyObject) callconv(.c) void {
     }
 }
 
-export fn Py_SetRefcnt(obj: *cpython.PyObject, refcnt: isize) callconv(.c) void {
+pub export fn Py_SetRefcnt(obj: *cpython.PyObject, refcnt: isize) callconv(.c) void {
     obj.ob_refcnt = refcnt;
 }
 
-export fn Py_REFCNT(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn Py_REFCNT(obj: *cpython.PyObject) callconv(.c) isize {
     return obj.ob_refcnt;
 }
 
-export fn Py_TYPE(obj: *cpython.PyObject) callconv(.c) *cpython.PyTypeObject {
+pub export fn Py_TYPE(obj: *cpython.PyObject) callconv(.c) *cpython.PyTypeObject {
     return cpython.Py_TYPE(obj);
 }
 
-export fn Py_VaBuildValue(format: [*:0]const u8, va: std.builtin.VaList) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_VaBuildValue(format: [*:0]const u8, va: std.builtin.VaList) callconv(.c) ?*cpython.PyObject {
     const fmt = std.mem.span(format);
     if (fmt.len == 0) return pynone.Py_None();
 
@@ -282,12 +282,12 @@ export fn Py_VaBuildValue(format: [*:0]const u8, va: std.builtin.VaList) callcon
 
 // --- PyAIter/PyABIInfo ---
 
-export fn PyAIter_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyAIter_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const tp = cpython.Py_TYPE(obj);
     return if (tp.tp_as_async != null and tp.tp_as_async.?.am_anext != null) 1 else 0;
 }
 
-export fn PyABIInfo_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyABIInfo_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     _ = obj;
     return 0;
 }

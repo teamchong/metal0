@@ -139,7 +139,7 @@ pub var PyDictProxy_Type: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-export fn _get_PyDictProxy_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyDictProxy_Type() callconv(.c) *cpython.PyTypeObject {
     return &PyDictProxy_Type;
 }
 
@@ -148,35 +148,35 @@ export fn _get_PyDictProxy_Type() callconv(.c) *cpython.PyTypeObject {
 // ============================================================================
 
 /// Py_GenericAlias - Create a generic alias (e.g., list[int])
-export fn Py_GenericAlias(origin: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_GenericAlias(origin: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const genericalias = @import("../objects/genericaliasobject.zig");
     return genericalias.Py_GenericAlias(origin, args);
 }
 
 /// PyDictProxy_New - Create a read-only dict proxy (mappingproxy)
-export fn PyDictProxy_New(mapping: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDictProxy_New(mapping: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const descr = @import("../objects/descrobject.zig");
     return descr.PyDictProxy_New(mapping);
 }
 
 /// PySeqIter_New - Create sequence iterator
-export fn PySeqIter_New(seq: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PySeqIter_New(seq: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return pyiter.PySeqIter_New(seq);
 }
 
 /// PyMethod_New - Create bound method
-export fn PyMethod_New(func: *cpython.PyObject, self: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMethod_New(func: *cpython.PyObject, self: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return pymethod.PyMethod_New(func, self);
 }
 
 /// PyObject_SelfIter - Return object as its own iterator
-export fn PyObject_SelfIter(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
+pub export fn PyObject_SelfIter(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
     traits.incref(obj);
     return obj;
 }
 
 /// PyObject_LengthHint - Get length hint (for preallocating)
-export fn PyObject_LengthHint(obj: *cpython.PyObject, default_val: isize) callconv(.c) isize {
+pub export fn PyObject_LengthHint(obj: *cpython.PyObject, default_val: isize) callconv(.c) isize {
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj.tp_as_sequence) |seq| {
         if (seq.sq_length) |len_fn| {
@@ -188,7 +188,7 @@ export fn PyObject_LengthHint(obj: *cpython.PyObject, default_val: isize) callco
 }
 
 /// PyObject_AsFileDescriptor - Get file descriptor from object
-export fn PyObject_AsFileDescriptor(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_AsFileDescriptor(obj: *cpython.PyObject) callconv(.c) c_int {
     const pylong = @import("../objects/longobject.zig");
     if (pylong.PyLong_Check(obj) != 0) {
         return @intCast(pylong.PyLong_AsLong(obj));
@@ -297,7 +297,7 @@ fn wrapperCall(self: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpyth
     return null;
 }
 
-export fn PyWrapper_New(descr: *cpython.PyObject, self: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyWrapper_New(descr: *cpython.PyObject, self: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const wrapper = std.heap.c_allocator.create(PyWrapperObject) catch return null;
     wrapper.* = .{
         .ob_base = .{
@@ -312,7 +312,7 @@ export fn PyWrapper_New(descr: *cpython.PyObject, self: *cpython.PyObject) callc
     return @ptrCast(wrapper);
 }
 
-export fn _get_PyWrapperDescr_Type() callconv(.c) *cpython.PyTypeObject {
+pub export fn _get_PyWrapperDescr_Type() callconv(.c) *cpython.PyTypeObject {
     return &PyWrapperDescr_Type;
 }
 
@@ -320,25 +320,25 @@ export fn _get_PyWrapperDescr_Type() callconv(.c) *cpython.PyTypeObject {
 // DEBUG/INTERNAL REFERENCE COUNTING
 // ============================================================================
 
-export fn Py_DECREF_DecRefTotal() callconv(.c) void {}
+pub export fn Py_DECREF_DecRefTotal() callconv(.c) void {}
 
-export fn Py_DecRefShared(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_DecRefShared(obj: *cpython.PyObject) callconv(.c) void {
     traits.decref(obj);
 }
 
-export fn Py_DecRefSharedDebug(obj: *cpython.PyObject, filename: [*:0]const u8, lineno: c_int) callconv(.c) void {
+pub export fn Py_DecRefSharedDebug(obj: *cpython.PyObject, filename: [*:0]const u8, lineno: c_int) callconv(.c) void {
     _ = filename;
     _ = lineno;
     traits.decref(obj);
 }
 
-export fn Py_INCREF_IncRefTotal() callconv(.c) void {}
+pub export fn Py_INCREF_IncRefTotal() callconv(.c) void {}
 
-export fn Py_MergeZeroLocalRefcount(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_MergeZeroLocalRefcount(obj: *cpython.PyObject) callconv(.c) void {
     _ = obj;
 }
 
-export fn Py_NegativeRefcount(filename: [*:0]const u8, lineno: c_int, obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_NegativeRefcount(filename: [*:0]const u8, lineno: c_int, obj: *cpython.PyObject) callconv(.c) void {
     _ = filename;
     _ = lineno;
     _ = obj;
@@ -348,7 +348,7 @@ export fn Py_NegativeRefcount(filename: [*:0]const u8, lineno: c_int, obj: *cpyt
 // DEPRECATED/OLD FUNCTION TYPES
 // ============================================================================
 
-export fn Py_OldFunction() callconv(.c) ?*cpython.PyObject {
+pub export fn Py_OldFunction() callconv(.c) ?*cpython.PyObject {
     return null;
 }
 
@@ -356,7 +356,7 @@ export fn Py_OldFunction() callconv(.c) ?*cpython.PyObject {
 // VERSION PACKING MACROS
 // ============================================================================
 
-export fn Py_PACK_FULL_VERSION(major: c_int, minor: c_int, micro: c_int, level: c_int, serial: c_int) callconv(.c) c_ulong {
+pub export fn Py_PACK_FULL_VERSION(major: c_int, minor: c_int, micro: c_int, level: c_int, serial: c_int) callconv(.c) c_ulong {
     return @as(c_ulong, @intCast(major)) << 24 |
         @as(c_ulong, @intCast(minor)) << 16 |
         @as(c_ulong, @intCast(micro)) << 8 |
@@ -364,7 +364,7 @@ export fn Py_PACK_FULL_VERSION(major: c_int, minor: c_int, micro: c_int, level: 
         @as(c_ulong, @intCast(serial));
 }
 
-export fn Py_PACK_VERSION(major: c_int, minor: c_int) callconv(.c) c_ulong {
+pub export fn Py_PACK_VERSION(major: c_int, minor: c_int) callconv(.c) c_ulong {
     return @as(c_ulong, @intCast(major)) << 24 | @as(c_ulong, @intCast(minor)) << 16;
 }
 
@@ -372,13 +372,13 @@ export fn Py_PACK_VERSION(major: c_int, minor: c_int) callconv(.c) c_ulong {
 // API MARKERS
 // ============================================================================
 
-export fn PyAPI_FUNC() callconv(.c) void {}
+pub export fn PyAPI_FUNC() callconv(.c) void {}
 
-export fn Py_DEPRECATED(version: c_int) callconv(.c) void {
+pub export fn Py_DEPRECATED(version: c_int) callconv(.c) void {
     _ = version;
 }
 
-export fn PyUnstable_Module_SetGIL(module: *cpython.PyObject, gil: c_int) callconv(.c) c_int {
+pub export fn PyUnstable_Module_SetGIL(module: *cpython.PyObject, gil: c_int) callconv(.c) c_int {
     _ = module;
     _ = gil;
     return 0;
@@ -388,27 +388,27 @@ export fn PyUnstable_Module_SetGIL(module: *cpython.PyObject, gil: c_int) callco
 // WINDOWS ERROR FUNCTIONS (stubs for cross-platform compatibility)
 // ============================================================================
 
-export fn PyErr_SetExcFromWindowsErr(exc: *cpython.PyTypeObject, ierr: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetExcFromWindowsErr(exc: *cpython.PyTypeObject, ierr: c_int) callconv(.c) ?*cpython.PyObject {
     _ = ierr;
     exceptions.PyErr_SetString(exc, "Windows error (not on Windows)");
     return null;
 }
 
-export fn PyErr_SetExcFromWindowsErrWithFilename(exc: *cpython.PyTypeObject, ierr: c_int, filename: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    _ = ierr;
-    _ = filename;
-    exceptions.PyErr_SetString(exc, "Windows error (not on Windows)");
-    return null;
-}
-
-export fn PyErr_SetExcFromWindowsErrWithFilenameObject(exc: *cpython.PyTypeObject, ierr: c_int, filename: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetExcFromWindowsErrWithFilename(exc: *cpython.PyTypeObject, ierr: c_int, filename: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = ierr;
     _ = filename;
     exceptions.PyErr_SetString(exc, "Windows error (not on Windows)");
     return null;
 }
 
-export fn PyErr_SetExcFromWindowsErrWithFilenameObjects(exc: *cpython.PyTypeObject, ierr: c_int, filename: ?*cpython.PyObject, filename2: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetExcFromWindowsErrWithFilenameObject(exc: *cpython.PyTypeObject, ierr: c_int, filename: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    _ = ierr;
+    _ = filename;
+    exceptions.PyErr_SetString(exc, "Windows error (not on Windows)");
+    return null;
+}
+
+pub export fn PyErr_SetExcFromWindowsErrWithFilenameObjects(exc: *cpython.PyTypeObject, ierr: c_int, filename: ?*cpython.PyObject, filename2: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = ierr;
     _ = filename;
     _ = filename2;
@@ -416,13 +416,13 @@ export fn PyErr_SetExcFromWindowsErrWithFilenameObjects(exc: *cpython.PyTypeObje
     return null;
 }
 
-export fn PyErr_SetFromWindowsErr(ierr: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetFromWindowsErr(ierr: c_int) callconv(.c) ?*cpython.PyObject {
     _ = ierr;
     exceptions.PyErr_SetString(&exceptions.PyExc_OSError, "Windows error (not on Windows)");
     return null;
 }
 
-export fn PyErr_SetFromWindowsErrWithFilename(ierr: c_int, filename: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetFromWindowsErrWithFilename(ierr: c_int, filename: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = ierr;
     _ = filename;
     exceptions.PyErr_SetString(&exceptions.PyExc_OSError, "Windows error (not on Windows)");

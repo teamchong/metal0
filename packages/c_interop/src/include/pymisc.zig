@@ -17,23 +17,23 @@ const PyErr_SetString = traits.externs.PyErr_SetString;
 
 /// Allocate raw memory (not tracked by GC)
 /// Returns pointer to allocated memory or null on failure
-export fn PyMem_RawMalloc(size: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_RawMalloc(size: usize) callconv(.c) ?*anyopaque {
     return std.c.malloc(size);
 }
 
 /// Reallocate raw memory
 /// Returns pointer to reallocated memory or null on failure
-export fn PyMem_RawRealloc(ptr: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_RawRealloc(ptr: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
     return std.c.realloc(ptr, size);
 }
 
 /// Free raw memory
-export fn PyMem_RawFree(ptr: ?*anyopaque) callconv(.c) void {
+pub export fn PyMem_RawFree(ptr: ?*anyopaque) callconv(.c) void {
     std.c.free(ptr);
 }
 
 /// Allocate zeroed raw memory
-export fn PyMem_RawCalloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_RawCalloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
     return std.c.calloc(nelem, elsize);
 }
 
@@ -44,28 +44,28 @@ export fn PyMem_RawCalloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque 
 /// Allocate memory from Python heap
 /// Similar to PyMem_RawMalloc but tracked by Python
 /// Uses C malloc directly - no additional tracking in metal0's AOT model
-export fn PyMem_Malloc(size: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_Malloc(size: usize) callconv(.c) ?*anyopaque {
     return std.c.malloc(size);
 }
 
 /// Reallocate memory from Python heap
-export fn PyMem_Realloc(ptr: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_Realloc(ptr: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
     return std.c.realloc(ptr, size);
 }
 
 /// Free memory from Python heap
-export fn PyMem_Free(ptr: ?*anyopaque) callconv(.c) void {
+pub export fn PyMem_Free(ptr: ?*anyopaque) callconv(.c) void {
     std.c.free(ptr);
 }
 
 /// Allocate zeroed memory from Python heap
-export fn PyMem_Calloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_Calloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
     return std.c.calloc(nelem, elsize);
 }
 
 /// Resize memory (NEW and DEL variants)
 /// PyMem_NEW is a macro in CPython - we implement the function version
-export fn PyMem_New(size: usize, count: usize) callconv(.c) ?*anyopaque {
+pub export fn PyMem_New(size: usize, count: usize) callconv(.c) ?*anyopaque {
     return PyMem_Malloc(size * count);
 }
 
@@ -95,19 +95,19 @@ var raw_allocator: PyMemAllocatorEx = .{
 };
 
 /// Get current memory allocator
-export fn PyMem_GetAllocator(domain: c_int, allocator_out: *PyMemAllocatorEx) callconv(.c) void {
+pub export fn PyMem_GetAllocator(domain: c_int, allocator_out: *PyMemAllocatorEx) callconv(.c) void {
     _ = domain;
     allocator_out.* = raw_allocator;
 }
 
 /// Set memory allocator (returns 0 on success)
-export fn PyMem_SetAllocator(domain: c_int, allocator_in: *const PyMemAllocatorEx) callconv(.c) void {
+pub export fn PyMem_SetAllocator(domain: c_int, allocator_in: *const PyMemAllocatorEx) callconv(.c) void {
     _ = domain;
     raw_allocator = allocator_in.*;
 }
 
 /// Set up debug hooks on memory allocators
-export fn PyMem_SetupDebugHooks() callconv(.c) void {
+pub export fn PyMem_SetupDebugHooks() callconv(.c) void {
     // No-op in our implementation
 }
 
@@ -118,22 +118,22 @@ export fn PyMem_SetupDebugHooks() callconv(.c) void {
 /// Allocate memory for a Python object
 /// Used when creating new object instances
 /// Uses C malloc directly - metal0 doesn't use CPython's pymalloc arena
-export fn PyObject_Malloc(size: usize) callconv(.c) ?*anyopaque {
+pub export fn PyObject_Malloc(size: usize) callconv(.c) ?*anyopaque {
     return std.c.malloc(size);
 }
 
 /// Reallocate memory for a Python object
-export fn PyObject_Realloc(ptr: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
+pub export fn PyObject_Realloc(ptr: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
     return std.c.realloc(ptr, size);
 }
 
 /// Free memory for a Python object
-export fn PyObject_Free(ptr: ?*anyopaque) callconv(.c) void {
+pub export fn PyObject_Free(ptr: ?*anyopaque) callconv(.c) void {
     std.c.free(ptr);
 }
 
 /// Allocate zeroed memory for a Python object
-export fn PyObject_Calloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
+pub export fn PyObject_Calloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
     return std.c.calloc(nelem, elsize);
 }
 
@@ -143,7 +143,7 @@ export fn PyObject_Calloc(nelem: usize, elsize: usize) callconv(.c) ?*anyopaque 
 
 /// Generic get attribute implementation
 /// Default implementation that looks up attribute in object's dict and type
-export fn PyObject_GenericGetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GenericGetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     // First, check type's tp_getattro (may have custom logic)
@@ -185,7 +185,7 @@ export fn PyObject_GenericGetAttr(obj: *cpython.PyObject, name: *cpython.PyObjec
 
 /// Generic get instance dict
 /// Returns the __dict__ attribute of an object
-export fn PyObject_GenericGetDict(obj: *cpython.PyObject, context: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GenericGetDict(obj: *cpython.PyObject, context: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
     _ = context;
     const type_obj = cpython.Py_TYPE(obj);
 
@@ -209,7 +209,7 @@ export fn PyObject_GenericGetDict(obj: *cpython.PyObject, context: ?*anyopaque) 
 
 /// Generic set instance dict
 /// Sets the __dict__ attribute of an object
-export fn PyObject_GenericSetDict(obj: *cpython.PyObject, value: *cpython.PyObject, context: ?*anyopaque) callconv(.c) c_int {
+pub export fn PyObject_GenericSetDict(obj: *cpython.PyObject, value: *cpython.PyObject, context: ?*anyopaque) callconv(.c) c_int {
     _ = context;
     const type_obj = cpython.Py_TYPE(obj);
 
@@ -240,7 +240,7 @@ export fn PyObject_GenericSetDict(obj: *cpython.PyObject, value: *cpython.PyObje
 
 /// Generic set attribute implementation
 /// Default implementation that stores attribute in object's dict
-export fn PyObject_GenericSetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_GenericSetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
 
     // Check for data descriptor in type (has __set__)
@@ -278,7 +278,7 @@ export fn PyObject_GenericSetAttr(obj: *cpython.PyObject, name: *cpython.PyObjec
 }
 
 /// Set attribute using string name
-export fn PyObject_SetAttrString(obj: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_SetAttrString(obj: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
     const unicode = @import("unicodeobject.zig");
     const name_obj = unicode.PyUnicode_FromString(name) orelse return -1;
     defer Py_DECREF(name_obj);
@@ -286,7 +286,7 @@ export fn PyObject_SetAttrString(obj: *cpython.PyObject, name: [*:0]const u8, va
 }
 
 /// Delete attribute using string name
-export fn PyObject_DelAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyObject_DelAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
     const unicode = @import("unicodeobject.zig");
     const name_obj = unicode.PyUnicode_FromString(name) orelse return -1;
     defer Py_DECREF(name_obj);
@@ -294,7 +294,7 @@ export fn PyObject_DelAttrString(obj: *cpython.PyObject, name: [*:0]const u8) ca
 }
 
 /// Get attribute using string name
-export fn PyObject_GetAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GetAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const unicode = @import("unicodeobject.zig");
     const name_obj = unicode.PyUnicode_FromString(name) orelse return null;
     defer Py_DECREF(name_obj);
@@ -302,7 +302,7 @@ export fn PyObject_GetAttrString(obj: *cpython.PyObject, name: [*:0]const u8) ca
 }
 
 /// Get attribute using object name
-export fn PyObject_GetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     // Use type's tp_getattro if available
@@ -315,7 +315,7 @@ export fn PyObject_GetAttr(obj: *cpython.PyObject, name: *cpython.PyObject) call
 }
 
 /// Set attribute using object name
-export fn PyObject_SetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_SetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
 
     // Use type's tp_setattro if available
@@ -329,7 +329,7 @@ export fn PyObject_SetAttr(obj: *cpython.PyObject, name: *cpython.PyObject, valu
 
 /// Check if object has attribute (string name)
 /// Returns 1 if exists, 0 if not
-export fn PyObject_HasAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyObject_HasAttrString(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
     const attr = PyObject_GetAttrString(obj, name);
     if (attr) |a| {
         Py_DECREF(a);
@@ -345,7 +345,7 @@ export fn PyObject_HasAttrString(obj: *cpython.PyObject, name: [*:0]const u8) ca
 }
 
 /// Check if object has attribute (object name)
-export fn PyObject_HasAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_HasAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
     const attr = PyObject_GetAttr(obj, name);
     if (attr) |a| {
         Py_DECREF(a);
@@ -455,7 +455,7 @@ fn capsule_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 
 /// Create a new capsule object
 /// Wraps a C pointer in a Python object with optional destructor
-export fn PyCapsule_New(pointer: ?*anyopaque, name: ?[*:0]const u8, destructor: ?PyCapsule_Destructor) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCapsule_New(pointer: ?*anyopaque, name: ?[*:0]const u8, destructor: ?PyCapsule_Destructor) callconv(.c) ?*cpython.PyObject {
     if (pointer == null) {
         PyErr_SetString(@ptrFromInt(0), "PyCapsule_New called with null pointer");
         return null;
@@ -474,7 +474,7 @@ export fn PyCapsule_New(pointer: ?*anyopaque, name: ?[*:0]const u8, destructor: 
 
 /// Get pointer from capsule object
 /// name must match capsule name if not null
-export fn PyCapsule_GetPointer(capsule: *cpython.PyObject, name: ?[*:0]const u8) callconv(.c) ?*anyopaque {
+pub export fn PyCapsule_GetPointer(capsule: *cpython.PyObject, name: ?[*:0]const u8) callconv(.c) ?*anyopaque {
     if (PyCapsule_CheckExact(capsule) == 0) {
         PyErr_SetString(@ptrFromInt(0), "expected a PyCapsule object");
         return null;
@@ -500,7 +500,7 @@ export fn PyCapsule_GetPointer(capsule: *cpython.PyObject, name: ?[*:0]const u8)
 
 /// Set pointer in capsule object
 /// Returns 0 on success, -1 on error
-export fn PyCapsule_SetPointer(capsule: *cpython.PyObject, pointer: *anyopaque) callconv(.c) c_int {
+pub export fn PyCapsule_SetPointer(capsule: *cpython.PyObject, pointer: *anyopaque) callconv(.c) c_int {
     if (PyCapsule_CheckExact(capsule) == 0) {
         PyErr_SetString(@ptrFromInt(0), "expected a PyCapsule object");
         return -1;
@@ -512,7 +512,7 @@ export fn PyCapsule_SetPointer(capsule: *cpython.PyObject, pointer: *anyopaque) 
 }
 
 /// Get capsule name
-export fn PyCapsule_GetName(capsule: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
+pub export fn PyCapsule_GetName(capsule: *cpython.PyObject) callconv(.c) ?[*:0]const u8 {
     if (PyCapsule_CheckExact(capsule) == 0) {
         return null;
     }
@@ -522,7 +522,7 @@ export fn PyCapsule_GetName(capsule: *cpython.PyObject) callconv(.c) ?[*:0]const
 
 /// Set capsule name
 /// Returns 0 on success, -1 on error
-export fn PyCapsule_SetName(capsule: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyCapsule_SetName(capsule: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
     if (PyCapsule_CheckExact(capsule) == 0) {
         return -1;
     }
@@ -532,7 +532,7 @@ export fn PyCapsule_SetName(capsule: *cpython.PyObject, name: [*:0]const u8) cal
 }
 
 /// Get capsule destructor
-export fn PyCapsule_GetDestructor(capsule: *cpython.PyObject) callconv(.c) ?PyCapsule_Destructor {
+pub export fn PyCapsule_GetDestructor(capsule: *cpython.PyObject) callconv(.c) ?PyCapsule_Destructor {
     if (PyCapsule_CheckExact(capsule) == 0) {
         return null;
     }
@@ -542,7 +542,7 @@ export fn PyCapsule_GetDestructor(capsule: *cpython.PyObject) callconv(.c) ?PyCa
 
 /// Set capsule destructor
 /// Returns 0 on success, -1 on error
-export fn PyCapsule_SetDestructor(capsule: *cpython.PyObject, destructor: PyCapsule_Destructor) callconv(.c) c_int {
+pub export fn PyCapsule_SetDestructor(capsule: *cpython.PyObject, destructor: PyCapsule_Destructor) callconv(.c) c_int {
     if (PyCapsule_CheckExact(capsule) == 0) {
         return -1;
     }
@@ -552,7 +552,7 @@ export fn PyCapsule_SetDestructor(capsule: *cpython.PyObject, destructor: PyCaps
 }
 
 /// Get capsule context pointer
-export fn PyCapsule_GetContext(capsule: *cpython.PyObject) callconv(.c) ?*anyopaque {
+pub export fn PyCapsule_GetContext(capsule: *cpython.PyObject) callconv(.c) ?*anyopaque {
     if (PyCapsule_CheckExact(capsule) == 0) {
         return null;
     }
@@ -562,7 +562,7 @@ export fn PyCapsule_GetContext(capsule: *cpython.PyObject) callconv(.c) ?*anyopa
 
 /// Set capsule context pointer
 /// Returns 0 on success, -1 on error
-export fn PyCapsule_SetContext(capsule: *cpython.PyObject, context: *anyopaque) callconv(.c) c_int {
+pub export fn PyCapsule_SetContext(capsule: *cpython.PyObject, context: *anyopaque) callconv(.c) c_int {
     if (PyCapsule_CheckExact(capsule) == 0) {
         return -1;
     }
@@ -573,13 +573,13 @@ export fn PyCapsule_SetContext(capsule: *cpython.PyObject, context: *anyopaque) 
 
 /// Check if object is a capsule
 /// Returns 1 if capsule, 0 otherwise
-export fn PyCapsule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyCapsule_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyCapsule_Type) 1 else 0;
 }
 
 /// Import pointer from module using capsule
 /// Used to share C API between extensions (format: "module.attribute")
-export fn PyCapsule_Import(name: [*:0]const u8, no_block: c_int) callconv(.c) ?*anyopaque {
+pub export fn PyCapsule_Import(name: [*:0]const u8, no_block: c_int) callconv(.c) ?*anyopaque {
     _ = no_block;
     const name_str = std.mem.span(name);
 
@@ -610,14 +610,14 @@ export fn PyCapsule_Import(name: [*:0]const u8, no_block: c_int) callconv(.c) ?*
 
 /// Check if object is hashable
 /// Returns 1 if hashable, 0 otherwise
-export fn PyObject_IsHashable(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_IsHashable(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     return if (type_obj.tp_hash != null) 1 else 0;
 }
 
 /// Hash a pointer value
 /// Returns hash suitable for pointer-based identity hashing
-export fn _Py_HashPointer(ptr: ?*anyopaque) callconv(.c) isize {
+pub export fn _Py_HashPointer(ptr: ?*anyopaque) callconv(.c) isize {
     if (ptr == null) return 0;
     const addr = @intFromPtr(ptr);
     // Mix bits for better distribution
@@ -626,7 +626,7 @@ export fn _Py_HashPointer(ptr: ?*anyopaque) callconv(.c) isize {
 
 /// Hash bytes
 /// Returns hash of byte array using SipHash-like algorithm
-export fn _Py_HashBytes(src: [*]const u8, len: isize) callconv(.c) isize {
+pub export fn _Py_HashBytes(src: [*]const u8, len: isize) callconv(.c) isize {
     if (len <= 0) return 0;
     const bytes = src[0..@intCast(len)];
 
@@ -643,7 +643,7 @@ export fn _Py_HashBytes(src: [*]const u8, len: isize) callconv(.c) isize {
 
 /// Hash a double value
 /// Returns hash consistent with integer hashing
-export fn _Py_HashDouble(obj: *cpython.PyObject, value: f64) callconv(.c) isize {
+pub export fn _Py_HashDouble(obj: *cpython.PyObject, value: f64) callconv(.c) isize {
     _ = obj;
     // Handle special cases
     if (std.math.isNan(value)) return 0;
@@ -670,14 +670,14 @@ pub const Py_uhash_t = usize;
 
 /// Initialize a pre-allocated object
 /// Sets refcount to 1 and type pointer
-export fn PyObject_Init(op: *cpython.PyObject, tp: *cpython.PyTypeObject) callconv(.c) *cpython.PyObject {
+pub export fn PyObject_Init(op: *cpython.PyObject, tp: *cpython.PyTypeObject) callconv(.c) *cpython.PyObject {
     op.ob_refcnt = 1;
     op.ob_type = tp;
     return op;
 }
 
 /// Initialize a pre-allocated variable-size object
-export fn PyObject_InitVar(op: *cpython.PyVarObject, tp: *cpython.PyTypeObject, size: isize) callconv(.c) *cpython.PyVarObject {
+pub export fn PyObject_InitVar(op: *cpython.PyVarObject, tp: *cpython.PyTypeObject, size: isize) callconv(.c) *cpython.PyVarObject {
     op.ob_base.ob_refcnt = 1;
     op.ob_base.ob_type = tp;
     op.ob_size = size;
@@ -685,7 +685,7 @@ export fn PyObject_InitVar(op: *cpython.PyVarObject, tp: *cpython.PyTypeObject, 
 }
 
 /// Allocate a new object of given type (internal)
-export fn _PyObject_New(tp: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn _PyObject_New(tp: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     const size: usize = @intCast(tp.tp_basicsize);
     const mem = std.c.malloc(size) orelse return null;
     const obj: *cpython.PyObject = @ptrCast(@alignCast(mem));
@@ -693,7 +693,7 @@ export fn _PyObject_New(tp: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObje
 }
 
 /// Allocate a new variable-size object (internal)
-export fn _PyObject_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
+pub export fn _PyObject_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
     const basicsize: usize = @intCast(tp.tp_basicsize);
     const itemsize: usize = @intCast(tp.tp_itemsize);
     const size = basicsize + itemsize * @as(usize, @intCast(nitems));
@@ -703,7 +703,7 @@ export fn _PyObject_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c
 }
 
 /// Allocate a new object using type's allocator
-export fn PyObject_New(tp: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_New(tp: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     if (tp.tp_alloc) |alloc| {
         return alloc(tp, 0);
     }
@@ -711,7 +711,7 @@ export fn PyObject_New(tp: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObjec
 }
 
 /// Allocate a new variable-size object using type's allocator
-export fn PyObject_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
+pub export fn PyObject_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
     if (tp.tp_alloc) |alloc| {
         const obj = alloc(tp, nitems) orelse return null;
         return @ptrCast(@alignCast(obj));
@@ -720,7 +720,7 @@ export fn PyObject_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c)
 }
 
 /// Delete an object
-export fn PyObject_Del(op: ?*anyopaque) callconv(.c) void {
+pub export fn PyObject_Del(op: ?*anyopaque) callconv(.c) void {
     if (op) |ptr| {
         std.c.free(ptr);
     }
@@ -731,13 +731,13 @@ export fn PyObject_Del(op: ?*anyopaque) callconv(.c) void {
 // ============================================================================
 
 /// Increment reference count and return object (for chaining)
-export fn Py_NewRef(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
+pub export fn Py_NewRef(obj: *cpython.PyObject) callconv(.c) *cpython.PyObject {
     Py_INCREF(obj);
     return obj;
 }
 
 /// Increment reference count of nullable object and return it
-export fn Py_XNewRef(obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_XNewRef(obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (obj) |o| {
         Py_INCREF(o);
         return o;
@@ -746,12 +746,12 @@ export fn Py_XNewRef(obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 }
 
 /// Alias for Py_INCREF (for compatibility)
-export fn Py_IncRef(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_IncRef(obj: *cpython.PyObject) callconv(.c) void {
     Py_INCREF(obj);
 }
 
 /// Alias for Py_DECREF (for compatibility)
-export fn Py_DecRef(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn Py_DecRef(obj: *cpython.PyObject) callconv(.c) void {
     Py_DECREF(obj);
 }
 
@@ -761,7 +761,7 @@ export fn Py_DecRef(obj: *cpython.PyObject) callconv(.c) void {
 
 /// Check if object is instance of type
 /// Returns 1 if instance, 0 if not, -1 on error
-export fn PyObject_IsInstance(obj: *cpython.PyObject, typeinfo: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_IsInstance(obj: *cpython.PyObject, typeinfo: *cpython.PyObject) callconv(.c) c_int {
     const obj_type = cpython.Py_TYPE(obj);
 
     // Direct type check
@@ -793,7 +793,7 @@ export fn PyObject_IsInstance(obj: *cpython.PyObject, typeinfo: *cpython.PyObjec
 
 /// Check if derived is subclass of base
 /// Returns 1 if subclass, 0 if not, -1 on error
-export fn PyObject_IsSubclass(derived: *cpython.PyObject, base: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_IsSubclass(derived: *cpython.PyObject, base: *cpython.PyObject) callconv(.c) c_int {
     const derived_type: *cpython.PyTypeObject = @ptrCast(@alignCast(derived));
     const base_type: *cpython.PyTypeObject = @ptrCast(@alignCast(base));
     return PyType_IsSubtype(derived_type, base_type);
@@ -801,7 +801,7 @@ export fn PyObject_IsSubclass(derived: *cpython.PyObject, base: *cpython.PyObjec
 
 /// Check if object's type is exactly the given type or a subtype
 /// Equivalent to isinstance(obj, type)
-export fn PyObject_TypeCheck(obj: *cpython.PyObject, tp: *cpython.PyTypeObject) callconv(.c) c_int {
+pub export fn PyObject_TypeCheck(obj: *cpython.PyObject, tp: *cpython.PyTypeObject) callconv(.c) c_int {
     const obj_type = cpython.Py_TYPE(obj);
     if (obj_type == tp) return 1;
     return PyType_IsSubtype(obj_type, tp);
@@ -837,7 +837,7 @@ fn PyType_IsSubtype(derived: *cpython.PyTypeObject, base: *cpython.PyTypeObject)
 }
 
 /// Get list of attribute names
-export fn PyObject_Dir(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Dir(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pylist = @import("../objects/listobject.zig");
     const pydict = @import("../objects/dictobject.zig");
 
@@ -886,7 +886,7 @@ export fn PyObject_Dir(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 }
 
 /// Format object using format spec
-export fn PyObject_Format(obj: *cpython.PyObject, format_spec: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Format(obj: *cpython.PyObject, format_spec: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = format_spec;
     // Default: just return str(obj)
     const type_obj = cpython.Py_TYPE(obj);
@@ -905,7 +905,7 @@ export fn PyObject_Format(obj: *cpython.PyObject, format_spec: ?*cpython.PyObjec
 // ============================================================================
 
 /// Get async iterator (__aiter__)
-export fn PyObject_GetAIter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GetAIter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_as_async) |async_procs| {
@@ -919,7 +919,7 @@ export fn PyObject_GetAIter(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObj
 }
 
 /// Get next item from async iterator (__anext__)
-export fn PyObject_GetANext(aiter: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_GetANext(aiter: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(aiter);
 
     if (type_obj.tp_as_async) |async_procs| {
@@ -933,7 +933,7 @@ export fn PyObject_GetANext(aiter: *cpython.PyObject) callconv(.c) ?*cpython.PyO
 }
 
 /// Clear weak references to object
-export fn PyObject_ClearWeakRefs(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn PyObject_ClearWeakRefs(obj: *cpython.PyObject) callconv(.c) void {
     const type_obj = cpython.Py_TYPE(obj);
 
     if (type_obj.tp_weaklistoffset != 0) {
@@ -943,7 +943,7 @@ export fn PyObject_ClearWeakRefs(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 /// Print object to file (or stdout)
-export fn PyObject_Print(obj: *cpython.PyObject, fp: ?*anyopaque, flags: c_int) callconv(.c) c_int {
+pub export fn PyObject_Print(obj: *cpython.PyObject, fp: ?*anyopaque, flags: c_int) callconv(.c) c_int {
     _ = fp; // Usually FILE*, we'll use stdout
 
     // Get string representation based on flags

@@ -173,7 +173,7 @@ const GenericExceptionObject = extern struct {
 };
 
 /// Set exception with string message
-export fn PyErr_SetString(exc_type: *cpython.PyTypeObject, message: [*:0]const u8) callconv(.c) void {
+pub export fn PyErr_SetString(exc_type: *cpython.PyTypeObject, message: [*:0]const u8) callconv(.c) void {
     // Convert C string to PyUnicode
     const pyunicode = @import("unicodeobject.zig");
     const py_msg = pyunicode.PyUnicode_FromString(message);
@@ -213,7 +213,7 @@ export fn PyErr_SetString(exc_type: *cpython.PyTypeObject, message: [*:0]const u
 }
 
 /// Set exception with object
-export fn PyErr_SetObject(exc_type: *cpython.PyTypeObject, exc_value: *cpython.PyObject) callconv(.c) void {
+pub export fn PyErr_SetObject(exc_type: *cpython.PyTypeObject, exc_value: *cpython.PyObject) callconv(.c) void {
     // INCREF the exception value
     _ = traits.incref(exc_value);
 
@@ -228,12 +228,12 @@ export fn PyErr_SetObject(exc_type: *cpython.PyTypeObject, exc_value: *cpython.P
 }
 
 /// Check if exception occurred
-export fn PyErr_Occurred() callconv(.c) ?*cpython.PyTypeObject {
+pub export fn PyErr_Occurred() callconv(.c) ?*cpython.PyTypeObject {
     return global_exception_state.exc_type;
 }
 
 /// Clear current exception
-export fn PyErr_Clear() callconv(.c) void {
+pub export fn PyErr_Clear() callconv(.c) void {
     // DECREF exception value
     if (global_exception_state.exc_value) |exc| {
         traits.decref(exc);
@@ -252,7 +252,7 @@ export fn PyErr_Clear() callconv(.c) void {
 }
 
 /// Print current exception
-export fn PyErr_Print() callconv(.c) void {
+pub export fn PyErr_Print() callconv(.c) void {
     if (global_exception_state.exc_type) |exc_type| {
         const type_name = exc_type.tp_name;
 
@@ -279,7 +279,7 @@ export fn PyErr_Print() callconv(.c) void {
 }
 
 /// Format and set exception
-export fn PyErr_Format(exc_type: *cpython.PyTypeObject, format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_Format(exc_type: *cpython.PyTypeObject, format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
     const fmt = std.mem.span(format);
     var va = @cVaStart();
     defer @cVaEnd(&va);
@@ -348,7 +348,7 @@ export fn PyErr_Format(exc_type: *cpython.PyTypeObject, format: [*:0]const u8, .
 }
 
 /// Check if exception matches type
-export fn PyErr_ExceptionMatches(exc: *cpython.PyTypeObject) callconv(.c) c_int {
+pub export fn PyErr_ExceptionMatches(exc: *cpython.PyTypeObject) callconv(.c) c_int {
     if (global_exception_state.exc_type) |current_type| {
         return if (current_type == exc) 1 else 0;
     }
@@ -356,14 +356,14 @@ export fn PyErr_ExceptionMatches(exc: *cpython.PyTypeObject) callconv(.c) c_int 
 }
 
 /// Check if object is exception instance
-export fn PyErr_GivenExceptionMatches(err: *cpython.PyObject, exc: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyErr_GivenExceptionMatches(err: *cpython.PyObject, exc: *cpython.PyObject) callconv(.c) c_int {
     const err_type = cpython.Py_TYPE(err);
     const exc_type = @as(*cpython.PyTypeObject, @ptrCast(exc));
     return if (err_type == exc_type) 1 else 0;
 }
 
 /// Restore exception state (for exception handling)
-export fn PyErr_Restore(exc_type: ?*cpython.PyTypeObject, exc_value: ?*cpython.PyObject, exc_tb: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyErr_Restore(exc_type: ?*cpython.PyTypeObject, exc_value: ?*cpython.PyObject, exc_tb: ?*cpython.PyObject) callconv(.c) void {
     PyErr_Clear();
 
     global_exception_state = .{
@@ -374,7 +374,7 @@ export fn PyErr_Restore(exc_type: ?*cpython.PyTypeObject, exc_value: ?*cpython.P
 }
 
 /// Fetch exception state (transfers ownership)
-export fn PyErr_Fetch(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObject, p_tb: *?*cpython.PyObject) callconv(.c) void {
+pub export fn PyErr_Fetch(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObject, p_tb: *?*cpython.PyObject) callconv(.c) void {
     p_type.* = global_exception_state.exc_type;
     p_value.* = global_exception_state.exc_value;
     p_tb.* = global_exception_state.exc_traceback;
@@ -389,7 +389,7 @@ export fn PyErr_Fetch(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObj
 
 /// Normalize exception (ensure exc_value is instance of exc_type)
 /// This converts exception from tuple format (type, args) to (type, instance)
-export fn PyErr_NormalizeException(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObject, p_tb: *?*cpython.PyObject) callconv(.c) void {
+pub export fn PyErr_NormalizeException(p_type: *?*cpython.PyTypeObject, p_value: *?*cpython.PyObject, p_tb: *?*cpython.PyObject) callconv(.c) void {
     const exc_type = p_type.* orelse return;
     const exc_value = p_value.*;
 
@@ -465,13 +465,13 @@ export fn PyErr_NormalizeException(p_type: *?*cpython.PyTypeObject, p_value: *?*
 }
 
 /// Set MemoryError exception
-export fn PyErr_NoMemory() callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_NoMemory() callconv(.c) ?*cpython.PyObject {
     PyErr_SetString(&PyExc_MemoryError, "out of memory");
     return null;
 }
 
 /// Set exception without value (type only)
-export fn PyErr_SetNone(exc_type: *cpython.PyTypeObject) callconv(.c) void {
+pub export fn PyErr_SetNone(exc_type: *cpython.PyTypeObject) callconv(.c) void {
     global_exception_state = .{
         .exc_type = exc_type,
         .exc_value = null,
@@ -480,14 +480,14 @@ export fn PyErr_SetNone(exc_type: *cpython.PyTypeObject) callconv(.c) void {
 }
 
 /// Issue a warning
-export fn PyErr_WarnEx(category: *cpython.PyTypeObject, message: [*:0]const u8, stack_level: isize) callconv(.c) c_int {
+pub export fn PyErr_WarnEx(category: *cpython.PyTypeObject, message: [*:0]const u8, stack_level: isize) callconv(.c) c_int {
     _ = stack_level;
     std.debug.print("{s}: {s}\n", .{ category.tp_name, std.mem.span(message) });
     return 0; // Success - warning issued
 }
 
 /// Write current exception to stderr and clear it
-export fn PyErr_WriteUnraisable(obj: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyErr_WriteUnraisable(obj: ?*cpython.PyObject) callconv(.c) void {
     if (global_exception_state.exc_type) |exc_type| {
         std.debug.print("Exception ignored in: ", .{});
         if (obj) |o| {
@@ -502,23 +502,23 @@ export fn PyErr_WriteUnraisable(obj: ?*cpython.PyObject) callconv(.c) void {
 }
 
 /// Check if argument is bad type
-export fn PyErr_BadArgument() callconv(.c) c_int {
+pub export fn PyErr_BadArgument() callconv(.c) c_int {
     PyErr_SetString(&PyExc_TypeError, "bad argument type for built-in operation");
     return 0;
 }
 
 /// Report internal call error
-export fn PyErr_BadInternalCall() callconv(.c) void {
+pub export fn PyErr_BadInternalCall() callconv(.c) void {
     PyErr_SetString(&PyExc_RuntimeError, "bad internal call");
 }
 
 /// Check for pending signals (stub)
-export fn PyErr_CheckSignals() callconv(.c) c_int {
+pub export fn PyErr_CheckSignals() callconv(.c) c_int {
     return 0; // No signals
 }
 
 /// Set errno-based exception
-export fn PyErr_SetFromErrno(exc_type: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetFromErrno(exc_type: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     const errno_val = std.c._errno().*;
     var buf: [256]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, "errno {d}", .{errno_val}) catch "errno error";
@@ -527,7 +527,7 @@ export fn PyErr_SetFromErrno(exc_type: *cpython.PyTypeObject) callconv(.c) ?*cpy
 }
 
 /// Set errno-based exception with filename
-export fn PyErr_SetFromErrnoWithFilename(exc_type: *cpython.PyTypeObject, filename: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_SetFromErrnoWithFilename(exc_type: *cpython.PyTypeObject, filename: ?[*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const errno_val = std.c._errno().*;
     var buf: [512]u8 = undefined;
     const fname = if (filename) |f| std.mem.span(f) else "(null)";
@@ -540,12 +540,12 @@ export fn PyErr_SetFromErrnoWithFilename(exc_type: *cpython.PyTypeObject, filena
 /// name: must be "module.classname" format
 /// base: base exception type (or null for Exception)
 /// dict: optional class dict (or null)
-export fn PyErr_NewException(name: [*:0]const u8, base: ?*cpython.PyObject, dict: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_NewException(name: [*:0]const u8, base: ?*cpython.PyObject, dict: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return PyErr_NewExceptionWithDoc(name, null, base, dict);
 }
 
 /// Create new exception class with docstring
-export fn PyErr_NewExceptionWithDoc(name: [*:0]const u8, doc: ?[*:0]const u8, base: ?*cpython.PyObject, dict: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyErr_NewExceptionWithDoc(name: [*:0]const u8, doc: ?[*:0]const u8, base: ?*cpython.PyObject, dict: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = doc;
     _ = dict;
 
@@ -635,12 +635,12 @@ const SyntaxErrorObject = extern struct {
 };
 
 /// Set syntax error location
-export fn PyErr_SyntaxLocation(filename: [*:0]const u8, lineno: c_int) callconv(.c) void {
+pub export fn PyErr_SyntaxLocation(filename: [*:0]const u8, lineno: c_int) callconv(.c) void {
     PyErr_SyntaxLocationEx(filename, lineno, -1);
 }
 
 /// Set syntax error location with column
-export fn PyErr_SyntaxLocationEx(filename: [*:0]const u8, lineno: c_int, col_offset: c_int) callconv(.c) void {
+pub export fn PyErr_SyntaxLocationEx(filename: [*:0]const u8, lineno: c_int, col_offset: c_int) callconv(.c) void {
     // Only set if current exception is a SyntaxError
     if (global_exception_state.exc_value == null) return;
 
@@ -674,7 +674,7 @@ export fn PyErr_SyntaxLocationEx(filename: [*:0]const u8, lineno: c_int, col_off
 }
 
 /// Raise interrupt exception
-export fn PyErr_SetInterrupt() callconv(.c) void {
+pub export fn PyErr_SetInterrupt() callconv(.c) void {
     // Import cpython_os to use the interrupt flag
     const cpython_os = @import("../include/osmodule.zig");
     _ = cpython_os.PyErr_SetInterruptEx(2); // SIGINT = 2
@@ -685,7 +685,7 @@ export fn PyErr_SetInterrupt() callconv(.c) void {
 // ============================================================================
 
 /// Get the __cause__ attribute of an exception
-export fn PyException_GetCause(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyException_GetCause(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Cast to exception type and get cause field
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
     if (base_exc.cause) |cause| {
@@ -696,7 +696,7 @@ export fn PyException_GetCause(exc: *cpython.PyObject) callconv(.c) ?*cpython.Py
 }
 
 /// Set the __cause__ attribute of an exception (explicit chaining)
-export fn PyException_SetCause(exc: *cpython.PyObject, cause: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyException_SetCause(exc: *cpython.PyObject, cause: ?*cpython.PyObject) callconv(.c) void {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
 
     // DECREF old cause
@@ -709,7 +709,7 @@ export fn PyException_SetCause(exc: *cpython.PyObject, cause: ?*cpython.PyObject
 }
 
 /// Get the __context__ attribute of an exception
-export fn PyException_GetContext(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyException_GetContext(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
     if (base_exc.context) |context| {
         _ = traits.incref(@ptrCast(context));
@@ -719,7 +719,7 @@ export fn PyException_GetContext(exc: *cpython.PyObject) callconv(.c) ?*cpython.
 }
 
 /// Set the __context__ attribute of an exception (implicit chaining)
-export fn PyException_SetContext(exc: *cpython.PyObject, context: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyException_SetContext(exc: *cpython.PyObject, context: ?*cpython.PyObject) callconv(.c) void {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
 
     // DECREF old context
@@ -732,7 +732,7 @@ export fn PyException_SetContext(exc: *cpython.PyObject, context: ?*cpython.PyOb
 }
 
 /// Get the __traceback__ attribute of an exception
-export fn PyException_GetTraceback(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyException_GetTraceback(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
     if (base_exc.traceback) |tb| {
         _ = traits.incref(@ptrCast(tb));
@@ -742,7 +742,7 @@ export fn PyException_GetTraceback(exc: *cpython.PyObject) callconv(.c) ?*cpytho
 }
 
 /// Set the __traceback__ attribute of an exception
-export fn PyException_SetTraceback(exc: *cpython.PyObject, tb: ?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyException_SetTraceback(exc: *cpython.PyObject, tb: ?*cpython.PyObject) callconv(.c) c_int {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
 
     // DECREF old traceback
@@ -760,7 +760,7 @@ export fn PyException_SetTraceback(exc: *cpython.PyObject, tb: ?*cpython.PyObjec
 
 /// Get the args attribute of an exception
 /// Returns a tuple containing the exception message (for compatibility with CPython)
-export fn PyException_GetArgs(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyException_GetArgs(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Cast to base exception structure to access message
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
 
@@ -780,7 +780,7 @@ export fn PyException_GetArgs(exc: *cpython.PyObject) callconv(.c) ?*cpython.PyO
 
 /// Set the args attribute of an exception
 /// Extracts the first element from args tuple and sets it as the exception message
-export fn PyException_SetArgs(exc: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) void {
+pub export fn PyException_SetArgs(exc: *cpython.PyObject, args: *cpython.PyObject) callconv(.c) void {
     const base_exc: *PyBaseException = @ptrCast(@alignCast(exc));
 
     // Check if args is a tuple with at least one element

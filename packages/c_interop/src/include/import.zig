@@ -109,7 +109,7 @@ pub export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.
 /// Import module without blocking (same as regular import for now)
 ///
 /// CPython: PyObject* PyImport_ImportModuleNoBlock(const char *name)
-export fn PyImport_ImportModuleNoBlock(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_ImportModuleNoBlock(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     return PyImport_ImportModule(name);
 }
 
@@ -117,7 +117,7 @@ export fn PyImport_ImportModuleNoBlock(name: [*:0]const u8) callconv(.c) ?*cpyth
 ///
 /// CPython: PyObject* PyImport_ImportModuleLevel(const char *name, PyObject *globals,
 ///                                                PyObject *locals, PyObject *fromlist, int level)
-export fn PyImport_ImportModuleLevel(
+pub export fn PyImport_ImportModuleLevel(
     name: [*:0]const u8,
     globals: ?*cpython.PyObject,
     locals: ?*cpython.PyObject,
@@ -176,7 +176,7 @@ export fn PyImport_ImportModuleLevel(
 /// Import using __import__ protocol
 ///
 /// CPython: PyObject* PyImport_Import(PyObject *name)
-export fn PyImport_Import(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_Import(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const name_str = PyUnicode_AsUTF8(name);
     if (name_str == null) return null;
 
@@ -188,7 +188,7 @@ export fn PyImport_Import(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObje
 /// CPython: PyObject* PyImport_ReloadModule(PyObject *module)
 /// In metal0's AOT compilation model, modules are compiled to native code,
 /// so "reloading" has limited meaning. We clear and reinitialize the module dict.
-export fn PyImport_ReloadModule(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_ReloadModule(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Get module name
     const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
 
@@ -246,7 +246,7 @@ export fn PyImport_ReloadModule(module: *cpython.PyObject) callconv(.c) ?*cpytho
 /// Add module to sys.modules
 ///
 /// CPython: PyObject* PyImport_AddModule(const char *name)
-export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     initModuleSystem();
 
     // Check if module already exists
@@ -286,7 +286,7 @@ export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyObjec
 /// Add module object to sys.modules
 ///
 /// CPython: PyObject* PyImport_AddModuleObject(PyObject *name)
-export fn PyImport_AddModuleObject(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_AddModuleObject(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const name_str = PyUnicode_AsUTF8(name);
     if (name_str == null) return null;
 
@@ -296,14 +296,14 @@ export fn PyImport_AddModuleObject(name: *cpython.PyObject) callconv(.c) ?*cpyth
 /// Execute code as module
 ///
 /// CPython: PyObject* PyImport_ExecCodeModule(const char *name, PyObject *co)
-export fn PyImport_ExecCodeModule(name: [*:0]const u8, co: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_ExecCodeModule(name: [*:0]const u8, co: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     return PyImport_ExecCodeModuleWithPathnames(name, co, null, null);
 }
 
 /// Execute code as module with pathname
 ///
 /// CPython: PyObject* PyImport_ExecCodeModuleEx(const char *name, PyObject *co, const char *pathname)
-export fn PyImport_ExecCodeModuleEx(name: [*:0]const u8, co: *cpython.PyObject, pathname: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_ExecCodeModuleEx(name: [*:0]const u8, co: *cpython.PyObject, pathname: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     return PyImport_ExecCodeModuleWithPathnames(name, co, pathname, null);
 }
 
@@ -311,7 +311,7 @@ export fn PyImport_ExecCodeModuleEx(name: [*:0]const u8, co: *cpython.PyObject, 
 ///
 /// CPython: PyObject* PyImport_ExecCodeModuleWithPathnames(const char *name, PyObject *co,
 ///                                                          const char *pathname, const char *cpathname)
-export fn PyImport_ExecCodeModuleWithPathnames(
+pub export fn PyImport_ExecCodeModuleWithPathnames(
     name: [*:0]const u8,
     co: *cpython.PyObject,
     pathname: ?[*:0]const u8,
@@ -362,7 +362,7 @@ export fn PyImport_ExecCodeModuleWithPathnames(
 /// Get sys.modules dict
 ///
 /// CPython: PyObject* PyImport_GetModuleDict(void)
-export fn PyImport_GetModuleDict() callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_GetModuleDict() callconv(.c) ?*cpython.PyObject {
     initModuleSystem();
     return module_dict;
 }
@@ -370,7 +370,7 @@ export fn PyImport_GetModuleDict() callconv(.c) ?*cpython.PyObject {
 /// Get module from sys.modules
 ///
 /// CPython: PyObject* PyImport_GetModule(PyObject *name)
-export fn PyImport_GetModule(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyImport_GetModule(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     initModuleSystem();
 
     const name_str = PyUnicode_AsUTF8(name);
@@ -390,7 +390,7 @@ export fn PyImport_GetModule(name: *cpython.PyObject) callconv(.c) ?*cpython.PyO
 /// Add built-in module to inittab
 ///
 /// CPython: int PyImport_AppendInittab(const char *name, PyObject* (*initfunc)(void))
-export fn PyImport_AppendInittab(
+pub export fn PyImport_AppendInittab(
     name: [*:0]const u8,
     initfunc: *const fn () callconv(.c) ?*cpython.PyObject,
 ) callconv(.c) c_int {
@@ -418,7 +418,7 @@ pub const PyImport_Inittab = extern struct {
 /// Extend inittab with table of entries
 ///
 /// CPython: int PyImport_ExtendInittab(struct _inittab *newtab)
-export fn PyImport_ExtendInittab(newtab: [*]PyImport_Inittab) callconv(.c) c_int {
+pub export fn PyImport_ExtendInittab(newtab: [*]PyImport_Inittab) callconv(.c) c_int {
     initBuiltinModules();
 
     var i: usize = 0;

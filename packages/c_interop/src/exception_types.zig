@@ -621,7 +621,7 @@ pub const ModuleNotFoundError = exception_impl.ExceptionImpl(ModuleNotFoundError
 // ============================================================================
 
 /// Create a new ValueError with message
-export fn PyErr_NewException_ValueError(message: [*:0]const u8) callconv(.c) ?*PyObject {
+pub export fn PyErr_NewException_ValueError(message: [*:0]const u8) callconv(.c) ?*PyObject {
     // Convert C string to PyUnicodeObject for args
     const pyunicode = @import("objects/unicodeobject.zig");
     const pytuple = @import("objects/tupleobject.zig");
@@ -645,14 +645,14 @@ export fn PyErr_NewException_ValueError(message: [*:0]const u8) callconv(.c) ?*P
 }
 
 /// Create a new TypeError with message
-export fn PyErr_NewException_TypeError(message: [*:0]const u8) callconv(.c) ?*PyObject {
+pub export fn PyErr_NewException_TypeError(message: [*:0]const u8) callconv(.c) ?*PyObject {
     _ = message;
     const exc = TypeError.init(allocator, null) catch return null;
     return @ptrCast(&exc.ob_base);
 }
 
 /// Create a new OSError with errno and filename
-export fn PyErr_NewException_OSError(errno_val: i32, filename: ?[*:0]const u8) callconv(.c) ?*PyObject {
+pub export fn PyErr_NewException_OSError(errno_val: i32, filename: ?[*:0]const u8) callconv(.c) ?*PyObject {
     _ = filename;
     var exc = OSError.init(allocator, null) catch return null;
     exc.setErrno(errno_val);

@@ -104,7 +104,7 @@ pub var PyMemoryView_Type: cpython.PyTypeObject = .{
 };
 
 /// Create memory view from buffer
-export fn PyMemoryView_FromBuffer(view: *cpython.Py_buffer) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMemoryView_FromBuffer(view: *cpython.Py_buffer) callconv(.c) ?*cpython.PyObject {
     const memview = allocator.create(PyMemoryViewObject) catch return null;
 
     memview.ob_base = .{
@@ -126,7 +126,7 @@ export fn PyMemoryView_FromBuffer(view: *cpython.Py_buffer) callconv(.c) ?*cpyth
 }
 
 /// Create memory view from object
-export fn PyMemoryView_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMemoryView_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     var view: cpython.Py_buffer = undefined;
 
     // Get buffer from object
@@ -139,7 +139,7 @@ export fn PyMemoryView_FromObject(obj: *cpython.PyObject) callconv(.c) ?*cpython
 }
 
 /// Get contiguous memory view
-export fn PyMemoryView_GetContiguous(
+pub export fn PyMemoryView_GetContiguous(
     obj: *cpython.PyObject,
     buffertype: c_int,
     order: u8,
@@ -204,7 +204,7 @@ export fn PyMemoryView_GetContiguous(
 }
 
 /// Check if object is memory view
-export fn PyMemoryView_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMemoryView_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyMemoryView_Type) 1 else 0;
 }
 
@@ -221,7 +221,7 @@ fn memoryview_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 /// Get memory view from bytes object
-export fn PyMemoryView_FromMemory(
+pub export fn PyMemoryView_FromMemory(
     mem: [*]u8,
     size: isize,
     flags: c_int,
@@ -246,13 +246,13 @@ export fn PyMemoryView_FromMemory(
 }
 
 /// Get buffer from memory view
-export fn PyMemoryView_GET_BUFFER(obj: *cpython.PyObject) callconv(.c) ?*cpython.Py_buffer {
+pub export fn PyMemoryView_GET_BUFFER(obj: *cpython.PyObject) callconv(.c) ?*cpython.Py_buffer {
     const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
     return &memview.view;
 }
 
 /// Get base object from memory view
-export fn PyMemoryView_GET_BASE(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMemoryView_GET_BASE(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const memview: *PyMemoryViewObject = @ptrCast(@alignCast(obj));
     return memview.view.obj;
 }

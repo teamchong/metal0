@@ -62,7 +62,7 @@ pub const PyCodeObject = opaque {};
 /// Evaluate a code object with given globals and locals
 /// Returns result of evaluation or null on error
 /// STATUS: IMPLEMENTED - extracts source from code object and runs via eval with scope
-export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // Check if it's a code object
     if (PyCode_Check(code) == 0) {
         PyErr_SetString(@ptrFromInt(0), "expected code object");
@@ -111,7 +111,7 @@ export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObject, l
 /// Evaluate a frame object
 /// Returns result of evaluation or null on error
 /// STATUS: NOT_IMPLEMENTED - metal0 doesn't have frame-based execution
-export fn PyEval_EvalFrame(frame: *PyFrameObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyEval_EvalFrame(frame: *PyFrameObject) callconv(.c) ?*cpython.PyObject {
     _ = frame;
     // Frame execution not applicable - metal0 compiles to native code
     PyErr_SetString(@ptrFromInt(0), "PyEval_EvalFrame: not applicable to AOT compiled code");
@@ -120,7 +120,7 @@ export fn PyEval_EvalFrame(frame: *PyFrameObject) callconv(.c) ?*cpython.PyObjec
 
 /// Evaluate a frame with extended behavior
 /// Returns result of evaluation or null on error
-export fn PyEval_EvalFrameEx(frame: *PyFrameObject, throwflag: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyEval_EvalFrameEx(frame: *PyFrameObject, throwflag: c_int) callconv(.c) ?*cpython.PyObject {
     _ = throwflag;
     return PyEval_EvalFrame(frame);
 }
@@ -189,7 +189,7 @@ fn ensureEvalContextInitialized() void {
 }
 
 /// Set the current globals dictionary (for exec/eval)
-export fn PyEval_SetGlobals(globals: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyEval_SetGlobals(globals: ?*cpython.PyObject) callconv(.c) void {
     ensureEvalContextInitialized();
     if (globals) |g| {
         if (globals_dict) |old| traits.decref(old);
@@ -199,7 +199,7 @@ export fn PyEval_SetGlobals(globals: ?*cpython.PyObject) callconv(.c) void {
 }
 
 /// Set the current locals dictionary (for exec/eval)
-export fn PyEval_SetLocals(locals: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyEval_SetLocals(locals: ?*cpython.PyObject) callconv(.c) void {
     ensureEvalContextInitialized();
     if (locals) |l| {
         if (locals_dict) |old| traits.decref(old);
@@ -210,21 +210,21 @@ export fn PyEval_SetLocals(locals: ?*cpython.PyObject) callconv(.c) void {
 
 /// Get the builtins dictionary for current context
 /// Returns borrowed reference
-export fn PyEval_GetBuiltins() callconv(.c) ?*cpython.PyObject {
+pub export fn PyEval_GetBuiltins() callconv(.c) ?*cpython.PyObject {
     ensureEvalContextInitialized();
     return builtins_dict;
 }
 
 /// Get the globals dictionary for current context
 /// Returns borrowed reference
-export fn PyEval_GetGlobals() callconv(.c) ?*cpython.PyObject {
+pub export fn PyEval_GetGlobals() callconv(.c) ?*cpython.PyObject {
     ensureEvalContextInitialized();
     return globals_dict;
 }
 
 /// Get the locals dictionary for current context
 /// Returns borrowed reference
-export fn PyEval_GetLocals() callconv(.c) ?*cpython.PyObject {
+pub export fn PyEval_GetLocals() callconv(.c) ?*cpython.PyObject {
     ensureEvalContextInitialized();
     return locals_dict;
 }
@@ -232,21 +232,21 @@ export fn PyEval_GetLocals() callconv(.c) ?*cpython.PyObject {
 /// Get the current frame object
 /// Returns borrowed reference
 /// STATUS: STUB - returns null (metal0 has no interpreter frames)
-export fn PyEval_GetFrame() callconv(.c) ?*PyFrameObject {
+pub export fn PyEval_GetFrame() callconv(.c) ?*PyFrameObject {
     // metal0 compiles to native code - no interpreter frames
     return null;
 }
 
 /// Get the name of the current function
 /// Returns borrowed reference to function name string
-export fn PyEval_GetFuncName(func: *cpython.PyObject) callconv(.c) [*:0]const u8 {
+pub export fn PyEval_GetFuncName(func: *cpython.PyObject) callconv(.c) [*:0]const u8 {
     _ = func;
     return "?"; // Unknown function
 }
 
 /// Get the description of the current function
 /// Returns borrowed reference to function description string
-export fn PyEval_GetFuncDesc(func: *cpython.PyObject) callconv(.c) [*:0]const u8 {
+pub export fn PyEval_GetFuncDesc(func: *cpython.PyObject) callconv(.c) [*:0]const u8 {
     _ = func;
     return ""; // Empty description
 }
@@ -258,7 +258,7 @@ export fn PyEval_GetFuncDesc(func: *cpython.PyObject) callconv(.c) [*:0]const u8
 /// Save the current thread state and release the GIL
 /// Returns the saved thread state
 /// STATUS: NO-OP - metal0 has no GIL (uses native threads/async)
-export fn PyEval_SaveThread() callconv(.c) ?*PyThreadState {
+pub export fn PyEval_SaveThread() callconv(.c) ?*PyThreadState {
     // No GIL in metal0 - return null (no thread state tracking needed)
     return null;
 }
@@ -266,46 +266,46 @@ export fn PyEval_SaveThread() callconv(.c) ?*PyThreadState {
 /// Restore thread state and reacquire the GIL
 /// Takes ownership of thread state
 /// STATUS: NO-OP - metal0 has no GIL
-export fn PyEval_RestoreThread(tstate: ?*PyThreadState) callconv(.c) void {
+pub export fn PyEval_RestoreThread(tstate: ?*PyThreadState) callconv(.c) void {
     _ = tstate;
     // No GIL to reacquire - no-op
 }
 
 /// Acquire the Global Interpreter Lock
 /// STATUS: NO-OP - metal0 has no GIL
-export fn PyEval_AcquireLock() callconv(.c) void {
+pub export fn PyEval_AcquireLock() callconv(.c) void {
     // No GIL in metal0 - no-op
 }
 
 /// Release the Global Interpreter Lock
 /// STATUS: NO-OP - metal0 has no GIL
-export fn PyEval_ReleaseLock() callconv(.c) void {
+pub export fn PyEval_ReleaseLock() callconv(.c) void {
     // No GIL in metal0 - no-op
 }
 
 /// Acquire the GIL for a specific thread state
 /// STATUS: NO-OP - metal0 has no GIL
-export fn PyEval_AcquireThread(tstate: *PyThreadState) callconv(.c) void {
+pub export fn PyEval_AcquireThread(tstate: *PyThreadState) callconv(.c) void {
     _ = tstate;
     // No GIL in metal0 - no-op
 }
 
 /// Release the GIL for a specific thread state
 /// STATUS: NO-OP - metal0 has no GIL
-export fn PyEval_ReleaseThread(tstate: *PyThreadState) callconv(.c) void {
+pub export fn PyEval_ReleaseThread(tstate: *PyThreadState) callconv(.c) void {
     _ = tstate;
     // No GIL in metal0 - no-op
 }
 
 /// Initialize thread support
 /// STATUS: NO-OP - always "initialized" (no GIL)
-export fn PyEval_InitThreads() callconv(.c) void {
+pub export fn PyEval_InitThreads() callconv(.c) void {
     // No GIL to initialize - no-op
 }
 
 /// Check if thread support is initialized
 /// Returns 1 if initialized, 0 otherwise
-export fn PyEval_ThreadsInitialized() callconv(.c) c_int {
+pub export fn PyEval_ThreadsInitialized() callconv(.c) c_int {
     return 1; // Assume initialized
 }
 
@@ -323,7 +323,7 @@ pub const PyGILState_STATE = enum(c_int) {
 /// If the thread doesn't have a Python thread state, one is created
 /// Returns state to pass to PyGILState_Release
 /// STATUS: NO-OP - always returns LOCKED (no GIL in metal0)
-export fn PyGILState_Ensure() callconv(.c) PyGILState_STATE {
+pub export fn PyGILState_Ensure() callconv(.c) PyGILState_STATE {
     // No GIL in metal0 - always "have" it
     return .PyGILState_LOCKED;
 }
@@ -331,7 +331,7 @@ export fn PyGILState_Ensure() callconv(.c) PyGILState_STATE {
 /// Release the GIL according to the state returned by PyGILState_Ensure
 /// If state was UNLOCKED, releases the GIL and destroys thread state
 /// STATUS: NO-OP - no GIL to release
-export fn PyGILState_Release(state: PyGILState_STATE) callconv(.c) void {
+pub export fn PyGILState_Release(state: PyGILState_STATE) callconv(.c) void {
     _ = state;
     // No GIL in metal0 - no-op
 }
@@ -339,7 +339,7 @@ export fn PyGILState_Release(state: PyGILState_STATE) callconv(.c) void {
 /// Check if the current thread holds the GIL
 /// Returns 1 if this thread has the GIL, 0 otherwise
 /// STATUS: STUB - always returns 1 (no GIL, so always "held")
-export fn PyGILState_Check() callconv(.c) c_int {
+pub export fn PyGILState_Check() callconv(.c) c_int {
     // No GIL in metal0 - always "have" it
     return 1;
 }
@@ -347,7 +347,7 @@ export fn PyGILState_Check() callconv(.c) c_int {
 /// Get the current thread state for the GIL state API
 /// Returns current thread state or null if not created via GIL API
 /// STATUS: STUB - returns null (no thread state tracking)
-export fn PyGILState_GetThisThreadState() callconv(.c) ?*PyThreadState {
+pub export fn PyGILState_GetThisThreadState() callconv(.c) ?*PyThreadState {
     // No thread state tracking in metal0
     return null;
 }
@@ -359,7 +359,7 @@ export fn PyGILState_GetThisThreadState() callconv(.c) ?*PyThreadState {
 /// Run a simple Python command string
 /// Returns 0 on success, -1 on error
 /// STATUS: IMPLEMENTED - wired to runtime.exec
-export fn PyRun_SimpleString(command: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyRun_SimpleString(command: [*:0]const u8) callconv(.c) c_int {
     const cmd_slice = std.mem.span(command);
     runtime.exec(c_allocator, cmd_slice) catch |err| {
         _ = err;
@@ -371,7 +371,7 @@ export fn PyRun_SimpleString(command: [*:0]const u8) callconv(.c) c_int {
 /// Run a simple Python file
 /// Returns 0 on success, -1 on error
 /// STATUS: IMPLEMENTED - reads file and runs via runtime.exec
-export fn PyRun_SimpleFile(fp: *std.c.FILE, filename: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyRun_SimpleFile(fp: *std.c.FILE, filename: [*:0]const u8) callconv(.c) c_int {
     _ = filename;
 
     // Read file contents
@@ -396,7 +396,7 @@ export fn PyRun_SimpleFile(fp: *std.c.FILE, filename: [*:0]const u8) callconv(.c
 
 /// Run a simple Python file with explicit close flag
 /// Returns 0 on success, -1 on error
-export fn PyRun_SimpleFileEx(fp: *std.c.FILE, filename: [*:0]const u8, closeit: c_int) callconv(.c) c_int {
+pub export fn PyRun_SimpleFileEx(fp: *std.c.FILE, filename: [*:0]const u8, closeit: c_int) callconv(.c) c_int {
     const result = PyRun_SimpleFile(fp, filename);
 
     if (closeit != 0) {
@@ -409,7 +409,7 @@ export fn PyRun_SimpleFileEx(fp: *std.c.FILE, filename: [*:0]const u8, closeit: 
 /// Run Python string with specified start symbol
 /// Returns result object or null on error
 /// STATUS: IMPLEMENTED - wired to runtime.eval/exec with scope support
-export fn PyRun_String(str: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyRun_String(str: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str_slice = std.mem.span(str);
 
     // Set the execution context with provided globals/locals
@@ -453,7 +453,7 @@ export fn PyRun_String(str: [*:0]const u8, start: c_int, globals: *cpython.PyObj
 /// Run Python file with specified start symbol
 /// Returns result object or null on error
 /// STATUS: IMPLEMENTED - reads file and runs via runtime
-export fn PyRun_File(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyRun_File(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = filename;
     _ = globals;
     _ = locals;
@@ -494,7 +494,7 @@ export fn PyRun_File(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, glo
 
 /// Run Python file with explicit close flag
 /// Returns result object or null on error
-export fn PyRun_FileEx(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject, closeit: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyRun_FileEx(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject, closeit: c_int) callconv(.c) ?*cpython.PyObject {
     const result = PyRun_File(fp, filename, start, globals, locals);
 
     if (closeit != 0) {
@@ -506,7 +506,7 @@ export fn PyRun_FileEx(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, g
 
 /// Run Python file with flags
 /// Returns result object or null on error
-export fn PyRun_FileFlags(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject, flags: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
+pub export fn PyRun_FileFlags(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject, flags: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
     _ = flags;
     return PyRun_File(fp, filename, start, globals, locals);
 }
@@ -518,7 +518,7 @@ export fn PyRun_FileFlags(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int
 /// Compile a Python source string into a code object
 /// Returns code object or null on error
 /// STATUS: IMPLEMENTED - stores source for later execution via eval/exec
-export fn Py_CompileString(str: [*:0]const u8, filename: [*:0]const u8, start: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_CompileString(str: [*:0]const u8, filename: [*:0]const u8, start: c_int) callconv(.c) ?*cpython.PyObject {
     _ = start; // Compile mode stored in flags
 
     const str_slice = std.mem.span(str);
@@ -559,14 +559,14 @@ export fn Py_CompileString(str: [*:0]const u8, filename: [*:0]const u8, start: c
 
 /// Compile with compiler flags
 /// Returns code object or null on error
-export fn Py_CompileStringFlags(str: [*:0]const u8, filename: [*:0]const u8, start: c_int, flags: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_CompileStringFlags(str: [*:0]const u8, filename: [*:0]const u8, start: c_int, flags: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
     _ = flags;
     return Py_CompileString(str, filename, start);
 }
 
 /// Compile with explicit flags structure
 /// Returns code object or null on error
-export fn Py_CompileStringExFlags(str: [*:0]const u8, filename: [*:0]const u8, start: c_int, flags: ?*anyopaque, optimize: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_CompileStringExFlags(str: [*:0]const u8, filename: [*:0]const u8, start: c_int, flags: ?*anyopaque, optimize: c_int) callconv(.c) ?*cpython.PyObject {
     _ = optimize;
     return Py_CompileStringFlags(str, filename, start, flags);
 }
@@ -574,7 +574,7 @@ export fn Py_CompileStringExFlags(str: [*:0]const u8, filename: [*:0]const u8, s
 /// Compile with object filename
 /// Returns code object or null on error
 /// STATUS: NOT_IMPLEMENTED - requires runtime.bytecode integration
-export fn Py_CompileStringObject(str: [*:0]const u8, filename: *cpython.PyObject, start: c_int, flags: ?*anyopaque, optimize: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn Py_CompileStringObject(str: [*:0]const u8, filename: *cpython.PyObject, start: c_int, flags: ?*anyopaque, optimize: c_int) callconv(.c) ?*cpython.PyObject {
     _ = filename;
     _ = optimize;
     _ = flags;
@@ -599,13 +599,13 @@ pub const Py_tss_t = extern struct {
 pub const Py_tss_NEEDS_INIT: Py_tss_t = .{ ._is_initialized = 0, ._key = 0 };
 
 /// Check if TSS key is created
-export fn PyThread_tss_is_created(key: *Py_tss_t) callconv(.c) c_int {
+pub export fn PyThread_tss_is_created(key: *Py_tss_t) callconv(.c) c_int {
     return key._is_initialized;
 }
 
 /// Create a TSS key
 /// Returns 0 on success, -1 on error
-export fn PyThread_tss_create(key: *Py_tss_t) callconv(.c) c_int {
+pub export fn PyThread_tss_create(key: *Py_tss_t) callconv(.c) c_int {
     if (key._is_initialized != 0) return 0; // Already created
 
     // Use simple counter as key (in real impl would use pthread_key_create)
@@ -619,7 +619,7 @@ export fn PyThread_tss_create(key: *Py_tss_t) callconv(.c) c_int {
 }
 
 /// Delete a TSS key
-export fn PyThread_tss_delete(key: *Py_tss_t) callconv(.c) void {
+pub export fn PyThread_tss_delete(key: *Py_tss_t) callconv(.c) void {
     key._is_initialized = 0;
     key._key = 0;
 }
@@ -632,7 +632,7 @@ const TssStorage = struct {
 };
 
 /// Get value associated with TSS key for current thread
-export fn PyThread_tss_get(key: *Py_tss_t) callconv(.c) ?*anyopaque {
+pub export fn PyThread_tss_get(key: *Py_tss_t) callconv(.c) ?*anyopaque {
     if (key._is_initialized == 0) return null;
     if (key._key == 0 or key._key >= TssStorage.MAX_KEYS) return null;
 
@@ -643,7 +643,7 @@ export fn PyThread_tss_get(key: *Py_tss_t) callconv(.c) ?*anyopaque {
 
 /// Set value associated with TSS key for current thread
 /// Returns 0 on success, -1 on error
-export fn PyThread_tss_set(key: *Py_tss_t, value: ?*anyopaque) callconv(.c) c_int {
+pub export fn PyThread_tss_set(key: *Py_tss_t, value: ?*anyopaque) callconv(.c) c_int {
     if (key._is_initialized == 0) return -1;
     if (key._key == 0 or key._key >= TssStorage.MAX_KEYS) return -1;
 
@@ -654,7 +654,7 @@ export fn PyThread_tss_set(key: *Py_tss_t, value: ?*anyopaque) callconv(.c) c_in
 }
 
 /// Allocate a TSS key on the heap
-export fn PyThread_tss_alloc() callconv(.c) ?*Py_tss_t {
+pub export fn PyThread_tss_alloc() callconv(.c) ?*Py_tss_t {
     const allocator = std.heap.c_allocator;
     const key = allocator.create(Py_tss_t) catch return null;
     key.* = Py_tss_NEEDS_INIT;
@@ -662,7 +662,7 @@ export fn PyThread_tss_alloc() callconv(.c) ?*Py_tss_t {
 }
 
 /// Free a heap-allocated TSS key
-export fn PyThread_tss_free(key: ?*Py_tss_t) callconv(.c) void {
+pub export fn PyThread_tss_free(key: ?*Py_tss_t) callconv(.c) void {
     if (key) |k| {
         PyThread_tss_delete(k);
         const allocator = std.heap.c_allocator;
@@ -709,12 +709,12 @@ pub const PyCodeObjectStruct = extern struct {
 };
 
 /// Check if object is a code object
-export fn PyCode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyCode_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyCode_Type) 1 else 0;
 }
 
 /// Get number of free variables in code object
-export fn PyCode_GetNumFree(code: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyCode_GetNumFree(code: *cpython.PyObject) callconv(.c) isize {
     const co: *PyCodeObjectStruct = @ptrCast(@alignCast(code));
     if (co.co_freevars) |freevars| {
         const pytuple = @import("../objects/tupleobject.zig");
@@ -724,7 +724,7 @@ export fn PyCode_GetNumFree(code: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Create new code object (simplified - full version has many more args)
-export fn PyCode_New(
+pub export fn PyCode_New(
     argcount: c_int,
     kwonlyargcount: c_int,
     nlocals: c_int,
@@ -778,7 +778,7 @@ export fn PyCode_New(
 }
 
 /// Create empty code object (for modules)
-export fn PyCode_NewEmpty(filename: [*:0]const u8, funcname: [*:0]const u8, firstlineno: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCode_NewEmpty(filename: [*:0]const u8, funcname: [*:0]const u8, firstlineno: c_int) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("unicodeobject.zig");
     const pytuple = @import("../objects/tupleobject.zig");
     const pybytes = @import("../objects/bytesobject.zig");
@@ -847,7 +847,7 @@ pub var PyTraceBack_Type: cpython.PyTypeObject = .{
 
 /// Add traceback entry
 /// STATUS: STUB - returns success but no-op (metal0 uses native stack traces)
-export fn PyTraceBack_Here(frame: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyTraceBack_Here(frame: *cpython.PyObject) callconv(.c) c_int {
     _ = frame;
     // metal0 uses native stack traces via Zig's error return trace
     return 0;
@@ -855,7 +855,7 @@ export fn PyTraceBack_Here(frame: *cpython.PyObject) callconv(.c) c_int {
 
 /// Print traceback to file
 /// STATUS: STUB - returns success but no-op
-export fn PyTraceBack_Print(tb: *cpython.PyObject, file: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyTraceBack_Print(tb: *cpython.PyObject, file: *cpython.PyObject) callconv(.c) c_int {
     _ = tb;
     _ = file;
     // metal0 uses native stack traces
@@ -873,36 +873,36 @@ pub const PyInterpreterState = opaque {};
 var main_interp_state: ?*PyInterpreterState = null;
 
 /// Get the main interpreter state
-export fn PyInterpreterState_Main() callconv(.c) ?*PyInterpreterState {
+pub export fn PyInterpreterState_Main() callconv(.c) ?*PyInterpreterState {
     return main_interp_state;
 }
 
 /// Get the current interpreter state
-export fn PyInterpreterState_Get() callconv(.c) ?*PyInterpreterState {
+pub export fn PyInterpreterState_Get() callconv(.c) ?*PyInterpreterState {
     return main_interp_state;
 }
 
 /// Get the head interpreter state
-export fn PyInterpreterState_Head() callconv(.c) ?*PyInterpreterState {
+pub export fn PyInterpreterState_Head() callconv(.c) ?*PyInterpreterState {
     return main_interp_state;
 }
 
 /// Get next interpreter state (for iteration)
-export fn PyInterpreterState_Next(interp: ?*PyInterpreterState) callconv(.c) ?*PyInterpreterState {
+pub export fn PyInterpreterState_Next(interp: ?*PyInterpreterState) callconv(.c) ?*PyInterpreterState {
     _ = interp;
     return null; // Single interpreter for now
 }
 
 /// Create new sub-interpreter
 /// STATUS: NOT_SUPPORTED - metal0 doesn't support sub-interpreters
-export fn Py_NewInterpreter() callconv(.c) ?*PyThreadState {
+pub export fn Py_NewInterpreter() callconv(.c) ?*PyThreadState {
     // Sub-interpreters not supported - metal0 compiles to native code
     return null;
 }
 
 /// End sub-interpreter
 /// STATUS: NO-OP - sub-interpreters not supported
-export fn Py_EndInterpreter(tstate: ?*PyThreadState) callconv(.c) void {
+pub export fn Py_EndInterpreter(tstate: ?*PyThreadState) callconv(.c) void {
     _ = tstate;
     // Sub-interpreters not supported - no-op
 }
@@ -915,17 +915,17 @@ export fn Py_EndInterpreter(tstate: ?*PyThreadState) callconv(.c) void {
 var current_thread_state: ?*PyThreadState = null;
 
 /// Get current thread state
-export fn PyThreadState_Get() callconv(.c) ?*PyThreadState {
+pub export fn PyThreadState_Get() callconv(.c) ?*PyThreadState {
     return current_thread_state;
 }
 
 /// Get current thread state (may be null)
-export fn _PyThreadState_UncheckedGet() callconv(.c) ?*PyThreadState {
+pub export fn _PyThreadState_UncheckedGet() callconv(.c) ?*PyThreadState {
     return current_thread_state;
 }
 
 /// Set current thread state
-export fn PyThreadState_Swap(new_tstate: ?*PyThreadState) callconv(.c) ?*PyThreadState {
+pub export fn PyThreadState_Swap(new_tstate: ?*PyThreadState) callconv(.c) ?*PyThreadState {
     const old = current_thread_state;
     current_thread_state = new_tstate;
     return old;
@@ -937,7 +937,7 @@ threadlocal var thread_dict: ?*cpython.PyObject = null;
 
 /// Get dictionary for thread-local data
 /// Returns a dict that persists for the lifetime of the thread
-export fn PyThreadState_GetDict() callconv(.c) ?*cpython.PyObject {
+pub export fn PyThreadState_GetDict() callconv(.c) ?*cpython.PyObject {
     if (thread_dict == null) {
         const pydict = @import("../objects/dictobject.zig");
         thread_dict = pydict.PyDict_New();
@@ -965,7 +965,7 @@ fn initThreadStatePool() void {
 }
 
 /// Create new thread state
-export fn PyThreadState_New(interp: ?*PyInterpreterState) callconv(.c) ?*PyThreadState {
+pub export fn PyThreadState_New(interp: ?*PyInterpreterState) callconv(.c) ?*PyThreadState {
     initThreadStatePool();
 
     // Allocate new thread state
@@ -986,32 +986,32 @@ export fn PyThreadState_New(interp: ?*PyInterpreterState) callconv(.c) ?*PyThrea
 
 /// Delete thread state
 /// STATUS: NO-OP - no thread state to delete
-export fn PyThreadState_Delete(tstate: ?*PyThreadState) callconv(.c) void {
+pub export fn PyThreadState_Delete(tstate: ?*PyThreadState) callconv(.c) void {
     _ = tstate;
     // No thread state management - no-op
 }
 
 /// Clear thread state
 /// STATUS: NO-OP - no thread state to clear
-export fn PyThreadState_Clear(tstate: ?*PyThreadState) callconv(.c) void {
+pub export fn PyThreadState_Clear(tstate: ?*PyThreadState) callconv(.c) void {
     _ = tstate;
     // No thread state management - no-op
 }
 
 /// Get interpreter from thread state
-export fn PyThreadState_GetInterpreter(tstate: ?*PyThreadState) callconv(.c) ?*PyInterpreterState {
+pub export fn PyThreadState_GetInterpreter(tstate: ?*PyThreadState) callconv(.c) ?*PyInterpreterState {
     _ = tstate;
     return main_interp_state;
 }
 
 /// Get frame from thread state
-export fn PyThreadState_GetFrame(tstate: ?*PyThreadState) callconv(.c) ?*cpython.PyObject {
+pub export fn PyThreadState_GetFrame(tstate: ?*PyThreadState) callconv(.c) ?*cpython.PyObject {
     _ = tstate;
     return null;
 }
 
 /// Get thread ID from thread state
-export fn PyThreadState_GetID(tstate: ?*PyThreadState) callconv(.c) u64 {
+pub export fn PyThreadState_GetID(tstate: ?*PyThreadState) callconv(.c) u64 {
     _ = tstate;
     // Return some unique identifier
     return 1;
@@ -1019,7 +1019,7 @@ export fn PyThreadState_GetID(tstate: ?*PyThreadState) callconv(.c) u64 {
 
 /// Set async exception on thread
 /// STATUS: STUB - returns 0 (async exceptions not supported)
-export fn PyThreadState_SetAsyncExc(id: c_ulong, exc: ?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyThreadState_SetAsyncExc(id: c_ulong, exc: ?*cpython.PyObject) callconv(.c) c_int {
     _ = id;
     _ = exc;
     // Async exceptions not applicable - metal0 has no interpreter loop to interrupt

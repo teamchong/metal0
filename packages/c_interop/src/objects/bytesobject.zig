@@ -279,7 +279,7 @@ pub export fn PyBytes_FromStringAndSize(str: ?[*]const u8, len: isize) callconv(
     return @ptrCast(&bytes.ob_base.ob_base);
 }
 
-export fn PyBytes_FromFormat(format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+pub export fn PyBytes_FromFormat(format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
     const fmt = std.mem.span(format);
     var va = @cVaStart();
     defer @cVaEnd(&va);
@@ -366,7 +366,7 @@ export fn PyBytes_FromFormat(format: [*:0]const u8, ...) callconv(.c) ?*cpython.
     return PyBytes_FromStringAndSize(@ptrCast(&buf), @intCast(buf_idx));
 }
 
-export fn PyBytes_Concat(bytes_ptr: *?*cpython.PyObject, newpart: *cpython.PyObject) callconv(.c) void {
+pub export fn PyBytes_Concat(bytes_ptr: *?*cpython.PyObject, newpart: *cpython.PyObject) callconv(.c) void {
     const old = bytes_ptr.* orelse return;
 
     const result = bytes_concat(old, newpart);
@@ -378,7 +378,7 @@ export fn PyBytes_Concat(bytes_ptr: *?*cpython.PyObject, newpart: *cpython.PyObj
     bytes_ptr.* = result;
 }
 
-export fn PyBytes_ConcatAndDel(bytes_ptr: *?*cpython.PyObject, newpart: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyBytes_ConcatAndDel(bytes_ptr: *?*cpython.PyObject, newpart: ?*cpython.PyObject) callconv(.c) void {
     if (newpart == null) {
         bytes_ptr.* = null;
         return;
@@ -399,7 +399,7 @@ pub export fn PyBytes_AsString(obj: *cpython.PyObject) callconv(.c) [*:0]const u
     return @ptrCast(&bytes.ob_sval);
 }
 
-export fn PyBytes_AsStringAndSize(obj: *cpython.PyObject, buffer: *[*]const u8, length: *isize) callconv(.c) c_int {
+pub export fn PyBytes_AsStringAndSize(obj: *cpython.PyObject, buffer: *[*]const u8, length: *isize) callconv(.c) c_int {
     const bytes: *PyBytesObject = @ptrCast(@alignCast(obj));
 
     buffer.* = @ptrCast(&bytes.ob_sval);
@@ -413,12 +413,12 @@ pub export fn PyBytes_Size(obj: *cpython.PyObject) callconv(.c) isize {
     return bytes.ob_base.ob_size;
 }
 
-export fn PyBytes_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyBytes_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
     return PyBytes_Size(obj);
 }
 
 /// PyBytes_AS_STRING - macro form, no type checking
-export fn PyBytes_AS_STRING(obj: *cpython.PyObject) callconv(.c) [*]const u8 {
+pub export fn PyBytes_AS_STRING(obj: *cpython.PyObject) callconv(.c) [*]const u8 {
     const bytes: *PyBytesObject = @ptrCast(@alignCast(obj));
     return @ptrCast(&bytes.ob_sval);
 }
@@ -432,7 +432,7 @@ pub export fn PyBytes_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if ((flags & cpython.Py_TPFLAGS_BYTES_SUBCLASS) != 0) 1 else 0;
 }
 
-export fn PyBytes_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyBytes_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyBytes_Type) 1 else 0;
 }
 
@@ -440,7 +440,7 @@ export fn PyBytes_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-export fn PyBytes_Repr(obj: *cpython.PyObject, smartquotes: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyBytes_Repr(obj: *cpython.PyObject, smartquotes: c_int) callconv(.c) ?*cpython.PyObject {
     _ = smartquotes;
 
     const bytes_obj: *PyBytesObject = @ptrCast(@alignCast(obj));

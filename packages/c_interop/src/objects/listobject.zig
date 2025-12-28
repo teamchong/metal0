@@ -114,7 +114,7 @@ pub export fn PyList_New(size: isize) callconv(.c) ?*cpython.PyObject {
 }
 
 /// Get list size
-export fn PyList_Size(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyList_Size(obj: *cpython.PyObject) callconv(.c) isize {
     if (PyList_Check(obj) == 0) return -1;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -122,7 +122,7 @@ export fn PyList_Size(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Get item at index
-export fn PyList_GetItem(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyList_GetItem(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject {
     if (PyList_Check(obj) == 0) return null;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -154,7 +154,7 @@ pub export fn PyList_SetItem(obj: *cpython.PyObject, idx: isize, item: *cpython.
 }
 
 /// Insert item at index
-export fn PyList_Insert(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_Insert(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -182,7 +182,7 @@ export fn PyList_Insert(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObj
 }
 
 /// Append item to end
-export fn PyList_Append(obj: *cpython.PyObject, item: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_Append(obj: *cpython.PyObject, item: *cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -191,7 +191,7 @@ export fn PyList_Append(obj: *cpython.PyObject, item: *cpython.PyObject) callcon
 }
 
 /// Get slice
-export fn PyList_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyList_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callconv(.c) ?*cpython.PyObject {
     if (PyList_Check(obj) == 0) return null;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -224,7 +224,7 @@ export fn PyList_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callc
 }
 
 /// Set slice
-export fn PyList_SetSlice(obj: *cpython.PyObject, low: isize, high: isize, itemlist: ?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_SetSlice(obj: *cpython.PyObject, low: isize, high: isize, itemlist: ?*cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
 
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -299,7 +299,7 @@ export fn PyList_SetSlice(obj: *cpython.PyObject, low: isize, high: isize, iteml
 }
 
 /// Sort list (simple insertion sort for now - CPython uses TimSort)
-export fn PyList_Sort(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_Sort(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
 
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -330,7 +330,7 @@ export fn PyList_Sort(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Reverse list
-export fn PyList_Reverse(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_Reverse(obj: *cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
     
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -352,7 +352,7 @@ export fn PyList_Reverse(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Convert to tuple
-export fn PyList_AsTuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyList_AsTuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyList_Check(obj) == 0) return null;
 
     const list_obj = @as(*PyListObject, @ptrCast(obj));
@@ -376,13 +376,13 @@ export fn PyList_AsTuple(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
 }
 
 /// Type check
-export fn PyList_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     return if (type_obj == &PyList_Type) 1 else 0;
 }
 
 /// Exact type check
-export fn PyList_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     return if (type_obj == &PyList_Type) 1 else 0;
 }
@@ -576,20 +576,20 @@ fn list_repr(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 
 /// PyList_GET_ITEM - Get item without error checking (macro in CPython)
 /// WARNING: No bounds checking, no type checking - caller must ensure validity
-export fn PyList_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpython.PyObject {
+pub export fn PyList_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpython.PyObject {
     const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
     return list_obj.ob_item.?[@intCast(idx)];
 }
 
 /// PyList_SET_ITEM - Set item without error checking (macro in CPython)
 /// WARNING: Steals reference, no bounds/type checking
-export fn PyList_SET_ITEM(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) void {
+pub export fn PyList_SET_ITEM(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) void {
     const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
     list_obj.ob_item.?[@intCast(idx)] = item;
 }
 
 /// PyList_GET_SIZE - Get size without error checking (macro in CPython)
-export fn PyList_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyList_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
     const list_obj: *PyListObject = @ptrCast(@alignCast(obj));
     return list_obj.ob_base.ob_size;
 }
@@ -607,7 +607,7 @@ export fn PyList_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
 /// Example:
 ///   var items = [_]*cpython.PyObject{ item1, item2, item3 };
 ///   PyList_AppendBatch(list, &items, 3);
-export fn PyList_AppendBatch(obj: *cpython.PyObject, items: [*]*cpython.PyObject, count: usize) callconv(.c) c_int {
+pub export fn PyList_AppendBatch(obj: *cpython.PyObject, items: [*]*cpython.PyObject, count: usize) callconv(.c) c_int {
     if (count == 0) return 0;
     if (PyList_Check(obj) == 0) return -1;
 
@@ -634,7 +634,7 @@ export fn PyList_AppendBatch(obj: *cpython.PyObject, items: [*]*cpython.PyObject
 
 /// Create list from array of items (faster than New + multiple Append)
 /// Single allocation, bulk INCREF
-export fn PyList_FromArray(items: [*]*cpython.PyObject, count: usize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyList_FromArray(items: [*]*cpython.PyObject, count: usize) callconv(.c) ?*cpython.PyObject {
     const list = PyList_New(@intCast(count)) orelse return null;
     const list_obj = @as(*PyListObject, @ptrCast(list));
 
@@ -649,7 +649,7 @@ export fn PyList_FromArray(items: [*]*cpython.PyObject, count: usize) callconv(.
 
 /// Extend list with items from another list (optimized)
 /// Faster than PyList_SetSlice for append-at-end case
-export fn PyList_Extend(obj: *cpython.PyObject, other: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyList_Extend(obj: *cpython.PyObject, other: *cpython.PyObject) callconv(.c) c_int {
     if (PyList_Check(obj) == 0) return -1;
     if (PyList_Check(other) == 0) return -1;
 

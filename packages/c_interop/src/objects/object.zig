@@ -1044,7 +1044,7 @@ pub export fn _PyObject_New(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject
     if (type_obj == null) return null;
 
     const size: usize = @intCast(type_obj.?.tp_basicsize);
-    const mem = allocator.alignedAlloc(u8, @alignOf(cpython.PyObject), size) catch return null;
+    const mem = allocator.alloc(u8, size) catch return null;
     const obj: *cpython.PyObject = @ptrCast(@alignCast(mem.ptr));
 
     return PyObject_Init(obj, type_obj);
@@ -1058,7 +1058,7 @@ pub export fn _PyObject_NewVar(type_obj: ?*cpython.PyTypeObject, nitems: isize) 
     const itemsize: usize = @intCast(type_obj.?.tp_itemsize);
     const size = basicsize + itemsize * @as(usize, @intCast(nitems));
 
-    const mem = allocator.alignedAlloc(u8, @alignOf(cpython.PyVarObject), size) catch return null;
+    const mem = allocator.alloc(u8, size) catch return null;
     const obj: *cpython.PyVarObject = @ptrCast(@alignCast(mem.ptr));
 
     return PyObject_InitVar(obj, type_obj, nitems);

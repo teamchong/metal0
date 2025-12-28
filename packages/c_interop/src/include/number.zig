@@ -13,7 +13,7 @@ const Py_DECREF = traits.externs.Py_DECREF;
 const PyErr_SetString = traits.externs.PyErr_SetString;
 
 /// Check if object is a number
-export fn PyNumber_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyNumber_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |_| {
@@ -24,7 +24,7 @@ export fn PyNumber_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Add two numbers
-export fn PyNumber_Add(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Add(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -38,7 +38,7 @@ export fn PyNumber_Add(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) 
 }
 
 /// Subtract two numbers
-export fn PyNumber_Subtract(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Subtract(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -52,7 +52,7 @@ export fn PyNumber_Subtract(a: *cpython.PyObject, b: *cpython.PyObject) callconv
 }
 
 /// Multiply two numbers
-export fn PyNumber_Multiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Multiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -66,7 +66,7 @@ export fn PyNumber_Multiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv
 }
 
 /// Matrix multiply (NumPy @)
-export fn PyNumber_MatrixMultiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_MatrixMultiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -80,7 +80,7 @@ export fn PyNumber_MatrixMultiply(a: *cpython.PyObject, b: *cpython.PyObject) ca
 }
 
 /// Floor division
-export fn PyNumber_FloorDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_FloorDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -94,7 +94,7 @@ export fn PyNumber_FloorDivide(a: *cpython.PyObject, b: *cpython.PyObject) callc
 }
 
 /// True division
-export fn PyNumber_TrueDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_TrueDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -108,7 +108,7 @@ export fn PyNumber_TrueDivide(a: *cpython.PyObject, b: *cpython.PyObject) callco
 }
 
 /// Remainder
-export fn PyNumber_Remainder(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Remainder(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -122,7 +122,7 @@ export fn PyNumber_Remainder(a: *cpython.PyObject, b: *cpython.PyObject) callcon
 }
 
 /// Divmod
-export fn PyNumber_Divmod(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Divmod(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -136,7 +136,7 @@ export fn PyNumber_Divmod(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.
 }
 
 /// Power
-export fn PyNumber_Power(a: *cpython.PyObject, b: *cpython.PyObject, c: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Power(a: *cpython.PyObject, b: *cpython.PyObject, c: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -150,7 +150,7 @@ export fn PyNumber_Power(a: *cpython.PyObject, b: *cpython.PyObject, c: ?*cpytho
 }
 
 /// Negative
-export fn PyNumber_Negative(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Negative(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -164,7 +164,7 @@ export fn PyNumber_Negative(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObj
 }
 
 /// Positive
-export fn PyNumber_Positive(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Positive(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -178,7 +178,7 @@ export fn PyNumber_Positive(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObj
 }
 
 /// Absolute value
-export fn PyNumber_Absolute(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Absolute(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -192,7 +192,7 @@ export fn PyNumber_Absolute(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObj
 }
 
 /// Invert
-export fn PyNumber_Invert(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Invert(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -206,7 +206,7 @@ export fn PyNumber_Invert(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObjec
 }
 
 /// Left shift
-export fn PyNumber_Lshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Lshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -220,7 +220,7 @@ export fn PyNumber_Lshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.
 }
 
 /// Right shift
-export fn PyNumber_Rshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Rshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -234,7 +234,7 @@ export fn PyNumber_Rshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.
 }
 
 /// Bitwise AND
-export fn PyNumber_And(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_And(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -248,7 +248,7 @@ export fn PyNumber_And(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) 
 }
 
 /// Bitwise XOR
-export fn PyNumber_Xor(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Xor(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -262,7 +262,7 @@ export fn PyNumber_Xor(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) 
 }
 
 /// Bitwise OR
-export fn PyNumber_Or(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Or(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -276,7 +276,7 @@ export fn PyNumber_Or(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?
 }
 
 /// In-place add
-export fn PyNumber_InPlaceAdd(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceAdd(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -290,7 +290,7 @@ export fn PyNumber_InPlaceAdd(a: *cpython.PyObject, b: *cpython.PyObject) callco
 }
 
 /// In-place subtract
-export fn PyNumber_InPlaceSubtract(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceSubtract(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -304,7 +304,7 @@ export fn PyNumber_InPlaceSubtract(a: *cpython.PyObject, b: *cpython.PyObject) c
 }
 
 /// In-place multiply
-export fn PyNumber_InPlaceMultiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceMultiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -318,7 +318,7 @@ export fn PyNumber_InPlaceMultiply(a: *cpython.PyObject, b: *cpython.PyObject) c
 }
 
 /// In-place floor divide
-export fn PyNumber_InPlaceFloorDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceFloorDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -332,7 +332,7 @@ export fn PyNumber_InPlaceFloorDivide(a: *cpython.PyObject, b: *cpython.PyObject
 }
 
 /// In-place true divide
-export fn PyNumber_InPlaceTrueDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceTrueDivide(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -346,7 +346,7 @@ export fn PyNumber_InPlaceTrueDivide(a: *cpython.PyObject, b: *cpython.PyObject)
 }
 
 /// In-place remainder
-export fn PyNumber_InPlaceRemainder(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceRemainder(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -360,7 +360,7 @@ export fn PyNumber_InPlaceRemainder(a: *cpython.PyObject, b: *cpython.PyObject) 
 }
 
 /// In-place power
-export fn PyNumber_InPlacePower(a: *cpython.PyObject, b: *cpython.PyObject, c: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlacePower(a: *cpython.PyObject, b: *cpython.PyObject, c: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -374,7 +374,7 @@ export fn PyNumber_InPlacePower(a: *cpython.PyObject, b: *cpython.PyObject, c: ?
 }
 
 /// In-place left shift
-export fn PyNumber_InPlaceLshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceLshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -388,7 +388,7 @@ export fn PyNumber_InPlaceLshift(a: *cpython.PyObject, b: *cpython.PyObject) cal
 }
 
 /// In-place right shift
-export fn PyNumber_InPlaceRshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceRshift(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -402,7 +402,7 @@ export fn PyNumber_InPlaceRshift(a: *cpython.PyObject, b: *cpython.PyObject) cal
 }
 
 /// In-place AND
-export fn PyNumber_InPlaceAnd(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceAnd(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -416,7 +416,7 @@ export fn PyNumber_InPlaceAnd(a: *cpython.PyObject, b: *cpython.PyObject) callco
 }
 
 /// In-place XOR
-export fn PyNumber_InPlaceXor(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceXor(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -430,7 +430,7 @@ export fn PyNumber_InPlaceXor(a: *cpython.PyObject, b: *cpython.PyObject) callco
 }
 
 /// In-place OR
-export fn PyNumber_InPlaceOr(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceOr(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -444,7 +444,7 @@ export fn PyNumber_InPlaceOr(a: *cpython.PyObject, b: *cpython.PyObject) callcon
 }
 
 /// In-place matrix multiply
-export fn PyNumber_InPlaceMatrixMultiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_InPlaceMatrixMultiply(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(a);
 
     if (type_obj.tp_as_number) |number_procs| {
@@ -458,7 +458,7 @@ export fn PyNumber_InPlaceMatrixMultiply(a: *cpython.PyObject, b: *cpython.PyObj
 }
 
 /// Convert to long
-export fn PyNumber_Long(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Long(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -472,7 +472,7 @@ export fn PyNumber_Long(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
 }
 
 /// Convert to float
-export fn PyNumber_Float(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Float(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -486,7 +486,7 @@ export fn PyNumber_Float(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
 }
 
 /// Get index value
-export fn PyNumber_Index(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_Index(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj = cpython.Py_TYPE(obj);
     
     if (type_obj.tp_as_number) |number_procs| {
@@ -500,7 +500,7 @@ export fn PyNumber_Index(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject
 }
 
 /// Convert to C ssize_t
-export fn PyNumber_AsSsize_t(obj: *cpython.PyObject, exc: ?*cpython.PyObject) callconv(.c) isize {
+pub export fn PyNumber_AsSsize_t(obj: *cpython.PyObject, exc: ?*cpython.PyObject) callconv(.c) isize {
     _ = exc;
     const pylong = @import("../objects/longobject.zig");
 
@@ -514,7 +514,7 @@ export fn PyNumber_AsSsize_t(obj: *cpython.PyObject, exc: ?*cpython.PyObject) ca
 }
 
 /// Check if object can be used as an index
-export fn PyIndex_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyIndex_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(obj);
     if (type_obj.tp_as_number) |number_procs| {
         if (number_procs.nb_index != null) return 1;
@@ -523,7 +523,7 @@ export fn PyIndex_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Convert integer to string in given base (2, 8, 10, or 16)
-export fn PyNumber_ToBase(n: *cpython.PyObject, base: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyNumber_ToBase(n: *cpython.PyObject, base: c_int) callconv(.c) ?*cpython.PyObject {
     const pylong = @import("../objects/longobject.zig");
     const pyunicode = @import("unicodeobject.zig");
 

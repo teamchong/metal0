@@ -169,7 +169,7 @@ fn freeKeys(keys: *InternalDictKeys) void {
 }
 
 /// Create new empty dictionary
-export fn PyDict_New() callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_New() callconv(.c) ?*cpython.PyObject {
     const dict = allocator.create(PyDictObject) catch return null;
 
     dict.ob_base.ob_refcnt = 1;
@@ -192,7 +192,7 @@ export fn PyDict_New() callconv(.c) ?*cpython.PyObject {
 }
 
 /// Get dictionary size
-export fn PyDict_Size(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyDict_Size(obj: *cpython.PyObject) callconv(.c) isize {
     if (PyDict_Check(obj) == 0) return -1;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -267,7 +267,7 @@ fn findEmptySlotInKeys(keys: *InternalDictKeys, hash: isize) usize {
 }
 
 /// Get item by key (returns borrowed reference, no INCREF)
-export fn PyDict_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -283,7 +283,7 @@ export fn PyDict_GetItem(obj: *cpython.PyObject, key: *cpython.PyObject) callcon
 }
 
 /// Set item (incref key and value)
-export fn PyDict_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject) callconv(.c) c_int {
     if (PyDict_Check(obj) == 0) return -1;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -360,7 +360,7 @@ export fn PyDict_SetItem(obj: *cpython.PyObject, key: *cpython.PyObject, value: 
 }
 
 /// Delete item by key
-export fn PyDict_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
     if (PyDict_Check(obj) == 0) return -1;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -388,7 +388,7 @@ export fn PyDict_DelItem(obj: *cpython.PyObject, key: *cpython.PyObject) callcon
 }
 
 /// Clear all items
-export fn PyDict_Clear(obj: *cpython.PyObject) callconv(.c) void {
+pub export fn PyDict_Clear(obj: *cpython.PyObject) callconv(.c) void {
     if (PyDict_Check(obj) == 0) return;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -410,13 +410,13 @@ export fn PyDict_Clear(obj: *cpython.PyObject) callconv(.c) void {
 }
 
 /// Check if key exists
-export fn PyDict_Contains(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_Contains(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
     if (PyDict_GetItem(obj, key) != null) return 1;
     return 0;
 }
 
 /// Get item with string key
-export fn PyDict_GetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_GetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const unicode = @import("../include/unicodeobject.zig");
     const key = unicode.PyUnicode_FromString(key_str) orelse return null;
     defer traits.decref(key);
@@ -424,7 +424,7 @@ export fn PyDict_GetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) c
 }
 
 /// Set item with string key
-export fn PyDict_SetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_SetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
     const unicode = @import("../include/unicodeobject.zig");
     const key = unicode.PyUnicode_FromString(key_str) orelse return -1;
     defer traits.decref(key);
@@ -432,7 +432,7 @@ export fn PyDict_SetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8, v
 }
 
 /// Delete item with string key
-export fn PyDict_DelItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyDict_DelItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) c_int {
     const unicode = @import("../include/unicodeobject.zig");
     const key = unicode.PyUnicode_FromString(key_str) orelse return -1;
     defer traits.decref(key);
@@ -440,7 +440,7 @@ export fn PyDict_DelItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) c
 }
 
 /// Get list of keys (returns new reference)
-export fn PyDict_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -465,7 +465,7 @@ export fn PyDict_Keys(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 }
 
 /// Get list of values (returns new reference)
-export fn PyDict_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -490,7 +490,7 @@ export fn PyDict_Values(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject 
 }
 
 /// Get list of (key, value) tuples (returns new reference)
-export fn PyDict_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_Items(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -564,7 +564,7 @@ fn dict_dealloc(obj: *cpython.PyObject) callconv(.c) void {
 /// PyDict_Next - Iterate over dict entries
 /// pos should start at 0 and will be updated on each call
 /// Returns 1 if an entry was returned, 0 when iteration is done
-export fn PyDict_Next(obj: *cpython.PyObject, ppos: *isize, pkey: ?*?*cpython.PyObject, pvalue: ?*?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_Next(obj: *cpython.PyObject, ppos: *isize, pkey: ?*?*cpython.PyObject, pvalue: ?*?*cpython.PyObject) callconv(.c) c_int {
     if (PyDict_Check(obj) == 0) return 0;
 
     const dict: *PyDictObject = @ptrCast(@alignCast(obj));
@@ -591,7 +591,7 @@ export fn PyDict_Next(obj: *cpython.PyObject, ppos: *isize, pkey: ?*?*cpython.Py
 }
 
 /// PyDict_Copy - Create a shallow copy of dict
-export fn PyDict_Copy(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_Copy(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     const new_dict = PyDict_New() orelse return null;
@@ -613,7 +613,7 @@ export fn PyDict_Copy(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
 }
 
 /// PyDict_Update - Update dict a with entries from dict b (a.update(b))
-export fn PyDict_Update(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_Update(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c) c_int {
     if (PyDict_Check(a) == 0 or PyDict_Check(b) == 0) return -1;
 
     var pos: isize = 0;
@@ -633,7 +633,7 @@ export fn PyDict_Update(a: *cpython.PyObject, b: *cpython.PyObject) callconv(.c)
 
 /// PyDict_Merge - Merge dict b into dict a
 /// override: if 1, replace existing keys; if 0, skip existing keys
-export fn PyDict_Merge(a: *cpython.PyObject, b: *cpython.PyObject, override: c_int) callconv(.c) c_int {
+pub export fn PyDict_Merge(a: *cpython.PyObject, b: *cpython.PyObject, override: c_int) callconv(.c) c_int {
     if (PyDict_Check(a) == 0 or PyDict_Check(b) == 0) return -1;
 
     var pos: isize = 0;
@@ -657,7 +657,7 @@ export fn PyDict_Merge(a: *cpython.PyObject, b: *cpython.PyObject, override: c_i
 
 /// PyDict_MergeFromSeq2 - Merge key-value pairs from sequence into dict
 /// override: if 1, replace existing keys; if 0, skip existing keys
-export fn PyDict_MergeFromSeq2(obj: *cpython.PyObject, seq: *cpython.PyObject, override: c_int) callconv(.c) c_int {
+pub export fn PyDict_MergeFromSeq2(obj: *cpython.PyObject, seq: *cpython.PyObject, override: c_int) callconv(.c) c_int {
     if (PyDict_Check(obj) == 0) return -1;
 
     const tuple = @import("tupleobject.zig");
@@ -719,7 +719,7 @@ export fn PyDict_MergeFromSeq2(obj: *cpython.PyObject, seq: *cpython.PyObject, o
 }
 
 /// PyDict_GetItemWithError - Like GetItem but sets KeyError on failure
-export fn PyDict_GetItemWithError(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_GetItemWithError(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const result = PyDict_GetItem(obj, key);
     if (result == null) {
         // Set KeyError (in real CPython)
@@ -729,7 +729,7 @@ export fn PyDict_GetItemWithError(obj: *cpython.PyObject, key: *cpython.PyObject
 }
 
 /// PyDict_SetDefault - Get value or set default if key not present
-export fn PyDict_SetDefault(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_SetDefault(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     // Check if key exists
@@ -746,7 +746,7 @@ export fn PyDict_SetDefault(obj: *cpython.PyObject, key: *cpython.PyObject, defa
 }
 
 /// PyDict_Pop - Remove key and return value (or default if not found)
-export fn PyDict_Pop(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_Pop(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (PyDict_Check(obj) == 0) return null;
 
     const value = PyDict_GetItem(obj, key);
@@ -768,7 +768,7 @@ pub export fn PyDict_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if ((flags & cpython.Py_TPFLAGS_DICT_SUBCLASS) != 0) 1 else 0;
 }
 
-export fn PyDict_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDict_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyDict_Type) 1 else 0;
 }
 
@@ -791,7 +791,7 @@ pub const PyDictKV = extern struct {
 /// Example:
 ///   var pairs = [_]PyDictKV{ .{ .key = k1, .value = v1 }, .{ .key = k2, .value = v2 } };
 ///   PyDict_SetItemBatch(dict, &pairs, 2);
-export fn PyDict_SetItemBatch(obj: *cpython.PyObject, pairs: [*]const PyDictKV, count: usize) callconv(.c) c_int {
+pub export fn PyDict_SetItemBatch(obj: *cpython.PyObject, pairs: [*]const PyDictKV, count: usize) callconv(.c) c_int {
     if (count == 0) return 0;
     if (PyDict_Check(obj) == 0) return -1;
 
@@ -807,7 +807,7 @@ export fn PyDict_SetItemBatch(obj: *cpython.PyObject, pairs: [*]const PyDictKV, 
 
 /// Create dict from arrays of keys and values
 /// Faster than New + multiple SetItem
-export fn PyDict_FromArrays(keys: [*]*cpython.PyObject, values: [*]*cpython.PyObject, count: usize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_FromArrays(keys: [*]*cpython.PyObject, values: [*]*cpython.PyObject, count: usize) callconv(.c) ?*cpython.PyObject {
     const dict = PyDict_New() orelse return null;
 
     for (0..count) |i| {
@@ -821,7 +821,7 @@ export fn PyDict_FromArrays(keys: [*]*cpython.PyObject, values: [*]*cpython.PyOb
 }
 
 /// Create dict from key-value pairs array
-export fn PyDict_FromPairs(pairs: [*]const PyDictKV, count: usize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDict_FromPairs(pairs: [*]const PyDictKV, count: usize) callconv(.c) ?*cpython.PyObject {
     const dict = PyDict_New() orelse return null;
 
     for (0..count) |i| {
@@ -836,7 +836,7 @@ export fn PyDict_FromPairs(pairs: [*]const PyDictKV, count: usize) callconv(.c) 
 
 /// Get multiple values at once (batch lookup)
 /// Returns number of keys found, fills values array
-export fn PyDict_GetItemBatch(obj: *cpython.PyObject, keys: [*]*cpython.PyObject, values: [*]?*cpython.PyObject, count: usize) callconv(.c) usize {
+pub export fn PyDict_GetItemBatch(obj: *cpython.PyObject, keys: [*]*cpython.PyObject, values: [*]?*cpython.PyObject, count: usize) callconv(.c) usize {
     if (PyDict_Check(obj) == 0) {
         for (0..count) |i| values[i] = null;
         return 0;

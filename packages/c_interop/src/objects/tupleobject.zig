@@ -115,7 +115,7 @@ pub export fn PyTuple_New(size: isize) callconv(.c) ?*cpython.PyObject {
 }
 
 /// Get tuple size
-export fn PyTuple_Size(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyTuple_Size(obj: *cpython.PyObject) callconv(.c) isize {
     if (PyTuple_Check(obj) == 0) return -1;
 
     const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
@@ -123,7 +123,7 @@ export fn PyTuple_Size(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// Get item at index (borrowed reference)
-export fn PyTuple_GetItem(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyTuple_GetItem(obj: *cpython.PyObject, idx: isize) callconv(.c) ?*cpython.PyObject {
     if (PyTuple_Check(obj) == 0) return null;
 
     const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
@@ -149,7 +149,7 @@ pub export fn PyTuple_SetItem(obj: *cpython.PyObject, idx: isize, item: *cpython
 }
 
 /// Get slice
-export fn PyTuple_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyTuple_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) callconv(.c) ?*cpython.PyObject {
     if (PyTuple_Check(obj) == 0) return null;
 
     const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
@@ -179,7 +179,7 @@ export fn PyTuple_GetSlice(obj: *cpython.PyObject, low: isize, high: isize) call
 }
 
 /// Pack arguments into tuple
-export fn PyTuple_Pack(n: isize, ...) callconv(.c) ?*cpython.PyObject {
+pub export fn PyTuple_Pack(n: isize, ...) callconv(.c) ?*cpython.PyObject {
     if (n < 0) return null;
     if (n == 0) return PyTuple_New(0);
 
@@ -207,7 +207,7 @@ pub export fn PyTuple_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// Exact type check
-export fn PyTuple_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyTuple_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyTuple_Type) 1 else 0;
 }
 
@@ -334,7 +334,7 @@ fn tuple_hash(obj: *cpython.PyObject) callconv(.c) isize {
 
 /// PyTuple_GET_ITEM - Get item without error checking (macro in CPython)
 /// WARNING: No bounds checking, no type checking - caller must ensure validity
-export fn PyTuple_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpython.PyObject {
+pub export fn PyTuple_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpython.PyObject {
     const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
     const items_ptr: [*]*cpython.PyObject = @ptrCast(&tuple_obj.ob_item);
     return items_ptr[@intCast(idx)];
@@ -342,14 +342,14 @@ export fn PyTuple_GET_ITEM(obj: *cpython.PyObject, idx: isize) callconv(.c) *cpy
 
 /// PyTuple_SET_ITEM - Set item without error checking (macro in CPython)
 /// WARNING: Steals reference, no bounds/type checking - only use during tuple creation
-export fn PyTuple_SET_ITEM(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) void {
+pub export fn PyTuple_SET_ITEM(obj: *cpython.PyObject, idx: isize, item: *cpython.PyObject) callconv(.c) void {
     const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
     const items_ptr: [*]*cpython.PyObject = @ptrCast(&tuple_obj.ob_item);
     items_ptr[@intCast(idx)] = item;
 }
 
 /// PyTuple_GET_SIZE - Get size without error checking (macro in CPython)
-export fn PyTuple_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyTuple_GET_SIZE(obj: *cpython.PyObject) callconv(.c) isize {
     const tuple_obj: *PyTupleObject = @ptrCast(@alignCast(obj));
     return tuple_obj.ob_base.ob_size;
 }

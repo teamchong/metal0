@@ -125,7 +125,7 @@ pub var PyWrapperDescr_Type: cpython.PyTypeObject = .{
 // ============================================================================
 
 /// Create a new method descriptor
-export fn PyDescr_NewMethod(type_obj: *cpython.PyTypeObject, method: *const cpython.PyMethodDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDescr_NewMethod(type_obj: *cpython.PyTypeObject, method: *const cpython.PyMethodDef) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("../objects/unicodeobject.zig");
 
     const descr = allocator.create(PyMethodDescrObject) catch return null;
@@ -147,7 +147,7 @@ export fn PyDescr_NewMethod(type_obj: *cpython.PyTypeObject, method: *const cpyt
 }
 
 /// Create a new classmethod descriptor
-export fn PyDescr_NewClassMethod(type_obj: *cpython.PyTypeObject, method: *const cpython.PyMethodDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDescr_NewClassMethod(type_obj: *cpython.PyTypeObject, method: *const cpython.PyMethodDef) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("../objects/unicodeobject.zig");
 
     const descr = allocator.create(PyMethodDescrObject) catch return null;
@@ -168,7 +168,7 @@ export fn PyDescr_NewClassMethod(type_obj: *cpython.PyTypeObject, method: *const
 }
 
 /// Create a new member descriptor
-export fn PyDescr_NewMember(type_obj: *cpython.PyTypeObject, member: *const cpython.PyMemberDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDescr_NewMember(type_obj: *cpython.PyTypeObject, member: *const cpython.PyMemberDef) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("../objects/unicodeobject.zig");
 
     const descr = allocator.create(PyMemberDescrObject) catch return null;
@@ -189,7 +189,7 @@ export fn PyDescr_NewMember(type_obj: *cpython.PyTypeObject, member: *const cpyt
 }
 
 /// Create a new getset descriptor
-export fn PyDescr_NewGetSet(type_obj: *cpython.PyTypeObject, getset: *const cpython.PyGetSetDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyDescr_NewGetSet(type_obj: *cpython.PyTypeObject, getset: *const cpython.PyGetSetDef) callconv(.c) ?*cpython.PyObject {
     const pyunicode = @import("../objects/unicodeobject.zig");
 
     const descr = allocator.create(PyGetSetDescrObject) catch return null;
@@ -210,7 +210,7 @@ export fn PyDescr_NewGetSet(type_obj: *cpython.PyTypeObject, getset: *const cpyt
 }
 
 /// Check if object is a descriptor (has __get__)
-export fn PyDescr_IsData(descr: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyDescr_IsData(descr: *cpython.PyObject) callconv(.c) c_int {
     const type_obj = cpython.Py_TYPE(descr);
     return if (type_obj.tp_descr_set != null) 1 else 0;
 }

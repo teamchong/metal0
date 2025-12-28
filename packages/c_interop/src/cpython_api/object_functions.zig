@@ -15,7 +15,7 @@ const misc = @import("../include/pymisc.zig");
 
 // --- PyIter_* ---
 
-export fn PyIter_NextItem(iter: *cpython.PyObject, item: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyIter_NextItem(iter: *cpython.PyObject, item: *?*cpython.PyObject) callconv(.c) c_int {
     const result = pyiter.PyIter_Next(iter);
     item.* = result;
     return if (result != null) 1 else 0;
@@ -23,7 +23,7 @@ export fn PyIter_NextItem(iter: *cpython.PyObject, item: *?*cpython.PyObject) ca
 
 // --- PyList_* ---
 
-export fn PyList_GetItemRef(list: *cpython.PyObject, index: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyList_GetItemRef(list: *cpython.PyObject, index: isize) callconv(.c) ?*cpython.PyObject {
     const item = pylist.PyList_GetItem(list, index);
     if (item) |i| {
         traits.incref(i);
@@ -33,11 +33,11 @@ export fn PyList_GetItemRef(list: *cpython.PyObject, index: isize) callconv(.c) 
 
 // --- PyLong_* New Functions ---
 
-export fn PyLong_AsInt(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyLong_AsInt(obj: *cpython.PyObject) callconv(.c) c_int {
     return @intCast(pylong.PyLong_AsLong(obj));
 }
 
-export fn PyLong_AsNativeBytes(obj: *cpython.PyObject, buffer: [*]u8, n_bytes: isize, flags: c_int) callconv(.c) isize {
+pub export fn PyLong_AsNativeBytes(obj: *cpython.PyObject, buffer: [*]u8, n_bytes: isize, flags: c_int) callconv(.c) isize {
     _ = flags;
     const val = pylong.PyLong_AsLong(obj);
     const bytes: [8]u8 = @bitCast(val);
@@ -46,7 +46,7 @@ export fn PyLong_AsNativeBytes(obj: *cpython.PyObject, buffer: [*]u8, n_bytes: i
     return @intCast(copy_len);
 }
 
-export fn PyLong_FromNativeBytes(buffer: [*]const u8, n_bytes: usize, flags: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromNativeBytes(buffer: [*]const u8, n_bytes: usize, flags: c_int) callconv(.c) ?*cpython.PyObject {
     _ = flags;
     if (n_bytes >= 8) {
         const val: i64 = @bitCast(buffer[0..8].*);
@@ -55,7 +55,7 @@ export fn PyLong_FromNativeBytes(buffer: [*]const u8, n_bytes: usize, flags: c_i
     return pylong.PyLong_FromLong(0);
 }
 
-export fn PyLong_FromUnsignedNativeBytes(buffer: [*]const u8, n_bytes: usize, flags: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromUnsignedNativeBytes(buffer: [*]const u8, n_bytes: usize, flags: c_int) callconv(.c) ?*cpython.PyObject {
     _ = flags;
     if (n_bytes >= 8) {
         const val: u64 = @bitCast(buffer[0..8].*);
@@ -64,13 +64,13 @@ export fn PyLong_FromUnsignedNativeBytes(buffer: [*]const u8, n_bytes: usize, fl
     return pylong.PyLong_FromUnsignedLong(0);
 }
 
-export fn PyLong_GetInfo() callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_GetInfo() callconv(.c) ?*cpython.PyObject {
     return pydict.PyDict_New();
 }
 
 // --- PyMapping_* New Functions ---
 
-export fn PyMapping_GetOptionalItem(obj: *cpython.PyObject, key: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMapping_GetOptionalItem(obj: *cpython.PyObject, key: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
     const tp = cpython.Py_TYPE(obj);
     if (tp.tp_as_mapping) |m| {
         if (m.mp_subscript) |subscript| {
@@ -85,26 +85,26 @@ export fn PyMapping_GetOptionalItem(obj: *cpython.PyObject, key: *cpython.PyObje
     return 0;
 }
 
-export fn PyMapping_GetOptionalItemString(obj: *cpython.PyObject, key: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMapping_GetOptionalItemString(obj: *cpython.PyObject, key: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
     const mapping = @import("../include/mapping.zig");
     const item = mapping.PyMapping_GetItemString(obj, key);
     result.* = item;
     return if (item != null) 1 else 0;
 }
 
-export fn PyMapping_HasKeyStringWithError(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyMapping_HasKeyStringWithError(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
     const mapping = @import("../include/mapping.zig");
     return mapping.PyMapping_HasKeyString(obj, key);
 }
 
-export fn PyMapping_HasKeyWithError(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMapping_HasKeyWithError(obj: *cpython.PyObject, key: *cpython.PyObject) callconv(.c) c_int {
     const mapping = @import("../include/mapping.zig");
     return mapping.PyMapping_HasKey(obj, key);
 }
 
 // --- PyMember_* ---
 
-export fn PyMember_GetOne(obj: [*]const u8, member: *const cpython.PyMemberDef) callconv(.c) ?*cpython.PyObject {
+pub export fn PyMember_GetOne(obj: [*]const u8, member: *const cpython.PyMemberDef) callconv(.c) ?*cpython.PyObject {
     const offset: usize = @intCast(member.offset);
     const ptr = obj + offset;
     return switch (member.@"type") {
@@ -115,7 +115,7 @@ export fn PyMember_GetOne(obj: [*]const u8, member: *const cpython.PyMemberDef) 
     };
 }
 
-export fn PyMember_SetOne(obj: [*]u8, member: *const cpython.PyMemberDef, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyMember_SetOne(obj: [*]u8, member: *const cpython.PyMemberDef, value: *cpython.PyObject) callconv(.c) c_int {
     const offset: usize = @intCast(member.offset);
     const ptr = obj + offset;
     const val = pylong.PyLong_AsLong(value);
@@ -130,12 +130,12 @@ export fn PyMember_SetOne(obj: [*]u8, member: *const cpython.PyMemberDef, value:
 
 // --- PyModule_* New Functions ---
 
-export fn PyModule_Add(module: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyModule_Add(module: *cpython.PyObject, name: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
     const module_mod = @import("../include/moduleobject.zig");
     return module_mod.PyModule_AddObject(module, name, value);
 }
 
-export fn PyModule_AddFunctions(module: *cpython.PyObject, methods: [*]const cpython.PyMethodDef) callconv(.c) c_int {
+pub export fn PyModule_AddFunctions(module: *cpython.PyObject, methods: [*]const cpython.PyMethodDef) callconv(.c) c_int {
     const module_mod = @import("../include/moduleobject.zig");
     var i: usize = 0;
     while (methods[i].ml_name != null) : (i += 1) {
@@ -148,11 +148,11 @@ export fn PyModule_AddFunctions(module: *cpython.PyObject, methods: [*]const cpy
     return 0;
 }
 
-export fn PyModule_Exec(module: *cpython.PyObject, def: *cpython.PyModuleDef) callconv(.c) c_int {
+pub export fn PyModule_Exec(module: *cpython.PyObject, def: *cpython.PyModuleDef) callconv(.c) c_int {
     return PyModule_ExecDef(module, def);
 }
 
-export fn PyModule_ExecDef(module: *cpython.PyObject, def: *cpython.PyModuleDef) callconv(.c) c_int {
+pub export fn PyModule_ExecDef(module: *cpython.PyObject, def: *cpython.PyModuleDef) callconv(.c) c_int {
     const module_mod = @import("../include/moduleobject.zig");
 
     if (def.m_methods) |methods| {
@@ -195,7 +195,7 @@ export fn PyModule_ExecDef(module: *cpython.PyObject, def: *cpython.PyModuleDef)
     return 0;
 }
 
-export fn PyModule_FromSlotsAndSpec(def: *cpython.PyModuleDef, spec: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyModule_FromSlotsAndSpec(def: *cpython.PyModuleDef, spec: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = spec;
     const module_mod = @import("../include/moduleobject.zig");
     const module = module_mod.PyModule_Create2(def, 1013) orelse return null;
@@ -206,12 +206,12 @@ export fn PyModule_FromSlotsAndSpec(def: *cpython.PyModuleDef, spec: *cpython.Py
     return module;
 }
 
-export fn PyModule_GetFilenameObject(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyModule_GetFilenameObject(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = module;
     return pyunicode.PyUnicode_FromString("<unknown>");
 }
 
-export fn PyModule_GetNameObject(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyModule_GetNameObject(module: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const module_mod = @import("../include/moduleobject.zig");
     const name = module_mod.PyModule_GetName(module);
     if (name) |n| {
@@ -220,43 +220,43 @@ export fn PyModule_GetNameObject(module: *cpython.PyObject) callconv(.c) ?*cpyth
     return null;
 }
 
-export fn PyModule_GetStateSize(module: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyModule_GetStateSize(module: *cpython.PyObject) callconv(.c) isize {
     _ = module;
     return 0;
 }
 
-export fn PyModule_GetToken(module: *cpython.PyObject) callconv(.c) ?*anyopaque {
+pub export fn PyModule_GetToken(module: *cpython.PyObject) callconv(.c) ?*anyopaque {
     _ = module;
     return null;
 }
 
 // --- PyObject_* New Functions ---
 
-export fn PyObject_CallFunctionObjArgs(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallFunctionObjArgs(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const call = @import("../include/call.zig");
     return call.PyObject_CallNoArgs(callable);
 }
 
-export fn PyObject_CallMethodObjArgs(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallMethodObjArgs(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const call = @import("../include/call.zig");
     return call.PyObject_CallMethodNoArgs(obj, name);
 }
 
-export fn PyObject_DelAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_DelAttr(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
     return misc.PyObject_SetAttr(obj, name, null);
 }
 
-export fn PyObject_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyObject_DelItemString(obj: *cpython.PyObject, key: [*:0]const u8) callconv(.c) c_int {
     const mapping = @import("../include/mapping.zig");
     return mapping.PyMapping_DelItemString(obj, key);
 }
 
-export fn PyObject_GC_IsFinalized(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_GC_IsFinalized(obj: *cpython.PyObject) callconv(.c) c_int {
     _ = obj;
     return 0;
 }
 
-export fn PyObject_GC_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
+pub export fn PyObject_GC_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
     const size = tp.tp_basicsize + tp.tp_itemsize * @as(isize, @intCast(if (nitems > 0) nitems else 0));
     const mem = std.heap.c_allocator.alloc(u8, @intCast(size)) catch return null;
     const obj: *cpython.PyVarObject = @ptrCast(@alignCast(mem.ptr));
@@ -266,37 +266,37 @@ export fn PyObject_GC_NewVar(tp: *cpython.PyTypeObject, nitems: isize) callconv(
     return obj;
 }
 
-export fn PyObject_GC_Resize(obj: *cpython.PyVarObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
+pub export fn PyObject_GC_Resize(obj: *cpython.PyVarObject, nitems: isize) callconv(.c) ?*cpython.PyVarObject {
     obj.ob_size = nitems;
     return obj;
 }
 
-export fn PyObject_GetOptionalAttr(obj: *cpython.PyObject, name: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_GetOptionalAttr(obj: *cpython.PyObject, name: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
     result.* = misc.PyObject_GetAttr(obj, name);
     return if (result.* != null) 1 else 0;
 }
 
-export fn PyObject_GetOptionalAttrString(obj: *cpython.PyObject, name: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_GetOptionalAttrString(obj: *cpython.PyObject, name: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
     result.* = misc.PyObject_GetAttrString(obj, name);
     return if (result.* != null) 1 else 0;
 }
 
-export fn PyObject_GetTypeData(obj: *cpython.PyObject, cls: *cpython.PyTypeObject) callconv(.c) ?*anyopaque {
+pub export fn PyObject_GetTypeData(obj: *cpython.PyObject, cls: *cpython.PyTypeObject) callconv(.c) ?*anyopaque {
     _ = cls;
     const base: [*]u8 = @ptrCast(obj);
     const tp = cpython.Py_TYPE(obj);
     return @ptrCast(base + @as(usize, @intCast(tp.tp_basicsize)));
 }
 
-export fn PyObject_HasAttrStringWithError(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyObject_HasAttrStringWithError(obj: *cpython.PyObject, name: [*:0]const u8) callconv(.c) c_int {
     return if (misc.PyObject_GetAttrString(obj, name) != null) 1 else 0;
 }
 
-export fn PyObject_HasAttrWithError(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyObject_HasAttrWithError(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) c_int {
     return if (misc.PyObject_GetAttr(obj, name) != null) 1 else 0;
 }
 
-export fn PyObject_HashNotImplemented(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyObject_HashNotImplemented(obj: *cpython.PyObject) callconv(.c) isize {
     _ = obj;
     exceptions.PyErr_SetString(&exceptions.PyExc_TypeError, "unhashable type");
     return -1;
@@ -304,16 +304,16 @@ export fn PyObject_HashNotImplemented(obj: *cpython.PyObject) callconv(.c) isize
 
 // --- PyOS_* Functions ---
 
-export fn PyOS_CheckStack() callconv(.c) c_int {
+pub export fn PyOS_CheckStack() callconv(.c) c_int {
     return 0;
 }
 
-export fn PyOS_getsig(sig: c_int) callconv(.c) ?*const fn (c_int) callconv(.c) void {
+pub export fn PyOS_getsig(sig: c_int) callconv(.c) ?*const fn (c_int) callconv(.c) void {
     _ = sig;
     return null;
 }
 
-export fn PyOS_mystricmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
+pub export fn PyOS_mystricmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_int {
     var i: usize = 0;
     while (s1[i] != 0 and s2[i] != 0) : (i += 1) {
         const c1 = std.ascii.toLower(s1[i]);
@@ -323,7 +323,7 @@ export fn PyOS_mystricmp(s1: [*:0]const u8, s2: [*:0]const u8) callconv(.c) c_in
     return @as(c_int, s1[i]) - @as(c_int, s2[i]);
 }
 
-export fn PyOS_mystrnicmp(s1: [*:0]const u8, s2: [*:0]const u8, n: isize) callconv(.c) c_int {
+pub export fn PyOS_mystrnicmp(s1: [*:0]const u8, s2: [*:0]const u8, n: isize) callconv(.c) c_int {
     var i: usize = 0;
     const max: usize = @intCast(n);
     while (i < max and s1[i] != 0 and s2[i] != 0) : (i += 1) {
@@ -335,7 +335,7 @@ export fn PyOS_mystrnicmp(s1: [*:0]const u8, s2: [*:0]const u8, n: isize) callco
     return @as(c_int, s1[i]) - @as(c_int, s2[i]);
 }
 
-export fn PyOS_setsig(sig: c_int, handler: ?*const fn (c_int) callconv(.c) void) callconv(.c) ?*const fn (c_int) callconv(.c) void {
+pub export fn PyOS_setsig(sig: c_int, handler: ?*const fn (c_int) callconv(.c) void) callconv(.c) ?*const fn (c_int) callconv(.c) void {
     _ = sig;
     _ = handler;
     return null;
@@ -343,45 +343,45 @@ export fn PyOS_setsig(sig: c_int, handler: ?*const fn (c_int) callconv(.c) void)
 
 // --- PySequence_* ---
 
-export fn PySequence_In(seq: *cpython.PyObject, obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySequence_In(seq: *cpython.PyObject, obj: *cpython.PyObject) callconv(.c) c_int {
     const sequence = @import("../include/sequence.zig");
     return sequence.PySequence_Contains(seq, obj);
 }
 
 // --- PySys_* Functions ---
 
-export fn PySys_Audit(event: [*:0]const u8, argFormat: [*:0]const u8) callconv(.c) c_int {
+pub export fn PySys_Audit(event: [*:0]const u8, argFormat: [*:0]const u8) callconv(.c) c_int {
     _ = event;
     _ = argFormat;
     return 0;
 }
 
-export fn PySys_AuditTuple(event: [*:0]const u8, args: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PySys_AuditTuple(event: [*:0]const u8, args: *cpython.PyObject) callconv(.c) c_int {
     _ = event;
     _ = args;
     return 0;
 }
 
-export fn PySys_GetAttr(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PySys_GetAttr(name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = name;
     return null;
 }
 
-export fn PySys_GetAttrString(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+pub export fn PySys_GetAttrString(name: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     _ = name;
     return null;
 }
 
-export fn PySys_GetOptionalAttr(name: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PySys_GetOptionalAttr(name: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
     result.* = PySys_GetAttr(name);
     return if (result.* != null) 1 else 0;
 }
 
-export fn PySys_GetOptionalAttrString(name: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
+pub export fn PySys_GetOptionalAttrString(name: [*:0]const u8, result: *?*cpython.PyObject) callconv(.c) c_int {
     result.* = PySys_GetAttrString(name);
     return if (result.* != null) 1 else 0;
 }
 
-export fn PySys_GetXOptions() callconv(.c) ?*cpython.PyObject {
+pub export fn PySys_GetXOptions() callconv(.c) ?*cpython.PyObject {
     return pydict.PyDict_New();
 }

@@ -35,7 +35,7 @@ pub const PyStructSequence = extern struct {
 
 /// Create a new struct sequence type from descriptor
 /// Returns new type object or null on error
-export fn PyStructSequence_NewType(desc: *PyStructSequence_Desc) callconv(.c) ?*cpython.PyTypeObject {
+pub export fn PyStructSequence_NewType(desc: *PyStructSequence_Desc) callconv(.c) ?*cpython.PyTypeObject {
     // Allocate type object
     const type_obj = allocator.create(cpython.PyTypeObject) catch return null;
 
@@ -106,13 +106,13 @@ export fn PyStructSequence_NewType(desc: *PyStructSequence_Desc) callconv(.c) ?*
 
 /// Initialize a struct sequence type (for existing type objects)
 /// Returns 0 on success, -1 on error
-export fn PyStructSequence_InitType(type_obj: *cpython.PyTypeObject, desc: *PyStructSequence_Desc) callconv(.c) c_int {
+pub export fn PyStructSequence_InitType(type_obj: *cpython.PyTypeObject, desc: *PyStructSequence_Desc) callconv(.c) c_int {
     return PyStructSequence_InitType2(type_obj, desc);
 }
 
 /// Initialize a struct sequence type (version 2)
 /// Returns 0 on success, -1 on error
-export fn PyStructSequence_InitType2(type_obj: *cpython.PyTypeObject, desc: *PyStructSequence_Desc) callconv(.c) c_int {
+pub export fn PyStructSequence_InitType2(type_obj: *cpython.PyTypeObject, desc: *PyStructSequence_Desc) callconv(.c) c_int {
     type_obj.tp_name = desc.name;
     type_obj.tp_doc = desc.doc;
     type_obj.tp_basicsize = @sizeOf(PyStructSequence);
@@ -124,7 +124,7 @@ export fn PyStructSequence_InitType2(type_obj: *cpython.PyTypeObject, desc: *PyS
 
 /// Create a new struct sequence instance
 /// Returns new instance or null on error
-export fn PyStructSequence_New(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyStructSequence_New(type_obj: *cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
     // Calculate size needed based on type's itemsize
     const n_items: usize = @intCast(type_obj.tp_basicsize / @sizeOf(?*cpython.PyObject));
 
@@ -148,14 +148,14 @@ export fn PyStructSequence_New(type_obj: *cpython.PyTypeObject) callconv(.c) ?*c
 
 /// Get item from struct sequence
 /// Returns borrowed reference
-export fn PyStructSequence_GetItem(seq: *cpython.PyObject, pos: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyStructSequence_GetItem(seq: *cpython.PyObject, pos: isize) callconv(.c) ?*cpython.PyObject {
     const ss: *PyStructSequence = @ptrCast(@alignCast(seq));
     if (pos < 0 or pos >= ss.ob_base.ob_size) return null;
     return ss.ob_item[@intCast(pos)];
 }
 
 /// Set item in struct sequence (steals reference)
-export fn PyStructSequence_SetItem(seq: *cpython.PyObject, pos: isize, obj: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyStructSequence_SetItem(seq: *cpython.PyObject, pos: isize, obj: ?*cpython.PyObject) callconv(.c) void {
     const ss: *PyStructSequence = @ptrCast(@alignCast(seq));
     if (pos < 0 or pos >= ss.ob_base.ob_size) return;
 
@@ -167,12 +167,12 @@ export fn PyStructSequence_SetItem(seq: *cpython.PyObject, pos: isize, obj: ?*cp
 }
 
 /// Get item from struct sequence (macro version - same as GetItem)
-export fn PyStructSequence_GET_ITEM(seq: *cpython.PyObject, pos: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyStructSequence_GET_ITEM(seq: *cpython.PyObject, pos: isize) callconv(.c) ?*cpython.PyObject {
     return PyStructSequence_GetItem(seq, pos);
 }
 
 /// Set item in struct sequence (macro version - same as SetItem)
-export fn PyStructSequence_SET_ITEM(seq: *cpython.PyObject, pos: isize, obj: ?*cpython.PyObject) callconv(.c) void {
+pub export fn PyStructSequence_SET_ITEM(seq: *cpython.PyObject, pos: isize, obj: ?*cpython.PyObject) callconv(.c) void {
     PyStructSequence_SetItem(seq, pos, obj);
 }
 

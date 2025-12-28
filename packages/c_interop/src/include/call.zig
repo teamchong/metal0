@@ -14,7 +14,7 @@ pub const PyObject_CallObject = obj_proto.PyObject_CallObject;
 
 /// Call with format string arguments
 /// Format codes: O (PyObject*), s (const char*), i (int), l (long), d (double), etc.
-export fn PyObject_CallFunction(callable: *cpython.PyObject, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallFunction(callable: *cpython.PyObject, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
     const pyunicode = @import("../objects/unicodeobject.zig");
     const pylong = @import("../objects/longobject.zig");
@@ -175,7 +175,7 @@ export fn PyObject_CallFunction(callable: *cpython.PyObject, format: ?[*:0]const
 }
 
 /// Call method with format string
-export fn PyObject_CallMethod(obj: *cpython.PyObject, name: [*:0]const u8, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallMethod(obj: *cpython.PyObject, name: [*:0]const u8, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
     const pyunicode = @import("../objects/unicodeobject.zig");
     const pylong = @import("../objects/longobject.zig");
@@ -280,7 +280,7 @@ export fn PyObject_CallMethod(obj: *cpython.PyObject, name: [*:0]const u8, forma
 }
 
 /// Call with single argument
-export fn PyObject_CallOneArg(callable: *cpython.PyObject, arg: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallOneArg(callable: *cpython.PyObject, arg: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
 
     // Create tuple with single arg
@@ -293,7 +293,7 @@ export fn PyObject_CallOneArg(callable: *cpython.PyObject, arg: *cpython.PyObjec
 }
 
 /// Call with no arguments
-export fn PyObject_CallNoArgs(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallNoArgs(callable: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
 
     // Create empty tuple for args
@@ -311,12 +311,12 @@ export fn PyObject_CallNoArgs(callable: *cpython.PyObject) callconv(.c) ?*cpytho
 pub const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1 << (@bitSizeOf(usize) - 1);
 
 /// Extract number of args from nargsf (mask out the offset flag)
-export fn PyVectorcall_NARGS(nargsf: usize) callconv(.c) usize {
+pub export fn PyVectorcall_NARGS(nargsf: usize) callconv(.c) usize {
     return nargsf & ~PY_VECTORCALL_ARGUMENTS_OFFSET;
 }
 
 /// Call with positional args array (vectorcall protocol)
-export fn PyObject_Vectorcall(callable: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwnames: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_Vectorcall(callable: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwnames: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const nargs = PyVectorcall_NARGS(nargsf);
 
     // Check for vectorcall support on the type
@@ -372,7 +372,7 @@ export fn PyObject_Vectorcall(callable: *cpython.PyObject, args: ?[*]const ?*cpy
 }
 
 /// Call using vectorcall with dict for kwargs
-export fn PyObject_VectorcallDict(callable: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_VectorcallDict(callable: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const pytuple = @import("../objects/tupleobject.zig");
 
     // Simple fallback: build tuple from args
@@ -392,7 +392,7 @@ export fn PyObject_VectorcallDict(callable: *cpython.PyObject, args: ?[*]const ?
 }
 
 /// Call method using vectorcall
-export fn PyObject_VectorcallMethod(name: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwnames: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_VectorcallMethod(name: *cpython.PyObject, args: ?[*]const ?*cpython.PyObject, nargsf: usize, kwnames: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const nargs = PyVectorcall_NARGS(nargsf);
     if (nargs == 0 or args == null) {
         traits.setError("TypeError", "vectorcall method requires at least self argument");
@@ -420,7 +420,7 @@ export fn PyObject_VectorcallMethod(name: *cpython.PyObject, args: ?[*]const ?*c
 }
 
 /// Get vectorcall function from callable (returns null if not supported)
-export fn PyVectorcall_Function(callable: *cpython.PyObject) callconv(.c) cpython.vectorcallfunc {
+pub export fn PyVectorcall_Function(callable: *cpython.PyObject) callconv(.c) cpython.vectorcallfunc {
     const tp = cpython.Py_TYPE(callable);
     if (tp.tp_vectorcall_offset == 0) return null;
 
@@ -431,13 +431,13 @@ export fn PyVectorcall_Function(callable: *cpython.PyObject) callconv(.c) cpytho
 }
 
 /// Call callable using vectorcall (entry point that checks for vectorcall support)
-export fn PyVectorcall_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyVectorcall_Call(callable: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     // This is a helper that converts tuple/dict args to vectorcall
     return obj_proto.PyObject_Call(callable, args, kwargs);
 }
 
 /// Call method (no args)
-export fn PyObject_CallMethodNoArgs(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallMethodNoArgs(obj: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const misc = @import("pymisc.zig");
 
     // Get method from object
@@ -449,7 +449,7 @@ export fn PyObject_CallMethodNoArgs(obj: *cpython.PyObject, name: *cpython.PyObj
 }
 
 /// Call method (one arg)
-export fn PyObject_CallMethodOneArg(obj: *cpython.PyObject, name: *cpython.PyObject, arg: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyObject_CallMethodOneArg(obj: *cpython.PyObject, name: *cpython.PyObject, arg: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const misc = @import("pymisc.zig");
 
     // Get method from object
@@ -461,7 +461,7 @@ export fn PyObject_CallMethodOneArg(obj: *cpython.PyObject, name: *cpython.PyObj
 }
 
 /// Check if object is callable
-export fn PyCallable_Check(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyCallable_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (traits.isCallable(obj)) 1 else 0;
 }
 

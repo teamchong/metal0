@@ -365,23 +365,23 @@ pub export fn PyLong_FromLong(value: c_long) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(value));
 }
 
-export fn PyLong_FromUnsignedLong(value: c_ulong) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromUnsignedLong(value: c_ulong) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(value));
 }
 
-export fn PyLong_FromLongLong(value: c_longlong) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromLongLong(value: c_longlong) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(value));
 }
 
-export fn PyLong_FromUnsignedLongLong(value: c_ulonglong) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromUnsignedLongLong(value: c_ulonglong) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(value));
 }
 
-export fn PyLong_FromDouble(value: f64) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromDouble(value: f64) callconv(.c) ?*cpython.PyObject {
     return createLong(@intFromFloat(value));
 }
 
-export fn PyLong_FromString(str: [*:0]const u8, pend: ?*[*:0]u8, base: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromString(str: [*:0]const u8, pend: ?*[*:0]u8, base: c_int) callconv(.c) ?*cpython.PyObject {
     _ = pend;
     const len = std.mem.len(str);
     const radix: u8 = if (base == 0) 10 else @intCast(base);
@@ -389,21 +389,21 @@ export fn PyLong_FromString(str: [*:0]const u8, pend: ?*[*:0]u8, base: c_int) ca
     return createLong(value);
 }
 
-export fn PyLong_FromSize_t(value: usize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromSize_t(value: usize) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(value));
 }
 
-export fn PyLong_FromSsize_t(value: isize) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromSsize_t(value: isize) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(value));
 }
 
-export fn PyLong_FromVoidPtr(ptr: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromVoidPtr(ptr: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
     return createLong(@intCast(@intFromPtr(ptr)));
 }
 
 /// PyLong_FromUnicodeObject - Parse integer from unicode string
 /// Returns new PyLongObject or null on error
-export fn PyLong_FromUnicodeObject(u: *cpython.PyObject, base: c_int) callconv(.c) ?*cpython.PyObject {
+pub export fn PyLong_FromUnicodeObject(u: *cpython.PyObject, base: c_int) callconv(.c) ?*cpython.PyObject {
     const unicode = @import("../include/unicodeobject.zig");
 
     // Get UTF-8 string from unicode object
@@ -470,44 +470,44 @@ pub export fn PyLong_AsLong(obj: *cpython.PyObject) callconv(.c) c_long {
     return @intCast(getLongValue(@ptrCast(@alignCast(obj))));
 }
 
-export fn PyLong_AsLongLong(obj: *cpython.PyObject) callconv(.c) c_longlong {
+pub export fn PyLong_AsLongLong(obj: *cpython.PyObject) callconv(.c) c_longlong {
     return @intCast(getLongValue(@ptrCast(@alignCast(obj))));
 }
 
-export fn PyLong_AsUnsignedLong(obj: *cpython.PyObject) callconv(.c) c_ulong {
+pub export fn PyLong_AsUnsignedLong(obj: *cpython.PyObject) callconv(.c) c_ulong {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     if (val < 0) return 0; // Would raise OverflowError in real Python
     return @intCast(val);
 }
 
-export fn PyLong_AsUnsignedLongLong(obj: *cpython.PyObject) callconv(.c) c_ulonglong {
+pub export fn PyLong_AsUnsignedLongLong(obj: *cpython.PyObject) callconv(.c) c_ulonglong {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     if (val < 0) return 0;
     return @intCast(val);
 }
 
-export fn PyLong_AsDouble(obj: *cpython.PyObject) callconv(.c) f64 {
+pub export fn PyLong_AsDouble(obj: *cpython.PyObject) callconv(.c) f64 {
     return @floatFromInt(getLongValue(@ptrCast(@alignCast(obj))));
 }
 
-export fn PyLong_AsSize_t(obj: *cpython.PyObject) callconv(.c) usize {
+pub export fn PyLong_AsSize_t(obj: *cpython.PyObject) callconv(.c) usize {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     if (val < 0) return 0;
     return @intCast(val);
 }
 
-export fn PyLong_AsSsize_t(obj: *cpython.PyObject) callconv(.c) isize {
+pub export fn PyLong_AsSsize_t(obj: *cpython.PyObject) callconv(.c) isize {
     return @intCast(getLongValue(@ptrCast(@alignCast(obj))));
 }
 
-export fn PyLong_AsVoidPtr(obj: *cpython.PyObject) callconv(.c) ?*anyopaque {
+pub export fn PyLong_AsVoidPtr(obj: *cpython.PyObject) callconv(.c) ?*anyopaque {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     return @ptrFromInt(@as(usize, @intCast(val)));
 }
 
 /// PyLong_AsLongAndOverflow - Convert to long with overflow detection
 /// overflow is set to: 1 if overflow, -1 if underflow, 0 if successful
-export fn PyLong_AsLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) callconv(.c) c_long {
+pub export fn PyLong_AsLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) callconv(.c) c_long {
     if (PyLong_Check(obj) == 0) {
         overflow.* = 0;
         return -1;
@@ -531,7 +531,7 @@ export fn PyLong_AsLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) cal
 }
 
 /// PyLong_AsLongLongAndOverflow - Convert to long long with overflow detection
-export fn PyLong_AsLongLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) callconv(.c) c_longlong {
+pub export fn PyLong_AsLongLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int) callconv(.c) c_longlong {
     if (PyLong_Check(obj) == 0) {
         overflow.* = 0;
         return -1;
@@ -544,7 +544,7 @@ export fn PyLong_AsLongLongAndOverflow(obj: *cpython.PyObject, overflow: *c_int)
 }
 
 /// _PyLong_Sign - Return sign of long: -1, 0, or 1
-export fn _PyLong_Sign(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn _PyLong_Sign(obj: *cpython.PyObject) callconv(.c) c_int {
     const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
     const sign = long_obj.long_value.lv_tag & cpython._PyLong_SIGN_MASK;
     return switch (sign) {
@@ -556,7 +556,7 @@ export fn _PyLong_Sign(obj: *cpython.PyObject) callconv(.c) c_int {
 }
 
 /// _PyLong_NumBits - Return number of bits needed to represent the absolute value
-export fn _PyLong_NumBits(obj: *cpython.PyObject) callconv(.c) usize {
+pub export fn _PyLong_NumBits(obj: *cpython.PyObject) callconv(.c) usize {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     if (val == 0) return 0;
     const abs_val: u64 = if (val < 0) @intCast(-val) else @intCast(val);
@@ -564,13 +564,13 @@ export fn _PyLong_NumBits(obj: *cpython.PyObject) callconv(.c) usize {
 }
 
 /// PyLong_AsUnsignedLongMask - Convert to unsigned long with masking (no overflow error)
-export fn PyLong_AsUnsignedLongMask(obj: *cpython.PyObject) callconv(.c) c_ulong {
+pub export fn PyLong_AsUnsignedLongMask(obj: *cpython.PyObject) callconv(.c) c_ulong {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     return @bitCast(@as(c_long, @intCast(val)));
 }
 
 /// PyLong_AsUnsignedLongLongMask - Convert to unsigned long long with masking
-export fn PyLong_AsUnsignedLongLongMask(obj: *cpython.PyObject) callconv(.c) c_ulonglong {
+pub export fn PyLong_AsUnsignedLongLongMask(obj: *cpython.PyObject) callconv(.c) c_ulonglong {
     const val = getLongValue(@ptrCast(@alignCast(obj)));
     return @bitCast(@as(c_longlong, @intCast(val)));
 }
@@ -585,7 +585,7 @@ pub export fn PyLong_Check(obj: *cpython.PyObject) callconv(.c) c_int {
     return if ((flags & cpython.Py_TPFLAGS_LONG_SUBCLASS) != 0) 1 else 0;
 }
 
-export fn PyLong_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
+pub export fn PyLong_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
     return if (cpython.Py_TYPE(obj) == &PyLong_Type) 1 else 0;
 }
 
