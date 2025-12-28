@@ -151,12 +151,12 @@ pub var PyCMethod_Type: cpython.PyTypeObject = .{
 // ============================================================================
 
 /// Create new CFunction from method def and self
-pub export fn PyCFunction_NewEx(ml: *cpython.PyMethodDef, self: ?*cpython.PyObject, module: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+pub export fn PyCFunction_NewEx(ml: *const cpython.PyMethodDef, self: ?*cpython.PyObject, module: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const obj = allocator.create(PyCFunctionObject) catch return null;
 
     obj.ob_base.ob_refcnt = 1;
     obj.ob_base.ob_type = &PyCFunction_Type;
-    obj.m_ml = ml;
+    obj.m_ml = @constCast(ml);
     obj.m_self = self;
     obj.m_module = module;
     obj.m_weakreflist = null;
@@ -246,6 +246,37 @@ pub var PyMethod_Type: cpython.PyTypeObject = .{
     .tp_setattro = null,
     .tp_as_buffer = null,
     .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = @offsetOf(PyMethodObject, "im_weakreflist"),
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
 };
 
 /// Create bound method from function and self
@@ -322,7 +353,37 @@ pub var PyInstanceMethod_Type: cpython.PyTypeObject = .{
     .tp_setattro = null,
     .tp_as_buffer = null,
     .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_HAVE_GC,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
     .tp_descr_get = instancemethod_descr_get,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
 };
 
 /// Create instance method from function

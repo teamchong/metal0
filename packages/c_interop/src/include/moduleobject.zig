@@ -101,7 +101,7 @@ fn module_dealloc(obj: *cpython.PyObject) callconv(.c) void {
     // Call module's m_free if defined
     if (module.md_def) |def| {
         if (def.m_free) |free_fn| {
-            const free_func: *const fn (*cpython.PyObject) callconv(.c) void = @ptrCast(free_fn);
+            const free_func: *const fn (*cpython.PyObject) callconv(.c) void = @ptrCast(@alignCast(free_fn));
             free_func(obj);
         }
     }
@@ -296,7 +296,7 @@ pub export fn PyModule_Create2(def: *PyModuleDef, api_version: c_int) callconv(.
     if (def.m_methods) |methods| {
         var i: usize = 0;
         while (methods[i].ml_name != null) : (i += 1) {
-            const method = &methods[i];
+            const method: *const cpython.PyMethodDef = @ptrCast(&methods[i]);
             const func = PyCFunction_NewEx(method, @ptrCast(module), null);
             if (func) |f| {
                 _ = PyDict_SetItemString(dict.?, method.ml_name.?, f);
@@ -410,7 +410,8 @@ pub export fn PyModule_AddStringConstant(module: *cpython.PyObject, name: [*:0]c
 ///
 /// CPython: int PyModule_AddType(PyObject *module, PyTypeObject *type)
 pub export fn PyModule_AddType(module: *cpython.PyObject, type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
-    const type_name = std.mem.span(type_obj.tp_name);
+    const tp_name = type_obj.tp_name orelse return -1;
+    const type_name = std.mem.span(tp_name);
 
     // Find last component of dotted name
     var name_start: usize = 0;

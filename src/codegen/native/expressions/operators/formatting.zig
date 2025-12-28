@@ -1,8 +1,10 @@
 /// String formatting operations
 /// Handles Python % operator for string formatting: "%d" % value
 ///
-/// MIGRATION STATUS: Prepared for ZigBuilder - imports added
-/// - Uses labeled blocks heavily, migration deferred
+/// MIGRATION STATUS: Fully migrated to ZigBuilder pattern
+/// - Uses captureExpr() to bridge AST expressions to ZigValue
+/// - Uses builder.write() for all output
+/// - Uses self.emitZigValue() for ZigValue emission
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -13,95 +15,94 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
+const ZigBuilder = builder_mod.ZigBuilder;
 
 // ============================================
-// Format operation helpers - auto-closing patterns
+// Format operation helpers - builder pattern
 // ============================================
 
 /// Emit format block open: fmt_N: { var __fmt_buf_N = ...; const __writer_N = ...;
-fn emitFormatBlockOpen(self: *NativeCodegen, label_id: usize, alloc_name: []const u8) CodegenError!void {
-    try self.emitFmt("fmt_{d}: {{\n", .{label_id});
-    try self.emitFmt("var __fmt_buf_{d} = std.ArrayListUnmanaged(u8)", .{label_id});
-    try self.emit("{};\n");
-    try self.emitFmt("const __writer_{d} = __fmt_buf_{d}.writer({s});\n", .{ label_id, label_id, alloc_name });
+fn emitFormatBlockOpen(_: *NativeCodegen, b: *ZigBuilder, label_id: usize, alloc_name: []const u8) CodegenError!void {
+    try b.writeFmt("fmt_{d}: {{\n", .{label_id});
+    try b.writeFmt("var __fmt_buf_{d} = std.ArrayListUnmanaged(u8)", .{label_id});
+    try b.write("{};\n");
+    try b.writeFmt("const __writer_{d} = __fmt_buf_{d}.writer({s});\n", .{ label_id, label_id, alloc_name });
 }
 
 /// Emit format block close: break :fmt_N __fmt_buf_N.toOwnedSlice(alloc) catch unreachable; }
-fn emitFormatBlockClose(self: *NativeCodegen, label_id: usize, alloc_name: []const u8) CodegenError!void {
-    try self.emitFmt("break :fmt_{d} __fmt_buf_{d}.toOwnedSlice({s}) catch unreachable;\n}}", .{ label_id, label_id, alloc_name });
+fn emitFormatBlockClose(b: *ZigBuilder, label_id: usize, alloc_name: []const u8) CodegenError!void {
+    try b.writeFmt("break :fmt_{d} __fmt_buf_{d}.toOwnedSlice({s}) catch unreachable;\n}}", .{ label_id, label_id, alloc_name });
 }
 
-/// Emit runtime.formatInt(expr, base)
-fn emitFormatInt(self: *NativeCodegen, expr: ast.Node, spec_char: u8) CodegenError!void {
-    try self.emit("runtime.formatInt(");
-    try genExpr(self, expr);
+/// Emit runtime.formatInt(expr, base) using builder
+fn emitFormatInt(self: *NativeCodegen, b: *ZigBuilder, expr_val: ZigValue, spec_char: u8) CodegenError!void {
+    try b.write("runtime.formatInt(");
+    try self.emitZigValue(expr_val);
     switch (spec_char) {
-        'x' => try self.emit(", .hex_lower)"),
-        'X' => try self.emit(", .hex_upper)"),
-        else => try self.emit(", .octal)"), // 'o'
+        'x' => try b.write(", .hex_lower)"),
+        'X' => try b.write(", .hex_upper)"),
+        else => try b.write(", .octal)"), // 'o'
     }
 }
 
-/// Emit runtime.builtins.pyRepr(alloc, expr) catch unreachable
-fn emitPyRepr(self: *NativeCodegen, expr: ast.Node, alloc_name: []const u8) CodegenError!void {
-    try self.emitFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
-    try genExpr(self, expr);
-    try self.emit(") catch unreachable)");
+/// Emit runtime.builtins.pyRepr(alloc, expr) catch unreachable using builder
+fn emitPyRepr(self: *NativeCodegen, b: *ZigBuilder, expr_val: ZigValue, alloc_name: []const u8) CodegenError!void {
+    try b.writeFmt("(runtime.builtins.pyRepr({s}, ", .{alloc_name});
+    try self.emitZigValue(expr_val);
+    try b.write(") catch unreachable)");
 }
 
-/// Emit @as(i64, @intFromBool(expr))
-fn emitBoolToI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("@as(i64, @intFromBool(");
-    try genExpr(self, expr);
-    try self.emit("))");
+/// Emit @as(i64, @intFromBool(expr)) using builder
+fn emitBoolToI64(self: *NativeCodegen, b: *ZigBuilder, expr_val: ZigValue) CodegenError!void {
+    try b.write("@as(i64, @intFromBool(");
+    try self.emitZigValue(expr_val);
+    try b.write("))");
 }
 
-/// Emit runtime pyStringFormat for variable format strings
-fn emitRuntimePyStringFormat(self: *NativeCodegen, label_id: usize, alloc_name: []const u8, left: ast.Node, right: ast.Node) CodegenError!void {
-    try self.emitFmt("fmt_{d}: {{\n", .{label_id});
-    try self.emitFmt("break :fmt_{d} try runtime.pyStringFormat({s}, ", .{ label_id, alloc_name });
-    try genExpr(self, left);
-    try self.emit(", ");
-    try genExpr(self, right);
-    try self.emit(");\n}");
+/// Emit runtime pyStringFormat for variable format strings using builder
+fn emitRuntimePyStringFormat(self: *NativeCodegen, b: *ZigBuilder, label_id: usize, alloc_name: []const u8, left_val: ZigValue, right_val: ZigValue) CodegenError!void {
+    try b.writeFmt("fmt_{d}: {{\n", .{label_id});
+    try b.writeFmt("break :fmt_{d} try runtime.pyStringFormat({s}, ", .{ label_id, alloc_name });
+    try self.emitZigValue(left_val);
+    try b.write(", ");
+    try self.emitZigValue(right_val);
+    try b.write(");\n}");
 }
 
-/// Emit escaped character for Zig format string
-fn emitEscapedChar(self: *NativeCodegen, c: u8) CodegenError!void {
+/// Emit escaped character for Zig format string using builder
+fn emitEscapedChar(b: *ZigBuilder, c: u8) CodegenError!void {
     switch (c) {
-        '{' => try self.emit("{{"),
-        '}' => try self.emit("}}"),
-        '"' => try self.emit("\\\""),
-        '\\' => try self.emit("\\\\"),
-        '\n' => try self.emit("\\n"),
-        '\r' => try self.emit("\\r"),
-        '\t' => try self.emit("\\t"),
-        else => try self.emitFmt("{c}", .{c}),
+        '{' => try b.write("{{"),
+        '}' => try b.write("}}"),
+        '"' => try b.write("\\\""),
+        '\\' => try b.write("\\\\"),
+        '\n' => try b.write("\\n"),
+        '\r' => try b.write("\\r"),
+        '\t' => try b.write("\\t"),
+        else => try b.writeFmt("{c}", .{c}),
     }
 }
 
-/// Emit Zig format specifier for Python format spec
-fn emitZigFormatSpec(self: *NativeCodegen, fspec: FormatSpec, fallback_fmt_char: u8) CodegenError!void {
+/// Emit Zig format specifier for Python format spec using builder
+fn emitZigFormatSpec(b: *ZigBuilder, fspec: FormatSpec, fallback_fmt_char: u8) CodegenError!void {
     switch (fspec.spec_char) {
-        'd', 'i' => try self.emit("{any}"),
-        's' => try self.emit("{s}"),
+        'd', 'i' => try b.write("{any}"),
+        's' => try b.write("{s}"),
         'f' => {
             if (fspec.precision) |p| {
-                try self.emitFmt("{{d:.{d}}}", .{p});
+                try b.writeFmt("{{d:.{d}}}", .{p});
             } else {
-                try self.emit("{d}");
+                try b.write("{d}");
             }
         },
-        'g', 'G' => try self.emit("{d}"),
-        'e', 'E' => try self.emit("{e}"),
-        'x', 'X', 'o' => try self.emit("{s}"),
-        'r' => try self.emit("{s}"),
-        '%' => try self.emit("%"),
+        'g', 'G' => try b.write("{d}"),
+        'e', 'E' => try b.write("{e}"),
+        'x', 'X', 'o' => try b.write("{s}"),
+        'r' => try b.write("{s}"),
+        '%' => try b.write("%"),
         else => {
-            try self.emitFmt("{c}", .{fallback_fmt_char});
-            try self.emitFmt("{c}", .{fspec.spec_char});
+            try b.writeFmt("{c}", .{fallback_fmt_char});
+            try b.writeFmt("{c}", .{fspec.spec_char});
         },
     }
 }
@@ -162,6 +163,11 @@ fn parseFormatSpec(fmt: []const u8, start: usize) FormatSpec {
 /// Handles both single value and tuple of values
 pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     const alloc_name = "__global_allocator";
+    const b = try self.getBuilder();
+
+    // Capture operands as ZigValues
+    const left_val = try self.captureExpr(binop.left.*);
+    const right_val = try self.captureExpr(binop.right.*);
 
     // Get the format string (parser already strips quotes)
     const format_str = if (binop.left.* == .constant and binop.left.constant.value == .string)
@@ -176,7 +182,8 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // If format string is a variable (not literal), use runtime formatting
     // This must be checked BEFORE creating the buffer/writer
     if (format_str == null) {
-        try emitRuntimePyStringFormat(self, label_id, alloc_name, binop.left.*, binop.right.*);
+        try emitRuntimePyStringFormat(self, b, label_id, alloc_name, left_val, right_val);
+        try self.flushBuilder();
         return;
     }
 
@@ -191,7 +198,8 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     fspec.spec_char == 'g' or fspec.spec_char == 'G')
                 {
                     // Use runtime formatting for banker's rounding and proper %g semantics
-                    try emitRuntimePyStringFormat(self, label_id, alloc_name, binop.left.*, binop.right.*);
+                    try emitRuntimePyStringFormat(self, b, label_id, alloc_name, left_val, right_val);
+                    try self.flushBuilder();
                     return;
                 }
                 break; // Only check first format specifier
@@ -202,7 +210,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
 
     // Use unique buf AND writer names to avoid shadowing in nested format expressions
     // e.g., "%s" % repr(x) where repr(x) generates another format block
-    try emitFormatBlockOpen(self, label_id, alloc_name);
+    try emitFormatBlockOpen(self, b, label_id, alloc_name);
 
     // Check if right side is a tuple (multiple values)
     if (binop.right.* == .tuple) {
@@ -211,20 +219,20 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         if (format_str) |fmt| {
             // Parse format string and match with tuple elements
             // Use catch unreachable since we're often inside non-error contexts like panic args
-            try self.emitFmt("__writer_{d}.print(\"", .{label_id});
+            try b.writeFmt("__writer_{d}.print(\"", .{label_id});
             // Convert Python format to Zig format
             var i: usize = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
                     const fspec = parseFormatSpec(fmt, i);
-                    try emitZigFormatSpec(self, fspec, fmt[i]);
+                    try emitZigFormatSpec(b, fspec, fmt[i]);
                     i += fspec.consumed;
                 } else {
-                    try emitEscapedChar(self, fmt[i]);
+                    try emitEscapedChar(b, fmt[i]);
                     i += 1;
                 }
             }
-            try self.emit("\", .{");
+            try b.write("\", .{");
             // Track which format specs need special handling
             var elem_idx: usize = 0;
             var fmt_idx: usize = 0;
@@ -236,13 +244,15 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                         fmt_idx += fspec2.consumed;
                         continue;
                     }
-                    if (elem_idx > 0) try self.emit(", ");
+                    if (elem_idx > 0) try b.write(", ");
                     if (elem_idx < tuple.elts.len) {
+                        // Capture tuple element
+                        const elem_val = try self.captureExpr(tuple.elts[elem_idx]);
                         // For hex/octal formats, wrap in runtime.formatInt to handle bool
                         if (fspec2.spec_char == 'x' or fspec2.spec_char == 'X' or fspec2.spec_char == 'o') {
-                            try emitFormatInt(self, tuple.elts[elem_idx], fspec2.spec_char);
+                            try emitFormatInt(self, b, elem_val, fspec2.spec_char);
                         } else if (fspec2.spec_char == 'r') {
-                            try emitPyRepr(self, tuple.elts[elem_idx], alloc_name);
+                            try emitPyRepr(self, b, elem_val, alloc_name);
                         } else if (fspec2.spec_char == 's') {
                             // For %s, check if argument is a string type
                             // If not, use pyRepr to convert to string (Python's str() behavior)
@@ -250,13 +260,13 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                             const string_traits = @import("../../../../analysis/traits/string_traits.zig");
                             const elem_type = self.inferExprScoped(tuple.elts[elem_idx]) catch NativeType.unknown;
                             if (string_traits.isString(elem_type)) {
-                                try genExpr(self, tuple.elts[elem_idx]);
+                                try self.emitZigValue(elem_val);
                             } else {
                                 // Non-string: use pyRepr for str() conversion
-                                try emitPyRepr(self, tuple.elts[elem_idx], alloc_name);
+                                try emitPyRepr(self, b, elem_val, alloc_name);
                             }
                         } else {
-                            try genExpr(self, tuple.elts[elem_idx]);
+                            try self.emitZigValue(elem_val);
                         }
                         elem_idx += 1;
                     }
@@ -265,7 +275,7 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                     fmt_idx += 1;
                 }
             }
-            try self.emit("}) catch unreachable;\n");
+            try b.write("}) catch unreachable;\n");
         }
         // Note: else case (variable format string) is handled early with return
     } else {
@@ -283,33 +293,33 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
             }
 
             // Parse format string for output
-            try self.emitFmt("__writer_{d}.print(\"", .{label_id});
+            try b.writeFmt("__writer_{d}.print(\"", .{label_id});
             i = 0;
             while (i < fmt.len) {
                 if (fmt[i] == '%' and i + 1 < fmt.len) {
                     const fspec = parseFormatSpec(fmt, i);
-                    try emitZigFormatSpec(self, fspec, fmt[i]);
+                    try emitZigFormatSpec(b, fspec, fmt[i]);
                     i += fspec.consumed;
                 } else {
-                    try emitEscapedChar(self, fmt[i]);
+                    try emitEscapedChar(b, fmt[i]);
                     i += 1;
                 }
             }
-            try self.emit("\", .{");
+            try b.write("\", .{");
             // For hex/octal formats, wrap value in runtime.formatInt
             if (main_fspec.spec_char == 'x' or main_fspec.spec_char == 'X' or main_fspec.spec_char == 'o') {
-                try emitFormatInt(self, binop.right.*, main_fspec.spec_char);
+                try emitFormatInt(self, b, right_val, main_fspec.spec_char);
             } else if (main_fspec.spec_char == 'd' or main_fspec.spec_char == 'i') {
                 // For %d/%i with bool, convert to int
                 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
                 const right_type = self.inferExprScoped(binop.right.*) catch NativeType.unknown;
                 if (type_traits.isBoolean(right_type)) {
-                    try emitBoolToI64(self, binop.right.*);
+                    try emitBoolToI64(self, b, right_val);
                 } else {
-                    try genExpr(self, binop.right.*);
+                    try self.emitZigValue(right_val);
                 }
             } else if (main_fspec.spec_char == 'r') {
-                try emitPyRepr(self, binop.right.*, alloc_name);
+                try emitPyRepr(self, b, right_val, alloc_name);
             } else if (main_fspec.spec_char == 's') {
                 // For %s, check if argument is a string type
                 // If not, use pyRepr to convert to string (Python's str() behavior)
@@ -317,19 +327,20 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
                 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
                 const right_type = self.inferExprScoped(binop.right.*) catch NativeType.unknown;
                 if (string_traits.isString(right_type)) {
-                    try genExpr(self, binop.right.*);
+                    try self.emitZigValue(right_val);
                 } else {
                     // Non-string: use pyRepr for str() conversion
-                    try emitPyRepr(self, binop.right.*, alloc_name);
+                    try emitPyRepr(self, b, right_val, alloc_name);
                 }
             } else {
-                try genExpr(self, binop.right.*);
+                try self.emitZigValue(right_val);
             }
-            try self.emit("}) catch unreachable;\n");
+            try b.write("}) catch unreachable;\n");
         }
         // Note: else case (variable format string) is handled early with return
     }
 
     // Use catch unreachable since print/toOwnedSlice won't fail with valid allocator in most cases
-    try emitFormatBlockClose(self, label_id, alloc_name);
+    try emitFormatBlockClose(b, label_id, alloc_name);
+    try self.flushBuilder();
 }

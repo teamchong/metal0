@@ -2204,9 +2204,32 @@ pub const NativeCodegen = struct {
                 // Return named reference (will be emitted as variable name)
                 return builder_mod.ZigValue.fromName(name);
             },
-            // Binary operations - use captureExpr for proper builder save/restore
-            .binop => {
-                return try self.captureExpr(node);
+            // Binary operations - use builder.binOp for type-aware emission
+            .binop => |b| {
+                // Convert operands to ZigValues recursively
+                const left_val = try self.exprToValue(b.left.*);
+                const right_val = try self.exprToValue(b.right.*);
+
+                // Convert AST operator to builder BinOp
+                const bin_op: builder_mod.BinOp = switch (b.op) {
+                    .Add => .add,
+                    .Sub => .sub,
+                    .Mult => .mul,
+                    .Div => .div,
+                    .FloorDiv => .floor_div,
+                    .Mod => .mod,
+                    .Pow => .pow,
+                    .BitAnd => .bit_and,
+                    .BitOr => .bit_or,
+                    .BitXor => .bit_xor,
+                    .LShift => .lshift,
+                    .RShift => .rshift,
+                    .MatMul => .mul, // Matrix mul uses mul for now
+                };
+
+                // Create binop_result ZigValue with proper confidence tracking
+                const builder = try self.getBuilder();
+                return try builder.binOp(bin_op, left_val, right_val);
             },
 
             // Unary operations - use captureExpr for proper builder save/restore
@@ -2214,17 +2237,61 @@ pub const NativeCodegen = struct {
                 return try self.captureExpr(node);
             },
 
-            // Comparisons - use captureExpr for proper builder save/restore
-            .compare => {
+            // Comparisons - return boolean (comparisons always produce bool)
+            .compare => |c| {
+                // For simple single comparisons, we can track it's a boolean
+                // For chained comparisons, still a boolean
+                if (c.ops.len == 1) {
+                    // Single comparison: left op right -> bool
+                    const left_val = try self.exprToValue(c.left.*);
+                    const right_val = try self.exprToValue(c.comparators[0]);
+
+                    const comp_op: builder_mod.BinOp = switch (c.ops[0]) {
+                        .Eq => .eq,
+                        .NotEq => .ne,
+                        .Lt => .lt,
+                        .LtEq => .le,
+                        .Gt => .gt,
+                        .GtEq => .ge,
+                        .In => .in,
+                        .NotIn => .not_in,
+                        .Is => .is,
+                        .IsNot => .is_not,
+                    };
+
+                    const builder = try self.getBuilder();
+                    return try builder.binOp(comp_op, left_val, right_val);
+                }
+                // Chained comparison - fallback to captureExpr for now
                 return try self.captureExpr(node);
             },
 
-            // Boolean operations (and/or) - use captureExpr for proper builder save/restore
-            .boolop => {
-                return try self.captureExpr(node);
+            // Boolean operations (and/or) - use builder.binOp for short-circuit
+            .boolop => |b| {
+                // Process all values and combine with and/or
+                if (b.values.len < 2) {
+                    return try self.captureExpr(node);
+                }
+
+                const op: builder_mod.BinOp = switch (b.op) {
+                    .And => .@"and",
+                    .Or => .@"or",
+                };
+
+                // Start with first two values
+                var result = try self.exprToValue(b.values[0]);
+                const builder = try self.getBuilder();
+
+                for (b.values[1..]) |val| {
+                    const right_val = try self.exprToValue(val);
+                    result = try builder.binOp(op, result, right_val);
+                }
+
+                return result;
             },
 
-            // Function calls - use captureExpr for proper builder save/restore
+            // Function calls - capture as raw expression
+            // Type inference happens at call site, not here
             .call => |_| {
                 return try self.captureExpr(node);
             },

@@ -221,8 +221,9 @@ pub const PyGetSetDef = extern struct {
 
 /// Type flags
 pub const Py_TPFLAGS_DEFAULT: c_ulong = 0;
-pub const Py_TPFLAGS_BASETYPE: c_ulong = 1 << 10;
 pub const Py_TPFLAGS_HEAPTYPE: c_ulong = 1 << 9;
+pub const Py_TPFLAGS_BASETYPE: c_ulong = 1 << 10;
+pub const Py_TPFLAGS_HAVE_VECTORCALL: c_ulong = 1 << 11; // Python 3.9+
 pub const Py_TPFLAGS_HAVE_GC: c_ulong = 1 << 14;
 pub const Py_TPFLAGS_LONG_SUBCLASS: c_ulong = 1 << 24;
 pub const Py_TPFLAGS_LIST_SUBCLASS: c_ulong = 1 << 25;
@@ -842,6 +843,22 @@ pub inline fn Py_CLEAR(op: *?*PyObject) void {
     const tmp = op.*;
     op.* = null;
     Py_DECREF(tmp);
+}
+
+/// Get string representation of an object
+/// Full implementation is in objects/object.zig
+pub fn PyObject_Str(op: ?*PyObject) ?*PyObject {
+    // Delegate to the full implementation
+    const obj_impl = @import("../objects/object.zig");
+    return obj_impl.PyObject_Str(op);
+}
+
+/// Get repr representation of an object
+/// Full implementation is in objects/object.zig
+pub fn PyObject_Repr(op: ?*PyObject) ?*PyObject {
+    // Delegate to the full implementation
+    const obj_impl = @import("../objects/object.zig");
+    return obj_impl.PyObject_Repr(op);
 }
 
 // ============================================================================

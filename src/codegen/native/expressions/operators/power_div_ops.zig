@@ -1,9 +1,10 @@
 /// Power, division, and special binary operations
 /// Handles: **, /, @, floor division, modulo, shifts, dict merge
 ///
-/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// MIGRATION STATUS: Partially migrated to ZigBuilder pattern
 /// - Uses captureExpr() to bridge AST expressions to ZigValue
-/// - Emits using emitZigValue() for type-safe output
+/// - Uses builder.write() for direct output where possible
+/// - withParensCtx callbacks still use emit() for compatibility
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -18,8 +19,7 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const collection_ops = @import("collection_ops.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
+const ZigBuilder = builder_mod.ZigBuilder;
 
 // ============================================
 // Arithmetic helper functions - auto-closing patterns
@@ -248,24 +248,40 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 /// Generate matrix multiplication operation
 /// Uses auto-close patterns to guarantee matching parentheses
 pub fn genMatMulOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeType, right_type: NativeType) CodegenError!void {
+    const b = try self.getBuilder();
     if (type_traits.isClassInstance(left_type) or type_traits.isUnknown(left_type)) {
-        try self.emit("try ");
+        try b.write("try ");
+        try self.flushBuilder();
         try genExpr(self, binop.left.*);
-        try self.emit(".__matmul__(__global_allocator, ");
+        const b2 = try self.getBuilder();
+        try b2.write(".__matmul__(__global_allocator, ");
+        try self.flushBuilder();
         try genExpr(self, binop.right.*);
-        try self.emit(")");
+        const b3 = try self.getBuilder();
+        try b3.write(")");
+        try self.flushBuilder();
     } else if (type_traits.isClassInstance(right_type) or type_traits.isUnknown(right_type)) {
-        try self.emit("try ");
+        try b.write("try ");
+        try self.flushBuilder();
         try genExpr(self, binop.right.*);
-        try self.emit(".__rmatmul__(__global_allocator, ");
+        const b2 = try self.getBuilder();
+        try b2.write(".__rmatmul__(__global_allocator, ");
+        try self.flushBuilder();
         try genExpr(self, binop.left.*);
-        try self.emit(")");
+        const b3 = try self.getBuilder();
+        try b3.write(")");
+        try self.flushBuilder();
     } else {
-        try self.emit("try ");
+        try b.write("try ");
+        try self.flushBuilder();
         try genExpr(self, binop.left.*);
-        try self.emit(".__matmul__(__global_allocator, ");
+        const b2 = try self.getBuilder();
+        try b2.write(".__matmul__(__global_allocator, ");
+        try self.flushBuilder();
         try genExpr(self, binop.right.*);
-        try self.emit(")");
+        const b3 = try self.getBuilder();
+        try b3.write(")");
+        try self.flushBuilder();
     }
 }
 
@@ -356,59 +372,69 @@ pub fn genLargeShiftOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
-    try self.emit("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
+    const b = try self.getBuilder();
+    try b.write("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
     try self.emitZigValue(left_operand);
-    try self.emit("), @as(u32, @intCast(");
+    try b.write("), @as(u32, @intCast(");
     try self.emitZigValue(right_operand);
-    try self.emit(")), ");
-    try self.emit(alloc_name);
-    try self.emit(")");
+    try b.write(")), ");
+    try b.write(alloc_name);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 /// Generate dict merge operation (Python 3.9+)
 pub fn genDictMerge(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
-    try self.emitFmt("(dmerge_{d}: {{\n", .{label_id});
+    const b = try self.getBuilder();
+    try b.writeFmt("(dmerge_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __merged = @TypeOf(");
+    try b.write("var __merged = @TypeOf(");
+    try self.flushBuilder();
     try collection_ops.genExprWrapped(self, binop.left.*);
-    try self.emit("){};\n");
+    const b2 = try self.getBuilder();
+    try b2.write("){};\n");
 
     try self.emitIndent();
-    try self.emit("var __left_iter = ");
+    try b2.write("var __left_iter = ");
+    try self.flushBuilder();
     try collection_ops.genExprWrapped(self, binop.left.*);
-    try self.emit(".iterator();\n");
+    const b3 = try self.getBuilder();
+    try b3.write(".iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__left_iter.next()) |entry| {\n");
+    try b3.write("while (__left_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try b3.write("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try b3.write("}\n");
 
     try self.emitIndent();
-    try self.emit("var __right_iter = ");
+    try b3.write("var __right_iter = ");
+    try self.flushBuilder();
     try collection_ops.genExprWrapped(self, binop.right.*);
-    try self.emit(".iterator();\n");
+    const b4 = try self.getBuilder();
+    try b4.write(".iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__right_iter.next()) |entry| {\n");
+    try b4.write("while (__right_iter.next()) |entry| {\n");
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try b4.write("try __merged.put(entry.key_ptr.*, entry.value_ptr.*);\n");
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("}\n");
+    try b4.write("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :dmerge_{d} __merged;\n", .{label_id});
+    try b4.writeFmt("break :dmerge_{d} __merged;\n", .{label_id});
 
     self.indent_level -= 1;
     try self.emitIndent();
-    try self.emit("})");
+    try b4.write("})");
+    try self.flushBuilder();
 }
 
 /// Generate simple binary operations (+, -, *, &, |, ^, <<, >>)

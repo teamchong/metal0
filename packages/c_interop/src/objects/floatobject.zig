@@ -298,20 +298,21 @@ pub export fn PyFloat_GetInfo() callconv(.c) ?*cpython.PyObject {
     // Return a tuple with float info (simplified version)
     // CPython returns a named tuple, we return a regular tuple with key values
     const tuple = @import("tupleobject.zig");
+    const pylong = @import("longobject.zig");
     const result = tuple.PyTuple_New(11) orelse return null;
 
     // max, max_exp, max_10_exp, min, min_exp, min_10_exp, dig, mant_dig, epsilon, radix, rounds
-    _ = tuple.PyTuple_SetItem(result, 0, createFloat(std.math.floatMax(f64)));
-    _ = tuple.PyTuple_SetItem(result, 1, @import("longobject.zig").PyLong_FromLong(1024)); // max_exp
-    _ = tuple.PyTuple_SetItem(result, 2, @import("longobject.zig").PyLong_FromLong(308)); // max_10_exp
-    _ = tuple.PyTuple_SetItem(result, 3, createFloat(std.math.floatMin(f64)));
-    _ = tuple.PyTuple_SetItem(result, 4, @import("longobject.zig").PyLong_FromLong(-1021)); // min_exp
-    _ = tuple.PyTuple_SetItem(result, 5, @import("longobject.zig").PyLong_FromLong(-307)); // min_10_exp
-    _ = tuple.PyTuple_SetItem(result, 6, @import("longobject.zig").PyLong_FromLong(15)); // dig
-    _ = tuple.PyTuple_SetItem(result, 7, @import("longobject.zig").PyLong_FromLong(53)); // mant_dig
-    _ = tuple.PyTuple_SetItem(result, 8, createFloat(std.math.floatEps(f64)));
-    _ = tuple.PyTuple_SetItem(result, 9, @import("longobject.zig").PyLong_FromLong(2)); // radix
-    _ = tuple.PyTuple_SetItem(result, 10, @import("longobject.zig").PyLong_FromLong(1)); // rounds
+    _ = tuple.PyTuple_SetItem(result, 0, createFloat(std.math.floatMax(f64)) orelse return null);
+    _ = tuple.PyTuple_SetItem(result, 1, pylong.PyLong_FromLong(1024) orelse return null); // max_exp
+    _ = tuple.PyTuple_SetItem(result, 2, pylong.PyLong_FromLong(308) orelse return null); // max_10_exp
+    _ = tuple.PyTuple_SetItem(result, 3, createFloat(std.math.floatMin(f64)) orelse return null);
+    _ = tuple.PyTuple_SetItem(result, 4, pylong.PyLong_FromLong(-1021) orelse return null); // min_exp
+    _ = tuple.PyTuple_SetItem(result, 5, pylong.PyLong_FromLong(-307) orelse return null); // min_10_exp
+    _ = tuple.PyTuple_SetItem(result, 6, pylong.PyLong_FromLong(15) orelse return null); // dig
+    _ = tuple.PyTuple_SetItem(result, 7, pylong.PyLong_FromLong(53) orelse return null); // mant_dig
+    _ = tuple.PyTuple_SetItem(result, 8, createFloat(std.math.floatEps(f64)) orelse return null);
+    _ = tuple.PyTuple_SetItem(result, 9, pylong.PyLong_FromLong(2) orelse return null); // radix
+    _ = tuple.PyTuple_SetItem(result, 10, pylong.PyLong_FromLong(1) orelse return null); // rounds
 
     return result;
 }

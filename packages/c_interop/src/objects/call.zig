@@ -34,14 +34,14 @@ pub inline fn PyVectorcall_NARGS(nargsf: usize) usize {
 /// Check if object supports vectorcall
 pub fn PyVectorcall_Check(callable: ?*PyObject) bool {
     if (callable == null) return false;
-    const tp = callable.?.ob_type orelse return false;
+    const tp = callable.?.ob_type;
     return (tp.tp_flags & cpython.Py_TPFLAGS_HAVE_VECTORCALL) != 0;
 }
 
 /// Get vectorcall function from object
 pub fn PyVectorcall_Function(callable: ?*PyObject) ?vectorcallfunc {
     if (!PyVectorcall_Check(callable)) return null;
-    const tp = callable.?.ob_type orelse return null;
+    const tp = callable.?.ob_type;
     const offset = tp.tp_vectorcall_offset;
     if (offset <= 0) return null;
 
@@ -105,6 +105,7 @@ pub fn PyVectorcall_Call(callable: ?*PyObject, args: ?*PyObject, kwargs: ?*PyObj
 /// PyObject_Call - Call callable with args tuple and kwargs dict
 pub export fn PyObject_Call(callable: ?*PyObject, args: ?*PyObject, kwargs: ?*PyObject) ?*PyObject {
     if (callable == null) return null;
+    if (args == null) return null;
 
     // Try vectorcall first (fast path)
     if (PyVectorcall_Check(callable)) {
@@ -112,9 +113,9 @@ pub export fn PyObject_Call(callable: ?*PyObject, args: ?*PyObject, kwargs: ?*Py
     }
 
     // Fall back to tp_call
-    const tp = callable.?.ob_type orelse return null;
+    const tp = callable.?.ob_type;
     const call_fn = tp.tp_call orelse return null;
-    return call_fn(callable, args, kwargs);
+    return call_fn(callable.?, args.?, kwargs);
 }
 
 /// PyObject_CallObject - Call with args tuple only

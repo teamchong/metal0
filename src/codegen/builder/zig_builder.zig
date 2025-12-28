@@ -387,7 +387,7 @@ pub const ZigBuilder = struct {
     }
 
     /// Core value emission (no wrapping)
-    fn emitValueCore(self: *ZigBuilder, value: ZigValue) !void {
+    fn emitValueCore(self: *ZigBuilder, value: ZigValue) Allocator.Error!void {
         switch (value) {
             .none => try self.write("{}"),
             .local => |idx| {
@@ -475,11 +475,7 @@ pub const ZigBuilder = struct {
                 try self.write(")");
             },
             .binop_result => |b| {
-                try self.emitValueCore(b.lhs.*);
-                try self.write(" ");
-                try self.write(binOpStr(b.op));
-                try self.write(" ");
-                try self.emitValueCore(b.rhs.*);
+                try self.emitBinOpResult(b);
             },
             .field_access => |f| {
                 try self.emitValueCore(f.obj.*);
@@ -492,6 +488,179 @@ pub const ZigBuilder = struct {
                 try self.write("]");
             },
         }
+    }
+
+    /// Type-aware binary operation emission
+    /// Checks confidence and type to decide between native ops and PyValue methods
+    const BinOpResultValue = @import("zig_value.zig").BinOpResultValue;
+
+    fn emitBinOpResult(self: *ZigBuilder, b: BinOpResultValue) Allocator.Error!void {
+        const lhs = b.lhs.*;
+        const rhs = b.rhs.*;
+        const lhs_conf = lhs.confidence();
+        const rhs_conf = rhs.confidence();
+
+        // For comparison ops, delegate to emitComparison
+        switch (b.op) {
+            .eq, .ne, .lt, .le, .gt, .ge => {
+                const comp_op: CompOp = switch (b.op) {
+                    .eq => .eq,
+                    .ne => .ne,
+                    .lt => .lt,
+                    .le => .le,
+                    .gt => .gt,
+                    .ge => .ge,
+                    else => unreachable,
+                };
+                try self.emitComparison(comp_op, lhs, rhs);
+                return;
+            },
+            .in, .not_in => {
+                try self.emitContainmentCheck(b.op == .not_in, lhs, rhs);
+                return;
+            },
+            .is, .is_not => {
+                try self.emitIdentityCheck(b.op == .is_not, lhs, rhs);
+                return;
+            },
+            else => {},
+        }
+
+        // Both certain: check if same type for optimized native path
+        if (lhs_conf == .certain and rhs_conf == .certain) {
+            const lhs_ty = lhs.certainType();
+            const rhs_ty = rhs.certainType();
+
+            // Arithmetic ops on numeric types
+            if ((lhs_ty == .int or lhs_ty == .float) and (rhs_ty == .int or rhs_ty == .float)) {
+                switch (b.op) {
+                    .add, .sub, .mul => {
+                        // Native operation: (lhs) op (rhs)
+                        try self.write("((");
+                        try self.emitValueCore(lhs);
+                        try self.writeFmt(") {s} (", .{binOpStr(b.op)});
+                        try self.emitValueCore(rhs);
+                        try self.write("))");
+                        return;
+                    },
+                    .div => {
+                        // Python division always returns float
+                        try self.write("(@as(f64, @floatFromInt(");
+                        try self.emitValueCore(lhs);
+                        try self.write(")) / @as(f64, @floatFromInt(");
+                        try self.emitValueCore(rhs);
+                        try self.write(")))");
+                        return;
+                    },
+                    .floor_div => {
+                        // Floor division: @divFloor
+                        try self.write("@divFloor(");
+                        try self.emitValueCore(lhs);
+                        try self.write(", ");
+                        try self.emitValueCore(rhs);
+                        try self.write(")");
+                        return;
+                    },
+                    .mod => {
+                        // Modulo: @mod
+                        try self.write("@mod(");
+                        try self.emitValueCore(lhs);
+                        try self.write(", ");
+                        try self.emitValueCore(rhs);
+                        try self.write(")");
+                        return;
+                    },
+                    else => {},
+                }
+            }
+
+            // Bitwise ops on integer types
+            if (lhs_ty == .int and rhs_ty == .int) {
+                switch (b.op) {
+                    .bit_and, .bit_or, .bit_xor, .lshift, .rshift => {
+                        // Native bitwise operation
+                        try self.write("((");
+                        try self.emitValueCore(lhs);
+                        try self.writeFmt(") {s} (", .{binOpStr(b.op)});
+                        try self.emitValueCore(rhs);
+                        try self.write("))");
+                        return;
+                    },
+                    else => {},
+                }
+            }
+
+            // String concatenation
+            if (lhs_ty == .string and rhs_ty == .string and b.op == .add) {
+                try self.write("try std.mem.concat(__global_allocator, u8, &[_][]const u8{");
+                try self.emitValueCore(lhs);
+                try self.write(", ");
+                try self.emitValueCore(rhs);
+                try self.write("})");
+                return;
+            }
+        }
+
+        // Uncertain or incompatible types: use PyValue method calls
+        const method_name: ?[]const u8 = switch (b.op) {
+            .add => "add",
+            .sub => "sub",
+            .mul => "mul",
+            .div => "div",
+            .floor_div => "floordiv",
+            .mod => "mod",
+            .pow => "pow",
+            .bit_and => "bitAnd",
+            .bit_or => "bitOr",
+            .bit_xor => "bitXor",
+            .lshift => "shl",
+            .rshift => "shr",
+            .@"and" => null, // Short-circuit, special handling
+            .@"or" => null, // Short-circuit, special handling
+            else => null,
+        };
+
+        if (method_name) |method| {
+            // runtime.PyValue.from(lhs).method(runtime.PyValue.from(rhs))
+            try self.write("runtime.PyValue.from(");
+            try self.emitValueCore(lhs);
+            try self.writeFmt(").{s}(runtime.PyValue.from(", .{method});
+            try self.emitValueCore(rhs);
+            try self.write("))");
+            return;
+        }
+
+        // Logical and/or: short-circuit evaluation
+        switch (b.op) {
+            .@"and" => {
+                // if (toBool(lhs)) rhs else lhs
+                try self.write("(if (runtime.toBool(");
+                try self.emitValueCore(lhs);
+                try self.write(")) ");
+                try self.emitValueCore(rhs);
+                try self.write(" else ");
+                try self.emitValueCore(lhs);
+                try self.write(")");
+                return;
+            },
+            .@"or" => {
+                // if (toBool(lhs)) lhs else rhs
+                try self.write("(if (runtime.toBool(");
+                try self.emitValueCore(lhs);
+                try self.write(")) ");
+                try self.emitValueCore(lhs);
+                try self.write(" else ");
+                try self.emitValueCore(rhs);
+                try self.write(")");
+                return;
+            },
+            else => {},
+        }
+
+        // Fallback: simple emission (should not reach here in normal usage)
+        try self.emitValueCore(lhs);
+        try self.writeFmt(" {s} ", .{binOpStr(b.op)});
+        try self.emitValueCore(rhs);
     }
 
     fn writeEscapedString(self: *ZigBuilder, s: []const u8) !void {
@@ -1198,7 +1367,7 @@ pub const ZigBuilder = struct {
 
     /// Emit a comparison expression
     /// Routes to appropriate runtime function based on type confidence
-    pub fn emitComparison(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) !void {
+    pub fn emitComparison(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) Allocator.Error!void {
         switch (op) {
             .eq, .ne => try self.emitEqualityComparison(op == .ne, left, right),
             .lt, .le, .gt, .ge => try self.emitOrderingComparison(op, left, right),
@@ -1209,7 +1378,7 @@ pub const ZigBuilder = struct {
 
     /// Emit equality comparison (== or !=)
     /// Optimizes same-type certain comparisons
-    fn emitEqualityComparison(self: *ZigBuilder, negate: bool, left: ZigValue, right: ZigValue) !void {
+    fn emitEqualityComparison(self: *ZigBuilder, negate: bool, left: ZigValue, right: ZigValue) Allocator.Error!void {
         const left_conf = left.confidence();
         const right_conf = right.confidence();
 
@@ -1268,7 +1437,7 @@ pub const ZigBuilder = struct {
     }
 
     /// Emit ordering comparison (<, <=, >, >=)
-    fn emitOrderingComparison(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) !void {
+    fn emitOrderingComparison(self: *ZigBuilder, op: CompOp, left: ZigValue, right: ZigValue) Allocator.Error!void {
         const left_conf = left.confidence();
         const right_conf = right.confidence();
 
@@ -1305,7 +1474,7 @@ pub const ZigBuilder = struct {
     }
 
     /// Emit containment check (in, not in)
-    fn emitContainmentCheck(self: *ZigBuilder, negate: bool, element: ZigValue, container: ZigValue) !void {
+    fn emitContainmentCheck(self: *ZigBuilder, negate: bool, element: ZigValue, container: ZigValue) Allocator.Error!void {
         if (negate) try self.write("!");
         try self.write("runtime.container_dispatch.contains(@TypeOf(");
         try self.emitValueCore(container);
@@ -1317,7 +1486,7 @@ pub const ZigBuilder = struct {
     }
 
     /// Emit identity check (is, is not)
-    fn emitIdentityCheck(self: *ZigBuilder, negate: bool, left: ZigValue, right: ZigValue) !void {
+    fn emitIdentityCheck(self: *ZigBuilder, negate: bool, left: ZigValue, right: ZigValue) Allocator.Error!void {
         if (negate) try self.write("!");
         try self.write("runtime.pyIdentical(");
         try self.emitValueCore(left);

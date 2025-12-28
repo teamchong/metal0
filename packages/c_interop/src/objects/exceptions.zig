@@ -397,7 +397,8 @@ pub export fn PyErr_NormalizeException(p_type: *?*cpython.PyTypeObject, p_value:
     if (exc_value == null) {
         // Create exception instance by calling type()
         if (exc_type.tp_new) |new_fn| {
-            const instance = new_fn(@ptrCast(exc_type), null, null);
+            const empty_tuple = @import("tupleobject.zig").PyTuple_New(0) orelse return;
+            const instance = new_fn(@ptrCast(exc_type), empty_tuple, null);
             if (instance) |inst| {
                 p_value.* = inst;
                 // Set traceback on the exception if we have one
@@ -451,7 +452,8 @@ pub export fn PyErr_NormalizeException(p_type: *?*cpython.PyTypeObject, p_value:
         }
     } else if (exc_type.tp_new) |new_fn| {
         // Try tp_new if no tp_call
-        const instance = new_fn(@ptrCast(exc_type), null, null);
+        const empty_args = @import("tupleobject.zig").PyTuple_New(0) orelse return;
+        const instance = new_fn(@ptrCast(exc_type), empty_args, null);
         if (instance) |inst| {
             // Set message from value if it's a string
             const base_exc: *PyBaseException = @ptrCast(@alignCast(inst));
@@ -557,7 +559,7 @@ pub export fn PyErr_NewExceptionWithDoc(name: [*:0]const u8, doc: ?[*:0]const u8
 
     type_obj.* = .{
         .ob_base = .{
-            .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+            .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
             .ob_size = 0,
         },
         .tp_name = name,
@@ -654,7 +656,7 @@ pub export fn PyErr_SyntaxLocationEx(filename: [*:0]const u8, lineno: c_int, col
     // Check if it's a SyntaxError type
     const exc_type = global_exception_state.exc_type;
     if (exc_type) |et| {
-        const type_name = std.mem.span(et.tp_name);
+        const type_name = if (et.tp_name) |tn| std.mem.span(tn) else "";
         if (std.mem.indexOf(u8, type_name, "SyntaxError") != null) {
             // Cast to SyntaxError and set location fields
             const syntax_exc: *SyntaxErrorObject = @ptrCast(@alignCast(exc));
@@ -809,7 +811,7 @@ pub export fn PyException_SetArgs(exc: *cpython.PyObject, args: *cpython.PyObjec
 
 pub var PyExc_BaseException: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "BaseException",
@@ -866,7 +868,7 @@ pub var PyExc_BaseException: cpython.PyTypeObject = .{
 
 pub var PyExc_Exception: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "Exception",
@@ -923,7 +925,7 @@ pub var PyExc_Exception: cpython.PyTypeObject = .{
 
 pub var PyExc_ValueError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "ValueError",
@@ -980,7 +982,7 @@ pub var PyExc_ValueError: cpython.PyTypeObject = .{
 
 pub var PyExc_TypeError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "TypeError",
@@ -1037,7 +1039,7 @@ pub var PyExc_TypeError: cpython.PyTypeObject = .{
 
 pub var PyExc_RuntimeError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "RuntimeError",
@@ -1094,7 +1096,7 @@ pub var PyExc_RuntimeError: cpython.PyTypeObject = .{
 
 pub var PyExc_KeyError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "KeyError",
@@ -1151,7 +1153,7 @@ pub var PyExc_KeyError: cpython.PyTypeObject = .{
 
 pub var PyExc_AttributeError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "AttributeError",
@@ -1208,7 +1210,7 @@ pub var PyExc_AttributeError: cpython.PyTypeObject = .{
 
 pub var PyExc_IndexError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "IndexError",
@@ -1265,7 +1267,7 @@ pub var PyExc_IndexError: cpython.PyTypeObject = .{
 
 pub var PyExc_MemoryError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "MemoryError",
@@ -1322,7 +1324,7 @@ pub var PyExc_MemoryError: cpython.PyTypeObject = .{
 
 pub var PyExc_NotImplementedError: cpython.PyTypeObject = .{
     .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
     },
     .tp_name = "NotImplementedError",
@@ -1385,7 +1387,7 @@ pub var PyExc_NotImplementedError: cpython.PyTypeObject = .{
 fn makeExceptionType(comptime name: [:0]const u8, comptime base: *cpython.PyTypeObject, comptime doc: [:0]const u8) cpython.PyTypeObject {
     return .{
         .ob_base = .{
-            .ob_base = .{ .ob_refcnt = 1, .ob_type = null },
+            .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
             .ob_size = 0,
         },
         .tp_name = name,

@@ -21,8 +21,10 @@ pub export var _Py_FalseStruct: cpython.PyLongObject = .{
         .ob_refcnt = 1000000, // Immortal
         .ob_type = &PyBool_Type,
     },
-    .lv_tag = 0, // 0 digits, non-negative = value 0
-    .ob_digit = .{0},
+    .long_value = .{
+        .lv_tag = 0, // 0 digits, non-negative = value 0
+        .ob_digit = .{0},
+    },
 };
 
 /// _Py_TrueStruct - the singleton True value
@@ -31,8 +33,10 @@ pub export var _Py_TrueStruct: cpython.PyLongObject = .{
         .ob_refcnt = 1000000, // Immortal
         .ob_type = &PyBool_Type,
     },
-    .lv_tag = (1 << 3) | 0, // 1 digit, non-negative
-    .ob_digit = .{1},
+    .long_value = .{
+        .lv_tag = (1 << 3) | 0, // 1 digit, non-negative
+        .ob_digit = .{1},
+    },
 };
 
 // ============================================================================

@@ -10,19 +10,25 @@ const traits = @import("../objects/typetraits.zig");
 const Py_INCREF = traits.externs.Py_INCREF;
 const Py_DECREF = traits.externs.Py_DECREF;
 
+// C stdio functions not in std.c
+extern "c" fn fputs(s: [*:0]const u8, stream: *std.c.FILE) c_int;
+extern "c" fn fflush(stream: *std.c.FILE) c_int;
+extern "c" fn fgets(buf: [*]u8, size: c_int, stream: *std.c.FILE) ?[*]u8;
+extern "c" fn vsnprintf(buf: [*]u8, size: usize, format: [*:0]const u8, va: std.builtin.VaList) c_int;
+
 /// Safe snprintf implementation
 /// Returns number of characters written (excluding null terminator)
 pub export fn PyOS_snprintf(str: [*]u8, size: usize, format: [*:0]const u8, ...) callconv(.c) c_int {
     var va = @cVaStart();
     defer @cVaEnd(&va);
 
-    return std.c.vsnprintf(str, size, format, va);
+    return vsnprintf(str, size, format, va);
 }
 
 /// Safe vsnprintf with va_list
 /// Returns number of characters written (excluding null terminator)
 pub export fn PyOS_vsnprintf(str: [*]u8, size: usize, format: [*:0]const u8, va: *std.builtin.VaList) callconv(.c) c_int {
-    return std.c.vsnprintf(str, size, format, va.*);
+    return vsnprintf(str, size, format, va.*);
 }
 
 /// Case-insensitive string comparison
@@ -64,7 +70,7 @@ pub export fn PyOS_FSPath(path: *cpython.PyObject) callconv(.c) ?*cpython.PyObje
             if (std.mem.eql(u8, std.mem.span(methods[i].ml_name.?), "__fspath__")) {
                 // Call __fspath__ method
                 if (methods[i].ml_meth) |meth| {
-                    const func: *const fn (?*cpython.PyObject, ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject = @ptrCast(meth);
+                    const func: *const fn (?*cpython.PyObject, ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject = @ptrCast(@alignCast(meth));
                     return func(path, null);
                 }
             }
@@ -166,17 +172,17 @@ pub export fn PyOS_FiniInterrupts() callconv(.c) void {
 
 /// Read line from stdin with optional prompt
 /// Returns allocated string or null on EOF/error
-pub export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [*:0]const u8) callconv(.c) [*:0]u8 {
+pub export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [*:0]const u8) callconv(.c) ?[*:0]u8 {
     // Print prompt to stdout
-    _ = std.c.fprintf(stdout_, "%s", prompt);
-    _ = std.c.fflush(stdout_);
+    _ = fputs(prompt, stdout_);
+    _ = fflush(stdout_);
 
     // Read line from stdin
     var buffer: [4096]u8 = undefined;
-    const result = std.c.fgets(&buffer, buffer.len, stdin_);
+    const result = fgets(&buffer, @intCast(buffer.len), stdin_);
     if (result == null) {
         // EOF or error
-        return @ptrFromInt(0);
+        return null;
     }
 
     // Find length (including newline if present)
@@ -184,7 +190,7 @@ pub export fn PyOS_Readline(stdin_: *std.c.FILE, stdout_: *std.c.FILE, prompt: [
     while (len < buffer.len and buffer[len] != 0) : (len += 1) {}
 
     // Allocate and copy the result
-    const str_ptr = std.c.malloc(len + 1) orelse return @ptrFromInt(0);
+    const str_ptr = std.c.malloc(len + 1) orelse return null;
     const str: [*]u8 = @ptrCast(str_ptr);
     @memcpy(str[0..len], buffer[0..len]);
     str[len] = 0;

@@ -433,6 +433,22 @@ fn pyIdenticalSameType(comptime T: type, a: T, b: T) bool {
         return a.items.ptr == b.items.ptr;
     }
 
+    // AutoArrayHashMap (managed): compare by unmanaged.entries.bytes
+    // The managed variant has an 'unmanaged' field with 'entries' (MultiArrayList)
+    // MultiArrayList uses 'bytes' field as the backing memory pointer
+    if (info == .@"struct" and @hasField(T, "unmanaged")) {
+        const Unmanaged = @TypeOf(@field(a, "unmanaged"));
+        if (@hasField(Unmanaged, "entries")) {
+            return a.unmanaged.entries.bytes == b.unmanaged.entries.bytes;
+        }
+    }
+
+    // ArrayHashMapUnmanaged: compare by entries.bytes directly
+    // entries is a MultiArrayList with a 'bytes' field for the backing storage
+    if (info == .@"struct" and @hasField(T, "entries") and @hasField(T, "index_header")) {
+        return a.entries.bytes == b.entries.bytes;
+    }
+
     // Structs (tuples, class instances): compare addresses
     if (info == .@"struct") {
         return &a == &b;

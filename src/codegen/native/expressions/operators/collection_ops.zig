@@ -1,9 +1,10 @@
 /// Collection operations: string concatenation, list concatenation, repetition
 /// Handles string, bytes, list, tuple, and array operations
 ///
-/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// MIGRATION STATUS: Fully migrated to ZigBuilder pattern
 /// - Uses captureExpr() to bridge AST expressions to ZigValue
-/// - Emits using emitZigValue() for type-safe output
+/// - Uses builder.write() for all output
+/// - Uses self.emitZigValue() for ZigValue emission
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -17,48 +18,37 @@ const container_traits = @import("../../../../analysis/traits/container_traits.z
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
+const ZigBuilder = builder_mod.ZigBuilder;
 
 // ============================================
-// Collection operation helpers - auto-closing patterns
+// Collection operation helpers - builder pattern
 // ============================================
 
-/// Emit runtime function call with allocator: runtime.func(alloc, arg1, arg2)
-fn emitRuntimeCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.ZigValue, arg2: builder_mod.ZigValue) CodegenError!void {
-    try self.emit(func);
-    try self.emit("(__global_allocator, ");
+/// Emit runtime function call with allocator: runtime.func(alloc, arg1, arg2) using builder
+fn emitRuntimeCall2(self: *NativeCodegen, b: *ZigBuilder, func: []const u8, arg1: ZigValue, arg2: ZigValue) CodegenError!void {
+    try b.write(func);
+    try b.write("(__global_allocator, ");
     try self.emitZigValue(arg1);
-    try self.emit(", ");
+    try b.write(", ");
     try self.emitZigValue(arg2);
-    try self.emit(")");
+    try b.write(")");
 }
 
-/// Emit runtime function call: runtime.func(arg1, arg2)
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitCall2(self: *NativeCodegen, func: []const u8, arg1: builder_mod.ZigValue, arg2: builder_mod.ZigValue) CodegenError!void {
-    try self.emit(func);
-    const Ctx = struct { a1: builder_mod.ZigValue, a2: builder_mod.ZigValue };
-    try self.withParensCtx(Ctx{ .a1 = arg1, .a2 = arg2 }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.a1);
-            try s.emit(", ");
-            try s.emitZigValue(ctx.a2);
-        }
-    }.f);
+/// Emit runtime function call: runtime.func(arg1, arg2) using builder
+fn emitCall2(self: *NativeCodegen, b: *ZigBuilder, func: []const u8, arg1: ZigValue, arg2: ZigValue) CodegenError!void {
+    try b.write(func);
+    try b.write("(");
+    try self.emitZigValue(arg1);
+    try b.write(", ");
+    try self.emitZigValue(arg2);
+    try b.write(")");
 }
 
-/// Emit count as usize cast: @as(usize, @intCast(count))
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitCountAsUsize(self: *NativeCodegen, count: builder_mod.ZigValue) CodegenError!void {
-    try self.emit("@as(usize, @intCast");
-    const Ctx = struct { c: builder_mod.ZigValue };
-    try self.withParensCtx(Ctx{ .c = count }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.c);
-        }
-    }.f);
-    try self.emit(")");
+/// Emit count as usize cast: @as(usize, @intCast(count)) using builder
+fn emitCountAsUsize(self: *NativeCodegen, b: *ZigBuilder, count: ZigValue) CodegenError!void {
+    try b.write("@as(usize, @intCast(");
+    try self.emitZigValue(count);
+    try b.write("))");
 }
 
 /// Check if a list will be generated as a fixed array (constant + homogeneous)
@@ -128,23 +118,32 @@ pub fn genStringConcat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // At module level (scope 0), we can't use 'try' - use 'catch unreachable' instead
     const at_module_level = self.symbol_table.currentScopeLevel() == 0;
 
+    const b = try self.getBuilder();
+
     // Generate single concat call with all parts
     if (at_module_level) {
-        try self.emit("(std.mem.concat(");
+        try b.write("(std.mem.concat(");
     } else {
-        try self.emit("try std.mem.concat(");
+        try b.write("try std.mem.concat(");
     }
-    try self.emit(alloc_name);
-    try self.emit(", u8, &[_][]const u8{ ");
+    try b.write(alloc_name);
+    try b.write(", u8, &[_][]const u8{ ");
+    try self.flushBuilder();
     for (parts.items, 0..) |part, i| {
-        if (i > 0) try self.emit(", ");
+        if (i > 0) {
+            const b2 = try self.getBuilder();
+            try b2.write(", ");
+            try self.flushBuilder();
+        }
         try genExpr(self, part);
     }
+    const b3 = try self.getBuilder();
     if (at_module_level) {
-        try self.emit(" }) catch unreachable)");
+        try b3.write(" }) catch unreachable)");
     } else {
-        try self.emit(" })");
+        try b3.write(" })");
     }
+    try self.flushBuilder();
 }
 
 /// Generate bytes concatenation: b"a" + b"b"
@@ -155,13 +154,15 @@ pub fn genBytesConcat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
-    try self.emit("(runtime.builtins.PyBytes.concat(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
+    const b = try self.getBuilder();
+    try b.write("(runtime.builtins.PyBytes.concat(");
+    try b.write(alloc_name);
+    try b.write(", ");
     try self.emitZigValue(left_operand);
-    try self.emit(", ");
+    try b.write(", ");
     try self.emitZigValue(right_operand);
-    try self.emit(") catch @panic(\"OOM\"))");
+    try b.write(") catch @panic(\"OOM\"))");
+    try self.flushBuilder();
 }
 
 /// Generate list/array concatenation
@@ -190,14 +191,16 @@ pub fn genListConcat(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nat
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
+    const b = try self.getBuilder();
     if (needs_runtime) {
         // Use runtime concatenation for non-comptime values
-        try self.emit("try ");
-        try emitRuntimeCall2(self, "runtime.concatRuntime", left_operand, right_operand);
+        try b.write("try ");
+        try emitRuntimeCall2(self, b, "runtime.concatRuntime", left_operand, right_operand);
     } else {
         // List/array concatenation: use runtime.concat which handles both
-        try emitCall2(self, "runtime.concat", left_operand, right_operand);
+        try emitCall2(self, b, "runtime.concat", left_operand, right_operand);
     }
+    try self.flushBuilder();
 }
 
 /// Generate tuple concatenation: (1, 2) + (3, 4)
@@ -206,10 +209,12 @@ pub fn genTupleConcat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!
     const left_operand = try self.captureExpr(binop.left.*);
     const right_operand = try self.captureExpr(binop.right.*);
 
+    const b = try self.getBuilder();
     // Tuple concatenation: use comptime tuple concat (++)
     try self.emitZigValue(left_operand);
-    try self.emit(" ++ ");
+    try b.write(" ++ ");
     try self.emitZigValue(right_operand);
+    try self.flushBuilder();
 }
 
 /// Generate string repetition: "ab" * 3
@@ -218,11 +223,13 @@ pub fn genStringRepeat(self: *NativeCodegen, str_expr: ast.Node, count_expr: ast
     const str_operand = try self.captureExpr(str_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try self.emit("runtime.strRepeat(__global_allocator, ");
+    const b = try self.getBuilder();
+    try b.write("runtime.strRepeat(__global_allocator, ");
     try self.emitZigValue(str_operand);
-    try self.emit(", ");
-    try emitCountAsUsize(self, count_operand);
-    try self.emit(")");
+    try b.write(", ");
+    try emitCountAsUsize(self, b, count_operand);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 /// Generate bytes repetition: b"ab" * 3
@@ -231,11 +238,13 @@ pub fn genBytesRepeat(self: *NativeCodegen, bytes_expr: ast.Node, count_expr: as
     const bytes_operand = try self.captureExpr(bytes_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try self.emit("(runtime.builtins.PyBytes.repeat(__global_allocator, ");
+    const b = try self.getBuilder();
+    try b.write("(runtime.builtins.PyBytes.repeat(__global_allocator, ");
     try self.emitZigValue(bytes_operand);
-    try self.emit(", ");
-    try emitCountAsUsize(self, count_operand);
-    try self.emit(") catch @panic(\"OOM\"))");
+    try b.write(", ");
+    try emitCountAsUsize(self, b, count_operand);
+    try b.write(") catch @panic(\"OOM\"))");
+    try self.flushBuilder();
 }
 
 /// Generate list repetition: [1, 2] * 3
@@ -244,8 +253,10 @@ pub fn genListRepeat(self: *NativeCodegen, list_expr: ast.Node, count_expr: ast.
     const list_operand = try self.captureExpr(list_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try self.emit("try ");
-    try emitRuntimeCall2(self, "runtime.repeatRuntime", list_operand, count_operand);
+    const b = try self.getBuilder();
+    try b.write("try ");
+    try emitRuntimeCall2(self, b, "runtime.repeatRuntime", list_operand, count_operand);
+    try self.flushBuilder();
 }
 
 /// Generate tuple repetition: (1, 2) * 3
@@ -254,11 +265,13 @@ pub fn genTupleRepeat(self: *NativeCodegen, tuple_expr: ast.Node, count_expr: as
     const tuple_operand = try self.captureExpr(tuple_expr);
     const count_operand = try self.captureExpr(count_expr);
 
-    try self.emit("runtime.tupleRepeat(__global_allocator, ");
+    const b = try self.getBuilder();
+    try b.write("runtime.tupleRepeat(__global_allocator, ");
     try self.emitZigValue(tuple_operand);
-    try self.emit(", ");
-    try emitCountAsUsize(self, count_operand);
-    try self.emit(")");
+    try b.write(", ");
+    try emitCountAsUsize(self, b, count_operand);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 /// Generate slice/list repetition with dynamic count
@@ -266,31 +279,29 @@ pub fn genSliceRepeatDynamic(self: *NativeCodegen, list_expr: ast.Node, count_ex
     // Capture count operand as ZigValue
     const count_operand = try self.captureExpr(count_expr);
 
-    try self.emit("runtime.sliceRepeatDynamic(__global_allocator, ");
+    const b = try self.getBuilder();
+    try b.write("runtime.sliceRepeatDynamic(__global_allocator, ");
     // Constant homogeneous list literals produce fixed arrays - use & to coerce to slice
     // Complex or dynamic lists produce ArrayList - use .items
     if (willGenerateAsFixedArray(list_expr)) {
         // Fixed array literal - use & to get slice
         const list_operand = try self.captureExpr(list_expr);
-        try self.emit("&");
+        try b.write("&");
         try self.emitZigValue(list_operand);
     } else if (producesBlockExpression(list_expr)) {
         const list_operand = try self.captureExpr(list_expr);
-        const Ctx = struct { o: builder_mod.ZigValue };
-        try self.withParensCtx(Ctx{ .o = list_operand }, struct {
-            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-                try s.emitZigValue(ctx.o);
-            }
-        }.f);
-        try self.emit(".items");
+        try b.write("(");
+        try self.emitZigValue(list_operand);
+        try b.write(").items");
     } else {
         const list_operand = try self.captureExpr(list_expr);
         try self.emitZigValue(list_operand);
-        try self.emit(".items");
+        try b.write(".items");
     }
-    try self.emit(", ");
-    try emitCountAsUsize(self, count_operand);
-    try self.emit(")");
+    try b.write(", ");
+    try emitCountAsUsize(self, b, count_operand);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 /// Generate unknown type * int multiplication with type dispatch
@@ -303,8 +314,10 @@ pub fn genUnknownMultiply(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenEr
     // For string * n with n < 0, return empty string; for numeric types, just multiply
     try blk.emit("; ");
     try blk.startBreak();
-    try self.emit("if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(");
-    try self.emit(alloc_name);
-    try self.emit(", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs");
+    const b = try self.getBuilder();
+    try b.write("if (@TypeOf(_lhs) == []const u8) (if (_rhs < 0) \"\" else runtime.strRepeat(");
+    try b.write(alloc_name);
+    try b.write(", _lhs, @as(usize, @intCast(_rhs)))) else _lhs * _rhs");
+    try self.flushBuilder();
     try blk.close();
 }

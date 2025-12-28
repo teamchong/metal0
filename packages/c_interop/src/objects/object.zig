@@ -354,14 +354,16 @@ pub export fn PyObject_ASCII(op: ?*cpython.PyObject) ?*cpython.PyObject {
                 buf[pos] = '\\';
                 buf[pos + 1] = 'U';
                 const hex_chars = "0123456789abcdef";
-                buf[pos + 2] = hex_chars[(codepoint >> 28) & 0xF];
-                buf[pos + 3] = hex_chars[(codepoint >> 24) & 0xF];
-                buf[pos + 4] = hex_chars[(codepoint >> 20) & 0xF];
-                buf[pos + 5] = hex_chars[(codepoint >> 16) & 0xF];
-                buf[pos + 6] = hex_chars[(codepoint >> 12) & 0xF];
-                buf[pos + 7] = hex_chars[(codepoint >> 8) & 0xF];
-                buf[pos + 8] = hex_chars[(codepoint >> 4) & 0xF];
-                buf[pos + 9] = hex_chars[codepoint & 0xF];
+                // Cast to u32 for full \Uxxxxxxxx format (codepoint max is 0x10FFFF)
+                const cp32: u32 = @intCast(codepoint);
+                buf[pos + 2] = hex_chars[(cp32 >> 28) & 0xF];
+                buf[pos + 3] = hex_chars[(cp32 >> 24) & 0xF];
+                buf[pos + 4] = hex_chars[(cp32 >> 20) & 0xF];
+                buf[pos + 5] = hex_chars[(cp32 >> 16) & 0xF];
+                buf[pos + 6] = hex_chars[(cp32 >> 12) & 0xF];
+                buf[pos + 7] = hex_chars[(cp32 >> 8) & 0xF];
+                buf[pos + 8] = hex_chars[(cp32 >> 4) & 0xF];
+                buf[pos + 9] = hex_chars[cp32 & 0xF];
                 pos += 10;
             }
         }
@@ -1141,7 +1143,7 @@ pub export fn PyObject_Dir(op: ?*cpython.PyObject) ?*cpython.PyObject {
                     while (pydict.PyDict_Next(base_dict, &pos, &key, &value) != 0) {
                         if (key != null) {
                             cpython.Py_INCREF(key.?);
-                            _ = pylist.PyList_Append(result, key.?);
+                            _ = pylist.PyList_Append(result.?, key.?);
                         }
                     }
                 }
@@ -1162,7 +1164,7 @@ pub export fn PyObject_Dir(op: ?*cpython.PyObject) ?*cpython.PyObject {
             while (pydict.PyDict_Next(inst_dict, &pos, &key, &value) != 0) {
                 if (key != null) {
                     cpython.Py_INCREF(key.?);
-                    _ = pylist.PyList_Append(result, key.?);
+                    _ = pylist.PyList_Append(result.?, key.?);
                 }
             }
         }

@@ -417,7 +417,7 @@ pub export fn PyDict_Contains(obj: *cpython.PyObject, key: *cpython.PyObject) ca
 
 /// Get item with string key
 pub export fn PyDict_GetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
-    const unicode = @import("../include/unicodeobject.zig");
+    const unicode = @import("unicodeobject.zig");
     const key = unicode.PyUnicode_FromString(key_str) orelse return null;
     defer traits.decref(key);
     return PyDict_GetItem(obj, key);
@@ -425,7 +425,7 @@ pub export fn PyDict_GetItemString(obj: *cpython.PyObject, key_str: [*:0]const u
 
 /// Set item with string key
 pub export fn PyDict_SetItemString(obj: *cpython.PyObject, key_str: [*:0]const u8, value: *cpython.PyObject) callconv(.c) c_int {
-    const unicode = @import("../include/unicodeobject.zig");
+    const unicode = @import("unicodeobject.zig");
     const key = unicode.PyUnicode_FromString(key_str) orelse return -1;
     defer traits.decref(key);
     return PyDict_SetItem(obj, key, value);
@@ -433,7 +433,7 @@ pub export fn PyDict_SetItemString(obj: *cpython.PyObject, key_str: [*:0]const u
 
 /// Delete item with string key
 pub export fn PyDict_DelItemString(obj: *cpython.PyObject, key_str: [*:0]const u8) callconv(.c) c_int {
-    const unicode = @import("../include/unicodeobject.zig");
+    const unicode = @import("unicodeobject.zig");
     const key = unicode.PyUnicode_FromString(key_str) orelse return -1;
     defer traits.decref(key);
     return PyDict_DelItem(obj, key);
