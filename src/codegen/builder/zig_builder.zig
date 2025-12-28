@@ -432,6 +432,11 @@ pub const ZigBuilder = struct {
                 try self.writeEscapedString(s);
                 try self.write("\"");
             },
+            .certain_bytes => |s| {
+                try self.write("runtime.builtins.bytesLiteral(\"");
+                try self.writePythonBytesEscaped(s);
+                try self.write("\")");
+            },
             .certain_null => try self.write("null"),
             .uncertain_pyvalue => |info| {
                 // Uncertain values are runtime-typed, use the raw expression
@@ -506,6 +511,104 @@ pub const ZigBuilder = struct {
                     }
                 },
             }
+        }
+    }
+
+    /// Write Python bytes content, processing Python escape sequences
+    /// Converts Python escapes like \n, \x00 to Zig escapes
+    fn writePythonBytesEscaped(self: *ZigBuilder, s: []const u8) !void {
+        var i: usize = 0;
+        while (i < s.len) {
+            const c = s[i];
+            if (c == '\\' and i + 1 < s.len) {
+                const next = s[i + 1];
+                switch (next) {
+                    'n' => {
+                        try self.write("\\n");
+                        i += 2;
+                        continue;
+                    },
+                    'r' => {
+                        try self.write("\\r");
+                        i += 2;
+                        continue;
+                    },
+                    't' => {
+                        try self.write("\\t");
+                        i += 2;
+                        continue;
+                    },
+                    '\\' => {
+                        try self.write("\\\\");
+                        i += 2;
+                        continue;
+                    },
+                    '\'' => {
+                        try self.write("'");
+                        i += 2;
+                        continue;
+                    },
+                    '"' => {
+                        try self.write("\\\"");
+                        i += 2;
+                        continue;
+                    },
+                    '0' => {
+                        try self.write("\\x00");
+                        i += 2;
+                        continue;
+                    },
+                    'a' => {
+                        try self.write("\\x07");
+                        i += 2;
+                        continue;
+                    },
+                    'b' => {
+                        try self.write("\\x08");
+                        i += 2;
+                        continue;
+                    },
+                    'f' => {
+                        try self.write("\\x0c");
+                        i += 2;
+                        continue;
+                    },
+                    'v' => {
+                        try self.write("\\x0b");
+                        i += 2;
+                        continue;
+                    },
+                    'x' => {
+                        if (i + 3 < s.len) {
+                            const hex = s[i + 2 .. i + 4];
+                            if (std.fmt.parseInt(u8, hex, 16)) |byte_val| {
+                                try self.writeFmt("\\x{x:0>2}", .{byte_val});
+                                i += 4;
+                                continue;
+                            } else |_| {}
+                        }
+                        // Invalid hex escape - emit as-is
+                        try self.write("\\\\x");
+                        i += 2;
+                        continue;
+                    },
+                    else => {
+                        // Unknown escape - emit backslash and continue
+                        try self.write("\\\\");
+                        i += 1;
+                        continue;
+                    },
+                }
+            }
+            // Regular character
+            if (c < 32 or c > 126) {
+                try self.writeFmt("\\x{x:0>2}", .{c});
+            } else if (c == '"') {
+                try self.write("\\\"");
+            } else {
+                try self.body.append(self.allocator, c);
+            }
+            i += 1;
         }
     }
 
@@ -1137,6 +1240,15 @@ pub const ZigBuilder = struct {
                         try self.write(")");
                         return;
                     },
+                    .bytes => {
+                        // Bytes comparison: compare .data fields
+                        try self.write("std.mem.eql(u8, ");
+                        try self.emitValueCore(left);
+                        try self.write(".data, ");
+                        try self.emitValueCore(right);
+                        try self.write(".data)");
+                        return;
+                    },
                     .null_ => {
                         // Null comparison: always true for == null
                         try self.write("true");
@@ -1554,6 +1666,7 @@ pub const ZigBuilder = struct {
             .certain_int => |i| try self.writeFmt("({d} != 0)", .{i}),
             .certain_float => |f| try self.writeFmt("({d} != 0.0)", .{f}),
             .certain_str => |s| try self.writeFmt("({d} > 0)", .{s.len}),
+            .certain_bytes => |s| try self.writeFmt("({d} > 0)", .{s.len}),
             .certain_null => try self.write("false"),
             else => {
                 try self.write("runtime.toBool(");

@@ -1128,6 +1128,7 @@ pub const StatementBuilder = struct {
                 .certain_int => |i| try self.builder.writeFmt("({d} != 0)", .{i}),
                 .certain_float => |f| try self.builder.writeFmt("({d} != 0.0)", .{f}),
                 .certain_str => |s| try self.builder.writeFmt("({d} > 0)", .{s.len}),
+                .certain_bytes => |s| try self.builder.writeFmt("({d} > 0)", .{s.len}),
                 .certain_null => try self.builder.write("false"),
                 else => {
                     try self.builder.write("runtime.toBool(");

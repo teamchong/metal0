@@ -88,12 +88,52 @@ pub const PyValue = union(enum) {
     fn generateVTable(comptime T: type) PyObjectVTable {
         var vtable = PyObjectVTable{};
 
+        // Helper to wrap comparison result - handles bool or PyValue return types
+        const wrapCompResult = struct {
+            fn wrap(result: anytype) PyValue {
+                const ResultT = @TypeOf(result);
+                if (ResultT == PyValue) {
+                    return result;
+                } else if (ResultT == bool) {
+                    return PyValue.from(result);
+                } else {
+                    // For other types, wrap in PyValue
+                    return PyValue.from(result);
+                }
+            }
+        }.wrap;
+
         // Generate __eq__ wrapper if the type has it
         if (@hasDecl(T, "__eq__")) {
             const EqWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
-                    return self.__eq__(other);
+                    // Try to unwrap PyValue based on variant type
+                    // This allows isinstance(other, T) checks to work in user-defined __eq__ methods
+                    switch (other) {
+                        .object => |other_obj| {
+                            // Check if pointing to same object (identity - handles thread-local storage)
+                            if (other_obj.ptr == ptr) {
+                                return .{ .bool = true };
+                            }
+                            // Check if the vtable matches by class name
+                            const self_class = if (@hasDecl(T, "__name__")) @field(T, "__name__") else "";
+                            const other_class = if (other_obj.vtable.class_name) |cn| cn else "";
+                            if (self_class.len > 0 and std.mem.eql(u8, self_class, other_class)) {
+                                const other_t: *T = @ptrCast(@alignCast(other_obj.ptr));
+                                return wrapCompResult(self.__eq__(other_t));
+                            }
+                            // Different class - pass PyValue and let __eq__ return NotImplemented
+                            return wrapCompResult(self.__eq__(other));
+                        },
+                        // Extract primitive values so isinstance checks work
+                        .int => |v| return wrapCompResult(self.__eq__(v)),
+                        .float => |v| return wrapCompResult(self.__eq__(v)),
+                        .bool => |v| return wrapCompResult(self.__eq__(v)),
+                        .string => |v| return wrapCompResult(self.__eq__(v)),
+                        // For other types, pass PyValue directly
+                        else => return wrapCompResult(self.__eq__(other)),
+                    }
                 }
             };
             vtable.eq = EqWrapper.call;
@@ -104,7 +144,7 @@ pub const PyValue = union(enum) {
             const NeWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
-                    return self.__ne__(other);
+                    return wrapCompResult(self.__ne__(other));
                 }
             };
             vtable.ne = NeWrapper.call;
@@ -115,7 +155,7 @@ pub const PyValue = union(enum) {
             const LtWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
-                    return self.__lt__(other);
+                    return wrapCompResult(self.__lt__(other));
                 }
             };
             vtable.lt = LtWrapper.call;
@@ -126,7 +166,7 @@ pub const PyValue = union(enum) {
             const LeWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
-                    return self.__le__(other);
+                    return wrapCompResult(self.__le__(other));
                 }
             };
             vtable.le = LeWrapper.call;
@@ -137,7 +177,7 @@ pub const PyValue = union(enum) {
             const GtWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
-                    return self.__gt__(other);
+                    return wrapCompResult(self.__gt__(other));
                 }
             };
             vtable.gt = GtWrapper.call;
@@ -148,7 +188,7 @@ pub const PyValue = union(enum) {
             const GeWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
-                    return self.__ge__(other);
+                    return wrapCompResult(self.__ge__(other));
                 }
             };
             vtable.ge = GeWrapper.call;
@@ -336,6 +376,13 @@ pub const PyValue = union(enum) {
     pub fn pyListAppend(self: PyValue, allocator: std.mem.Allocator, value: PyValue) !void {
         if (self == .list) {
             try self.list.append(allocator, value);
+        }
+    }
+
+    /// Append element to list (alias for pyListAppend, used by defaultdict.list factory)
+    pub fn append(self: PyValue, allocator: std.mem.Allocator, value: anytype) !void {
+        if (self == .list) {
+            try self.list.append(allocator, PyValue.from(value));
         }
     }
 
@@ -611,6 +658,12 @@ pub const PyValue = union(enum) {
             };
         }
 
+        // Handle PyBytes explicitly (before general struct handling)
+        const builtins_repr = @import("../runtime/builtins/repr.zig");
+        if (T == builtins_repr.PyBytes) {
+            return .{ .bytes = value };
+        }
+
         if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
             return .{ .int = @intCast(value) };
         } else if (T == f64 or T == f32 or T == comptime_float) {
@@ -783,7 +836,13 @@ pub const PyValue = union(enum) {
         // Handle BigInt first (before general struct handling)
         if (T == bigint.BigInt) {
             return .{ .bigint = value };
-        } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize) {
+        }
+        // Handle PyBytes explicitly (before general struct handling)
+        const builtins_repr = @import("../runtime/builtins/repr.zig");
+        if (T == builtins_repr.PyBytes) {
+            return .{ .bytes = value };
+        }
+        if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize) {
             return .{ .int = @intCast(value) };
         } else if (@typeInfo(T) == .comptime_int) {
             // Handle comptime_int values
@@ -914,6 +973,125 @@ pub const PyValue = union(enum) {
         } else {
             return .{ .none = {} };
         }
+    }
+
+    // ============================================================================
+    // PyValue → PyObject* Bridge (for external library interop)
+    // ============================================================================
+
+    /// Convert PyValue to CPython-compatible *PyObject
+    /// This is the critical bridge for passing values TO external Python libs (numpy, pandas, etc.)
+    /// Allocates CPython-compatible objects with proper refcount and type pointers.
+    ///
+    /// Usage:
+    ///   const py_obj = try my_pyvalue.toPyObject(allocator);
+    ///   defer cpython.Py_DECREF(py_obj);  // Caller owns the reference
+    ///   numpy_function(py_obj);
+    ///
+    pub fn toPyObject(self: PyValue, allocator: std.mem.Allocator) !*cpython.PyObject {
+        const PyInt = @import("intobject.zig").PyInt;
+        const PyFloat = @import("floatobject.zig").PyFloat;
+        const PyBool = @import("boolobject.zig").PyBool;
+        const PyString = @import("unicodeobject.zig").PyString;
+        const listobject = @import("listobject.zig");
+        const tupleobject = @import("tupleobject.zig");
+
+        return switch (self) {
+            .int => |v| try PyInt.create(allocator, v),
+            .float => |v| try PyFloat.create(allocator, v),
+            .bool => |v| try PyBool.create(allocator, v),
+            .string => |v| try PyString.create(allocator, v),
+            .none => cpython.Py_None,
+
+            .list => |list_ptr| blk: {
+                // Convert PyValue list to PyListObject
+                const py_list = try listobject.PyList.create(allocator);
+                for (list_ptr.items) |item| {
+                    const py_item = try item.toPyObject(allocator);
+                    try listobject.PyList.append(py_list, py_item);
+                }
+                break :blk @ptrCast(py_list);
+            },
+
+            .tuple => |items| blk: {
+                // Convert PyValue tuple to PyTupleObject
+                const py_tuple = try tupleobject.PyTuple.create(allocator, items.len);
+                for (items, 0..) |item, i| {
+                    const py_item = try item.toPyObject(allocator);
+                    tupleobject.PyTuple.setItem(py_tuple, i, py_item);
+                }
+                break :blk @ptrCast(py_tuple);
+            },
+
+            .pylist => |py_list| blk: {
+                // Already a PyListObject - just increment refcount and return
+                cpython.Py_INCREF(@ptrCast(py_list));
+                break :blk @ptrCast(py_list);
+            },
+
+            .bigint => |big| blk: {
+                // BigInt → PyLongObject (simplified: convert to string, then parse)
+                // For full support, would need multi-digit PyLongObject
+                if (big.toInt64()) |small_val| {
+                    break :blk try PyInt.create(allocator, small_val);
+                }
+                // TODO: Create multi-digit PyLongObject for large BigInt
+                // For now, return None for values that don't fit in i64
+                break :blk cpython.Py_None;
+            },
+
+            .complex => |c| blk: {
+                // Create PyComplexObject
+                const complex_obj = try allocator.create(cpython.PyComplexObject);
+                complex_obj.* = cpython.PyComplexObject{
+                    .ob_base = .{
+                        .ob_refcnt = 1,
+                        .ob_type = &cpython.PyComplex_Type,
+                    },
+                    .cval_real = c.real,
+                    .cval_imag = c.imag,
+                };
+                break :blk @ptrCast(complex_obj);
+            },
+
+            .bytes => |b| blk: {
+                // Create PyBytesObject
+                const total_size = @sizeOf(cpython.PyBytesObject) + b.data.len;
+                const mem = try allocator.alignedAlloc(u8, @alignOf(cpython.PyBytesObject), total_size);
+                const bytes_obj: *cpython.PyBytesObject = @ptrCast(@alignCast(mem.ptr));
+                bytes_obj.ob_base = .{
+                    .ob_base = .{
+                        .ob_refcnt = 1,
+                        .ob_type = &cpython.PyBytes_Type,
+                    },
+                    .ob_size = @intCast(b.data.len),
+                };
+                bytes_obj.ob_shash = -1; // Not computed
+                // Copy bytes data after the struct
+                const data_ptr: [*]u8 = @ptrCast(&bytes_obj.ob_sval);
+                @memcpy(data_ptr[0..b.data.len], b.data);
+                break :blk @ptrCast(bytes_obj);
+            },
+
+            .object => |obj| blk: {
+                // Class instance - wrap as opaque PyObject
+                // External libs won't understand our vtable, so this is limited
+                // For full interop, would need to create proper Python class wrapper
+                _ = obj;
+                // Return None for now - proper interop needs class registration
+                break :blk cpython.Py_None;
+            },
+
+            .ptr => |p| blk: {
+                // Already a pointer - assume it's a PyObject*
+                // This handles values that came from eval() or external sources
+                cpython.Py_INCREF(@ptrCast(p));
+                break :blk @ptrCast(p);
+            },
+
+            .type_obj => cpython.Py_None, // Type objects need special handling
+            .not_implemented => cpython.Py_None, // TODO: Return actual Py_NotImplemented
+        };
     }
 
     /// Convert to string representation
@@ -1726,6 +1904,33 @@ pub const PyValue = union(enum) {
         // If both are numeric types, compare as complex
         if (self_num != null and other_num != null) {
             return self_num.?.real == other_num.?.real and self_num.?.imag == other_num.?.imag;
+        }
+
+        // Handle .object vs primitive types - call object's __eq__ method
+        if (self_tag == .object) {
+            const self_obj = self.object;
+            const result = callDunderMethod(self_obj, "__eq__", other);
+            if (result) |res| {
+                if (res != .not_implemented) {
+                    if (res == .bool) return res.bool;
+                    return !isFalsy(res);
+                }
+            }
+            // __eq__ returned NotImplemented - try reflected comparison
+            // (Other primitive types don't have __eq__ so fall through to false)
+        }
+
+        // Handle primitive vs .object - call object's __eq__ method (reflected)
+        if (other_tag == .object) {
+            const other_obj = other.object;
+            const result = callDunderMethod(other_obj, "__eq__", self);
+            if (result) |res| {
+                if (res != .not_implemented) {
+                    if (res == .bool) return res.bool;
+                    return !isFalsy(res);
+                }
+            }
+            // __eq__ returned NotImplemented - fall through to false
         }
 
         // Non-numeric different types are not equal

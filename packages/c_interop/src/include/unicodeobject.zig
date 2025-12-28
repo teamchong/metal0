@@ -23,6 +23,8 @@ const PyMem_Malloc = traits.externs.PyMem_Malloc;
 const PyMem_Free = traits.externs.PyMem_Free;
 const PyObject_Malloc = traits.externs.PyObject_Malloc;
 const PyObject_Free = traits.externs.PyObject_Free;
+const PyUnicode_FromString = traits.externs.PyUnicode_FromString;
+const PyUnicode_FromStringAndSize = traits.externs.PyUnicode_FromStringAndSize;
 
 // Use centralized exception types (these are already pointers)
 const PyExc_TypeError = exceptions.PyExc_TypeError;
@@ -179,16 +181,18 @@ fn unicode_hash(obj: *cpython.PyObject) callconv(.c) isize {
 ///
 /// CPython: PyObject* PyUnicode_FromString(const char *str)
 /// Returns: New unicode object or null on error
-export fn PyUnicode_FromString(str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
+/// Note: Use objects/unicodeobject.zig for the exported version
+fn PyUnicode_FromString_internal(str: [*:0]const u8) callconv(.c) ?*cpython.PyObject {
     const len = std.mem.len(str);
-    return PyUnicode_FromStringAndSize(str, @intCast(len));
+    return PyUnicode_FromStringAndSize_internal(str, @intCast(len));
 }
 
 /// Create unicode from C string with explicit size
 ///
 /// CPython: PyObject* PyUnicode_FromStringAndSize(const char *str, Py_ssize_t size)
 /// Returns: New unicode object or null on error
-export fn PyUnicode_FromStringAndSize(str: [*]const u8, size: isize) callconv(.c) ?*cpython.PyObject {
+/// Note: Use objects/unicodeobject.zig for the exported version
+fn PyUnicode_FromStringAndSize_internal(str: [*]const u8, size: isize) callconv(.c) ?*cpython.PyObject {
     ensureUnicodeTypeInit();
 
     // Allocate PyUnicodeObject

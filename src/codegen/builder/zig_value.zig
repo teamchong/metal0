@@ -50,6 +50,8 @@ pub const CertainType = enum {
     bool_,
     /// String type ([]const u8)
     string,
+    /// Bytes type (Python b"...")
+    bytes,
     /// Null/None type
     null_,
     /// Other/unknown type (use runtime comparison)
@@ -157,6 +159,9 @@ pub const ZigValue = union(enum) {
     /// String literal (escaped for Zig)
     certain_str: []const u8,
 
+    /// Bytes literal (Python b"..." - wrapped in bytesLiteral())
+    certain_bytes: []const u8,
+
     /// Null/None value
     certain_null: void,
 
@@ -207,7 +212,7 @@ pub const ZigValue = union(enum) {
     /// Get the confidence level of this value
     pub fn confidence(self: ZigValue) TypeConfidence {
         return switch (self) {
-            .certain_int, .certain_float, .certain_bool, .certain_str, .certain_null => .certain,
+            .certain_int, .certain_float, .certain_bool, .certain_str, .certain_bytes, .certain_null => .certain,
             .uncertain_pyvalue => .uncertain,
             // Locals and named bindings depend on their declared type
             .local, .local_ref, .named, .param => .certain, // Assume certain unless wrapped
@@ -231,7 +236,7 @@ pub const ZigValue = union(enum) {
     /// Check if this value is a compile-time constant
     pub fn isComptime(self: ZigValue) bool {
         return switch (self) {
-            .certain_int, .certain_float, .certain_bool, .certain_str, .certain_null => true,
+            .certain_int, .certain_float, .certain_bool, .certain_str, .certain_bytes, .certain_null => true,
             else => false,
         };
     }
@@ -249,6 +254,7 @@ pub const ZigValue = union(enum) {
             .certain_float => .float,
             .certain_bool => .bool_,
             .certain_str => .string,
+            .certain_bytes => .bytes,
             .certain_null => .null_,
             .bigint, .unified_int => .int,
             else => .other,
@@ -279,6 +285,11 @@ pub const ZigValue = union(enum) {
     /// Create a certain string value
     pub fn string(value: []const u8) ZigValue {
         return .{ .certain_str = value };
+    }
+
+    /// Create a certain bytes value (Python b"...")
+    pub fn bytes(value: []const u8) ZigValue {
+        return .{ .certain_bytes = value };
     }
 
     /// Create a null/None value
