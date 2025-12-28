@@ -307,6 +307,10 @@ pub const PyComplex = @import("runtime/pycomplex.zig").PyComplex;
 pub const isCallable = @import("runtime/type_ops.zig").isCallable;
 pub const isSubclass = @import("runtime/type_ops.zig").isSubclass;
 pub const isSubclassMulti = @import("runtime/type_ops.zig").isSubclassMulti;
+pub const registerVirtualSubclass = @import("runtime/type_ops.zig").registerVirtualSubclass;
+pub const isVirtualSubclass = @import("runtime/type_ops.zig").isVirtualSubclass;
+pub const clearRegistryForClass = @import("runtime/type_ops.zig").clearRegistryForClass;
+pub const getRegistryCountForClass = @import("runtime/type_ops.zig").getRegistryCountForClass;
 
 // Re-export float_ops for codegen
 pub const divideFloat = @import("runtime/float_ops.zig").divideFloat;

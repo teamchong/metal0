@@ -412,6 +412,15 @@ pub inline fn PyUnicode_Check(op: *PyObject) bool {
     return Py_IS_TYPE(op, &PyUnicode_Type);
 }
 
+/// Extract UTF-8 string from PyUnicodeObject
+/// Returns null-terminated string or null if not a string
+pub fn PyUnicode_AsUTF8(op: *PyObject) ?[*:0]const u8 {
+    if (!PyUnicode_Check(op)) return null;
+    const unicode: *PyUnicodeObject = @ptrCast(@alignCast(op));
+    // The data field points to UTF-8 bytes, assume null-terminated
+    return @ptrCast(unicode.data);
+}
+
 pub inline fn PyBytes_Check(op: *PyObject) bool {
     return Py_IS_TYPE(op, &PyBytes_Type);
 }

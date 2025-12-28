@@ -99,7 +99,20 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     }
 
     switch (node) {
-        .constant => |c| try constants.genConstant(self, c),
+        .constant => |c| {
+            // BUILDER MIGRATION: Use exprToValue path for simple constants
+            // Only for types that don't need captureExpr fallback (avoid circular dependency)
+            switch (c.value) {
+                .int, .float, .string, .bool, .none => {
+                    const val = try self.exprToValue(node);
+                    try self.emitZigValue(val);
+                },
+                // bytes, bigint, complex use legacy path - bytes has buffering issues with captureExpr
+                .bytes, .bigint, .complex => {
+                    try constants.genConstant(self, c);
+                },
+            }
+        },
         .name => |n| {
             // Resolve the name to use, with proper scoping rules:
             // 1. Check hoisted_local_classes first (locally-defined classes hoisted to struct level)
