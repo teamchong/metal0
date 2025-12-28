@@ -469,13 +469,13 @@ pub export fn PyWeakref_GetObject(ref: ?*cpython.PyObject) ?*cpython.PyObject {
     // Return None if dead
     if (wr.wr_object == null) {
         const none = @import("noneobject.zig");
-        return none._Py_NoneStruct();
+        return &none._Py_NoneStruct;
     }
 
     // Check if object is dead (refcount 0 due to trashcan)
     if (wr.wr_object.?.ob_refcnt == 0) {
         const none = @import("noneobject.zig");
-        return none._Py_NoneStruct();
+        return &none._Py_NoneStruct;
     }
 
     return wr.wr_object;
@@ -496,7 +496,7 @@ pub export fn PyWeakref_GetRef(ref: ?*cpython.PyObject, pobj: *?*cpython.PyObjec
 
     // Check if it's None (dead reference)
     const none = @import("noneobject.zig");
-    if (obj == none._Py_NoneStruct()) {
+    if (obj == &none._Py_NoneStruct) {
         pobj.* = null;
         return 0;
     }

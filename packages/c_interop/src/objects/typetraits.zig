@@ -896,7 +896,8 @@ pub const externs = struct {
     // Module operations - delegate to cpython_module.zig
     pub fn PyModule_Create2(def: *cpython.PyModuleDef, api_version: c_int) ?*cpython.PyObject {
         const module_mod = @import("../include/moduleobject.zig");
-        return module_mod.PyModule_Create2(def, api_version);
+        // Cast between compatible PyModuleDef types
+        return module_mod.PyModule_Create2(@ptrCast(def), api_version);
     }
 
     // Function operations - delegate to pyobject_method.zig

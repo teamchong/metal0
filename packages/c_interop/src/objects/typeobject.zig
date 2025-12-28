@@ -727,7 +727,7 @@ pub export fn PyType_Modified(type_obj: ?*cpython.PyTypeObject) void {
                 // Value is a weakref to subtype
                 const weakref = @import("weakrefobject.zig");
                 const subtype_obj = weakref.PyWeakref_GetObject(value);
-                if (subtype_obj != null and subtype_obj != @import("object.zig")._Py_NoneStruct()) {
+                if (subtype_obj != null and subtype_obj != &@import("noneobject.zig")._Py_NoneStruct) {
                     const subtype: *cpython.PyTypeObject = @ptrCast(@alignCast(subtype_obj.?));
                     // Recursively invalidate subtype
                     PyType_Modified(subtype);

@@ -96,80 +96,7 @@ pub export fn _Py_Dealloc(op: ?*cpython.PyObject) void {
     }
 }
 
-/// Destructor for _Py_NoneStruct
-fn none_dealloc(self: ?*cpython.PyObject) callconv(.c) void {
-    _ = self;
-    // None is a singleton, should never be deallocated
-}
-
-/// Repr for None
-fn none_repr(self: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
-    _ = self;
-    const pyunicode = @import("unicodeobject.zig");
-    return pyunicode.PyUnicode_FromString("None");
-}
-
-/// None type object
-pub export var _PyNone_Type: cpython.PyTypeObject = .{
-    .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
-        .ob_size = 0,
-    },
-    .tp_name = "NoneType",
-    .tp_basicsize = @sizeOf(cpython.PyObject),
-    .tp_itemsize = 0,
-    .tp_dealloc = none_dealloc,
-    .tp_vectorcall_offset = 0,
-    .tp_getattr = null,
-    .tp_setattr = null,
-    .tp_as_async = null,
-    .tp_repr = none_repr,
-    .tp_as_number = null,
-    .tp_as_sequence = null,
-    .tp_as_mapping = null,
-    .tp_hash = null,
-    .tp_call = null,
-    .tp_str = null,
-    .tp_getattro = null,
-    .tp_setattro = null,
-    .tp_as_buffer = null,
-    .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
-    .tp_doc = null,
-    .tp_traverse = null,
-    .tp_clear = null,
-    .tp_richcompare = null,
-    .tp_weaklistoffset = 0,
-    .tp_iter = null,
-    .tp_iternext = null,
-    .tp_methods = null,
-    .tp_members = null,
-    .tp_getset = null,
-    .tp_base = null,
-    .tp_dict = null,
-    .tp_descr_get = null,
-    .tp_descr_set = null,
-    .tp_dictoffset = 0,
-    .tp_init = null,
-    .tp_alloc = null,
-    .tp_new = null,
-    .tp_free = null,
-    .tp_is_gc = null,
-    .tp_bases = null,
-    .tp_mro = null,
-    .tp_cache = null,
-    .tp_subclasses = null,
-    .tp_weaklist = null,
-    .tp_del = null,
-    .tp_version_tag = 0,
-    .tp_finalize = null,
-    .tp_vectorcall = null,
-};
-
-/// The None singleton object
-pub export var _Py_NoneStruct: cpython.PyObject = .{
-    .ob_refcnt = 1,
-    .ob_type = &_PyNone_Type,
-};
+// None singleton is defined in noneobject.zig to avoid duplicate symbol exports
 
 /// Destructor for NotImplemented
 fn notimpl_dealloc(self: ?*cpython.PyObject) callconv(.c) void {
@@ -523,7 +450,8 @@ pub export fn PyObject_IsTrue(op: ?*cpython.PyObject) c_int {
     const obj = op.?;
 
     // None is always false
-    if (obj == &_Py_NoneStruct) {
+    const noneobject = @import("noneobject.zig");
+    if (obj == &noneobject._Py_NoneStruct) {
         return 0;
     }
 

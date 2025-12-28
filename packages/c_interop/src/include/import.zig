@@ -4,6 +4,7 @@
 /// This is the key to loading NumPy and other C extension modules.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const cpython = @import("object.zig");
 const cpython_module = @import("moduleobject.zig");
 const traits = @import("../objects/typetraits.zig");
@@ -88,9 +89,9 @@ pub export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.
 
     // Check built-in modules
     if (builtin_modules_initialized) {
-        for (builtin_modules.items) |builtin| {
-            if (std.mem.eql(u8, builtin.name, name_str)) {
-                const module = builtin.init_func();
+        for (builtin_modules.items) |builtin_mod| {
+            if (std.mem.eql(u8, builtin_mod.name, name_str)) {
+                const module = builtin_mod.init_func();
                 if (module) |m| {
                     // Add to sys.modules
                     if (module_dict) |mod_dict| {
@@ -140,7 +141,7 @@ pub export fn PyImport_ImportModuleLevel(
                     const pkg_str = std.mem.span(pkg_name);
 
                     // For level > 1, go up (level-1) package levels
-                    var parent_pkg = pkg_str;
+                    var parent_pkg: []const u8 = pkg_str;
                     var lvl = level - 1;
                     while (lvl > 0) : (lvl -= 1) {
                         // Find last dot
@@ -259,7 +260,7 @@ pub export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyO
     }
 
     // Create new module
-    var module_def = cpython_module.PyModuleDef{
+    var module_def = cpython.PyModuleDef{
         .m_base = undefined,
         .m_name = name,
         .m_doc = null,
@@ -339,9 +340,8 @@ pub export fn PyImport_ExecCodeModuleWithPathnames(
     _ = pydict.PyDict_SetItemString(mod_dict, "__name__", name_obj);
 
     // Set __loader__ to None (basic stub)
-    if (@import("../objects/noneobject.zig").Py_None) |none| {
-        _ = pydict.PyDict_SetItemString(mod_dict, "__loader__", none);
-    }
+    const none = @import("../objects/noneobject.zig").Py_None();
+    _ = pydict.PyDict_SetItemString(mod_dict, "__loader__", none);
 
     // Execute code object in module's namespace
     // The code object should populate the module dict with functions/classes
@@ -398,7 +398,7 @@ pub export fn PyImport_AppendInittab(
 
     const name_copy = allocator.dupeZ(u8, std.mem.span(name)) catch return -1;
 
-    builtin_modules.append(.{
+    builtin_modules.append(allocator, .{
         .name = name_copy,
         .init_func = initfunc,
     }) catch {
@@ -411,8 +411,8 @@ pub export fn PyImport_AppendInittab(
 
 /// Inittab entry
 pub const PyImport_Inittab = extern struct {
-    name: [*:0]const u8,
-    initfunc: *const fn () callconv(.c) ?*cpython.PyObject,
+    name: ?[*:0]const u8,
+    initfunc: ?*const fn () callconv(.c) ?*cpython.PyObject,
 };
 
 /// Extend inittab with table of entries
@@ -422,8 +422,8 @@ pub export fn PyImport_ExtendInittab(newtab: [*]PyImport_Inittab) callconv(.c) c
     initBuiltinModules();
 
     var i: usize = 0;
-    while (newtab[i].initfunc != null) : (i += 1) {
-        const result = PyImport_AppendInittab(newtab[i].name, newtab[i].initfunc);
+    while (newtab[i].name != null and newtab[i].initfunc != null) : (i += 1) {
+        const result = PyImport_AppendInittab(newtab[i].name.?, newtab[i].initfunc.?);
         if (result != 0) return result;
     }
 
@@ -451,7 +451,7 @@ fn getSearchPaths() []const []const u8 {
 
     // 1. Check PYTHONPATH environment variable
     // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
-    if (if (comptime std.builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("PYTHONPATH")) |pythonpath| {
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("PYTHONPATH")) |pythonpath| {
         var it = std.mem.splitScalar(u8, pythonpath, ':');
         while (it.next()) |path| {
             if (path.len > 0) {
@@ -467,7 +467,7 @@ fn getSearchPaths() []const []const u8 {
 
     // Get HOME directory
     // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
-    const home = if (comptime std.builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/root");
+    const home = if (comptime builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/root");
 
     // mise/asdf python paths
     for (python_versions) |ver| {
@@ -489,7 +489,7 @@ fn getSearchPaths() []const []const u8 {
     }
 
     // Homebrew paths (macOS)
-    if (comptime std.builtin.os.tag == .macos) {
+    if (comptime builtin.os.tag == .macos) {
         for (python_versions) |ver| {
             var buf: [256]u8 = undefined;
             const brew_path = std.fmt.bufPrint(&buf, "/opt/homebrew/lib/python{s}/site-packages/", .{ver}) catch continue;
@@ -500,7 +500,7 @@ fn getSearchPaths() []const []const u8 {
     }
 
     // System paths (Linux)
-    if (comptime std.builtin.os.tag == .linux) {
+    if (comptime builtin.os.tag == .linux) {
         for (python_versions) |ver| {
             var buf: [256]u8 = undefined;
             // Standard system path
@@ -518,7 +518,7 @@ fn getSearchPaths() []const []const u8 {
 
     // Virtual environment paths
     // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
-    if (if (comptime std.builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         for (python_versions) |ver| {
             var buf: [512]u8 = undefined;
             const venv_path = std.fmt.bufPrint(&buf, "{s}/lib/python{s}/site-packages/", .{ venv, ver }) catch continue;
@@ -873,7 +873,7 @@ fn loadSharedLibraryWithName(path: [:0]const u8, init_name: []const u8) ?*cpytho
     }
 
     // Open the shared library using dlopen
-    const lib = std.DynLib.open(path) catch {
+    var lib = std.DynLib.open(path) catch {
         // If dlopen fails, fall back to static module lookup
         return loadStaticModule(init_name);
     };
@@ -917,9 +917,9 @@ fn loadSharedLibraryWithName(path: [:0]const u8, init_name: []const u8) ?*cpytho
 
 /// Get platform-specific extension suffixes (kept for compatibility)
 fn getPlatformExtensions() []const []const u8 {
-    return comptime if (std.builtin.os.tag == .macos)
+    return comptime if (builtin.os.tag == .macos)
         &[_][]const u8{ ".cpython-313-darwin.so", ".cpython-312-darwin.so", ".cpython-311-darwin.so", ".so", ".dylib" }
-    else if (std.builtin.os.tag == .windows)
+    else if (builtin.os.tag == .windows)
         &[_][]const u8{".pyd"}
     else
         &[_][]const u8{ ".cpython-313-x86_64-linux-gnu.so", ".cpython-312-x86_64-linux-gnu.so", ".cpython-311-x86_64-linux-gnu.so", ".so" };

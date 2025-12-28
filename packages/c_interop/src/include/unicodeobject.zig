@@ -23,8 +23,8 @@ const PyMem_Malloc = traits.externs.PyMem_Malloc;
 const PyMem_Free = traits.externs.PyMem_Free;
 const PyObject_Malloc = traits.externs.PyObject_Malloc;
 const PyObject_Free = traits.externs.PyObject_Free;
-const PyUnicode_FromString = traits.externs.PyUnicode_FromString;
-const PyUnicode_FromStringAndSize = traits.externs.PyUnicode_FromStringAndSize;
+pub const PyUnicode_FromString = traits.externs.PyUnicode_FromString;
+pub const PyUnicode_FromStringAndSize = traits.externs.PyUnicode_FromStringAndSize;
 
 // Use centralized exception types (these are already pointers)
 const PyExc_TypeError = exceptions.PyExc_TypeError;

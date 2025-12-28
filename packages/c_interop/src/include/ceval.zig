@@ -63,23 +63,26 @@ pub const PyCodeObject = opaque {};
 /// Returns result of evaluation or null on error
 /// STATUS: IMPLEMENTED - extracts source from code object and runs via eval with scope
 pub export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const exc = @import("../exception_types.zig");
+
     // Check if it's a code object
     if (PyCode_Check(code) == 0) {
-        PyErr_SetString(@ptrFromInt(0), "expected code object");
+        PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "expected code object");
         return null;
     }
 
     // Extract source from code object
     const code_obj: *PyCodeObjectStruct = @ptrCast(@alignCast(code));
     if (code_obj.co_code == null) {
-        PyErr_SetString(@ptrFromInt(0), "code object has no bytecode");
+        PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "code object has no bytecode");
         return null;
     }
 
     // Get source string from co_code (we stored source there in Py_CompileString)
     const bytes = @import("../objects/bytesobject.zig");
-    const source_ptr = bytes.PyBytes_AsString(code_obj.co_code);
-    const source_len = bytes.PyBytes_Size(code_obj.co_code);
+    const co_code = code_obj.co_code orelse return @ptrCast(runtime.Py_None);
+    const source_ptr = bytes.PyBytes_AsString(co_code);
+    const source_len = bytes.PyBytes_Size(co_code);
 
     if (source_len <= 0) {
         return @ptrCast(runtime.Py_None);
@@ -93,19 +96,19 @@ pub export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObjec
 
     // Execute via evalWithScope if available, otherwise fall back to eval
     if (@hasDecl(runtime, "evalWithScope")) {
-        return runtime.evalWithScope(c_allocator, source, globals, locals) catch |err| {
-            _ = err;
-            PyErr_SetString(@ptrFromInt(0), "eval failed");
+        const result = runtime.evalWithScope(c_allocator, source, globals, locals) catch {
+            PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "eval failed");
             return null;
         };
+        return @ptrCast(result);
     }
 
     // Fall back to basic eval (scope handled via global context)
-    return runtime.eval(c_allocator, source) catch |err| {
-        _ = err;
-        PyErr_SetString(@ptrFromInt(0), "eval failed");
+    const result = runtime.eval(c_allocator, source) catch {
+        PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "eval failed");
         return null;
     };
+    return @ptrCast(result);
 }
 
 /// Evaluate a frame object
@@ -113,8 +116,9 @@ pub export fn PyEval_EvalCode(code: *cpython.PyObject, globals: *cpython.PyObjec
 /// STATUS: NOT_IMPLEMENTED - metal0 doesn't have frame-based execution
 pub export fn PyEval_EvalFrame(frame: *PyFrameObject) callconv(.c) ?*cpython.PyObject {
     _ = frame;
+    const exc = @import("../exception_types.zig");
     // Frame execution not applicable - metal0 compiles to native code
-    PyErr_SetString(@ptrFromInt(0), "PyEval_EvalFrame: not applicable to AOT compiled code");
+    PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "PyEval_EvalFrame: not applicable to AOT compiled code");
     return null;
 }
 
@@ -144,9 +148,9 @@ fn ensureEvalContextInitialized() void {
     builtins_dict = pydict.PyDict_New();
     if (builtins_dict) |builtins| {
         // Add True/False/None
-        if (pybool.Py_True) |t| _ = pydict.PyDict_SetItemString(builtins, "True", t);
-        if (pybool.Py_False) |f| _ = pydict.PyDict_SetItemString(builtins, "False", f);
-        if (@import("../objects/noneobject.zig").Py_None) |n| _ = pydict.PyDict_SetItemString(builtins, "None", n);
+        _ = pydict.PyDict_SetItemString(builtins, "True", pybool.Py_True());
+        _ = pydict.PyDict_SetItemString(builtins, "False", pybool.Py_False());
+        _ = pydict.PyDict_SetItemString(builtins, "None", @import("../objects/noneobject.zig").Py_None());
 
         // Add common type objects
         const types = @import("typeslots.zig");
@@ -192,8 +196,8 @@ fn ensureEvalContextInitialized() void {
 pub export fn PyEval_SetGlobals(globals: ?*cpython.PyObject) callconv(.c) void {
     ensureEvalContextInitialized();
     if (globals) |g| {
-        if (globals_dict) |old| traits.decref(old);
-        traits.incref(g);
+        if (globals_dict) |old| _ = traits.decref(old);
+        _ = traits.incref(g);
         globals_dict = g;
     }
 }
@@ -202,8 +206,8 @@ pub export fn PyEval_SetGlobals(globals: ?*cpython.PyObject) callconv(.c) void {
 pub export fn PyEval_SetLocals(locals: ?*cpython.PyObject) callconv(.c) void {
     ensureEvalContextInitialized();
     if (locals) |l| {
-        if (locals_dict) |old| traits.decref(old);
-        traits.incref(l);
+        if (locals_dict) |old| _ = traits.decref(old);
+        _ = traits.incref(l);
         locals_dict = l;
     }
 }
@@ -361,8 +365,7 @@ pub export fn PyGILState_GetThisThreadState() callconv(.c) ?*PyThreadState {
 /// STATUS: IMPLEMENTED - wired to runtime.exec
 pub export fn PyRun_SimpleString(command: [*:0]const u8) callconv(.c) c_int {
     const cmd_slice = std.mem.span(command);
-    runtime.exec(c_allocator, cmd_slice) catch |err| {
-        _ = err;
+    runtime.exec(c_allocator, cmd_slice) catch {
         return -1;
     };
     return 0; // Success
@@ -387,8 +390,7 @@ pub export fn PyRun_SimpleFile(fp: *std.c.FILE, filename: [*:0]const u8) callcon
 
     if (total_read == 0) return 0; // Empty file is success
 
-    runtime.exec(c_allocator, buffer[0..total_read]) catch |err| {
-        _ = err;
+    runtime.exec(c_allocator, buffer[0..total_read]) catch {
         return -1;
     };
     return 0;
@@ -411,6 +413,7 @@ pub export fn PyRun_SimpleFileEx(fp: *std.c.FILE, filename: [*:0]const u8, close
 /// STATUS: IMPLEMENTED - wired to runtime.eval/exec with scope support
 pub export fn PyRun_String(str: [*:0]const u8, start: c_int, globals: *cpython.PyObject, locals: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const str_slice = std.mem.span(str);
+    const exc = @import("../exception_types.zig");
 
     // Set the execution context with provided globals/locals
     PyEval_SetGlobals(globals);
@@ -419,30 +422,34 @@ pub export fn PyRun_String(str: [*:0]const u8, start: c_int, globals: *cpython.P
     if (start == Py_eval_input) {
         // Expression - use eval with scope if available
         if (@hasDecl(runtime, "evalWithScope")) {
-            return runtime.evalWithScope(c_allocator, str_slice, globals, locals) catch |err| {
-                _ = err;
-                PyErr_SetString(@ptrFromInt(0), "eval() failed");
+            // Cast to runtime's PyObject type (structurally compatible)
+            const rt_globals: ?*runtime.PyObject = @ptrCast(globals);
+            const rt_locals: ?*runtime.PyObject = @ptrCast(locals);
+            const result = runtime.evalWithScope(c_allocator, str_slice, rt_globals, rt_locals) catch {
+                PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "eval() failed");
                 return null;
             };
+            return @ptrCast(result);
         }
-        return runtime.eval(c_allocator, str_slice) catch |err| {
-            _ = err;
-            PyErr_SetString(@ptrFromInt(0), "eval() failed");
+        const result = runtime.eval(c_allocator, str_slice) catch {
+            PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "eval() failed");
             return null;
         };
+        return @ptrCast(result);
     } else {
         // Statement/file - use exec with scope if available
         if (@hasDecl(runtime, "execWithScope")) {
-            runtime.execWithScope(c_allocator, str_slice, globals, locals) catch |err| {
-                _ = err;
-                PyErr_SetString(@ptrFromInt(0), "exec() failed");
+            // Cast to runtime's PyObject type (structurally compatible)
+            const rt_globals: ?*runtime.PyObject = @ptrCast(globals);
+            const rt_locals: ?*runtime.PyObject = @ptrCast(locals);
+            runtime.execWithScope(c_allocator, str_slice, rt_globals, rt_locals) catch {
+                PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "exec() failed");
                 return null;
             };
             return @ptrCast(runtime.Py_None);
         }
-        runtime.exec(c_allocator, str_slice) catch |err| {
-            _ = err;
-            PyErr_SetString(@ptrFromInt(0), "exec() failed");
+        runtime.exec(c_allocator, str_slice) catch {
+            PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "exec() failed");
             return null;
         };
         // exec returns None
@@ -457,6 +464,7 @@ pub export fn PyRun_File(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int,
     _ = filename;
     _ = globals;
     _ = locals;
+    const exc = @import("../exception_types.zig");
 
     // Read file contents
     var buffer: [65536]u8 = undefined;
@@ -477,15 +485,14 @@ pub export fn PyRun_File(fp: *std.c.FILE, filename: [*:0]const u8, start: c_int,
     const source = buffer[0..total_read];
 
     if (start == Py_eval_input) {
-        return runtime.eval(c_allocator, source) catch |err| {
-            _ = err;
-            PyErr_SetString(@ptrFromInt(0), "eval() failed");
+        const result = runtime.eval(c_allocator, source) catch {
+            PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "eval() failed");
             return null;
         };
+        return @ptrCast(result);
     } else {
-        runtime.exec(c_allocator, source) catch |err| {
-            _ = err;
-            PyErr_SetString(@ptrFromInt(0), "exec() failed");
+        runtime.exec(c_allocator, source) catch {
+            PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "exec() failed");
             return null;
         };
         return @ptrCast(runtime.Py_None);
@@ -581,7 +588,8 @@ pub export fn Py_CompileStringObject(str: [*:0]const u8, filename: *cpython.PyOb
     _ = start;
     _ = str;
     // Requires runtime module integration
-    PyErr_SetString(@ptrFromInt(0), "Py_CompileStringObject: requires runtime module integration");
+    const exc = @import("../exception_types.zig");
+    PyErr_SetString(@ptrCast(exc.PyExc_RuntimeError), "Py_CompileStringObject: requires runtime module integration");
     return null;
 }
 
@@ -684,7 +692,50 @@ pub var PyCode_Type: cpython.PyTypeObject = .{
     .tp_basicsize = @sizeOf(PyCodeObjectStruct),
     .tp_itemsize = 0,
     .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
     .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
 };
 
 /// Internal code object structure (simplified)
@@ -978,7 +1029,7 @@ pub export fn PyThreadState_New(interp: ?*PyInterpreterState) callconv(.c) ?*PyT
         .next = null,
     };
 
-    thread_state_pool.append(tstate) catch {};
+    thread_state_pool.append(std.heap.c_allocator, tstate) catch {};
 
     // Return as opaque pointer
     return @ptrCast(tstate);

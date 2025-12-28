@@ -21,6 +21,12 @@ const name_gen_mod = @import("codegen.name_gen");
 const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 
+// Traits for type checking in exprToValue
+const string_traits = @import("../../../analysis/traits/string_traits.zig");
+const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const bigint_ops = @import("../expressions/operators/bigint_ops.zig");
+const unified_int_ops = @import("../expressions/operators/unified_int_ops.zig");
+
 // MIGRATED TO ZIGBUILDER
 // NOTE: emitConst/emitFmtConst are DEPRECATED - use self.emit()/self.emitFmt() instead
 // These file-level wrappers exist only for backward compatibility during migration.
@@ -2206,7 +2212,52 @@ pub const NativeCodegen = struct {
             },
             // Binary operations - use builder.binOp for type-aware emission
             .binop => |b| {
-                // Convert operands to ZigValues recursively
+                // Special cases that need complex handling - fall back to captureExpr
+                // String formatting (%), BigInt ops, collection ops, etc.
+                if (b.op == .Mod or b.op == .Pow or b.op == .MatMul or
+                    b.op == .FloorDiv)
+                {
+                    return try self.captureExpr(node);
+                }
+
+                // Check if operands might need special handling (strings, lists, etc.)
+                const left_type = self.inferExprScoped(b.left.*) catch .unknown;
+                const right_type = self.inferExprScoped(b.right.*) catch .unknown;
+
+                // String/collection operations need special handling
+                if (string_traits.isStringLike(left_type) or string_traits.isStringLike(right_type) or
+                    container_traits.isList(left_type) or container_traits.isList(right_type) or
+                    container_traits.isTuple(left_type) or container_traits.isTuple(right_type) or
+                    container_traits.isDict(left_type) or container_traits.isDict(right_type))
+                {
+                    return try self.captureExpr(node);
+                }
+
+                // BigInt/UnifiedInt need special handling
+                if (bigint_ops.needsBigInt(left_type) or bigint_ops.needsBigInt(right_type) or
+                    unified_int_ops.isUnifiedInt(left_type) or unified_int_ops.isUnifiedInt(right_type))
+                {
+                    return try self.captureExpr(node);
+                }
+
+                // Boolean with bitwise ops need special handling (bool & int requires cast)
+                const is_bitwise = (b.op == .BitAnd or b.op == .BitOr or b.op == .BitXor or
+                    b.op == .LShift or b.op == .RShift);
+                if (is_bitwise and (left_type == .@"bool" or right_type == .@"bool")) {
+                    return try self.captureExpr(node);
+                }
+
+                // Complex numbers need special handling
+                if (left_type == .complex or right_type == .complex) {
+                    return try self.captureExpr(node);
+                }
+
+                // Unknown types need special handling (PyValue ops, class dunders, etc.)
+                if (left_type == .unknown or right_type == .unknown) {
+                    return try self.captureExpr(node);
+                }
+
+                // Simple arithmetic on primitives - use builder
                 const left_val = try self.exprToValue(b.left.*);
                 const right_val = try self.exprToValue(b.right.*);
 
@@ -2224,7 +2275,7 @@ pub const NativeCodegen = struct {
                     .BitXor => .bit_xor,
                     .LShift => .lshift,
                     .RShift => .rshift,
-                    .MatMul => .mul, // Matrix mul uses mul for now
+                    .MatMul => .mul,
                 };
 
                 // Create binop_result ZigValue with proper confidence tracking
@@ -2232,9 +2283,44 @@ pub const NativeCodegen = struct {
                 return try builder.binOp(bin_op, left_val, right_val);
             },
 
-            // Unary operations - use captureExpr for proper builder save/restore
-            .unaryop => {
-                return try self.captureExpr(node);
+            // Unary operations - use builder.unaryOp for type-aware emission
+            .unaryop => |u| {
+                // Check operand type for special handling
+                const operand_type = self.inferExprScoped(u.operand.*) catch .unknown;
+
+                // Complex, BigInt, UnifiedInt, unknown need special handling via captureExpr
+                // These types don't support native Zig operators directly
+                if (operand_type == .complex or
+                    operand_type == .unknown or
+                    bigint_ops.needsBigInt(operand_type) or
+                    unified_int_ops.isUnifiedInt(operand_type))
+                {
+                    return try self.captureExpr(node);
+                }
+
+                // For bitwise not (~), operand must be integer (not comptime_int literal)
+                // Check if it's a literal (constant node)
+                if (u.op == .Invert) {
+                    switch (u.operand.*) {
+                        .constant => {
+                            // Literals are comptime_int, bitwise not doesn't work on them directly
+                            return try self.captureExpr(node);
+                        },
+                        else => {},
+                    }
+                }
+
+                const operand_val = try self.exprToValue(u.operand.*);
+
+                const unary_op: builder_mod.UnaryOp = switch (u.op) {
+                    .USub => .neg,
+                    .UAdd => .pos,
+                    .Invert => .bit_not,
+                    .Not => .not_,
+                };
+
+                const builder = try self.getBuilder();
+                return try builder.unaryOp(unary_op, operand_val);
             },
 
             // Comparisons - return boolean (comparisons always produce bool)

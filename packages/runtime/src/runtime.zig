@@ -244,6 +244,9 @@ pub const pyAnd = logic_ops.pyAnd;
 // Re-export assertion functions from builtins for unittest
 pub const assertEqualGeneric = builtins.assertEqualGeneric;
 
+// Re-export bytes helper for codegen
+pub const extractBytesData = builtins.extractBytesData;
+
 // Re-export compile_builtin from Python/ast.zig for codegen
 pub const compile_builtin = @import("Python/ast.zig").compile_builtin;
 
@@ -1114,6 +1117,7 @@ pub const Lib = struct {
     pub const _py_abc = @import("Lib/_py_abc.zig");
     pub const @"struct" = @import("Lib/struct.zig");
     pub const codecs = @import("Lib/codecs.zig");
+    pub const encodings = @import("Lib/encodings.zig");
     pub const csv = @import("Lib/csv.zig");
     pub const heapq = @import("Lib/heapq.zig");
     pub const numbers = @import("Lib/numbers.zig");

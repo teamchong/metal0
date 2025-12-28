@@ -147,7 +147,7 @@ fn stdprinter_noop(self_obj: ?*cpython.PyObject, ignored: ?*cpython.PyObject) ca
     _ = ignored;
     // Return None
     const none = @import("noneobject.zig");
-    return none._Py_NoneStruct();
+    return &none._Py_NoneStruct;
 }
 
 /// PyStdPrinter_Type - the std printer type object

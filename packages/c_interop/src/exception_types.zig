@@ -13,7 +13,15 @@ const cpython = @import("include/object.zig");
 // Type aliases
 const PyObject = cpython.PyObject;
 const PyUnicodeObject = cpython.PyUnicodeObject;
-const PyTracebackObject = cpython.PyTracebackObject;
+
+// PyTracebackObject - simplified for c_interop
+const PyTracebackObject = extern struct {
+    ob_base: PyObject,
+    tb_next: ?*PyTracebackObject,
+    tb_frame: ?*anyopaque, // PyFrameObject
+    tb_lasti: c_int,
+    tb_lineno: c_int,
+};
 
 // Local ExceptionImpl - generates exception structs with comptime-conditional fields
 pub const exception_impl = struct {

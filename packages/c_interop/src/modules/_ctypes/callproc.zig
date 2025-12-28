@@ -142,7 +142,7 @@ fn convertPyToC(obj: *cpython.PyObject, tag: u8) ?CValue {
 
         FFI_TYPE_POINTER => {
             // None -> NULL
-            if (obj == noneobject._Py_NoneStruct()) {
+            if (obj == &noneobject._Py_NoneStruct) {
                 return CValue{ .v_pointer = null };
             }
             // bytes -> char*
@@ -236,7 +236,7 @@ fn convertCToPy(value: CValue, tag: u8) ?*cpython.PyObject {
 
     switch (tag) {
         FFI_TYPE_VOID => {
-            const none = noneobject._Py_NoneStruct();
+            const none = &noneobject._Py_NoneStruct;
             cpython.Py_INCREF(none);
             return none;
         },
@@ -279,7 +279,7 @@ fn convertCToPy(value: CValue, tag: u8) ?*cpython.PyObject {
 
         FFI_TYPE_POINTER => {
             if (value.v_pointer == null) {
-                const none = noneobject._Py_NoneStruct();
+                const none = &noneobject._Py_NoneStruct;
                 cpython.Py_INCREF(none);
                 return none;
             }
@@ -287,7 +287,7 @@ fn convertCToPy(value: CValue, tag: u8) ?*cpython.PyObject {
         },
 
         else => {
-            const none = noneobject._Py_NoneStruct();
+            const none = &noneobject._Py_NoneStruct;
             cpython.Py_INCREF(none);
             return none;
         },
@@ -375,7 +375,7 @@ pub export fn _ctypes_callproc(
     // Convert result to Python
     const py_result = convertCToPy(result, ret_tag);
     if (py_result == null) {
-        const none = noneobject._Py_NoneStruct();
+        const none = &noneobject._Py_NoneStruct;
         cpython.Py_INCREF(none);
         return none;
     }
@@ -391,7 +391,7 @@ fn inferTypeTag(obj: *cpython.PyObject) u8 {
     const pyunicode = @import("../../objects/unicodeobject.zig");
     const noneobject = @import("../../objects/noneobject.zig");
 
-    if (obj == noneobject._Py_NoneStruct()) return FFI_TYPE_POINTER;
+    if (obj == &noneobject._Py_NoneStruct) return FFI_TYPE_POINTER;
     if (pylong.PyLong_Check(obj)) return FFI_TYPE_SINT64;
     if (pyfloat.PyFloat_Check(obj) != 0) return FFI_TYPE_DOUBLE;
     if (pybytes.PyBytes_Check(obj) != 0) return FFI_TYPE_POINTER;
@@ -722,7 +722,7 @@ pub export fn ConvParam(obj: ?*cpython.PyObject, index: c_int, pa: ?*ctypes.PyCA
     const noneobject = @import("../../objects/noneobject.zig");
 
     // Handle None -> NULL pointer
-    if (obj.? == noneobject._Py_NoneStruct()) {
+    if (obj.? == &noneobject._Py_NoneStruct) {
         pa.?.tag = FFI_TYPE_POINTER;
         pa.?.value = .{ .D = 0 };
         pa.?.size = @sizeOf(*anyopaque);
