@@ -489,6 +489,11 @@ pub fn genZeroCaptureClosure(
 
         try self.emit(" = struct {\n");
         self.indent();
+        // Add __name__ and __dict__ fields for Python function attribute compatibility
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("__name__: []const u8 = \"{s}\",\n", .{func.name});
+        try self.emitIndent();
+        try self.emit("__dict__: ?*anyopaque = null,\n");
         try self.emitIndent();
         try self.output.writer(self.allocator).print("pub fn call(_: @This(), {s}: anytype) !{s} {{\n", .{ unique_param, return_type_str.items });
         self.indent();
@@ -536,6 +541,11 @@ pub fn genZeroCaptureClosure(
 
         try self.emit(" = struct {\n");
         self.indent();
+        // Add __name__ and __dict__ fields for Python function attribute compatibility
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("__name__: []const u8 = \"{s}\",\n", .{func.name});
+        try self.emitIndent();
+        try self.emit("__dict__: ?*anyopaque = null,\n");
         try self.emitIndent();
         try self.emit("pub fn call(_: @This()");
         for (param_names.items) |unique_name| {
@@ -786,6 +796,9 @@ pub fn genModuleLevelZeroCaptureClosure(
     // Generate wrapper type with the specified type_name
     // This wrapper calls the impl struct
     try self.output.writer(self.allocator).print("const {s} = struct {{\n", .{type_name});
+    // Add __name__ and __dict__ fields for Python function attribute compatibility
+    try self.output.writer(self.allocator).print("    __name__: []const u8 = \"{s}\",\n", .{func.name});
+    try self.emit("    __dict__: ?*anyopaque = null,\n");
     try self.emit("    pub fn call(_: @This()");
 
     // Parameter list for wrapper

@@ -1795,6 +1795,46 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Check for default_factory assignment (defaultdict)
+            // d.default_factory = list  ->  d.default_factory = .list
+            // d.default_factory = None  ->  d.default_factory = .none
+            if (std.mem.eql(u8, attr.attr, "default_factory")) {
+                try self.emitIndent();
+                try self.genExpr(target);
+                try self.emit(" = ");
+                // Map Python type names to FactoryType enum values
+                if (assign.value.* == .name) {
+                    const val_name = assign.value.name.id;
+                    if (std.mem.eql(u8, val_name, "list")) {
+                        try self.emit(".list");
+                    } else if (std.mem.eql(u8, val_name, "int")) {
+                        try self.emit(".int");
+                    } else if (std.mem.eql(u8, val_name, "str")) {
+                        try self.emit(".str");
+                    } else if (std.mem.eql(u8, val_name, "dict")) {
+                        try self.emit(".dict");
+                    } else if (std.mem.eql(u8, val_name, "set")) {
+                        try self.emit(".set");
+                    } else if (std.mem.eql(u8, val_name, "None")) {
+                        try self.emit(".none");
+                    } else {
+                        // Custom callable - use custom factory
+                        try self.emitFmt("runtime.FactoryType{{ .custom = \"{s}\" }}", .{val_name});
+                    }
+                } else if (assign.value.* == .constant) {
+                    // Check if constant is None
+                    switch (assign.value.constant.value) {
+                        .none => try self.emit(".none"),
+                        else => try self.genExpr(assign.value.*),
+                    }
+                } else {
+                    // Fallback: emit as-is (may fail, but at least shows intent)
+                    try self.genExpr(assign.value.*);
+                }
+                try self.emit(";\n");
+                return;
+            }
+
             // Check for ctypes argtypes/restype assignment: strlen.argtypes = [...], strlen.restype = c_int
             if (attr.value.* == .name) {
                 const var_name = attr.value.name.id;
@@ -2031,7 +2071,20 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     return;
                 }
 
-                if (container_traits.isDict(container_type)) {
+                if (container_type == .defaultdict) {
+                    // defaultdict assignment: d.put(key, runtime.PyValue.from(value))
+                    try self.emit("try ");
+                    if (is_nested) {
+                        try self.genSubscriptLHS(subscript.value.subscript);
+                    } else {
+                        try self.genExpr(subscript.value.*);
+                    }
+                    try self.emit(".put(");
+                    try self.genExpr(subscript.slice.index.*);
+                    try self.emit(", runtime.PyValue.from(");
+                    try self.genExpr(assign.value.*);
+                    try self.emit("));\n");
+                } else if (container_traits.isDict(container_type)) {
                     // Dict assignment: dict.put(key, value)
                     // Check if dict has PyValue values - if so, wrap the value
                     const dict_value_type = container_type.dict.value.*;

@@ -1,9 +1,10 @@
 /// Unary operations: not, -, +, ~
 /// Handles boolean negation, numeric negation, positive, and bitwise inversion
 ///
-/// MIGRATION STATUS: Using ZigBuilder for structured code generation
+/// MIGRATION STATUS: Fully migrated to ZigBuilder pattern
 /// - Uses captureExpr() to bridge AST expressions to ZigValue
-/// - Emits using emitZigValue() for type-safe output
+/// - Uses builder.write() for all output
+/// - Uses self.emitZigValue() for ZigValue emission
 const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
@@ -18,90 +19,7 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const bigint_ops = @import("bigint_ops.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
-
-// MIGRATED TO ZIGBUILDER
-
-// ============================================
-// Unary operation helpers - auto-closing patterns
-// ============================================
-
-/// Emit method call on operand: (operand).method()
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitMethodCall(self: *NativeCodegen, operand: ZigValue, method: []const u8) CodegenError!void {
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-        }
-    }.f);
-    try self.emit(".");
-    try self.emit(method);
-    try self.emit("()");
-}
-
-/// Emit negation: -(operand)
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitNegate(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("-");
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-        }
-    }.f);
-}
-
-/// Emit logical not: !(operand)
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitLogicalNot(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("!");
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-        }
-    }.f);
-}
-
-/// Emit runtime function with allocator: runtime.func(operand, __global_allocator)
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitRuntimeUnary(self: *NativeCodegen, func: []const u8, operand: ZigValue) CodegenError!void {
-    try self.emit(func);
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-            try s.emit(", __global_allocator");
-        }
-    }.f);
-}
-
-/// Emit bool-to-int with prefix: prefix@as(i64, @intFromBool(operand))suffix
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitBoolToInt(self: *NativeCodegen, prefix: []const u8, operand: ZigValue, suffix: []const u8) CodegenError!void {
-    try self.emit(prefix);
-    try self.emit("@as(i64, @intFromBool");
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-        }
-    }.f);
-    try self.emit(")");
-    try self.emit(suffix);
-}
-
-/// Emit runtime.toBool wrapper: !runtime.toBool(operand)
-/// Uses auto-close pattern to guarantee matching parentheses
-fn emitNotToBool(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("!runtime.toBool");
-    const Ctx = struct { o: ZigValue };
-    try self.withParensCtx(Ctx{ .o = operand }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emitZigValue(ctx.o);
-        }
-    }.f);
-}
+const ZigBuilder = builder_mod.ZigBuilder;
 
 /// Generate unary operations (not, -, ~)
 pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
@@ -118,12 +36,14 @@ pub fn genUnaryOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!
 fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     const operand_type = try self.inferExprScoped(unaryop.operand.*);
     const operand = try self.captureExpr(unaryop.operand.*);
+    const b = try self.getBuilder();
 
     // PyValue: use .isTruthy() method (must check first as PyValue can hold any type)
     if (operand_type == .pyvalue) {
-        try self.emit("!");
+        try b.write("!");
         try self.emitZigValue(operand);
-        try self.emit(".isTruthy()");
+        try b.write(".isTruthy()");
+        try self.flushBuilder();
         return;
     }
 
@@ -132,82 +52,107 @@ fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     if (unaryop.operand.* == .name) {
         const var_name = unaryop.operand.name.id;
         if (self.pyvalue_vars.contains(var_name)) {
-            try self.emit("!");
+            try b.write("!");
             try self.emitZigValue(operand);
-            try self.emit(".isTruthy()");
+            try b.write(".isTruthy()");
+            try self.flushBuilder();
             return;
         }
     }
 
     if (string_traits.isString(operand_type)) {
         // String: not "abc" -> len == 0
-        try self.emit("(");
+        try b.write("(");
         try self.emitZigValue(operand);
-        try self.emit(").len == 0");
+        try b.write(").len == 0");
     } else if (container_traits.isList(operand_type)) {
         // List: not lst -> !runtime.toBool(lst)
-        try emitNotToBool(self, operand);
+        try b.write("!runtime.toBool(");
+        try self.emitZigValue(operand);
+        try b.write(")");
     } else if (container_traits.isTuple(operand_type)) {
         // Tuple: not tup -> len == 0
-        try self.emit("(@typeInfo(@TypeOf(");
+        try b.write("(@typeInfo(@TypeOf(");
         try self.emitZigValue(operand);
-        try self.emit(")).@\"struct\".fields.len == 0)");
+        try b.write(")).@\"struct\".fields.len == 0)");
     } else if (shared.isEmptyTuple(unaryop.operand.*)) {
         // Empty tuple literal: not () -> true
-        try self.emit("true");
+        try b.write("true");
     } else if (unaryop.operand.* == .tuple) {
         // Non-empty tuple literal: not (1,2) -> false
-        try self.emit("false");
+        try b.write("false");
     } else if (type_traits.isBoolean(operand_type) or type_traits.isIntegral(operand_type) or type_traits.isFloating(operand_type)) {
-        // Primitives: not x -> !x
-        try emitLogicalNot(self, operand);
+        // Primitives: not x -> !(x)
+        try b.write("!(");
+        try self.emitZigValue(operand);
+        try b.write(")");
     } else {
         // Fallback: runtime.toBool
-        try emitNotToBool(self, operand);
+        try b.write("!runtime.toBool(");
+        try self.emitZigValue(operand);
+        try b.write(")");
     }
+    try self.flushBuilder();
 }
 
 /// Generate numeric negation: -x
 fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     const operand_type = try self.inferExprScoped(unaryop.operand.*);
+    const b = try self.getBuilder();
 
     // PyValue: use .neg() method
     if (operand_type == .pyvalue) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitMethodCall(self, operand, "neg");
+        try b.write("(");
+        try self.emitZigValue(operand);
+        try b.write(").neg()");
+        try self.flushBuilder();
         return;
     }
 
     // Boolean: -True/-False -> -@intFromBool
     if (type_traits.isBoolean(operand_type)) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitBoolToInt(self, "-", operand, "");
+        try b.write("-@as(i64, @intFromBool(");
+        try self.emitZigValue(operand);
+        try b.write("))");
+        try self.flushBuilder();
         return;
     }
 
     // Complex: use .neg() method
     if (operand_type == .complex) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitMethodCall(self, operand, "neg");
+        try b.write("(");
+        try self.emitZigValue(operand);
+        try b.write(").neg()");
+        try self.flushBuilder();
         return;
     }
 
     // UnifiedInt: use runtime helper
     if (operand_type == .unified_int) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitRuntimeUnary(self, "runtime.unified_int_ops.neg", operand);
+        try b.write("runtime.unified_int_ops.neg(");
+        try self.emitZigValue(operand);
+        try b.write(", __global_allocator)");
+        try self.flushBuilder();
         return;
     }
 
     // BigInt: use runtime helper
     if (operand_type == .bigint) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitRuntimeUnary(self, "runtime.bigint_ops.neg", operand);
+        try b.write("runtime.bigint_ops.neg(");
+        try self.emitZigValue(operand);
+        try b.write(", __global_allocator)");
+        try self.flushBuilder();
         return;
     }
 
     // Unknown type: use block expression with type dispatch
     if (type_traits.isUnknown(operand_type)) {
+        try self.flushBuilder();
         var em = self.exprEmitter();
         try em.withBlock("unk", bigint_ops.UnknownNegateCtx{
             .cg = self,
@@ -219,20 +164,28 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
 
     // Default: simple negation
     const operand = try self.captureExpr(unaryop.operand.*);
-    try emitNegate(self, operand);
+    try b.write("-(");
+    try self.emitZigValue(operand);
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 /// Generate unary positive: +x
 /// Python: +x -> x (with bool conversion to int)
 fn genPosOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     const operand_type = try self.inferExprScoped(unaryop.operand.*);
+    const b = try self.getBuilder();
 
     if (type_traits.isBoolean(operand_type)) {
         // Boolean: +True -> 1, +False -> 0
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitBoolToInt(self, "", operand, "");
+        try b.write("@as(i64, @intFromBool(");
+        try self.emitZigValue(operand);
+        try b.write("))");
+        try self.flushBuilder();
     } else {
         // Others: just emit the operand
+        try self.flushBuilder();
         try genExpr(self, unaryop.operand.*);
     }
 }
@@ -240,6 +193,7 @@ fn genPosOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
 /// Generate bitwise inversion: ~x
 fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     const operand_type = try self.inferExprScoped(unaryop.operand.*);
+    const b = try self.getBuilder();
 
     // Check if operand is a PyValue variable
     const is_pyvalue = if (unaryop.operand.* == .name) blk: {
@@ -251,7 +205,10 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
 
     if (is_pyvalue) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitMethodCall(self, operand, "pyInvert");
+        try b.write("(");
+        try self.emitZigValue(operand);
+        try b.write(").pyInvert()");
+        try self.flushBuilder();
         return;
     }
 
@@ -275,19 +232,26 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
     if (is_bool) {
         // Boolean: ~True -> ~1 = -2
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitBoolToInt(self, "~", operand, "");
+        try b.write("~@as(i64, @intFromBool(");
+        try self.emitZigValue(operand);
+        try b.write("))");
+        try self.flushBuilder();
         return;
     }
 
     // UnifiedInt: use runtime helper
     if (operand_type == .unified_int) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try emitRuntimeUnary(self, "runtime.unified_int_ops.bitNot", operand);
+        try b.write("runtime.unified_int_ops.bitNot(");
+        try self.emitZigValue(operand);
+        try b.write(", __global_allocator)");
+        try self.flushBuilder();
         return;
     }
 
     // BigInt: use block expression for clone + negate
     if (operand_type == .bigint) {
+        try self.flushBuilder();
         var em = self.exprEmitter();
         try em.withBlock("inv", bigint_ops.BigIntInvertCtx{
             .cg = self,
@@ -299,7 +263,8 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
 
     // Default: simple bitwise invert with i64 cast
     const operand = try self.captureExpr(unaryop.operand.*);
-    try self.emit("~@as(i64, ");
+    try b.write("~@as(i64, ");
     try self.emitZigValue(operand);
-    try self.emit(")");
+    try b.write(")");
+    try self.flushBuilder();
 }

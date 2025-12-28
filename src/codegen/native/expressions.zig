@@ -16,6 +16,7 @@ const container_traits = @import("../../analysis/traits/container_traits.zig");
 /// This map handles bare name references like `for T in (int, float, complex):`
 const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
     // Numeric types - used in isinstance checks and type tuples
+    // Note: int maps to i64 (the Zig type), NOT runtime.builtins.int_factory
     .{ "int", "i64" },
     .{ "float", "f64" },
     .{ "bool", "bool" },
@@ -24,6 +25,10 @@ const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
     .{ "True", "true" },
     .{ "False", "false" },
     // Factories for mutable types (create empty instances)
+    .{ "list", "runtime.builtins.list" },
+    .{ "dict", "runtime.builtins.dict" },
+    .{ "set", "runtime.builtins.set" },
+    .{ "tuple", "runtime.builtins.tuple" },
     .{ "str", "runtime.builtins.str_factory" },
     .{ "bytes", "runtime.builtins.bytes_factory" },
     .{ "bytearray", "runtime.builtins.bytearray_factory" },
@@ -180,6 +185,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Handle Python type names as type values
             if (PyTypeNames.get(name_to_use)) |zig_code| {
                 try self.emit(zig_code);
+                return;
             } else if (isPythonExceptionType(name_to_use)) {
                 // Python exception types - emit as integer enum value for storage in lists/tuples
                 // E.g., ValueError -> @intFromEnum(runtime.ExceptionTypeId.ValueError)

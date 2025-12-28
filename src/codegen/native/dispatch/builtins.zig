@@ -448,15 +448,72 @@ fn genDictFromKwargs(self: *NativeCodegen, kwargs: []const ast.Node.KeywordArg) 
     try self.emitFmt("dict_{d}: {{\n", .{id});
     self.indent();
 
-    // Create the dict with string values on stack - will be copied on break
+    // Infer value type from first keyword argument
+    // If all values are same type, use that type; otherwise use runtime.PyValue
+    const value_type = blk: {
+        if (kwargs.len == 0) break :blk "runtime.PyValue";
+        const first = kwargs[0].value;
+        if (first == .constant) {
+            switch (first.constant.value) {
+                .int => {
+                    // Check if all values are ints
+                    for (kwargs) |kw| {
+                        if (kw.value != .constant or kw.value.constant.value != .int) {
+                            break :blk "runtime.PyValue";
+                        }
+                    }
+                    break :blk "i64";
+                },
+                .float => {
+                    for (kwargs) |kw| {
+                        if (kw.value != .constant or kw.value.constant.value != .float) {
+                            break :blk "runtime.PyValue";
+                        }
+                    }
+                    break :blk "f64";
+                },
+                .string, .bytes => {
+                    for (kwargs) |kw| {
+                        if (kw.value != .constant) break :blk "runtime.PyValue";
+                        const cv = kw.value.constant.value;
+                        if (cv != .string and cv != .bytes) break :blk "runtime.PyValue";
+                    }
+                    break :blk "[]const u8";
+                },
+                .bool => {
+                    for (kwargs) |kw| {
+                        if (kw.value != .constant or kw.value.constant.value != .bool) {
+                            break :blk "runtime.PyValue";
+                        }
+                    }
+                    break :blk "bool";
+                },
+                // None needs runtime.PyValue - @TypeOf(null) is comptime-only
+                .none => break :blk "runtime.PyValue",
+                else => break :blk "runtime.PyValue",
+            }
+        } else {
+            // Non-constant value - use PyValue for safety
+            break :blk "runtime.PyValue";
+        }
+    };
+
+    // Create the dict with inferred value type
     try self.emitIndent();
-    try self.emit("var _map = hashmap_helper.StringHashMap([]const u8).init(__global_allocator);\n");
+    try self.emitFmt("var _map = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{value_type});
 
     // Insert each keyword argument
+    const needs_wrap = std.mem.eql(u8, value_type, "runtime.PyValue");
     for (kwargs) |kwarg| {
         try self.emitIndent();
         try self.emitFmt("_map.put(\"{s}\", ", .{kwarg.name});
-        try self.genExpr(kwarg.value);
+        if (needs_wrap) {
+            try self.emit("runtime.PyValue.from(");
+            try self.genExpr(kwarg.value);
+            try self.emit(")");
+        } else {
+            try self.genExpr(kwarg.value);
+        }
         try self.emit(") catch unreachable;\n");
     }
 

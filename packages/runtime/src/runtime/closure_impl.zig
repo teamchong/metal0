@@ -119,6 +119,8 @@ pub fn TypedClosure0(comptime CaptureT: type, comptime RetT: type, comptime func
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self) RetT {
             return @call(.auto, func, .{self.captures});
@@ -131,6 +133,8 @@ pub fn TypedClosure1(comptime CaptureT: type, comptime Arg1T: type, comptime Ret
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T) RetT {
             return @call(.auto, func, .{ self.captures, arg1 });
@@ -143,6 +147,8 @@ pub fn TypedClosure2(comptime CaptureT: type, comptime Arg1T: type, comptime Arg
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T) RetT {
             return @call(.auto, func, .{ self.captures, arg1, arg2 });
@@ -155,6 +161,8 @@ pub fn TypedClosure3(comptime CaptureT: type, comptime Arg1T: type, comptime Arg
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T) RetT {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3 });
@@ -167,6 +175,8 @@ pub fn TypedClosure4(comptime CaptureT: type, comptime Arg1T: type, comptime Arg
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T) RetT {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4 });
@@ -179,6 +189,8 @@ pub fn TypedClosure5(comptime CaptureT: type, comptime Arg1T: type, comptime Arg
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T, arg5: Arg5T) RetT {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5 });
@@ -191,6 +203,8 @@ pub fn TypedClosure6(comptime CaptureT: type, comptime Arg1T: type, comptime Arg
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T, arg5: Arg5T, arg6: Arg6T) RetT {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6 });
@@ -203,6 +217,8 @@ pub fn TypedClosure7(comptime CaptureT: type, comptime Arg1T: type, comptime Arg
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: Arg1T, arg2: Arg2T, arg3: Arg3T, arg4: Arg4T, arg5: Arg5T, arg6: Arg6T, arg7: Arg7T) RetT {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6, arg7 });
@@ -222,6 +238,8 @@ pub fn AnyClosure0(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self) RetType {
             return @call(.auto, func, .{self.captures});
@@ -234,6 +252,8 @@ pub fn AnyClosure1(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg })) {
             return @call(.auto, func, .{ self.captures, arg });
@@ -246,6 +266,8 @@ pub fn AnyClosure2(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: anytype, arg2: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2 })) {
             return @call(.auto, func, .{ self.captures, arg1, arg2 });
@@ -258,6 +280,8 @@ pub fn AnyClosure3(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3 })) {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3 });
@@ -270,6 +294,8 @@ pub fn AnyClosure4(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4 })) {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4 });
@@ -282,6 +308,8 @@ pub fn AnyClosure5(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype, arg5: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5 })) {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5 });
@@ -294,6 +322,8 @@ pub fn AnyClosure6(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype, arg5: anytype, arg6: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6 })) {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6 });
@@ -306,6 +336,8 @@ pub fn AnyClosure7(comptime CaptureT: type, comptime func: anytype) type {
     return struct {
         const Self = @This();
         captures: CaptureT,
+        __name__: []const u8 = "",
+        __dict__: ?*anyopaque = null,
 
         pub fn call(self: Self, arg1: anytype, arg2: anytype, arg3: anytype, arg4: anytype, arg5: anytype, arg6: anytype, arg7: anytype) @TypeOf(@call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6, arg7 })) {
             return @call(.auto, func, .{ self.captures, arg1, arg2, arg3, arg4, arg5, arg6, arg7 });

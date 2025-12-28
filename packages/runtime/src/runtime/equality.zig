@@ -358,6 +358,51 @@ pub fn pyIdentical(a: anytype, b: anytype) bool {
         }
     }
 
+    // Handle PyValue vs primitive type comparison
+    // For Python singletons (True, False, None), identity == equality
+    if (A == PyValue) {
+        // a is PyValue, b is primitive - extract a's value and compare
+        return switch (a) {
+            .bool => |av| if (B == bool) av == b else false,
+            .int => |av| if (B == i64 or B == comptime_int) av == @as(i64, @intCast(b)) else false,
+            .float => |av| if (B == f64 or B == comptime_float) av == @as(f64, @floatCast(b)) else false,
+            .string => |av| if (B == []const u8) std.mem.eql(u8, av, b) else false,
+            .none => if (b_info == .null) true else false,
+            else => false,
+        };
+    }
+    if (B == PyValue) {
+        // b is PyValue, a is primitive - extract b's value and compare
+        return switch (b) {
+            .bool => |bv| if (A == bool) a == bv else false,
+            .int => |bv| if (A == i64 or A == comptime_int) @as(i64, @intCast(a)) == bv else false,
+            .float => |bv| if (A == f64 or A == comptime_float) @as(f64, @floatCast(a)) == bv else false,
+            .string => |bv| if (A == []const u8) std.mem.eql(u8, a, bv) else false,
+            .none => if (a_info == .null) true else false,
+            else => false,
+        };
+    }
+
+    // Handle *PyObject vs bool comparison (for pickle.loads returning Py_True/Py_False)
+    if (a_info == .pointer and a_info.pointer.child == CpythonPyObject and B == bool) {
+        // a is *PyObject, b is bool - compare against singleton
+        const runtime_mod = @import("../runtime.zig");
+        if (b) {
+            return a == runtime_mod.Py_True;
+        } else {
+            return a == runtime_mod.Py_False;
+        }
+    }
+    if (b_info == .pointer and b_info.pointer.child == CpythonPyObject and A == bool) {
+        // b is *PyObject, a is bool - compare against singleton
+        const runtime_mod = @import("../runtime.zig");
+        if (a) {
+            return b == runtime_mod.Py_True;
+        } else {
+            return b == runtime_mod.Py_False;
+        }
+    }
+
     // Different incompatible types - not identical
     return false;
 }

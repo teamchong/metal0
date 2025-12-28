@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const hashmap_helper = @import("utils.hashmap_helper");
+const dynload = @import("dynload_shlib.zig");
 
 // ============================================================================
 // Import Errors
@@ -178,8 +179,8 @@ pub const LoadedModule = struct {
     name: []const u8,
     /// Module file path
     path: []const u8,
-    /// Handle to loaded library
-    handle: ?*anyopaque = null,
+    /// Shared library loader
+    loader: ?dynload.SharedLibLoader = null,
     /// Module definition
     def: ?ModuleDef = null,
     /// Module object (PyObject*)
@@ -200,28 +201,56 @@ pub const LoadedModule = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        // Would unload the library
-        self.handle = null;
+        if (self.loader) |*loader| {
+            loader.deinit();
+        }
+        self.loader = null;
         self.initialized = false;
     }
 
-    /// Load the module
+    /// Load the module using real dynamic library loading
     pub fn load(self: *Self) ImportError!void {
-        // Simulate loading
-        self.handle = @as(*anyopaque, @ptrFromInt(@intFromPtr(self.path.ptr)));
+        // Initialize the shared library loader
+        self.loader = dynload.SharedLibLoader.init(self.allocator);
 
-        // Find init function
-        const init_name = try self.getInitFunctionName();
-        _ = init_name;
+        // Load the shared library
+        self.loader.?.load(self.path, .{ .now = true, .local = true }) catch |err| {
+            return switch (err) {
+                dynload.DLError.LibraryNotFound => ImportError.ModuleNotFound,
+                dynload.DLError.PermissionDenied => ImportError.LoadError,
+                else => ImportError.LoadError,
+            };
+        };
 
-        // Would call dlsym/GetProcAddress here
-        self.init_func = null; // Simulated
+        // Build PyInit_<modname> function name
+        const init_name = self.getInitFunctionName() catch return ImportError.OutOfMemory;
+        defer self.allocator.free(init_name);
+
+        // Look up the init function symbol
+        const init_symbol = self.loader.?.getSymbol(init_name) catch {
+            return ImportError.InitFunctionNotFound;
+        };
+
+        self.init_func = @ptrCast(init_symbol);
     }
 
-    /// Get the PyInit function name
-    fn getInitFunctionName(self: *const Self) ![]const u8 {
-        _ = self;
-        return "PyInit_module";
+    /// Get the PyInit function name (PyInit_<modname>)
+    fn getInitFunctionName(self: *const Self) ![]u8 {
+        // Extract module name from full path if needed
+        const mod_name = blk: {
+            // Find last component of module name (after last .)
+            if (std.mem.lastIndexOfScalar(u8, self.name, '.')) |idx| {
+                break :blk self.name[idx + 1 ..];
+            }
+            break :blk self.name;
+        };
+
+        // Build "PyInit_<modname>"
+        const prefix = "PyInit_";
+        const result = try self.allocator.alloc(u8, prefix.len + mod_name.len);
+        @memcpy(result[0..prefix.len], prefix);
+        @memcpy(result[prefix.len..], mod_name);
+        return result;
     }
 
     /// Initialize the module

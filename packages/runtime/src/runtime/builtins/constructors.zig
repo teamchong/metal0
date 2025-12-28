@@ -27,6 +27,13 @@ fn isPyObjectType(comptime T: type) bool {
         @hasField(ChildT, "ob_type");
 }
 
+/// int() type constructor - factory that returns 0 (for defaultdict(int))
+pub const int = struct {
+    pub fn call(_: @This()) i64 {
+        return 0;
+    }
+}{};
+
 /// list() type constructor
 pub const list = struct {
     pub fn call(_: @This(), allocator: std.mem.Allocator, arg: anytype) !*PyObject {

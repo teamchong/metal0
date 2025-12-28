@@ -154,6 +154,57 @@ pub fn inferMethodCall(
         }
     }
 
+    // DefaultDict methods
+    if (obj_type == .defaultdict) {
+        const method_hash = fnv_hash.hash(method_name);
+        const COPY_HASH = comptime fnv_hash.hash("copy");
+        const KEYS_HASH = comptime fnv_hash.hash("keys");
+        const VALUES_HASH = comptime fnv_hash.hash("values");
+        const ITEMS_HASH = comptime fnv_hash.hash("items");
+        const GET_HASH = comptime fnv_hash.hash("get");
+        const POP_HASH = comptime fnv_hash.hash("pop");
+        const SETDEFAULT_HASH = comptime fnv_hash.hash("setdefault");
+        const UPDATE_HASH = comptime fnv_hash.hash("update");
+        const CLEAR_HASH = comptime fnv_hash.hash("clear");
+
+        switch (method_hash) {
+            COPY_HASH => {
+                // copy returns same defaultdict type
+                return .defaultdict;
+            },
+            KEYS_HASH => {
+                // keys returns list of int (since IntDefaultDict uses i64 keys)
+                const elem_ptr = try allocator.create(NativeType);
+                elem_ptr.* = .{ .int = .bounded };
+                return .{ .list = elem_ptr };
+            },
+            VALUES_HASH => {
+                // values returns list of PyValue
+                const elem_ptr = try allocator.create(NativeType);
+                elem_ptr.* = .pyvalue;
+                return .{ .list = elem_ptr };
+            },
+            ITEMS_HASH => {
+                // items returns list of (int, PyValue) tuples
+                const tuple_types = try allocator.alloc(NativeType, 2);
+                tuple_types[0] = .{ .int = .bounded };
+                tuple_types[1] = .pyvalue;
+                const tuple_ptr = try allocator.create(NativeType);
+                tuple_ptr.* = .{ .tuple = tuple_types };
+                return .{ .list = tuple_ptr };
+            },
+            GET_HASH, POP_HASH, SETDEFAULT_HASH => {
+                // get/pop/setdefault return PyValue
+                return .pyvalue;
+            },
+            UPDATE_HASH, CLEAR_HASH => {
+                // update/clear return None
+                return .none;
+            },
+            else => {},
+        }
+    }
+
     // Path methods
     if (obj_type == .path) {
         const method_hash = fnv_hash.hash(method_name);

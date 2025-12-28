@@ -36,11 +36,12 @@ fn genDumps(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
-        try self.emit("runtime.pickle.PickleValue{ .none = {} }");
+        try self.emit("runtime.Py_None");
         return;
     }
     // Use the compile-once helper to avoid @TypeOf introspection at each call site
     // This prevents comptime explosion when pickle.loads is called in loops
+    // Returns *PyObject like json.loads() for Python compatibility
     try self.emit("runtime.pickle.loadsAny(");
     try self.genExpr(args[0]);
     try self.emit(", __global_allocator)");
@@ -61,14 +62,15 @@ fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
-        try self.emit("runtime.pickle.PickleValue{ .none = {} }");
+        try self.emit("runtime.Py_None");
         return;
     }
+    // pickle.load() now returns *PyObject like json.load()
     try self.withInlineBlock("pickle_load", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             try c.emit("const _file = ");
             try c.genExpr(a[0]);
-            try c.emitFmt("; const _content = _file.readToEndAlloc(__global_allocator, 100 * 1024 * 1024) catch break :{s} runtime.pickle.PickleValue{{ .none = {{}} }}; break :{s} (runtime.pickle.loads(_content, __global_allocator) catch runtime.pickle.PickleValue{{ .none = {{}} }})", .{ label, label });
+            try c.emitFmt("; const _content = _file.readToEndAlloc(__global_allocator, 100 * 1024 * 1024) catch break :{s} runtime.Py_None; break :{s} (runtime.pickle.loads(_content, __global_allocator) catch runtime.Py_None)", .{ label, label });
         }
     }.emit);
 }

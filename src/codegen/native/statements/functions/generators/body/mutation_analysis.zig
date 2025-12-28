@@ -5,6 +5,17 @@ const NativeCodegen = @import("../../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../../main.zig").CodegenError;
 const hashmap_helper = @import("utils.hashmap_helper");
 
+/// Extract the base variable name from nested expressions
+/// e.g., d.foo.bar -> "d", x[0].attr -> "x"
+fn getBaseName(node: ast.Node) ?[]const u8 {
+    return switch (node) {
+        .name => |name| name.id,
+        .attribute => |attr| getBaseName(attr.value.*),
+        .subscript => |sub| getBaseName(sub.value.*),
+        else => null,
+    };
+}
+
 /// Check if a method mutates self (assigns to self.field or self.field[key])
 /// Also returns true if method returns self (needed for nested classes where returning self
 /// requires mutable pointer since return type is *@This() not *const @This())
@@ -525,6 +536,12 @@ pub fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.Functi
         try countAssignmentsWithScope(&aug_assign_vars, &scoped_counts, stmt, 0, self.allocator);
     }
 
+    // Also mark defaultdict variables that have subscript access as needing mutation
+    // Because d[key] on defaultdict triggers __missing__ which modifies the dict
+    for (func.body) |stmt| {
+        try markDefaultdictSubscriptMutations(self, &aug_assign_vars, stmt);
+    }
+
     // Mark aug_assign variables as mutated (with scope 0 - function level)
     // aug_assign means mutation regardless of scope
     // Also track separately for shadow variable detection
@@ -566,6 +583,14 @@ pub fn analyzeModuleLevelMutations(self: *NativeCodegen, module_body: []const as
     for (module_body) |stmt| {
         if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
             try countAssignmentsWithScope(&aug_assign_vars, &scoped_counts, stmt, 0, self.allocator);
+        }
+    }
+
+    // Also mark defaultdict variables that have subscript access as needing mutation
+    // Because d[key] on defaultdict triggers __missing__ which modifies the dict
+    for (module_body) |stmt| {
+        if (stmt != .function_def and stmt != .class_def and stmt != .import_stmt and stmt != .import_from) {
+            try markDefaultdictSubscriptMutations(self, &aug_assign_vars, stmt);
         }
     }
 
@@ -626,6 +651,13 @@ pub fn countAssignmentsWithScope(
                             try aug_vars.put(name, {});
                         }
                     }
+                } else if (target == .attribute) {
+                    // Attribute assignment: d.foo = value mutates d
+                    // Need to mark the base object as needing `var` in Zig
+                    const base_name = getBaseName(target);
+                    if (base_name) |name| {
+                        try aug_vars.put(name, {}); // attribute assign is mutation
+                    }
                 } else if (target == .subscript) {
                     // Subscript assignment: x[0] = value mutates x
                     const subscript = target.subscript;
@@ -661,6 +693,12 @@ pub fn countAssignmentsWithScope(
             // Augmented assignment (+=, -=, etc.) ALWAYS means mutation
             if (aug.target.* == .name) {
                 try aug_vars.put(aug.target.name.id, {});
+            } else if (aug.target.* == .attribute) {
+                // Augmented assignment on attribute: d.count += 1 mutates d
+                const base_name = getBaseName(aug.target.*);
+                if (base_name) |name| {
+                    try aug_vars.put(name, {});
+                }
             } else if (aug.target.* == .subscript) {
                 const subscript = aug.target.subscript;
                 if (subscript.value.* == .name) {
@@ -813,6 +851,164 @@ fn collectNonlocalVarsForMutation(stmt: ast.Node, aug_vars: *hashmap_helper.Stri
         },
         .match_stmt => |m| {
             for (m.cases) |c| for (c.body) |s| try collectNonlocalVarsForMutation(s, aug_vars);
+        },
+        else => {},
+    }
+}
+
+/// Mark defaultdict variables that have subscript access as needing mutation
+/// Because d[key] on defaultdict triggers __missing__ which modifies the dict
+fn markDefaultdictSubscriptMutations(
+    self: *NativeCodegen,
+    aug_vars: *hashmap_helper.StringHashMap(void),
+    stmt: ast.Node,
+) !void {
+    switch (stmt) {
+        .expr_stmt => |expr| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, expr.value.*);
+        },
+        .assign => |assign| {
+            // Scan RHS for defaultdict subscript access
+            try scanExprForDefaultdictSubscript(self, aug_vars, assign.value.*);
+            // Also scan target subscript values (but not as mutations themselves - those are handled elsewhere)
+        },
+        .if_stmt => |if_stmt| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, if_stmt.condition.*);
+            for (if_stmt.body) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+            for (if_stmt.else_body) |else_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, else_stmt);
+            }
+        },
+        .while_stmt => |while_stmt| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, while_stmt.condition.*);
+            for (while_stmt.body) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+            if (while_stmt.orelse_body) |ob| {
+                for (ob) |body_stmt| {
+                    try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+                }
+            }
+        },
+        .for_stmt => |for_stmt| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, for_stmt.iter.*);
+            for (for_stmt.body) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+            if (for_stmt.orelse_body) |ob| {
+                for (ob) |body_stmt| {
+                    try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+                }
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |body_stmt| {
+                    try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+                }
+            }
+            for (try_stmt.else_body) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+            for (try_stmt.finalbody) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+        },
+        .with_stmt => |with_stmt| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, with_stmt.context_expr.*);
+            for (with_stmt.body) |body_stmt| {
+                try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+            }
+        },
+        .match_stmt => |match_stmt| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, match_stmt.subject.*);
+            for (match_stmt.cases) |case| {
+                for (case.body) |body_stmt| {
+                    try markDefaultdictSubscriptMutations(self, aug_vars, body_stmt);
+                }
+            }
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |val| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, val.*);
+            }
+        },
+        else => {},
+    }
+}
+
+/// Scan an expression for defaultdict subscript access
+fn scanExprForDefaultdictSubscript(
+    self: *NativeCodegen,
+    aug_vars: *hashmap_helper.StringHashMap(void),
+    expr: ast.Node,
+) !void {
+    switch (expr) {
+        .subscript => |subscript| {
+            // Check if the subscript base is a defaultdict variable
+            if (subscript.value.* == .name) {
+                const var_name = subscript.value.name.id;
+                // Use type inference to check if it's a defaultdict
+                const var_type = self.type_inferrer.inferExpr(subscript.value.*) catch .unknown;
+                if (var_type == .defaultdict) {
+                    try aug_vars.put(var_name, {});
+                }
+            }
+            // Also recurse into the subscript expression
+            try scanExprForDefaultdictSubscript(self, aug_vars, subscript.value.*);
+            if (subscript.slice == .index) {
+                try scanExprForDefaultdictSubscript(self, aug_vars, subscript.slice.index.*);
+            }
+        },
+        .call => |call| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, call.func.*);
+            for (call.args) |arg| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, arg);
+            }
+        },
+        .attribute => |attr| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, attr.value.*);
+        },
+        .binop => |binop| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, binop.left.*);
+            try scanExprForDefaultdictSubscript(self, aug_vars, binop.right.*);
+        },
+        .unaryop => |unary| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, unary.operand.*);
+        },
+        .compare => |compare| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, compare.left.*);
+            for (compare.comparators) |cmp| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, cmp);
+            }
+        },
+        .if_expr => |if_expr| {
+            try scanExprForDefaultdictSubscript(self, aug_vars, if_expr.condition.*);
+            try scanExprForDefaultdictSubscript(self, aug_vars, if_expr.body.*);
+            try scanExprForDefaultdictSubscript(self, aug_vars, if_expr.orelse_value.*);
+        },
+        .list => |list| {
+            for (list.elts) |elt| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, elt);
+            }
+        },
+        .tuple => |tuple_node| {
+            for (tuple_node.elts) |elt| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, elt);
+            }
+        },
+        .dict => |dict| {
+            for (dict.keys) |key| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, key);
+            }
+            for (dict.values) |val| {
+                try scanExprForDefaultdictSubscript(self, aug_vars, val);
+            }
         },
         else => {},
     }

@@ -237,6 +237,71 @@ fn hasPolymorphicReturnPattern(method: ast.Node.FunctionDef, anytype_params: any
     return has_class_return and has_float_return;
 }
 
+/// Check if a method returns a value derived from calling an anytype parameter
+/// Pattern: def foo(self, wrapper, ...): x = wrapper(func); return x
+/// This requires runtime.PyValue return type because the result depends on runtime type
+fn returnsAnytypeParamCall(method: ast.Node.FunctionDef, anytype_params: anytype) bool {
+    if (anytype_params.count() == 0) return false;
+
+    // Collect variables assigned from calling anytype params
+    var anytype_result_vars: [16][]const u8 = undefined;
+    var result_var_count: usize = 0;
+
+    for (method.body) |stmt| {
+        // Look for: wrapper = method_wrapper(func)
+        if (stmt == .assign) {
+            const assign = stmt.assign;
+            if (assign.targets.len > 0 and assign.targets[0] == .name) {
+                const target_name = assign.targets[0].name.id;
+                // Check if value is a call to an anytype param
+                if (assign.value.* == .call) {
+                    const call = assign.value.call;
+                    if (call.func.* == .name) {
+                        if (anytype_params.contains(call.func.name.id)) {
+                            // This variable holds the result of calling an anytype param
+                            if (result_var_count < 16) {
+                                anytype_result_vars[result_var_count] = target_name;
+                                result_var_count += 1;
+                            }
+                        }
+                    }
+                    // Also check wrapper.init(func) pattern
+                    else if (call.func.* == .attribute) {
+                        const attr = call.func.attribute;
+                        if (attr.value.* == .name) {
+                            if (anytype_params.contains(attr.value.name.id)) {
+                                if (result_var_count < 16) {
+                                    anytype_result_vars[result_var_count] = target_name;
+                                    result_var_count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (result_var_count == 0) return false;
+
+    // Check if method returns any of these variables
+    for (method.body) |stmt| {
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                if (val.* == .name) {
+                    for (anytype_result_vars[0..result_var_count]) |var_name| {
+                        if (std.mem.eql(u8, val.name.id, var_name)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 /// Get the fixed return type for a magic method, or null if not a special method
 pub fn getMagicMethodReturnType(method_name: []const u8) ?[]const u8 {
     return MagicMethodReturnTypes.get(method_name);
@@ -1803,6 +1868,17 @@ pub fn genMethodSignatureWithSkip(
             try self.emit(")) {\n");
             return;
         }
+    }
+
+    // Check if method returns result of calling an anytype parameter
+    // Pattern: def foo(self, wrapper, ...): x = wrapper(...); return x
+    // This requires PyValue return type since the result type depends on the runtime type
+    if (returnsAnytypeParamCall(method, &self.anytype_params)) {
+        const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+        if (needs_error) try self.emit("!");
+        try self.emit("runtime.PyValue {\n");
+        self.current_function_returns_pyvalue = true;
+        return;
     }
 
     // Check for magic method return types FIRST

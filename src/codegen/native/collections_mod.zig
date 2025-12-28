@@ -8,31 +8,33 @@ const NativeCodegen = h.NativeCodegen;
 
 // Public exports for dispatch/builtins.zig
 pub fn genDefaultdict(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    // defaultdict(factory) - factory is used for missing key access
-    // We don't fully support this semantic, just create an empty dict
-    // Don't use h.discard() as it causes "pointless discard" errors when
-    // the factory arg is a variable that's used elsewhere in the function
-    //
-    // If we have args, just reference them in a way that doesn't trigger warnings
+    // defaultdict(factory) - creates a dict with default_factory
+    // Use runtime.IntDefaultDict which has default_factory field and __missing__ method
     if (args.len > 0) {
-        // For variable arguments that might be used elsewhere, use &var (address-of)
-        // This tells Zig we're intentionally referencing it without consuming
         const arg = args[0];
-        if (arg == .name) {
-            // Variable - just emit the dict init (variable will be used elsewhere)
-            try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
-        } else {
-            // Non-variable (like int, str, list literals) - wrap in discard block
-            try self.withInlineBlock("discard", args, struct {
-                fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                    try c.emit("_ = ");
-                    try c.genExpr(a[0]);
-                    try c.emitFmt("; break :{s} hashmap_helper.StringHashMap(i64).init(__global_allocator)", .{label});
-                }
-            }.emit);
-        }
+        // Detect the factory type - use runtime.FactoryType constants
+        const factory_type: []const u8 = if (arg == .name) blk: {
+            const name = arg.name.id;
+            if (std.mem.eql(u8, name, "list")) {
+                break :blk ".list";
+            } else if (std.mem.eql(u8, name, "int")) {
+                break :blk ".int";
+            } else if (std.mem.eql(u8, name, "str")) {
+                break :blk ".str";
+            } else if (std.mem.eql(u8, name, "dict")) {
+                break :blk ".dict";
+            } else if (std.mem.eql(u8, name, "set")) {
+                break :blk ".set";
+            } else {
+                // Unknown factory - use list as fallback
+                break :blk ".list";
+            }
+        } else ".none";
+
+        try self.emitFmt("runtime.IntDefaultDict(runtime.PyValue).initWithFactory(__global_allocator, {s})", .{factory_type});
     } else {
-        try self.emit("hashmap_helper.StringHashMap(i64).init(__global_allocator)");
+        // No factory - use none
+        try self.emit("runtime.IntDefaultDict(runtime.PyValue).init(__global_allocator)");
     }
 }
 

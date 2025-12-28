@@ -369,6 +369,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
             const is_dict = container_traits.isDict(value_type);
             const is_counter = (value_type == .counter);
+            const is_defaultdict = (value_type == .defaultdict);
             // Two-Flow: Include .pyvalue for uncertain container subscript routing
             const is_unknown_pyobject = type_traits.isUnknown(value_type) or value_type == .pyvalue;
 
@@ -438,6 +439,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try self.emit(", @as(usize, @intCast(");
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(")))");
+            } else if (is_defaultdict) {
+                // defaultdict access: use __getitem__ which triggers __missing__ for missing keys
+                // This creates and stores the default value for missing keys
+                // Note: mutation marking is handled by markDefaultdictSubscriptMutations() in mutation_analysis.zig
+                try self.emit("(try ");
+                try genExpr(self, subscript.value.*);
+                try self.emit(".__getitem__(");
+                try genExpr(self, subscript.slice.index.*);
+                try self.emit("))");
             } else if (is_dict or is_counter or is_tracked_dict) {
                 // Native dict/Counter access: dict.get(key).? for raw StringHashMap
                 // Counter returns 0 for missing keys in Python

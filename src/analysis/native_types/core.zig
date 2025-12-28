@@ -235,6 +235,7 @@ pub const NativeType = union(enum) {
     file: void, // File object from open()
     hash_object: void, // hashlib hash object (md5, sha256, etc.)
     counter: void, // collections.Counter - hashmap_helper.StringHashMap(i64)
+    defaultdict: void, // collections.defaultdict - runtime.IntDefaultDict
     deque: void, // collections.deque - std.ArrayList
     sqlite_connection: void, // sqlite3.Connection - database connection
     sqlite_cursor: void, // sqlite3.Cursor - database cursor
@@ -460,6 +461,7 @@ pub const NativeType = union(enum) {
             .file => try buf.appendSlice(allocator, "*runtime.PyObject"),
             .hash_object => try buf.appendSlice(allocator, "hashlib.HashObject"),
             .counter => try buf.appendSlice(allocator, "hashmap_helper.StringHashMap(i64)"),
+            .defaultdict => try buf.appendSlice(allocator, "runtime.IntDefaultDict(runtime.PyValue)"),
             .deque => try buf.appendSlice(allocator, "std.ArrayList(i64)"),
             .sqlite_connection => try buf.appendSlice(allocator, "sqlite3.Connection"),
             .sqlite_cursor => try buf.appendSlice(allocator, "sqlite3.Cursor"),
@@ -649,8 +651,8 @@ pub const NativeType = union(enum) {
             (self_tag == .float and other_tag == .usize)) return .float;
 
         // IO and collection types stay as their own types (no widening)
-        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file or self_tag == .hash_object or self_tag == .counter or self_tag == .deque) return self;
-        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file or other_tag == .hash_object or other_tag == .counter or other_tag == .deque) return other;
+        if (self_tag == .stringio or self_tag == .bytesio or self_tag == .file or self_tag == .hash_object or self_tag == .counter or self_tag == .defaultdict or self_tag == .deque) return self;
+        if (other_tag == .stringio or other_tag == .bytesio or other_tag == .file or other_tag == .hash_object or other_tag == .counter or other_tag == .defaultdict or other_tag == .deque) return other;
 
         // Callable types: when mixing callables with functions/closures/unknown, widen to callable
         // This handles lists like [bytes, bytearray, lambda x: ...] -> all become PyCallable

@@ -512,11 +512,11 @@ pub fn inferBuiltinCall(
     const DEFAULTDICT_HASH = comptime fnv_hash.hash("defaultdict");
     const ORDEREDDICT_HASH = comptime fnv_hash.hash("OrderedDict");
     const DEQUE_HASH = comptime fnv_hash.hash("deque");
-    if (func_hash == COUNTER_HASH or
-        func_hash == DEFAULTDICT_HASH or
-        func_hash == ORDEREDDICT_HASH)
-    {
+    if (func_hash == COUNTER_HASH or func_hash == ORDEREDDICT_HASH) {
         return .counter; // Counter type for hashmap_helper.StringHashMap
+    }
+    if (func_hash == DEFAULTDICT_HASH) {
+        return .defaultdict; // defaultdict type with __missing__ semantics
     }
     if (func_hash == DEQUE_HASH) {
         return .deque; // Deque type for std.ArrayList

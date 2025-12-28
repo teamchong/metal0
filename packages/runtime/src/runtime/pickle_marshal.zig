@@ -2,6 +2,7 @@
 const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
 const pickle = @import("../Lib/pickle/pickle.zig");
+const runtime = @import("../runtime.zig");
 
 /// Marshal loads - decode simplified marshal format back to value
 /// Uses compile-time encoding: "T" = True, "F" = False
@@ -12,15 +13,25 @@ pub fn marshalLoads(data: []const u8) bool {
 }
 
 /// Pickle loads - decode pickle format back to value using full pickle implementation
-/// Returns a PickleValue which can be any Python type
-pub fn pickleLoads(data: []const u8) pickle.PickleValue {
+/// Returns a *PyObject matching Python's pickle.loads() semantics
+pub fn pickleLoads(data: []const u8) *runtime.PyObject {
     // Use global allocator for pickle deserialization
     const allocator = if (@import("builtin").is_test)
         std.testing.allocator
     else
         allocator_helper.fast_allocator;
 
-    return pickle.loads(data, allocator) catch .{ .none = {} };
+    return pickle.loads(data, allocator) catch runtime.Py_None;
+}
+
+/// Pickle loads returning PickleValue (for internal/low-level use)
+pub fn pickleLoadsInternal(data: []const u8) pickle.PickleValue {
+    const allocator = if (@import("builtin").is_test)
+        std.testing.allocator
+    else
+        allocator_helper.fast_allocator;
+
+    return pickle.loadsInternal(data, allocator) catch .{ .none = {} };
 }
 
 /// Pickle loads returning bool (legacy compatibility for bool-only pickle)

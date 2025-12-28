@@ -545,9 +545,24 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         }
     }
 
+    // Subscript access on defaultdict returns PyValue from __getitem__
+    // which needs to be discarded when used as a statement
+    if (expr == .subscript) {
+        const container_type = self.type_inferrer.inferExpr(expr.subscript.value.*) catch .unknown;
+        if (container_type == .defaultdict) {
+            return true;
+        }
+    }
+
     // Labeled block expressions
     // (These will be in self.output after genExpr, we'll check them there)
     // For now, conservatively return false and let the callback check
+
+    // Tuple expressions used as statements need value discard
+    // e.g., `(x := 1, 2)` generates `.{ __m_walrus: {...}, 2 }` which needs `_ = `
+    if (expr == .tuple) {
+        return true;
+    }
 
     return false;
 }

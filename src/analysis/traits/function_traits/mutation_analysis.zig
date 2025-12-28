@@ -4,6 +4,8 @@
 /// 1. It's reassigned after initial declaration (multiple assignments)
 /// 2. It's used in augmented assignment (+=, -=, etc.)
 /// 3. It's an iterator (mutated by .next() calls)
+/// 4. Its attribute/field is assigned (d.foo = value)
+/// 5. It's subscript-assigned (d[key] = value)
 ///
 /// Note: Dict/list method calls (.put(), .append()) don't require `var` -
 /// these methods take *Self and mutate through the pointer.
@@ -42,6 +44,17 @@ pub fn analyzeMutatedVars(body: []const ast.Node) MutatedVarSet {
     return result;
 }
 
+/// Extract the base variable name from nested expressions
+/// e.g., d.foo.bar -> "d", x[0].attr -> "x"
+fn getBaseName(node: ast.Node) ?[]const u8 {
+    return switch (node) {
+        .name => |name| name.id,
+        .attribute => |attr| getBaseName(attr.value.*),
+        .subscript => |sub| getBaseName(sub.value.*),
+        else => null,
+    };
+}
+
 /// Collect mutated variables from function body
 /// first_assign tracks which variables have been seen (for detecting reassignment)
 fn collectMutatedVars(body: []const ast.Node, result: *MutatedVarSet, first_assign: ?*MutatedVarSet) void {
@@ -60,6 +73,19 @@ fn collectMutatedVars(body: []const ast.Node, result: *MutatedVarSet, first_assi
                         } else {
                             seen.add(name);
                         }
+                    } else if (target == .attribute) {
+                        // Attribute assignment (d.foo = value) - the base object needs var
+                        // because we're modifying through its field
+                        const base_name = getBaseName(target.attribute.value.*);
+                        if (base_name) |name| {
+                            result.add(name);
+                        }
+                    } else if (target == .subscript) {
+                        // Subscript assignment (d[key] = value) - the base object needs var
+                        const base_name = getBaseName(target.subscript.value.*);
+                        if (base_name) |name| {
+                            result.add(name);
+                        }
                     }
                 }
             },
@@ -67,6 +93,12 @@ fn collectMutatedVars(body: []const ast.Node, result: *MutatedVarSet, first_assi
                 // Augmented assignment always needs var
                 if (aug.target.* == .name) {
                     result.add(aug.target.name.id);
+                } else {
+                    // Augmented assignment on attribute/subscript (d.count += 1)
+                    const base_name = getBaseName(aug.target.*);
+                    if (base_name) |name| {
+                        result.add(name);
+                    }
                 }
             },
             .for_stmt => |for_stmt| {

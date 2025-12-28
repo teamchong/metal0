@@ -132,6 +132,23 @@ const ListMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "rotate", methods.genRotate },
 });
 
+// Defaultdict methods - special handling for IntDefaultDict
+// copy() calls the native copy method, not the dict iteration pattern
+const DefaultdictMethods = std.StaticStringMap(MethodHandler).initComptime(.{
+    .{ "copy", genDefaultdictCopy },
+    .{ "keys", methods.genKeys },
+    .{ "values", methods.genValues },
+    .{ "items", methods.genItems },
+});
+
+// Helper: defaultdict.copy() -> try d.copy()
+fn genDefaultdictCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+    try self.emit("(try ");
+    try self.genExpr(obj);
+    try self.emit(".copy())");
+}
+
 // Dict methods - O(1) lookup via StaticStringMap
 const DictMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "keys", methods.genKeys },
@@ -476,6 +493,17 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             return true;
         }
         // Not a string type or uncertain - fall through to other handlers
+    }
+
+    // Try defaultdict methods first - IntDefaultDict has native copy() method
+    if (DefaultdictMethods.get(method_name)) |handler| {
+        if (obj_type == .defaultdict) {
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
+            return true;
+        }
     }
 
     // Try dict methods BEFORE list - dict and list share some method names (pop, clear, copy)

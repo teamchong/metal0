@@ -533,13 +533,17 @@ pub fn inferModuleFunctionCall(
             return .unknown;
         },
         PICKLE_HASH => {
-            // pickle.dumps() returns bytes, pickle.loads() returns dynamic value
+            // pickle.dumps() returns bytes (PyBytes), pickle.loads() returns *PyObject
             const func_hash = fnv_hash.hash(func_name);
             const DUMPS_HASH = comptime fnv_hash.hash("dumps");
             const DUMP_HASH = comptime fnv_hash.hash("dump");
-            if (func_hash == DUMPS_HASH) return .{ .string = .runtime };
+            const LOADS_HASH = comptime fnv_hash.hash("loads");
+            const LOAD_HASH = comptime fnv_hash.hash("load");
+            if (func_hash == DUMPS_HASH) return .bytes; // pickle.dumps() returns PyBytes
             if (func_hash == DUMP_HASH) return .none; // writes to file
-            return .unknown; // loads/load return dynamic values
+            if (func_hash == LOADS_HASH) return .{ .pyobject = "pickle" }; // pickle.loads() returns *PyObject
+            if (func_hash == LOAD_HASH) return .{ .pyobject = "pickle" }; // pickle.load() returns *PyObject
+            return .unknown; // other pickle functions
         },
         STRUCT_HASH => {
             // struct.calcsize() returns int, struct.pack() returns bytes (string)

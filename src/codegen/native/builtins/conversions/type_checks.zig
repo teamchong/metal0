@@ -85,27 +85,24 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else if (std.mem.eql(u8, tname, "int")) {
             // Always use runtime check for int to handle anytype params correctly
             // isinstance(x, int) checks if @TypeOf(x) is an integer type or bool
-            // Use @typeInfo for comprehensive int checking (handles i64, comptime_int, etc.)
+            // Also handles PyValue.int and PyValue.bool for vtable dispatch
             const id = self.nextNameId();
             try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk @typeInfo(T) == .int or @typeInfo(T) == .comptime_int or T == bool; }}", .{id});
+            try self.emitFmt("); break :__m{d}_blk if (T == runtime.PyValue) (", .{id});
+            try self.genExpr(args[0]);
+            try self.emitFmt(" == .int or ", .{});
+            try self.genExpr(args[0]);
+            try self.emitFmt(" == .bool) else (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int or T == bool); }}", .{});
             return;
         } else if (std.mem.eql(u8, tname, "float")) {
-            if (is_unknown_type) {
-                try self.emit("(@TypeOf(");
-                try self.genExpr(args[0]);
-                try self.emit(") == f64)");
-                return;
-            }
+            // Also handles PyValue.float for vtable dispatch
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ _ = @TypeOf(", .{id});
+            try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
             try self.genExpr(args[0]);
-            if (type_traits.isFloating(obj_type)) {
-                try self.emitFmt("); break :__m{d}_blk true; }}", .{id});
-            } else {
-                try self.emitFmt("); break :__m{d}_blk false; }}", .{id});
-            }
+            try self.emitFmt("); break :__m{d}_blk if (T == runtime.PyValue) (", .{id});
+            try self.genExpr(args[0]);
+            try self.emitFmt(" == .float) else (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float); }}", .{});
             return;
         } else if (std.mem.eql(u8, tname, "str")) {
             if (is_unknown_type) {

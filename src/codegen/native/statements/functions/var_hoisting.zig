@@ -703,6 +703,39 @@ fn analyzeIterElementType(iter_expr: *const ast.Node) []const u8 {
     };
 }
 
+/// Analyze tuple unpacking element type from list literal.
+/// For `for x, y in [(a1, b1), (a2, b2), ...]`, returns type at tuple_index.
+fn analyzeTupleUnpackType(iter_expr: *const ast.Node, tuple_index: usize) []const u8 {
+    // Only handle list literals containing tuples
+    if (iter_expr.* != .list) return "runtime.PyValue";
+    const list = iter_expr.list;
+    if (list.elts.len == 0) return "runtime.PyValue";
+
+    // Get the first tuple element
+    const first_elem = list.elts[0];
+    if (first_elem != .tuple) return "runtime.PyValue";
+    const first_tuple = first_elem.tuple;
+
+    // Check if tuple_index is valid
+    if (tuple_index >= first_tuple.elts.len) return "runtime.PyValue";
+
+    // Get the element at tuple_index from first tuple and analyze its type
+    const elem_at_idx = first_tuple.elts[tuple_index];
+    const first_type = getConstantType(elem_at_idx);
+    if (std.mem.eql(u8, first_type, "runtime.PyValue")) return first_type;
+
+    // Verify all tuples have same type at this index
+    for (list.elts[1..]) |list_elem| {
+        if (list_elem != .tuple) return "runtime.PyValue";
+        const tuple = list_elem.tuple;
+        if (tuple_index >= tuple.elts.len) return "runtime.PyValue";
+        if (!std.mem.eql(u8, getConstantType(tuple.elts[tuple_index]), first_type)) {
+            return "runtime.PyValue"; // Mixed types
+        }
+    }
+    return first_type;
+}
+
 /// Check if an expression tree contains any float constant.
 /// Used to determine if a binop should return f64 instead of UnifiedInt.
 fn exprContainsFloat(expr: *const ast.Node) bool {
@@ -879,9 +912,9 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
     // Use appropriate fallback types based on common patterns
     return switch (source) {
         .try_except => "runtime.PyValue",
-        // For for_loop, assume range() loops which always produce i64
-        // This is the most common pattern and @intCast doesn't work on PyValue
-        .for_loop => "i64",
+        // For for_loop, use PyValue for safety when we can't determine the type
+        // (the same variable might be used in multiple loops with different types)
+        .for_loop => "runtime.PyValue",
         .if_stmt => "runtime.PyValue",
         .with_stmt => "runtime.PyValue",
     };
@@ -1082,12 +1115,16 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                 }
                 try self.output.writer(self.allocator).print("{d}\")", .{escaped.tuple_index.?});
             } else {
-                // Iter expression uses local vars - use fallback type
-                const fallback = inferFallbackType(null, escaped.source);
-                try self.emit(": ");
-                try self.emit(fallback);
-                // Track if hoisted with PyValue type for proper wrapping on assignment
-                if (std.mem.eql(u8, fallback, "runtime.PyValue")) {
+                // Iter expression uses local vars - try static analysis first
+                // For list literals containing tuples, we can analyze element types directly
+                const static_type = analyzeTupleUnpackType(escaped.for_iter_expr.?, escaped.tuple_index.?);
+                if (!std.mem.eql(u8, static_type, "runtime.PyValue")) {
+                    // Found a concrete type from static analysis (string, int, etc.)
+                    try self.emit(": ");
+                    try self.emit(static_type);
+                } else {
+                    // Fall back to PyValue for safety
+                    try self.emit(": runtime.PyValue");
                     try self.pyvalue_hoisted_vars.put(escaped.name, {});
                 }
             }

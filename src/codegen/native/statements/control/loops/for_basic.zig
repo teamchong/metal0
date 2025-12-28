@@ -1040,7 +1040,12 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         } else {
             // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-            try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
+            // If variable is hoisted as PyValue, need to wrap the loop value
+            if (self.pyvalue_hoisted_vars.contains(var_name)) {
+                try self.output.writer(self.allocator).print(" = runtime.PyValue.from(__m{d}_loop_val);\n", .{loop_var_id});
+            } else {
+                try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
+            }
         }
 
         // Register loop variable type as widened tuple element type

@@ -22,6 +22,11 @@ pub fn shallowCopy(comptime T: type, allocator: std.mem.Allocator, src: T) CopyE
         return src;
     }
 
+    // Structs with .copy() method (defaultdict, etc.)
+    if (type_info == .@"struct" and @hasDecl(T, "copy")) {
+        return src.copy() catch return CopyError.OutOfMemory;
+    }
+
     // Structs with .items field (ArrayList-like)
     if (type_info == .@"struct" and @hasField(T, "items")) {
         // Zig 0.15: ArrayListUnmanaged has no .init(), use direct initialization
@@ -44,6 +49,11 @@ pub fn deepCopy(comptime T: type, allocator: std.mem.Allocator, src: T) CopyErro
     // Primitives - return as-is
     if (T == i64 or T == f64 or T == bool or T == []const u8) {
         return src;
+    }
+
+    // Structs with .copy() method (defaultdict, etc.)
+    if (type_info == .@"struct" and @hasDecl(T, "copy")) {
+        return src.copy() catch return CopyError.OutOfMemory;
     }
 
     // Structs with .items field (ArrayList-like)

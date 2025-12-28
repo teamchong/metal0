@@ -642,6 +642,10 @@ pub fn genAssertEqual(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Cod
     // === SPECIAL CASE 6: List/slice with known element type ===
     if (try emitSliceComparison(self, args, type_a, type_b)) return;
 
+    // === SPECIAL CASE 7: default_factory comparison ===
+    // assertEqual(d.default_factory, int) → d.default_factory == .int
+    if (try emitDefaultFactoryComparison(self, args)) return;
+
     // === STANDARD PATH: Use ZigBuilder ===
     // Builder handles: same-type primitives, strings, cross-type, class instances
     const left = try self.exprToValue(args[0]);
@@ -743,6 +747,60 @@ fn emitSliceComparison(self: *NativeCodegen, args: []ast.Node, type_a: NativeTyp
         try parent.genExpr(self, args[1]);
         try self.emit(")) return error.AssertionFailed;\n");
         return true;
+    }
+
+    return false;
+}
+
+/// Handle assertEqual(d.default_factory, int) or assertEqual(int, d.default_factory)
+/// Compares FactoryType against type names
+fn emitDefaultFactoryComparison(self: *NativeCodegen, args: []ast.Node) !bool {
+    const factory_types = [_][]const u8{ "list", "int", "str", "dict", "set" };
+
+    // Check: assertEqual(x.default_factory, type_name)
+    if (args[0] == .attribute and std.mem.eql(u8, args[0].attribute.attr, "default_factory")) {
+        if (args[1] == .name) {
+            const type_name = args[1].name.id;
+            // Check for None
+            if (std.mem.eql(u8, type_name, "None")) {
+                try self.emit("if (");
+                try parent.genExpr(self, args[0]);
+                try self.emit(" != .none) return error.AssertionFailed;\n");
+                return true;
+            }
+            // Check for known factory types
+            for (factory_types) |known| {
+                if (std.mem.eql(u8, type_name, known)) {
+                    try self.emit("if (");
+                    try parent.genExpr(self, args[0]);
+                    try self.emitFmt(" != .{s}) return error.AssertionFailed;\n", .{known});
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check: assertEqual(type_name, x.default_factory)
+    if (args[1] == .attribute and std.mem.eql(u8, args[1].attribute.attr, "default_factory")) {
+        if (args[0] == .name) {
+            const type_name = args[0].name.id;
+            // Check for None
+            if (std.mem.eql(u8, type_name, "None")) {
+                try self.emit("if (");
+                try parent.genExpr(self, args[1]);
+                try self.emit(" != .none) return error.AssertionFailed;\n");
+                return true;
+            }
+            // Check for known factory types
+            for (factory_types) |known| {
+                if (std.mem.eql(u8, type_name, known)) {
+                    try self.emit("if (");
+                    try parent.genExpr(self, args[1]);
+                    try self.emitFmt(" != .{s}) return error.AssertionFailed;\n", .{known});
+                    return true;
+                }
+            }
+        }
     }
 
     return false;
@@ -957,6 +1015,10 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
             }
         }
     }
+
+    // SPECIAL CASE: assertIs(d.default_factory, int/list/etc)
+    if (try emitDefaultFactoryComparison(self, args)) return;
+
     // STANDARD PATH: Use builder for identity check
     const left = try self.exprToValue(args[0]);
     const right = try self.exprToValue(args[1]);

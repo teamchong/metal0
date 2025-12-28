@@ -169,6 +169,9 @@ pub const CertainType = @import("zig_value.zig").CertainType;
 // StatementBuilder - high-level API for structured codegen
 pub const StatementBuilder = @import("statement_builder.zig").StatementBuilder;
 
+// AstBridge - AST to ZigValue conversion with type confidence
+pub const AstBridge = @import("ast_bridge.zig").AstBridge;
+
 // ============================================
 // Convenience functions
 // ============================================
