@@ -157,6 +157,28 @@ pub fn pyStrFormat(allocator: std.mem.Allocator, template: []const u8, args: any
     return result.toOwnedSlice(allocator);
 }
 
+/// Helper to coerce string-like types to []const u8
+fn toSlice(comptime T: type, value: T) ?[]const u8 {
+    // Direct slices
+    if (T == []const u8) return value;
+    if (T == []u8) return value;
+
+    // Pointer to array (e.g., *const [2:0]u8 from string literals)
+    const info = @typeInfo(T);
+    if (info == .pointer) {
+        const ptr_info = info.pointer;
+        if (ptr_info.size == .one) {
+            const child_info = @typeInfo(ptr_info.child);
+            if (child_info == .array and child_info.array.child == u8) {
+                // Coerce pointer-to-array to slice
+                return @as([]const u8, value);
+            }
+        }
+    }
+
+    return null;
+}
+
 /// Find argument value by key name or positional index
 fn findArg(args: anytype, placeholder: []const u8, positional_idx: *usize) []const u8 {
     const T = @TypeOf(args);
@@ -175,9 +197,12 @@ fn findArg(args: anytype, placeholder: []const u8, positional_idx: *usize) []con
                     const kv = args[field_idx];
                     const kv_info = @typeInfo(@TypeOf(kv));
                     if (kv_info == .@"struct" and kv_info.@"struct".is_tuple) {
-                        return kv[1]; // Value
+                        const val = kv[1];
+                        if (toSlice(@TypeOf(val), val)) |s| return s;
+                        return ""; // Non-string value
                     }
-                    return kv; // Direct value
+                    if (toSlice(@TypeOf(kv), kv)) |s| return s;
+                    return ""; // Non-string value
                 }
             }
             return "";
@@ -191,9 +216,12 @@ fn findArg(args: anytype, placeholder: []const u8, positional_idx: *usize) []con
                     const kv = args[field_idx];
                     const kv_info = @typeInfo(@TypeOf(kv));
                     if (kv_info == .@"struct" and kv_info.@"struct".is_tuple) {
-                        return kv[1]; // Value
+                        const val = kv[1];
+                        if (toSlice(@TypeOf(val), val)) |s| return s;
+                        return ""; // Non-string value
                     }
-                    return kv; // Direct value
+                    if (toSlice(@TypeOf(kv), kv)) |s| return s;
+                    return ""; // Non-string value
                 }
             }
             return "";
@@ -204,8 +232,11 @@ fn findArg(args: anytype, placeholder: []const u8, positional_idx: *usize) []con
             const kv = @field(args, field.name);
             const kv_info = @typeInfo(@TypeOf(kv));
             if (kv_info == .@"struct" and kv_info.@"struct".is_tuple) {
-                if (std.mem.eql(u8, kv[0], placeholder)) {
-                    return kv[1]; // Value
+                if (toSlice(@TypeOf(kv[0]), kv[0])) |key| {
+                    if (std.mem.eql(u8, key, placeholder)) {
+                        if (toSlice(@TypeOf(kv[1]), kv[1])) |s| return s;
+                        return ""; // Non-string value
+                    }
                 }
             }
         }

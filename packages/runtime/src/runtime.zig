@@ -218,6 +218,12 @@ pub const misc_utils = @import("runtime/misc_utils.zig");
 /// PyObject casting utilities
 pub const pyobject_cast = @import("runtime/pyobject_cast.zig");
 
+/// PyDefaultDict - Python-compatible defaultdict with default_factory and __missing__
+pub const pydefaultdict = @import("runtime/pydefaultdict.zig");
+pub const PyDefaultDict = pydefaultdict.PyDefaultDict;
+pub const IntDefaultDict = pydefaultdict.IntDefaultDict;
+pub const FactoryType = pydefaultdict.FactoryType;
+
 // Re-export DynamicClosure from dynamic_closure.zig
 pub const DynamicClosure = dynamic_closure.DynamicClosure;
 
