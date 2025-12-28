@@ -254,7 +254,7 @@ pub const PyDequeObject = extern struct {
 fn nullDealloc(_: *PyObject) callconv(.c) void {}
 
 /// Base type object template
-fn makeTypeObject(comptime name: [*:0]const u8, comptime basicsize: Py_ssize_t, comptime itemsize: Py_ssize_t) PyTypeObject {
+pub fn makeTypeObject(comptime name: [*:0]const u8, comptime basicsize: Py_ssize_t, comptime itemsize: Py_ssize_t) PyTypeObject {
     return PyTypeObject{
         .ob_base = .{
             .ob_base = .{

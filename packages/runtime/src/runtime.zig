@@ -1210,4 +1210,9 @@ pub const Modules = struct {
 pub const Python = struct {
     pub const ast_opt = @import("Python/ast_opt.zig");
     pub const formatter_unicode = @import("Python/formatter_unicode.zig");
+    pub const cextapi = @import("Python/cextapi.zig");
+    pub const importdl = @import("Python/importdl.zig");
+    pub const dynload_shlib = @import("Python/dynload_shlib.zig");
+    pub const capsule = @import("Python/capsule.zig");
+    pub const ext_plugin = @import("Python/ext_plugin.zig");
 };

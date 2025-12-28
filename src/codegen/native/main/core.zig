@@ -2129,15 +2129,10 @@ pub const NativeCodegen = struct {
                     .string => |s| return builder_mod.ZigValue.string(s),
                     .bool => |b| return builder_mod.ZigValue.boolean(b),
                     .none => return builder_mod.ZigValue.null_(),
-                    .bytes => |s| return builder_mod.ZigValue.string(s),
+                    .bytes => |s| return builder_mod.ZigValue.bytes(s),
                     .bigint, .complex => {
-                        // For bigint/complex: emit as raw expression
-                        const expressions = @import("../expressions.zig");
-                        const start = self.output.items.len;
-                        try expressions.genExpr(self, node);
-                        const expr_str = try self.arena.allocator().dupe(u8, self.output.items[start..]);
-                        self.output.shrinkRetainingCapacity(start);
-                        return builder_mod.ZigValue.raw(expr_str);
+                        // For bigint/complex: use captureExpr for proper builder save/restore
+                        return try self.captureExpr(node);
                     },
                 }
             },
@@ -2191,21 +2186,108 @@ pub const NativeCodegen = struct {
                     return builder_mod.ZigValue.raw(name);
                 }
 
+                // Check for Python builtin type names (list, dict, etc.)
+                // These should be emitted as runtime.builtins.* references
+                // Note: int is NOT included here to avoid conflict with issubclass(x, int)
+                const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
+                    .{ "list", "runtime.builtins.list" },
+                    .{ "dict", "runtime.builtins.dict" },
+                    .{ "set", "runtime.builtins.set" },
+                    .{ "tuple", "runtime.builtins.tuple" },
+                    .{ "str", "runtime.builtins.str_factory" },
+                    .{ "bytes", "runtime.builtins.bytes_factory" },
+                });
+                if (builtin_types.get(orig_name)) |zig_name| {
+                    return builder_mod.ZigValue.raw(zig_name);
+                }
+
                 // Return named reference (will be emitted as variable name)
                 return builder_mod.ZigValue.fromName(name);
             },
+            // Binary operations - use captureExpr for proper builder save/restore
+            .binop => {
+                return try self.captureExpr(node);
+            },
+
+            // Unary operations - use captureExpr for proper builder save/restore
+            .unaryop => {
+                return try self.captureExpr(node);
+            },
+
+            // Comparisons - use captureExpr for proper builder save/restore
+            .compare => {
+                return try self.captureExpr(node);
+            },
+
+            // Boolean operations (and/or) - use captureExpr for proper builder save/restore
+            .boolop => {
+                return try self.captureExpr(node);
+            },
+
+            // Function calls - use captureExpr for proper builder save/restore
+            .call => |_| {
+                return try self.captureExpr(node);
+            },
+
+            // Attribute access - use captureExpr for proper builder save/restore
+            .attribute => {
+                return try self.captureExpr(node);
+            },
+
+            // Subscript access - use captureExpr for proper builder save/restore
+            .subscript => {
+                return try self.captureExpr(node);
+            },
+
+            // Container literals - use captureExpr for proper builder save/restore
+            .list, .tuple, .dict, .set => {
+                return try self.captureExpr(node);
+            },
+
+            // F-strings - use captureExpr for proper builder save/restore
+            .fstring => {
+                return try self.captureExpr(node);
+            },
+
+            // Conditional expression (ternary) - use captureExpr for proper builder save/restore
+            .if_expr => {
+                return try self.captureExpr(node);
+            },
+
+            // Comprehensions - use captureExpr for proper builder save/restore
+            .listcomp, .dictcomp, .genexp => {
+                return try self.captureExpr(node);
+            },
+
+            // Lambda - use captureExpr for proper builder save/restore
+            .lambda => {
+                return try self.captureExpr(node);
+            },
+
+            // Starred expression
+            .starred => |s| {
+                // Recurse into the starred value
+                return self.exprToValue(s.value.*);
+            },
+
+            // Named expression (walrus operator) - type is the assigned value's type
+            .named_expr => |n| {
+                return self.exprToValue(n.value.*);
+            },
+
+            // Await expression - use captureExpr for proper builder save/restore
+            .await_expr => {
+                return try self.captureExpr(node);
+            },
+
+            // Ellipsis literal
+            .ellipsis_literal => {
+                return builder_mod.ZigValue.raw("runtime.Ellipsis");
+            },
+
             else => {
-                // For complex expressions: emit to buffer, wrap as raw
-                // This is the escape hatch for expressions not yet fully migrated
-                const expressions = @import("../expressions.zig");
-                const start = self.output.items.len;
-                try expressions.genExpr(self, node);
-                // Flush builder to ensure any pending output (from modules using builder)
-                // gets written to self.output before we capture the result
-                try self.flushBuilder();
-                const expr_str = try self.arena.allocator().dupe(u8, self.output.items[start..]);
-                self.output.shrinkRetainingCapacity(start);
-                return builder_mod.ZigValue.raw(expr_str);
+                // For remaining nodes: use captureExpr for proper builder save/restore
+                return try self.captureExpr(node);
             },
         }
     }

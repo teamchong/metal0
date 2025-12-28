@@ -48,6 +48,16 @@ const MODULES = [_]ModuleDef{
         "scheduler",
     } },
 
+    // Collections - shared data structures (for c_interop)
+    .{ .name = "collections", .path = "packages/collections/collections.zig", .deps = &.{"runtime"} },
+
+    // C interop - enables C extension support (numpy, pytorch, etc.)
+    .{ .name = "c_interop", .path = "packages/c_interop/src/registry.zig", .deps = &.{
+        "runtime",
+        "collections",
+        "utils.hashmap_helper",
+    } },
+
     // allocator_helper - only used by main, must be last before main
     .{ .name = "utils.allocator_helper", .path = "src/utils/allocator_helper.zig", .deps = &.{} },
 };
@@ -96,9 +106,11 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     // 1. C source files first
     try addCSourceFiles(allocator, args);
 
-    // 2. Main module with its deps (main depends on runtime, hashmap_helper, allocator_helper)
+    // 2. Main module with its deps (main depends on runtime, c_interop, hashmap_helper, allocator_helper)
     try args.append(allocator, "--dep");
     try args.append(allocator, "runtime");
+    try args.append(allocator, "--dep");
+    try args.append(allocator, "c_interop");
     try args.append(allocator, "--dep");
     try args.append(allocator, "utils.hashmap_helper");
     try args.append(allocator, "--dep");
