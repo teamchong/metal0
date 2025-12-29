@@ -6,6 +6,7 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
+const emitPyValueFromAlloc = @import("../expressions/calls.zig").emitPyValueFromAlloc;
 
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
@@ -146,9 +147,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             try self.emitFmt("; try {s}.append(__global_allocator, ", .{list_temp});
 
             if (elem_is_pyvalue) {
-                try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-                try self.genExpr(args[0]);
-                try self.emit(")");
+                try emitPyValueFromAlloc(self, args[0]);
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
@@ -197,9 +196,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             try self.emit(".append(__global_allocator, ");
 
             if (elem_is_pyvalue) {
-                try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-                try self.genExpr(args[0]);
-                try self.emit(")");
+                try emitPyValueFromAlloc(self, args[0]);
             } else if (elem_is_callable and item_is_lambda) {
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;

@@ -36,15 +36,64 @@ fn emitFloatExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     }
 }
 
+/// Helper to emit runtime float call: (try runtime.{func}(allocator, floatExpr))
+/// Handles error handling variations based on context
+fn emitRuntimeFloatCall(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
+    if (self.in_assert_raises_context) {
+        try self.emit("(runtime.");
+        try self.emit(func);
+        try self.emit("(__global_allocator, ");
+        try emitFloatExpr(self, obj);
+        try self.emit("))");
+    } else if (self.inside_try_body) {
+        try self.emit("(try runtime.");
+        try self.emit(func);
+        try self.emit("(__global_allocator, ");
+        try emitFloatExpr(self, obj);
+        try self.emit("))");
+    } else {
+        try self.emit("(runtime.");
+        try self.emit(func);
+        try self.emit("(__global_allocator, ");
+        try emitFloatExpr(self, obj);
+        try self.emit(") catch unreachable)");
+    }
+}
+
+/// Helper to emit simple runtime float call: runtime.{func}(floatExpr)
+fn emitSimpleFloatCall(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
+    try self.emit("runtime.");
+    try self.emit(func);
+    try self.emit("(");
+    try emitFloatExpr(self, obj);
+    try self.emit(")");
+}
+
+/// Helper to emit try runtime float call with allocator: try runtime.{func}(allocator, floatExpr)
+fn emitTryFloatCallWithAlloc(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
+    try self.emit("try runtime.");
+    try self.emit(func);
+    try self.emit("(__global_allocator, ");
+    try emitFloatExpr(self, obj);
+    try self.emit(")");
+}
+
+/// Helper to emit wrapped try runtime float call: (try runtime.{func}(allocator, floatExpr))
+fn emitParenTryFloatCallWithAlloc(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
+    try self.emit("(try runtime.");
+    try self.emit(func);
+    try self.emit("(__global_allocator, ");
+    try emitFloatExpr(self, obj);
+    try self.emit("))");
+}
+
 /// Generate float.is_integer() - returns true if float has integral value
 /// Python: (1.0).is_integer() -> True, (1.1).is_integer() -> False
 /// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: runtime.floatIsInteger(f)
 pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // is_integer takes no arguments
-    try self.emit("runtime.floatIsInteger(");
-    try emitFloatExpr(self, obj);
-    try self.emit(")");
+    try emitSimpleFloatCall(self, "floatIsInteger", obj);
 }
 
 /// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple as BigInt
@@ -74,12 +123,7 @@ pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) 
 /// Zig: try runtime.floatHex(allocator, f)
 pub fn genHex(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = "__global_allocator";
-    try self.emit("try runtime.floatHex(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
-    try emitFloatExpr(self, obj);
-    try self.emit(")");
+    try emitTryFloatCallWithAlloc(self, "floatHex", obj);
 }
 
 /// Generate float.conjugate() - returns the float itself (for complex number compat)
@@ -100,28 +144,7 @@ pub fn genConjugate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Zig: runtime.floatFloorBig(allocator, f) catch unreachable (or raw in assertRaises context)
 pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = "__global_allocator";
-    if (self.in_assert_raises_context) {
-        // In assertRaises context - return error union for expectError to catch
-        try self.emit("(runtime.floatFloorBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
-    } else if (self.inside_try_body) {
-        // In try block - propagate errors with try
-        try self.emit("(try runtime.floatFloorBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
-    } else {
-        try self.emit("(runtime.floatFloorBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit(") catch unreachable)");
-    }
+    try emitRuntimeFloatCall(self, "floatFloorBig", obj);
 }
 
 /// Generate float.__ceil__() - returns smallest int >= value
@@ -133,28 +156,7 @@ pub fn genFloor(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Zig: runtime.floatCeilBig(allocator, f) catch unreachable (or raw in assertRaises context)
 pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = "__global_allocator";
-    if (self.in_assert_raises_context) {
-        // In assertRaises context - return error union for expectError to catch
-        try self.emit("(runtime.floatCeilBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
-    } else if (self.inside_try_body) {
-        // In try block - propagate errors with try
-        try self.emit("(try runtime.floatCeilBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
-    } else {
-        try self.emit("(runtime.floatCeilBig(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit(") catch unreachable)");
-    }
+    try emitRuntimeFloatCall(self, "floatCeilBig", obj);
 }
 
 /// Generate float.__trunc__() - truncate towards zero (as BigInt for large values)
@@ -163,12 +165,7 @@ pub fn genCeil(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 /// Zig: try runtime.floatTrunc(allocator, f)
 pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const alloc_name = "__global_allocator";
-    try self.emit("(try runtime.floatTrunc(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
-    try emitFloatExpr(self, obj);
-    try self.emit("))");
+    try emitParenTryFloatCallWithAlloc(self, "floatTrunc", obj);
 }
 
 /// Generate float.__round__([ndigits]) - round to nearest
@@ -176,13 +173,8 @@ pub fn genTrunc(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatRound(allocator, f) for no args
 pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    const alloc_name = "__global_allocator";
     if (args.len == 0) {
-        try self.emit("(try runtime.floatRound(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
+        try emitParenTryFloatCallWithAlloc(self, "floatRound", obj);
     } else {
         // Round to ndigits decimal places - returns float, not int
         // Use banker's rounding (round half to even) for Python semantics

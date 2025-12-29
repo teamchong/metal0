@@ -116,6 +116,15 @@ fn emitToFloat(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     try self.emit(")");
 }
 
+/// Emit try runtime.PyValue.fromAlloc(__global_allocator, expr) for runtime PyValue conversion
+/// Helper guarantees matching parentheses by always emitting both open and close
+pub fn emitPyValueFromAlloc(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    const genExpr = @import("../expressions.zig").genExpr;
+    try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
+    try genExpr(self, expr);
+    try self.emit(")");
+}
+
 // Import trait functions for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
