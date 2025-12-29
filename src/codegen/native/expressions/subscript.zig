@@ -295,9 +295,11 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try self.output.writer(self.allocator).print("__base.@\"{d}\"", .{index.constant.value.int});
                     } else if (is_bytes and is_int_index) {
                         // Bytes indexing: use .get() method
-                        try self.emit("__base.get(");
-                        try emitAsUsize(self, index);
-                        try self.emit(")");
+                        try self.emitCallCtx("__base.get", index, struct {
+                            pub fn emit(s: *NativeCodegen, idx: ast.Node) CodegenError!void {
+                                try emitAsUsize(s, idx);
+                            }
+                        }.emit);
                     } else if (is_list and is_int_index) {
                         // List (ArrayList) indexing: use .items[idx]
                         try self.emit("__base");

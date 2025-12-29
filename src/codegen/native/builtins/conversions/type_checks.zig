@@ -10,24 +10,29 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
-/// Helper: emit runtime.func(expr) - simple direct emission
+/// Helper: emit runtime.func(expr) - uses emitCallCtx for guaranteed bracket matching
 fn emitRuntimeFunc(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
     try self.emit("runtime.");
     try self.emit(func);
-    try self.emit("(");
-    try self.genExpr(expr);
-    try self.emit(")");
+    try self.emitCallCtx("", expr, struct {
+        pub fn emit(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.emit);
 }
 
-/// Helper: emit runtime.func(expr1, expr2) - simple direct emission
+/// Helper: emit runtime.func(expr1, expr2) - uses emitCallCtx for guaranteed bracket matching
 fn emitRuntimeFunc2(self: *NativeCodegen, func: []const u8, expr1: ast.Node, expr2: ast.Node) CodegenError!void {
     try self.emit("runtime.");
     try self.emit(func);
-    try self.emit("(");
-    try self.genExpr(expr1);
-    try self.emit(", ");
-    try self.genExpr(expr2);
-    try self.emit(")");
+    const Ctx = struct { e1: ast.Node, e2: ast.Node };
+    try self.emitCallCtx("", Ctx{ .e1 = expr1, .e2 = expr2 }, struct {
+        pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.e1);
+            try s.emit(", ");
+            try s.genExpr(ctx.e2);
+        }
+    }.emit);
 }
 
 /// Generate code for type(obj) or type(name, bases, dict)

@@ -142,6 +142,9 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
                         return field_type == .pyvalue or field_type == .unknown;
                     }
                 }
+                // If we're in a class context but field not found, assume it's NOT uncertain
+                // (self.xxx access in class methods should use native types)
+                return false;
             }
         }
         // For other variable access, check if the variable is a known class instance
@@ -265,6 +268,9 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                         return field_type == .pyvalue or field_type == .unknown;
                     }
                 }
+                // If we're in a class context but field not found, assume it's NOT uncertain
+                // (self.xxx access in class methods should use native types)
+                return false;
             }
         }
         // For other variable access, check if the variable is a known class instance
