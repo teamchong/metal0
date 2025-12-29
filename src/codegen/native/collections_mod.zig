@@ -71,30 +71,47 @@ pub const CounterMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "total", genCounterTotal },
 });
 
+/// Helper: emit runtime.counterMostCommon(__global_allocator, obj, n_or_null) with guaranteed bracket matching
+fn emitCounterMostCommon(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, a: []ast.Node };
+    try self.emitCallCtx("runtime.counterMostCommon", Ctx{ .o = obj, .a = args }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try s.genExpr(ctx.o);
+            if (ctx.a.len > 0) {
+                try s.emitCallCtx(", @intCast", ctx.a[0], struct {
+                    pub fn inner(ss: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                        try ss.genExpr(arg);
+                    }
+                }.inner);
+            } else {
+                try s.emit(", null");
+            }
+        }
+    }.f);
+}
+
 /// Generate code for Counter.most_common(n)
 /// Returns list of (element, count) tuples sorted by count descending
 pub fn genCounterMostCommon(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    // Generate: runtime.counterMostCommon(counter, n)
-    try self.emit("runtime.counterMostCommon(__global_allocator, ");
-    try self.genExpr(obj);
-    if (args.len > 0) {
-        try self.emit(", @intCast(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
-    } else {
-        try self.emit(", null");
-    }
-    try self.emit(")");
+    try emitCounterMostCommon(self, obj, args);
+}
+
+/// Helper: emit runtime.counterElements(__global_allocator, obj) with guaranteed bracket matching
+fn emitCounterElements(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.counterElements", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try s.genExpr(o);
+        }
+    }.f);
 }
 
 /// Generate code for Counter.elements()
 /// Returns iterator over elements repeating each as many times as its count
 pub fn genCounterElements(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    // Generate: runtime.counterElements(counter)
-    try self.emit("runtime.counterElements(__global_allocator, ");
-    try self.genExpr(obj);
-    try self.emit(")");
+    try emitCounterElements(self, obj);
 }
 
 /// Generate code for Counter.subtract(iterable_or_mapping)

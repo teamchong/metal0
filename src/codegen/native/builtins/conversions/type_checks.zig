@@ -10,6 +10,40 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
+/// Helper: emit runtime.func(expr) with guaranteed bracket matching
+fn emitRuntimeFunc(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { f: []const u8, e: ast.Node };
+    try self.emitCallCtx("runtime", Ctx{ .f = func, .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(".");
+            try s.emit(ctx.f);
+            try s.emitCallCtx("", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.func(expr1, expr2) with guaranteed bracket matching
+fn emitRuntimeFunc2(self: *NativeCodegen, func: []const u8, expr1: ast.Node, expr2: ast.Node) CodegenError!void {
+    const Ctx = struct { f: []const u8, e1: ast.Node, e2: ast.Node };
+    try self.emitCallCtx("runtime", Ctx{ .f = func, .e1 = expr1, .e2 = expr2 }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(".");
+            try s.emit(ctx.f);
+            try s.emitCallCtx("", ctx, struct {
+                pub fn inner(ss: *NativeCodegen, ctx2: Ctx) CodegenError!void {
+                    try ss.genExpr(ctx2.e1);
+                    try ss.emit(", ");
+                    try ss.genExpr(ctx2.e2);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
 /// Generate code for type(obj) or type(name, bases, dict)
 /// For 1 arg: Returns compile-time type name as string
 /// For 3 args: Dynamically creates a class (uses runtime.DynamicClass)
@@ -19,9 +53,7 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // Uses runtime dispatch to avoid comptime explosion (O(n²) compilation)
         // This handles PyPowResult (returns "float" or "complex" based on variant)
         // and other special types that need runtime type name resolution
-        try self.emit("runtime.pyTypeName(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeFunc(self, "pyTypeName", args[0]);
     } else if (args.len == 3) {
         // 3-argument form: type(name, bases, dict) - dynamic class creation
         // Generate: runtime.dynamicType(name, bases, dict)
@@ -256,9 +288,7 @@ pub fn genCallable(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: Check for uncertain types first
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Runtime check - use @typeInfo for uncertain types
-        try self.emit("runtime.isCallable(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeFunc(self, "isCallable", args[0]);
         return;
     }
 
@@ -371,11 +401,7 @@ pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Runtime check
-    try self.emit("runtime.isSubclass(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(")");
+    try emitRuntimeFunc2(self, "isSubclass", args[0], args[1]);
 }
 
 /// Generate code for id(obj)
@@ -390,9 +416,7 @@ pub fn genId(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // For PyValue/uncertain types, use runtime id function
-        try self.emit("runtime.builtins.id(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeFunc(self, "builtins.id", args[0]);
         return;
     }
 
@@ -414,11 +438,7 @@ pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const obj_type = self.inferExprScoped(args[0]) catch .unknown;
     if (type_traits.isUnknown(obj_type) or obj_type == .pyvalue) {
         // For PyValue/uncertain types, use runtime delattr
-        try self.emit("runtime.builtins.delattr(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(")");
+        try emitRuntimeFunc2(self, "builtins.delattr", args[0], args[1]);
         return;
     }
 

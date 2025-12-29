@@ -47,9 +47,29 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; var _buf: [1024]u8 = undefined; var _pos: usize = 0; ");
     for (args[1..], 0..) |arg, i| {
         const fc: u8 = if (fmt_str) |f| (if (i + fmt_off < f.len) f[i + fmt_off] else 'i') else 'i';
-        try self.emitFmt("const _val{d}: {s}{s}", .{ i, getPackType(fc), if (fc == 'f' or fc == 'd') " = @floatCast(" else " = runtime.packInt(" });
-        try self.genExpr(arg);
-        try self.emitFmt("); const _bytes{d} = std.mem.asBytes(&_val{d}); @memcpy(_buf[_pos..][0.._bytes{d}.len], _bytes{d}); _pos += _bytes{d}.len; ", .{ i, i, i, i, i });
+        // Check if argument is a known float type or might be PyValue
+        const arg_type = self.type_inferrer.inferExpr(arg) catch .unknown;
+        const is_float_arg = arg_type == .float;
+        if (fc == 'f' or fc == 'd') {
+            // Float format - need to handle both native float and PyValue
+            if (is_float_arg) {
+                // Known float type - use @floatCast directly
+                try self.emitFmt("const _val{d}: {s} = @floatCast(", .{ i, getPackType(fc) });
+                try self.genExpr(arg);
+                try self.emit(")");
+            } else {
+                // Unknown/PyValue - use runtime.toFloat to extract
+                try self.emitFmt("const _val{d}: {s} = @floatCast(runtime.toFloat(", .{ i, getPackType(fc) });
+                try self.genExpr(arg);
+                try self.emit("))");
+            }
+        } else {
+            // Integer format
+            try self.emitFmt("const _val{d}: {s} = runtime.packInt(", .{ i, getPackType(fc) });
+            try self.genExpr(arg);
+            try self.emit(")");
+        }
+        try self.emitFmt("; const _bytes{d} = std.mem.asBytes(&_val{d}); @memcpy(_buf[_pos..][0.._bytes{d}.len], _bytes{d}); _pos += _bytes{d}.len; ", .{ i, i, i, i, i });
     }
     try self.emitFmt("_ = _fmt; break :{s} _buf[0.._pos]; ", .{label});
     try self.emitInlineBlockEnd();

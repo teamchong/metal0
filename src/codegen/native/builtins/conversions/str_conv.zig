@@ -27,6 +27,63 @@ fn emitTryRuntimeCall(self: *NativeCodegen, func: []const u8, alloc_name: []cons
     }.inner);
 }
 
+/// Helper: emit (expr.method()) with guaranteed bracket matching
+fn emitMethodCallWrapped(self: *NativeCodegen, expr: ast.Node, method: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, m: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .m = method }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.e);
+            try s.emit(".");
+            try s.emit(ctx.m);
+            try s.emit("()");
+        }
+    }.f);
+}
+
+/// Helper: emit (expr.method() catch fallback) with guaranteed bracket matching
+fn emitMethodCallCatch(self: *NativeCodegen, expr: ast.Node, method: []const u8, fallback: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, m: []const u8, fb: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .m = method, .fb = fallback }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.e);
+            try s.emit(".");
+            try s.emit(ctx.m);
+            try s.emit("() catch ");
+            try s.emit(ctx.fb);
+        }
+    }.f);
+}
+
+/// Helper: emit (try expr.method()) with guaranteed bracket matching
+fn emitTryMethodCall(self: *NativeCodegen, expr: ast.Node, method: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, m: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .m = method }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("try ");
+            try s.genExpr(ctx.e);
+            try s.emit(".");
+            try s.emit(ctx.m);
+            try s.emit("()");
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.func(expr) with guaranteed bracket matching
+fn emitRuntimeCall(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { f: []const u8, e: ast.Node };
+    try self.emitCallCtx("runtime", Ctx{ .f = func, .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(".");
+            try s.emit(ctx.f);
+            try s.emitCallCtx("", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
 pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -137,18 +194,12 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (dunder_info.has_str and args[0] == .name) {
         if (self.inside_try_body and !self.in_assert_raises_context) {
             // In try block (not assertRaises) - propagate errors with try
-            try self.emit("(try ");
-            try self.genExpr(args[0]);
-            try self.emit(".__str__())");
+            try emitTryMethodCall(self, args[0], "__str__");
         } else if (self.in_assert_raises_context) {
             // In assertRaises - return error union as-is for expectError()
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__str__())");
+            try emitMethodCallWrapped(self, args[0], "__str__");
         } else {
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__str__() catch \"\")");
+            try emitMethodCallCatch(self, args[0], "__str__", "\"\"");
         }
         return;
     }
@@ -157,18 +208,12 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (dunder_info.has_repr and args[0] == .name) {
         if (self.inside_try_body and !self.in_assert_raises_context) {
             // In try block (not assertRaises) - propagate errors with try
-            try self.emit("(try ");
-            try self.genExpr(args[0]);
-            try self.emit(".__repr__())");
+            try emitTryMethodCall(self, args[0], "__repr__");
         } else if (self.in_assert_raises_context) {
             // In assertRaises - return error union as-is for expectError()
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__repr__())");
+            try emitMethodCallWrapped(self, args[0], "__repr__");
         } else {
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__repr__() catch \"\")");
+            try emitMethodCallCatch(self, args[0], "__repr__", "\"\"");
         }
         return;
     }
@@ -245,9 +290,11 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: For unknown/PyValue types, use runtime bytes conversion
     // bytes() doesn't need allocator - just converts value to bytes representation
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        try self.emit("runtime.builtins.bytes(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("runtime.builtins.bytes", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
         return;
     }
 
@@ -423,22 +470,28 @@ pub fn genAscii(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: Check for uncertain types first
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         // Use runtime ascii for uncertain types
-        try self.emit("runtime.asciiRepr(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("runtime.asciiRepr", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
         return;
     }
 
     if (string_traits.isString(arg_type)) {
         // For strings, wrap in quotes and escape non-ASCII
-        try self.emit("runtime.asciiStr(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("runtime.asciiStr", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         // For other types, get repr first
-        try self.emit("runtime.asciiRepr(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("runtime.asciiRepr", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     }
 }
 
