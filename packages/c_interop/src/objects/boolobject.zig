@@ -39,6 +39,12 @@ pub export var _Py_TrueStruct: cpython.PyLongObject = .{
     },
 };
 
+/// Py_FalseStruct - alias for _Py_FalseStruct (some extensions use this)
+pub export const Py_FalseStruct: *cpython.PyLongObject = &_Py_FalseStruct;
+
+/// Py_TrueStruct - alias for _Py_TrueStruct (some extensions use this)
+pub export const Py_TrueStruct: *cpython.PyLongObject = &_Py_TrueStruct;
+
 // ============================================================================
 // TYPE OBJECT
 // ============================================================================

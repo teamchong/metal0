@@ -28,6 +28,9 @@ pub export var _Py_NoneStruct: cpython.PyObject = .{
     .ob_type = &PyNone_Type,
 };
 
+/// Py_NoneStruct - alias for _Py_NoneStruct (some extensions use this)
+pub export const Py_NoneStruct: *cpython.PyObject = &_Py_NoneStruct;
+
 // ============================================================================
 // API FUNCTIONS
 // ============================================================================

@@ -1048,3 +1048,37 @@ pub export fn PyType_GetModuleByDef2(tp: ?*cpython.PyTypeObject, def: ?*anyopaqu
     // Stub - module lookup not fully implemented
     return null;
 }
+
+// ============================================================================
+// NON-UNDERSCORE ALIASES (for sklearn and other Cython extensions)
+// ============================================================================
+
+/// Py_BuildValue_SizeT - alias for _Py_BuildValue_SizeT
+pub export fn Py_BuildValue_SizeT(format: [*:0]const u8, args: ...) callconv(.c) ?*cpython.PyObject {
+    return _Py_BuildValue_SizeT(format, args);
+}
+
+/// Py_FatalErrorFunc - alias for _Py_FatalErrorFunc
+pub export fn Py_FatalErrorFunc(func: ?[*:0]const u8, msg: ?[*:0]const u8) callconv(.c) noreturn {
+    _Py_FatalErrorFunc(func, msg);
+}
+
+/// PyDict_GetItem_KnownHash - alias for _PyDict_GetItem_KnownHash
+pub export fn PyDict_GetItem_KnownHash(obj: *cpython.PyObject, key: *cpython.PyObject, hash: isize) callconv(.c) ?*cpython.PyObject {
+    return pydict._PyDict_GetItem_KnownHash(obj, key, hash);
+}
+
+/// PyObject_GenericGetAttrWithDict - alias for _PyObject_GenericGetAttrWithDict
+pub export fn PyObject_GenericGetAttrWithDict(obj: ?*cpython.PyObject, name: ?*cpython.PyObject, dict: ?*cpython.PyObject, suppress: c_int) callconv(.c) ?*cpython.PyObject {
+    return _PyObject_GenericGetAttrWithDict(obj, name, dict, suppress);
+}
+
+/// PyThreadState_UncheckedGet - alias for _PyThreadState_UncheckedGet
+pub export fn PyThreadState_UncheckedGet() callconv(.c) ?*cpython.PyThreadState {
+    return _PyThreadState_UncheckedGet();
+}
+
+/// PyUnicode_FastCopyCharacters - alias for _PyUnicode_FastCopyCharacters
+pub export fn PyUnicode_FastCopyCharacters(to: ?*cpython.PyObject, to_start: isize, from: ?*cpython.PyObject, from_start: isize, how_many: isize) callconv(.c) void {
+    _PyUnicode_FastCopyCharacters(to, to_start, from, from_start, how_many);
+}
