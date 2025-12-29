@@ -66,7 +66,8 @@ fn unicode_length(obj: *cpython.PyObject) callconv(.c) isize {
 }
 
 /// PyUnicode_Type - the 'str' type
-pub var PyUnicode_Type: cpython.PyTypeObject = .{
+/// PyUnicode_Type - exported as C symbol for C extensions
+pub export var PyUnicode_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,
@@ -360,7 +361,8 @@ fn unicode_hash(obj: *cpython.PyObject) callconv(.c) isize {
         hash = hash *% 1000003 +% str.?[i];
     }
 
-    const result: isize = @intCast(hash);
+    // Use bitCast to handle large hash values - CPython hashes are signed
+    const result: isize = @bitCast(@as(usize, @truncate(hash)));
     ascii_obj.hash = result;
     return result;
 }

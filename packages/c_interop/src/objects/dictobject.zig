@@ -47,7 +47,8 @@ var dict_as_mapping: cpython.PyMappingMethods = .{
 };
 
 /// PyDict_Type - the 'dict' type
-pub var PyDict_Type: cpython.PyTypeObject = .{
+/// PyDict_Type - exported as C symbol for C extensions
+pub export var PyDict_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

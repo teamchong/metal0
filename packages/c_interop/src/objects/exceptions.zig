@@ -254,14 +254,18 @@ pub export fn PyErr_Clear() callconv(.c) void {
 /// Print current exception
 pub export fn PyErr_Print() callconv(.c) void {
     if (global_exception_state.exc_type) |exc_type| {
-        const type_name = exc_type.tp_name;
+        const type_name = std.mem.span(exc_type.tp_name orelse "unknown");
 
         if (global_exception_state.exc_value) |exc_value| {
             // Try to get string representation
             const str_obj = cpython.PyObject_Str(exc_value);
             if (str_obj) |s| {
                 const msg = @import("unicodeobject.zig").PyUnicode_AsUTF8(s);
-                std.debug.print("{s}: {s}\n", .{ type_name, std.mem.span(msg) });
+                if (msg) |m| {
+                    std.debug.print("{s}: {s}\n", .{ type_name, std.mem.span(m) });
+                } else {
+                    std.debug.print("{s}\n", .{type_name});
+                }
             } else {
                 std.debug.print("{s}\n", .{type_name});
             }
@@ -484,7 +488,8 @@ pub export fn PyErr_SetNone(exc_type: *cpython.PyTypeObject) callconv(.c) void {
 /// Issue a warning
 pub export fn PyErr_WarnEx(category: *cpython.PyTypeObject, message: [*:0]const u8, stack_level: isize) callconv(.c) c_int {
     _ = stack_level;
-    std.debug.print("{s}: {s}\n", .{ category.tp_name, std.mem.span(message) });
+    const cat_name = std.mem.span(category.tp_name orelse "unknown");
+    std.debug.print("{s}: {s}\n", .{ cat_name, std.mem.span(message) });
     return 0; // Success - warning issued
 }
 
@@ -494,11 +499,13 @@ pub export fn PyErr_WriteUnraisable(obj: ?*cpython.PyObject) callconv(.c) void {
         std.debug.print("Exception ignored in: ", .{});
         if (obj) |o| {
             const obj_type = cpython.Py_TYPE(o);
-            std.debug.print("<{s} object>\n", .{obj_type.tp_name});
+            const obj_type_name = std.mem.span(obj_type.tp_name orelse "unknown");
+            std.debug.print("<{s} object>\n", .{obj_type_name});
         } else {
             std.debug.print("<unknown>\n", .{});
         }
-        std.debug.print("{s}\n", .{exc_type.tp_name});
+        const exc_type_name = std.mem.span(exc_type.tp_name orelse "unknown");
+        std.debug.print("{s}\n", .{exc_type_name});
     }
     PyErr_Clear();
 }
@@ -811,7 +818,7 @@ pub export fn PyException_SetArgs(exc: *cpython.PyObject, args: *cpython.PyObjec
 //                         TYPE OBJECTS
 // ============================================================================
 
-pub var PyExc_BaseException: cpython.PyTypeObject = .{
+pub export var PyExc_BaseException: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -868,7 +875,7 @@ pub var PyExc_BaseException: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_Exception: cpython.PyTypeObject = .{
+pub export var PyExc_Exception: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -925,7 +932,7 @@ pub var PyExc_Exception: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_ValueError: cpython.PyTypeObject = .{
+pub export var PyExc_ValueError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -982,7 +989,7 @@ pub var PyExc_ValueError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_TypeError: cpython.PyTypeObject = .{
+pub export var PyExc_TypeError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1039,7 +1046,7 @@ pub var PyExc_TypeError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_RuntimeError: cpython.PyTypeObject = .{
+pub export var PyExc_RuntimeError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1096,7 +1103,7 @@ pub var PyExc_RuntimeError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_KeyError: cpython.PyTypeObject = .{
+pub export var PyExc_KeyError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1153,7 +1160,7 @@ pub var PyExc_KeyError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_AttributeError: cpython.PyTypeObject = .{
+pub export var PyExc_AttributeError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1210,7 +1217,7 @@ pub var PyExc_AttributeError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_IndexError: cpython.PyTypeObject = .{
+pub export var PyExc_IndexError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1267,7 +1274,7 @@ pub var PyExc_IndexError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_MemoryError: cpython.PyTypeObject = .{
+pub export var PyExc_MemoryError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1324,7 +1331,7 @@ pub var PyExc_MemoryError: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyExc_NotImplementedError: cpython.PyTypeObject = .{
+pub export var PyExc_NotImplementedError: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
         .ob_size = 0,
@@ -1445,39 +1452,49 @@ fn makeExceptionType(comptime name: [:0]const u8, comptime base: *cpython.PyType
     };
 }
 
-pub var PyExc_StopIteration: cpython.PyTypeObject = makeExceptionType("StopIteration", &PyExc_Exception, "Signal the end from iterator.__next__().");
-pub var PyExc_StopAsyncIteration: cpython.PyTypeObject = makeExceptionType("StopAsyncIteration", &PyExc_Exception, "Signal the end from iterator.__anext__().");
-pub var PyExc_GeneratorExit: cpython.PyTypeObject = makeExceptionType("GeneratorExit", &PyExc_BaseException, "Request that a generator exit.");
-pub var PyExc_ArithmeticError: cpython.PyTypeObject = makeExceptionType("ArithmeticError", &PyExc_Exception, "Base class for arithmetic errors.");
-pub var PyExc_LookupError: cpython.PyTypeObject = makeExceptionType("LookupError", &PyExc_Exception, "Base class for lookup errors.");
-pub var PyExc_AssertionError: cpython.PyTypeObject = makeExceptionType("AssertionError", &PyExc_Exception, "Assertion failed.");
-pub var PyExc_BufferError: cpython.PyTypeObject = makeExceptionType("BufferError", &PyExc_Exception, "Buffer error.");
-pub var PyExc_EOFError: cpython.PyTypeObject = makeExceptionType("EOFError", &PyExc_Exception, "Read beyond end of file.");
-pub var PyExc_FloatingPointError: cpython.PyTypeObject = makeExceptionType("FloatingPointError", &PyExc_ArithmeticError, "Floating point operation failed.");
-pub var PyExc_NameError: cpython.PyTypeObject = makeExceptionType("NameError", &PyExc_Exception, "Name not found globally.");
-pub var PyExc_RecursionError: cpython.PyTypeObject = makeExceptionType("RecursionError", &PyExc_RuntimeError, "Recursion limit exceeded.");
-pub var PyExc_ReferenceError: cpython.PyTypeObject = makeExceptionType("ReferenceError", &PyExc_Exception, "Weak ref target has been garbage collected.");
-pub var PyExc_SyntaxError: cpython.PyTypeObject = makeExceptionType("SyntaxError", &PyExc_Exception, "Invalid syntax.");
-pub var PyExc_SystemError: cpython.PyTypeObject = makeExceptionType("SystemError", &PyExc_Exception, "Internal error in the Python interpreter.");
-pub var PyExc_UnicodeError: cpython.PyTypeObject = makeExceptionType("UnicodeError", &PyExc_ValueError, "Unicode related error.");
-pub var PyExc_UnicodeDecodeError: cpython.PyTypeObject = makeExceptionType("UnicodeDecodeError", &PyExc_UnicodeError, "Unicode decoding error.");
-pub var PyExc_UnicodeEncodeError: cpython.PyTypeObject = makeExceptionType("UnicodeEncodeError", &PyExc_UnicodeError, "Unicode encoding error.");
-pub var PyExc_Warning: cpython.PyTypeObject = makeExceptionType("Warning", &PyExc_Exception, "Base class for warnings.");
-pub var PyExc_UserWarning: cpython.PyTypeObject = makeExceptionType("UserWarning", &PyExc_Warning, "User-defined warning.");
-pub var PyExc_DeprecationWarning: cpython.PyTypeObject = makeExceptionType("DeprecationWarning", &PyExc_Warning, "Deprecated feature warning.");
-pub var PyExc_BytesWarning: cpython.PyTypeObject = makeExceptionType("BytesWarning", &PyExc_Warning, "Bytes warning.");
-pub var PyExc_ResourceWarning: cpython.PyTypeObject = makeExceptionType("ResourceWarning", &PyExc_Warning, "Resource warning.");
-pub var PyExc_ZeroDivisionError: cpython.PyTypeObject = makeExceptionType("ZeroDivisionError", &PyExc_ArithmeticError, "Division by zero.");
-pub var PyExc_OverflowError: cpython.PyTypeObject = makeExceptionType("OverflowError", &PyExc_ArithmeticError, "Result too large to be represented.");
-pub var PyExc_ImportError: cpython.PyTypeObject = makeExceptionType("ImportError", &PyExc_Exception, "Import can't find module.");
-pub var PyExc_ModuleNotFoundError: cpython.PyTypeObject = makeExceptionType("ModuleNotFoundError", &PyExc_ImportError, "Module not found.");
-pub var PyExc_OSError: cpython.PyTypeObject = makeExceptionType("OSError", &PyExc_Exception, "OS system call failed.");
-pub var PyExc_FileNotFoundError: cpython.PyTypeObject = makeExceptionType("FileNotFoundError", &PyExc_OSError, "File not found.");
-pub var PyExc_FileExistsError: cpython.PyTypeObject = makeExceptionType("FileExistsError", &PyExc_OSError, "File already exists.");
-pub var PyExc_PermissionError: cpython.PyTypeObject = makeExceptionType("PermissionError", &PyExc_OSError, "Not permitted.");
-pub var PyExc_TimeoutError: cpython.PyTypeObject = makeExceptionType("TimeoutError", &PyExc_OSError, "Timeout expired.");
-pub var PyExc_ConnectionError: cpython.PyTypeObject = makeExceptionType("ConnectionError", &PyExc_OSError, "Connection error.");
-pub var PyExc_BrokenPipeError: cpython.PyTypeObject = makeExceptionType("BrokenPipeError", &PyExc_ConnectionError, "Broken pipe.");
-pub var PyExc_ConnectionResetError: cpython.PyTypeObject = makeExceptionType("ConnectionResetError", &PyExc_ConnectionError, "Connection reset.");
-pub var PyExc_ConnectionRefusedError: cpython.PyTypeObject = makeExceptionType("ConnectionRefusedError", &PyExc_ConnectionError, "Connection refused.");
-pub var PyExc_ConnectionAbortedError: cpython.PyTypeObject = makeExceptionType("ConnectionAbortedError", &PyExc_ConnectionError, "Connection aborted.");
+pub export var PyExc_StopIteration: cpython.PyTypeObject = makeExceptionType("StopIteration", &PyExc_Exception, "Signal the end from iterator.__next__().");
+pub export var PyExc_StopAsyncIteration: cpython.PyTypeObject = makeExceptionType("StopAsyncIteration", &PyExc_Exception, "Signal the end from iterator.__anext__().");
+pub export var PyExc_GeneratorExit: cpython.PyTypeObject = makeExceptionType("GeneratorExit", &PyExc_BaseException, "Request that a generator exit.");
+pub export var PyExc_ArithmeticError: cpython.PyTypeObject = makeExceptionType("ArithmeticError", &PyExc_Exception, "Base class for arithmetic errors.");
+pub export var PyExc_LookupError: cpython.PyTypeObject = makeExceptionType("LookupError", &PyExc_Exception, "Base class for lookup errors.");
+pub export var PyExc_AssertionError: cpython.PyTypeObject = makeExceptionType("AssertionError", &PyExc_Exception, "Assertion failed.");
+pub export var PyExc_BufferError: cpython.PyTypeObject = makeExceptionType("BufferError", &PyExc_Exception, "Buffer error.");
+pub export var PyExc_EOFError: cpython.PyTypeObject = makeExceptionType("EOFError", &PyExc_Exception, "Read beyond end of file.");
+pub export var PyExc_FloatingPointError: cpython.PyTypeObject = makeExceptionType("FloatingPointError", &PyExc_ArithmeticError, "Floating point operation failed.");
+pub export var PyExc_NameError: cpython.PyTypeObject = makeExceptionType("NameError", &PyExc_Exception, "Name not found globally.");
+pub export var PyExc_RecursionError: cpython.PyTypeObject = makeExceptionType("RecursionError", &PyExc_RuntimeError, "Recursion limit exceeded.");
+pub export var PyExc_ReferenceError: cpython.PyTypeObject = makeExceptionType("ReferenceError", &PyExc_Exception, "Weak ref target has been garbage collected.");
+pub export var PyExc_SyntaxError: cpython.PyTypeObject = makeExceptionType("SyntaxError", &PyExc_Exception, "Invalid syntax.");
+pub export var PyExc_SystemError: cpython.PyTypeObject = makeExceptionType("SystemError", &PyExc_Exception, "Internal error in the Python interpreter.");
+pub export var PyExc_UnicodeError: cpython.PyTypeObject = makeExceptionType("UnicodeError", &PyExc_ValueError, "Unicode related error.");
+pub export var PyExc_UnicodeDecodeError: cpython.PyTypeObject = makeExceptionType("UnicodeDecodeError", &PyExc_UnicodeError, "Unicode decoding error.");
+pub export var PyExc_UnicodeEncodeError: cpython.PyTypeObject = makeExceptionType("UnicodeEncodeError", &PyExc_UnicodeError, "Unicode encoding error.");
+pub export var PyExc_Warning: cpython.PyTypeObject = makeExceptionType("Warning", &PyExc_Exception, "Base class for warnings.");
+pub export var PyExc_UserWarning: cpython.PyTypeObject = makeExceptionType("UserWarning", &PyExc_Warning, "User-defined warning.");
+pub export var PyExc_DeprecationWarning: cpython.PyTypeObject = makeExceptionType("DeprecationWarning", &PyExc_Warning, "Deprecated feature warning.");
+pub export var PyExc_BytesWarning: cpython.PyTypeObject = makeExceptionType("BytesWarning", &PyExc_Warning, "Bytes warning.");
+pub export var PyExc_ResourceWarning: cpython.PyTypeObject = makeExceptionType("ResourceWarning", &PyExc_Warning, "Resource warning.");
+pub export var PyExc_ZeroDivisionError: cpython.PyTypeObject = makeExceptionType("ZeroDivisionError", &PyExc_ArithmeticError, "Division by zero.");
+pub export var PyExc_OverflowError: cpython.PyTypeObject = makeExceptionType("OverflowError", &PyExc_ArithmeticError, "Result too large to be represented.");
+pub export var PyExc_ImportError: cpython.PyTypeObject = makeExceptionType("ImportError", &PyExc_Exception, "Import can't find module.");
+pub export var PyExc_ModuleNotFoundError: cpython.PyTypeObject = makeExceptionType("ModuleNotFoundError", &PyExc_ImportError, "Module not found.");
+pub export var PyExc_OSError: cpython.PyTypeObject = makeExceptionType("OSError", &PyExc_Exception, "OS system call failed.");
+pub export var PyExc_FileNotFoundError: cpython.PyTypeObject = makeExceptionType("FileNotFoundError", &PyExc_OSError, "File not found.");
+pub export var PyExc_FileExistsError: cpython.PyTypeObject = makeExceptionType("FileExistsError", &PyExc_OSError, "File already exists.");
+pub export var PyExc_PermissionError: cpython.PyTypeObject = makeExceptionType("PermissionError", &PyExc_OSError, "Not permitted.");
+pub export var PyExc_TimeoutError: cpython.PyTypeObject = makeExceptionType("TimeoutError", &PyExc_OSError, "Timeout expired.");
+pub export var PyExc_ConnectionError: cpython.PyTypeObject = makeExceptionType("ConnectionError", &PyExc_OSError, "Connection error.");
+pub export var PyExc_BrokenPipeError: cpython.PyTypeObject = makeExceptionType("BrokenPipeError", &PyExc_ConnectionError, "Broken pipe.");
+pub export var PyExc_ConnectionResetError: cpython.PyTypeObject = makeExceptionType("ConnectionResetError", &PyExc_ConnectionError, "Connection reset.");
+pub export var PyExc_ConnectionRefusedError: cpython.PyTypeObject = makeExceptionType("ConnectionRefusedError", &PyExc_ConnectionError, "Connection refused.");
+pub export var PyExc_ConnectionAbortedError: cpython.PyTypeObject = makeExceptionType("ConnectionAbortedError", &PyExc_ConnectionError, "Connection aborted.");
+
+// PyExc_IOError is an alias to PyExc_OSError in Python 3
+// We export it separately for C extensions that use the old name
+pub export var PyExc_IOError: cpython.PyTypeObject = makeExceptionType("OSError", &PyExc_Exception, "OS system call failed.");
+
+// Import/runtime warnings
+pub export var PyExc_ImportWarning: cpython.PyTypeObject = makeExceptionType("ImportWarning", &PyExc_Warning, "Warning about imports.");
+pub export var PyExc_RuntimeWarning: cpython.PyTypeObject = makeExceptionType("RuntimeWarning", &PyExc_Warning, "Warning about runtime behavior.");
+pub export var PyExc_FutureWarning: cpython.PyTypeObject = makeExceptionType("FutureWarning", &PyExc_Warning, "Warning about future incompatibilities.");
+pub export var PyExc_UnboundLocalError: cpython.PyTypeObject = makeExceptionType("UnboundLocalError", &PyExc_NameError, "Local name referenced but not bound.");

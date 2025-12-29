@@ -32,7 +32,8 @@ pub const PyCMethodObject = extern struct {
 // TYPE OBJECTS
 // ============================================================================
 
-pub var PyCFunction_Type: cpython.PyTypeObject = .{
+/// PyCFunction_Type - exported as C symbol for C extensions
+pub export var PyCFunction_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,
@@ -89,7 +90,8 @@ pub var PyCFunction_Type: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyCMethod_Type: cpython.PyTypeObject = .{
+/// PyCMethod_Type - exported as C symbol for C extensions
+pub export var PyCMethod_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,
@@ -222,7 +224,8 @@ pub const PyMethodObject = extern struct {
     im_weakreflist: ?*cpython.PyObject,
 };
 
-pub var PyMethod_Type: cpython.PyTypeObject = .{
+/// PyMethod_Type - exported as C symbol for C extensions
+pub export var PyMethod_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

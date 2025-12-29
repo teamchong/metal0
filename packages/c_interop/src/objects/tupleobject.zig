@@ -26,7 +26,8 @@ var tuple_as_sequence: cpython.PySequenceMethods = .{
 };
 
 /// PyTuple_Type - the 'tuple' type
-pub var PyTuple_Type: cpython.PyTypeObject = .{
+/// PyTuple_Type - exported as C symbol for C extensions
+pub export var PyTuple_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

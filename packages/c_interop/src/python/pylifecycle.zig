@@ -192,3 +192,33 @@ pub export fn Py_FatalError(message: [*:0]const u8) callconv(.c) noreturn {
     _ = std.c.fprintf(std.c.stderr, "Fatal Python error: %s\n", message);
     std.process.abort();
 }
+
+// ============================================================================
+// RECURSION LIMIT (for C extensions)
+// ============================================================================
+
+/// Maximum recursion depth
+const RECURSION_LIMIT: c_int = 1000;
+
+/// Thread-local recursion counter
+threadlocal var recursion_depth: c_int = 0;
+
+/// Enter a recursive call - check recursion limit
+/// Returns 0 on success, -1 if recursion limit exceeded
+pub export fn Py_EnterRecursiveCall(where: [*:0]const u8) callconv(.c) c_int {
+    _ = where;
+    recursion_depth += 1;
+    if (recursion_depth > RECURSION_LIMIT) {
+        recursion_depth -= 1;
+        // In CPython this sets RecursionError, but we just return -1
+        return -1;
+    }
+    return 0;
+}
+
+/// Leave a recursive call - decrement counter
+pub export fn Py_LeaveRecursiveCall() callconv(.c) void {
+    if (recursion_depth > 0) {
+        recursion_depth -= 1;
+    }
+}

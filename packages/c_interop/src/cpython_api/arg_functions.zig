@@ -52,6 +52,38 @@ pub export fn PyArg_VaParseTupleAndKeywords(args: *cpython.PyObject, kwargs: ?*c
     return parseArgsWithVa(args, format, &va_copy);
 }
 
+// ============================================================================
+// SizeT variants (required by numpy for 64-bit size handling)
+// These are identical to their non-SizeT counterparts but signal size_t awareness
+// ============================================================================
+
+pub export fn _Py_BuildValue_SizeT(format: [*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+    return @import("../include/modsupport.zig").Py_VaBuildValue(format, &va);
+}
+
+pub export fn _PyArg_ParseTuple_SizeT(args: *cpython.PyObject, format: [*:0]const u8, ...) callconv(.c) c_int {
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+    return parseArgsWithVa(args, format, &va);
+}
+
+pub export fn _PyArg_ParseTupleAndKeywords_SizeT(args: *cpython.PyObject, kwargs: ?*cpython.PyObject, format: [*:0]const u8, kwlist: [*]const ?[*:0]const u8, ...) callconv(.c) c_int {
+    _ = kwargs;
+    _ = kwlist;
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+    return parseArgsWithVa(args, format, &va);
+}
+
+pub export fn _PyArg_VaParseTupleAndKeywords_SizeT(args: *cpython.PyObject, kwargs: ?*cpython.PyObject, format: [*:0]const u8, kwlist: [*]const ?[*:0]const u8, va: std.builtin.VaList) callconv(.c) c_int {
+    _ = kwargs;
+    _ = kwlist;
+    var va_copy = va;
+    return parseArgsWithVa(args, format, &va_copy);
+}
+
 fn parseArgsWithVa(args: *cpython.PyObject, format: [*:0]const u8, va: *std.builtin.VaList) c_int {
     const tuple = @as(*cpython.PyTupleObject, @ptrCast(args));
     const fmt = std.mem.span(format);

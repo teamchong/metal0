@@ -144,7 +144,8 @@ var long_as_number: cpython.PyNumberMethods = .{
     .nb_inplace_matrix_multiply = null,
 };
 
-pub var PyLong_Type: cpython.PyTypeObject = .{
+/// PyLong_Type - exported as C symbol for C extensions
+pub export var PyLong_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{
             .ob_refcnt = 1000000, // Immortal

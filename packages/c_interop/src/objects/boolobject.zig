@@ -43,7 +43,8 @@ pub export var _Py_TrueStruct: cpython.PyLongObject = .{
 // TYPE OBJECT
 // ============================================================================
 
-pub var PyBool_Type: cpython.PyTypeObject = helpers.makeTypeObject(.{
+/// PyBool_Type - exported as C symbol for C extensions
+pub export var PyBool_Type: cpython.PyTypeObject = helpers.makeTypeObject(.{
     .name = "bool",
     .basicsize = @sizeOf(cpython.PyLongObject),
     .flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_LONG_SUBCLASS,

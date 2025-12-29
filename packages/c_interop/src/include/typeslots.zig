@@ -19,66 +19,18 @@ const Py_INCREF = traits.externs.Py_INCREF;
 const Py_DECREF = traits.externs.Py_DECREF;
 const PyErr_SetString = traits.externs.PyErr_SetString;
 
-/// PyType_Type - The metatype (type of all type objects)
-pub var PyType_Type: cpython.PyTypeObject = .{
-    .ob_base = .{
-        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined }, // Will point to itself
-        .ob_size = 0,
-    },
-    .tp_name = "type",
-    .tp_basicsize = @intCast(@sizeOf(cpython.PyTypeObject)),
-    .tp_itemsize = 0,
-    .tp_dealloc = null,
-    .tp_vectorcall_offset = 0,
-    .tp_getattr = null,
-    .tp_setattr = null,
-    .tp_as_async = null,
-    .tp_repr = type_repr,
-    .tp_as_number = null,
-    .tp_as_sequence = null,
-    .tp_as_mapping = null,
-    .tp_hash = null,
-    .tp_call = type_call,
-    .tp_str = null,
-    .tp_getattro = null,
-    .tp_setattro = null,
-    .tp_as_buffer = null,
-    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE | cpython.Py_TPFLAGS_TYPE_SUBCLASS,
-    .tp_doc = "type(object) -> the object's type\ntype(name, bases, dict, **kwds) -> a new type",
-    .tp_traverse = null,
-    .tp_clear = null,
-    .tp_richcompare = null,
-    .tp_weaklistoffset = 0,
-    .tp_iter = null,
-    .tp_iternext = null,
-    .tp_methods = null,
-    .tp_members = null,
-    .tp_getset = null,
-    .tp_base = null,
-    .tp_dict = null,
-    .tp_descr_get = null,
-    .tp_descr_set = null,
-    .tp_dictoffset = 0,
-    .tp_init = null,
-    .tp_alloc = null,
-    .tp_new = type_new,
-    .tp_free = null,
-    .tp_is_gc = null,
-    .tp_bases = null,
-    .tp_mro = null,
-    .tp_cache = null,
-    .tp_subclasses = null,
-    .tp_weaklist = null,
-    .tp_del = null,
-    .tp_version_tag = 0,
-    .tp_finalize = null,
-    .tp_vectorcall = null,
-    .tp_watched = 0,
-    .tp_versions_used = 0,
-};
+/// PyType_Type - defined in typeobject.zig (the authoritative definition)
+/// Import it here for local use; exported as C symbol from typeobject.zig
+const typeobject = @import("../objects/typeobject.zig");
+
+/// Alias for convenience - actual type object defined in typeobject.zig
+pub fn getPyType_Type() *cpython.PyTypeObject {
+    return &typeobject.PyType_Type;
+}
 
 /// PyBaseObject_Type - The base type for all objects ('object')
-pub var PyBaseObject_Type: cpython.PyTypeObject = .{
+/// Exported as C symbol for C extensions
+pub export var PyBaseObject_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined }, // Will point to &PyType_Type
         .ob_size = 0,
@@ -265,7 +217,7 @@ pub export fn PyType_Check(obj: *cpython.PyObject) callconv(.c) c_int {
 
 /// Check if object is exactly PyType_Type
 pub export fn PyType_CheckExact(obj: *cpython.PyObject) callconv(.c) c_int {
-    return if (cpython.Py_TYPE(obj) == &PyType_Type) 1 else 0;
+    return if (cpython.Py_TYPE(obj) == getPyType_Type()) 1 else 0;
 }
 
 /// Finalize type object - initializes inherited slots and type metadata
@@ -353,7 +305,7 @@ pub export fn PyType_Ready(type_obj: *cpython.PyTypeObject) callconv(.c) c_int {
 
     // 10. Set ob_type to metatype if not set
     if (@intFromPtr(type_obj.ob_base.ob_base.ob_type) == 0) {
-        type_obj.ob_base.ob_base.ob_type = &PyType_Type;
+        type_obj.ob_base.ob_base.ob_type = getPyType_Type();
     }
 
     // Mark as ready
@@ -538,7 +490,7 @@ pub fn PyType_GetBuiltinType(name: [*:0]const u8) ?*cpython.PyTypeObject {
 
     // Check against known builtin type names
     if (std.mem.eql(u8, name_slice, "type")) {
-        return &PyType_Type;
+        return getPyType_Type();
     } else if (std.mem.eql(u8, name_slice, "object")) {
         return &PyBaseObject_Type;
     } else if (std.mem.eql(u8, name_slice, "int")) {
@@ -772,7 +724,7 @@ fn PyType_FromSpecWithBasesAndDoc(spec: *cpython.PyType_Spec, bases: ?*cpython.P
 
     // Set up basic fields
     type_obj.ob_base.ob_base.ob_refcnt = 1;
-    type_obj.ob_base.ob_base.ob_type = &PyType_Type;
+    type_obj.ob_base.ob_base.ob_type = getPyType_Type();
     type_obj.ob_base.ob_size = 0;
 
     // Copy name (must persist since PyTypeObject stores pointer)

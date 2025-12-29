@@ -179,7 +179,8 @@ fn bytes_hash(obj: *cpython.PyObject) callconv(.c) isize {
     return result;
 }
 
-pub var PyBytes_Type: cpython.PyTypeObject = .{
+/// PyBytes_Type - exported as C symbol for C extensions
+pub export var PyBytes_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

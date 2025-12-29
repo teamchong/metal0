@@ -33,7 +33,8 @@ pub export var _Py_EllipsisObject: cpython.PyObject = .{
 // TYPE OBJECTS
 // ============================================================================
 
-pub var PySlice_Type: cpython.PyTypeObject = .{
+/// PySlice_Type - exported as C symbol for C extensions
+pub export var PySlice_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

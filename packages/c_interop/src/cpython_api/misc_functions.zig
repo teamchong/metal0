@@ -428,3 +428,85 @@ pub export fn PyErr_SetFromWindowsErrWithFilename(ierr: c_int, filename: ?[*:0]c
     exceptions.PyErr_SetString(&exceptions.PyExc_OSError, "Windows error (not on Windows)");
     return null;
 }
+
+// ============================================================================
+// INTERNAL FUNCTIONS REQUIRED BY NUMPY
+// ============================================================================
+
+/// _Py_ascii_whitespace - ASCII whitespace character table
+/// Each byte is 1 if the character at that index is whitespace, 0 otherwise
+pub export var _Py_ascii_whitespace: [256]u8 = blk: {
+    var table = [_]u8{0} ** 256;
+    // Standard ASCII whitespace: space, tab, newline, carriage return, vertical tab, form feed
+    table[' '] = 1;
+    table['\t'] = 1;
+    table['\n'] = 1;
+    table['\r'] = 1;
+    table[0x0b] = 1; // vertical tab
+    table[0x0c] = 1; // form feed
+    break :blk table;
+};
+
+/// _PyErr_BadInternalCall - Report internal error
+pub export fn _PyErr_BadInternalCall(filename: [*:0]const u8, lineno: c_int) callconv(.c) void {
+    _ = filename;
+    _ = lineno;
+    exceptions.PyErr_SetString(&exceptions.PyExc_SystemError, "bad argument to internal function");
+}
+
+/// _PyObject_CallFunction_SizeT - Call function with size_t-aware argument parsing
+pub export fn _PyObject_CallFunction_SizeT(callable: *cpython.PyObject, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+    const abstract = @import("../include/abstract.zig");
+    if (format == null) {
+        // No arguments, call with empty tuple
+        const empty_tuple = @import("../objects/tupleobject.zig").PyTuple_New(0) orelse return null;
+        return abstract.PyObject_Call(callable, empty_tuple, null);
+    }
+    // Build args from format
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+    const args = @import("../include/modsupport.zig").Py_VaBuildValue(format.?, &va) orelse return null;
+    // If args is a tuple, use directly; otherwise wrap in tuple
+    if (@import("../objects/tupleobject.zig").PyTuple_Check(args) != 0) {
+        return abstract.PyObject_Call(callable, args, null);
+    }
+    const tuple = @import("../objects/tupleobject.zig").PyTuple_Pack(1, args) orelse return null;
+    return abstract.PyObject_Call(callable, tuple, null);
+}
+
+/// _PyObject_CallMethod_SizeT - Call method with size_t-aware argument parsing
+pub export fn _PyObject_CallMethod_SizeT(obj: *cpython.PyObject, name: [*:0]const u8, format: ?[*:0]const u8, ...) callconv(.c) ?*cpython.PyObject {
+    const abstract = @import("../include/abstract.zig");
+    const method = abstract.PyObject_GetAttrString(obj, name) orelse return null;
+    if (format == null) {
+        const empty_tuple = @import("../objects/tupleobject.zig").PyTuple_New(0) orelse return null;
+        return abstract.PyObject_Call(method, empty_tuple, null);
+    }
+    var va = @cVaStart();
+    defer @cVaEnd(&va);
+    const args = @import("../include/modsupport.zig").Py_VaBuildValue(format.?, &va) orelse return null;
+    if (@import("../objects/tupleobject.zig").PyTuple_Check(args) != 0) {
+        return abstract.PyObject_Call(method, args, null);
+    }
+    const tuple = @import("../objects/tupleobject.zig").PyTuple_Pack(1, args) orelse return null;
+    return abstract.PyObject_Call(method, tuple, null);
+}
+
+/// _PyObject_LookupAttr - Look up attribute, don't raise AttributeError if not found
+/// Returns: 1 if attribute found (stored in *result), 0 if not found, -1 on error
+pub export fn _PyObject_LookupAttr(obj: *cpython.PyObject, name: *cpython.PyObject, result: *?*cpython.PyObject) callconv(.c) c_int {
+    const abstract = @import("../include/abstract.zig");
+    result.* = abstract.PyObject_GetAttr(obj, name);
+    if (result.* != null) {
+        return 1; // Found
+    }
+    // Check if it was an AttributeError (not found) or real error
+    if (exceptions.PyErr_Occurred()) |exc| {
+        if (exceptions.PyErr_GivenExceptionMatches(exc, @ptrCast(&exceptions.PyExc_AttributeError)) != 0) {
+            exceptions.PyErr_Clear();
+            return 0; // Not found, no error
+        }
+        return -1; // Real error
+    }
+    return 0; // Not found
+}

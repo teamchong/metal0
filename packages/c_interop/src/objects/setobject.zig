@@ -19,7 +19,8 @@ pub const PySet_MINSIZE = cpython.PySet_MINSIZE;
 // Type Objects
 // ============================================================================
 
-pub var PySet_Type: cpython.PyTypeObject = .{
+/// PySet_Type - exported as C symbol for C extensions
+pub export var PySet_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,
@@ -76,7 +77,8 @@ pub var PySet_Type: cpython.PyTypeObject = .{
     .tp_versions_used = 0,
 };
 
-pub var PyFrozenSet_Type: cpython.PyTypeObject = .{
+/// PyFrozenSet_Type - exported as C symbol for C extensions
+pub export var PyFrozenSet_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

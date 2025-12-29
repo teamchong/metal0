@@ -520,3 +520,108 @@ pub export fn PyUnicode_WriteChar(str_obj: *cpython.PyObject, index: isize, ch: 
     _ = ch;
     return -1; // Immutable
 }
+
+// ============================================================================
+// UCS4 Functions (required by numpy)
+// ============================================================================
+
+/// Copy Unicode data to a UCS4 buffer
+/// CPython: Py_UCS4* PyUnicode_AsUCS4(PyObject *u, Py_UCS4 *buffer, Py_ssize_t buflen, int copy_null)
+pub export fn PyUnicode_AsUCS4(str_obj: *cpython.PyObject, buffer: [*]u32, buflen: isize, copy_null: c_int) callconv(.c) ?[*]u32 {
+    const str = pyunicode.PyUnicode_AsUTF8(str_obj) orelse return null;
+    const str_len = std.mem.len(str);
+    const max_chars: usize = if (copy_null != 0) @intCast(buflen - 1) else @intCast(buflen);
+
+    var i: usize = 0;
+    while (i < str_len and i < max_chars) : (i += 1) {
+        buffer[i] = str[i]; // ASCII/Latin-1 direct copy
+    }
+
+    if (copy_null != 0 and i < @as(usize, @intCast(buflen))) {
+        buffer[i] = 0;
+    }
+
+    return buffer;
+}
+
+/// Copy Unicode data to a newly allocated UCS4 buffer
+/// CPython: Py_UCS4* PyUnicode_AsUCS4Copy(PyObject *u)
+pub export fn PyUnicode_AsUCS4Copy(str_obj: *cpython.PyObject) callconv(.c) ?[*]u32 {
+    const str = pyunicode.PyUnicode_AsUTF8(str_obj) orelse return null;
+    const str_len = std.mem.len(str);
+
+    const buf = std.heap.c_allocator.alloc(u32, str_len + 1) catch return null;
+    for (str[0..str_len], 0..) |c, i| {
+        buf[i] = c;
+    }
+    buf[str_len] = 0;
+
+    return buf.ptr;
+}
+
+/// Create unicode string from kind and data
+/// CPython: PyObject* PyUnicode_FromKindAndData(int kind, const void *buffer, Py_ssize_t size)
+pub export fn PyUnicode_FromKindAndData(kind: c_int, buffer: [*]const u8, size: isize) callconv(.c) ?*cpython.PyObject {
+    const usize_len: usize = @intCast(size);
+    switch (kind) {
+        1 => {
+            // PyUnicode_1BYTE_KIND - Latin-1/ASCII
+            return pyunicode.PyUnicode_FromStringAndSize(buffer, size);
+        },
+        2 => {
+            // PyUnicode_2BYTE_KIND - UCS2
+            const chars: [*]const u16 = @ptrCast(@alignCast(buffer));
+            const result_buf = std.heap.c_allocator.alloc(u8, usize_len * 3 + 1) catch return null;
+            var out_idx: usize = 0;
+            for (0..usize_len) |i| {
+                const ch = chars[i];
+                if (ch < 0x80) {
+                    result_buf[out_idx] = @intCast(ch);
+                    out_idx += 1;
+                } else if (ch < 0x800) {
+                    result_buf[out_idx] = @intCast(0xC0 | (ch >> 6));
+                    result_buf[out_idx + 1] = @intCast(0x80 | (ch & 0x3F));
+                    out_idx += 2;
+                } else {
+                    result_buf[out_idx] = @intCast(0xE0 | (ch >> 12));
+                    result_buf[out_idx + 1] = @intCast(0x80 | ((ch >> 6) & 0x3F));
+                    result_buf[out_idx + 2] = @intCast(0x80 | (ch & 0x3F));
+                    out_idx += 3;
+                }
+            }
+            result_buf[out_idx] = 0;
+            return pyunicode.PyUnicode_FromStringAndSize(@ptrCast(result_buf.ptr), @intCast(out_idx));
+        },
+        4 => {
+            // PyUnicode_4BYTE_KIND - UCS4
+            const chars: [*]const u32 = @ptrCast(@alignCast(buffer));
+            const result_buf = std.heap.c_allocator.alloc(u8, usize_len * 4 + 1) catch return null;
+            var out_idx: usize = 0;
+            for (0..usize_len) |i| {
+                const ch = chars[i];
+                if (ch < 0x80) {
+                    result_buf[out_idx] = @intCast(ch);
+                    out_idx += 1;
+                } else if (ch < 0x800) {
+                    result_buf[out_idx] = @intCast(0xC0 | (ch >> 6));
+                    result_buf[out_idx + 1] = @intCast(0x80 | (ch & 0x3F));
+                    out_idx += 2;
+                } else if (ch < 0x10000) {
+                    result_buf[out_idx] = @intCast(0xE0 | (ch >> 12));
+                    result_buf[out_idx + 1] = @intCast(0x80 | ((ch >> 6) & 0x3F));
+                    result_buf[out_idx + 2] = @intCast(0x80 | (ch & 0x3F));
+                    out_idx += 3;
+                } else {
+                    result_buf[out_idx] = @intCast(0xF0 | (ch >> 18));
+                    result_buf[out_idx + 1] = @intCast(0x80 | ((ch >> 12) & 0x3F));
+                    result_buf[out_idx + 2] = @intCast(0x80 | ((ch >> 6) & 0x3F));
+                    result_buf[out_idx + 3] = @intCast(0x80 | (ch & 0x3F));
+                    out_idx += 4;
+                }
+            }
+            result_buf[out_idx] = 0;
+            return pyunicode.PyUnicode_FromStringAndSize(@ptrCast(result_buf.ptr), @intCast(out_idx));
+        },
+        else => return null,
+    }
+}

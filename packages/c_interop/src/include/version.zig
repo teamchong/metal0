@@ -68,3 +68,19 @@ pub fn magicNumber(version: PythonVersion) u32 {
         .py313 => 3550,
     };
 }
+
+// ============================================================================
+// EXPORTED C SYMBOLS (for C extensions)
+// ============================================================================
+
+/// Py_Version - exported as C symbol
+/// Format: 0xPYMMmmAA (PY=3, MM=minor, mm=micro, AA=release)
+/// For Python 3.12.0 final: 0x030c00f0
+pub export var Py_Version: c_ulong = blk: {
+    const major: c_ulong = 3;
+    const minor: c_ulong = @intFromEnum(PYTHON_VERSION);
+    const micro: c_ulong = 0;
+    const release_level: c_ulong = 0xf; // PY_RELEASE_LEVEL_FINAL
+    const serial: c_ulong = 0;
+    break :blk (major << 24) | (minor << 16) | (micro << 8) | (release_level << 4) | serial;
+};

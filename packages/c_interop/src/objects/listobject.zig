@@ -24,7 +24,8 @@ var list_as_sequence: cpython.PySequenceMethods = .{
 };
 
 /// PyList_Type - the 'list' type
-pub var PyList_Type: cpython.PyTypeObject = .{
+/// PyList_Type - exported as C symbol for C extensions
+pub export var PyList_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,

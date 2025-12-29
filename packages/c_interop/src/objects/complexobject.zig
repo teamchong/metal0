@@ -27,7 +27,8 @@ pub const PyComplexObject = extern struct {
 // TYPE OBJECT
 // ============================================================================
 
-pub var PyComplex_Type: cpython.PyTypeObject = .{
+/// PyComplex_Type - exported as C symbol for C extensions
+pub export var PyComplex_Type: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1000000, .ob_type = undefined },
         .ob_size = 0,
