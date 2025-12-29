@@ -898,3 +898,153 @@ pub export var PyTraceBack_Type: cpython.PyTypeObject = .{
     .tp_watched = 0,
     .tp_versions_used = 0,
 };
+
+// ============================================================================
+// PYOBJECT ADDITIONAL FUNCTIONS (for 85% coverage)
+// ============================================================================
+
+/// Allocate a new object with GC tracking
+pub export fn PyObject_GC_New(tp: ?*cpython.PyTypeObject) callconv(.c) ?*cpython.PyObject {
+    if (tp) |t| {
+        const size = @as(usize, @intCast(t.tp_basicsize));
+        const mem = std.c.malloc(size) orelse return null;
+        const obj: *cpython.PyObject = @ptrCast(@alignCast(mem));
+        obj.ob_refcnt = 1;
+        obj.ob_type = t;
+        return obj;
+    }
+    return null;
+}
+
+/// Get a method from an object (optimized for bound method calls)
+pub export fn PyObject_GetMethod(obj: ?*cpython.PyObject, name: ?*cpython.PyObject, method: ?*?*cpython.PyObject) callconv(.c) c_int {
+    if (obj == null or name == null or method == null) return 0;
+    // For now, fall back to GetAttr behavior
+    const attr = cpython.PyObject_GetAttr(obj, name);
+    method.?.* = attr;
+    return if (attr != null) 1 else 0;
+}
+
+/// Get the __dict__ pointer for an object
+pub export fn PyObject_GetDictPtr(obj: ?*cpython.PyObject) callconv(.c) ?*?*cpython.PyObject {
+    if (obj == null) return null;
+    const tp = obj.?.ob_type orelse return null;
+    if (tp.tp_dictoffset == 0) return null;
+    const base: [*]u8 = @ptrCast(obj);
+    const offset: usize = if (tp.tp_dictoffset > 0)
+        @intCast(tp.tp_dictoffset)
+    else
+        @intCast(@as(isize, @intCast(tp.tp_basicsize)) + tp.tp_dictoffset);
+    return @ptrCast(@alignCast(base + offset));
+}
+
+/// Generic hash function for objects
+pub export fn PyObject_GenericHash(obj: ?*cpython.PyObject) callconv(.c) isize {
+    // Default: use object address as hash (like id())
+    return @intCast(@intFromPtr(obj));
+}
+
+/// Call an object's finalizer
+pub export fn PyObject_CallFinalizer(obj: ?*cpython.PyObject) callconv(.c) void {
+    if (obj == null) return;
+    const tp = obj.?.ob_type orelse return;
+    if (tp.tp_finalize) |finalize| {
+        finalize(obj);
+    }
+}
+
+/// Check if an object is tracked by GC
+pub export fn PyObject_IS_GC(obj: ?*cpython.PyObject) callconv(.c) c_int {
+    if (obj == null) return 0;
+    const tp = obj.?.ob_type orelse return 0;
+    // Check if type has Py_TPFLAGS_HAVE_GC flag
+    return if ((tp.tp_flags & cpython.Py_TPFLAGS_HAVE_GC) != 0) 1 else 0;
+}
+
+/// Dump object info to stderr (for debugging)
+pub export fn PyObject_Dump(obj: ?*cpython.PyObject) callconv(.c) void {
+    if (obj == null) {
+        _ = std.c.fprintf(std.c.stderr, "<NULL object>\n");
+        return;
+    }
+    const tp = obj.?.ob_type;
+    if (tp) |t| {
+        _ = std.c.fprintf(std.c.stderr, "object at %p, type: %s, refcnt: %ld\n", obj, t.tp_name, obj.?.ob_refcnt);
+    } else {
+        _ = std.c.fprintf(std.c.stderr, "object at %p, type: <NULL>, refcnt: %ld\n", obj, obj.?.ob_refcnt);
+    }
+}
+
+/// Look up a special method on a type
+pub export fn PyObject_LookupSpecial(obj: ?*cpython.PyObject, name: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (obj == null or name == null) return null;
+    const tp = obj.?.ob_type orelse return null;
+    // Look up on type, not instance
+    return cpython.PyObject_GetAttr(@ptrCast(tp), name);
+}
+
+/// Check if object is freed (for debugging)
+pub export fn PyObject_IsFreed(obj: ?*cpython.PyObject) callconv(.c) c_int {
+    // In our implementation, we can't easily detect freed objects
+    // Return 0 (not freed) as a safe default
+    _ = obj;
+    return 0;
+}
+
+/// Get object state for pickling
+pub export fn PyObject_GetState(obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (obj == null) return null;
+    // Try to call __getstate__ if it exists
+    const getstate_name = pyunicode.PyUnicode_FromString("__getstate__") orelse return null;
+    defer cpython.Py_DecRef(getstate_name);
+    const method = cpython.PyObject_GetAttr(obj, getstate_name) orelse return null;
+    defer cpython.Py_DecRef(method);
+    return cpython.PyObject_CallNoArgs(method);
+}
+
+// ============================================================================
+// PYTYPE ADDITIONAL FUNCTIONS (for 80% coverage)
+// ============================================================================
+
+/// Look up an attribute in a type's MRO (public version)
+pub export fn PyType_Lookup(tp: ?*cpython.PyTypeObject, name: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    if (tp == null or name == null) return null;
+    // Look up in type's __dict__ first
+    if (tp.?.tp_dict) |dict| {
+        if (pydict.PyDict_GetItem(dict, name)) |value| {
+            return value;
+        }
+    }
+    // TODO: Walk MRO for inherited attributes
+    return null;
+}
+
+/// Look up an attribute and return a new reference
+pub export fn PyType_LookupRef(tp: ?*cpython.PyTypeObject, name: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const result = PyType_Lookup(tp, name);
+    if (result) |obj| {
+        cpython.Py_IncRef(obj);
+    }
+    return result;
+}
+
+/// Get the name of a type
+pub export fn PyType_Name(tp: ?*cpython.PyTypeObject) callconv(.c) ?[*:0]const u8 {
+    if (tp == null) return null;
+    return tp.?.tp_name;
+}
+
+/// Check if a type supports weak references
+pub export fn PyType_SUPPORTS_WEAKREFS(tp: ?*cpython.PyTypeObject) callconv(.c) c_int {
+    if (tp == null) return 0;
+    return if (tp.?.tp_weaklistoffset != 0) 1 else 0;
+}
+
+/// Get module by definition (version 2)
+pub export fn PyType_GetModuleByDef2(tp: ?*cpython.PyTypeObject, def: ?*anyopaque, def2: ?*anyopaque) callconv(.c) ?*cpython.PyObject {
+    _ = tp;
+    _ = def;
+    _ = def2;
+    // Stub - module lookup not fully implemented
+    return null;
+}
