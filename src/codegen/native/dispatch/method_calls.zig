@@ -29,6 +29,15 @@ fn emitBoolToInt(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     }.f);
 }
 
+/// Helper: emit runtime.toBool(expr) with guaranteed bracket matching
+fn emitToBool(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.toBool", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
 /// Builtin types that support __new__ with value extraction
 const BuiltinNewTypes = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} }, .{ "int", {} }, .{ "float", {} }, .{ "bool", {} },
@@ -409,9 +418,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                     // Return the value argument (second arg after cls)
                     // e.g., bool.__new__(bool, 1) -> true, bool.__new__(bool, 0) -> false
                     if (std.mem.eql(u8, parent_name, "bool")) {
-                        try self.emit("runtime.toBool(");
-                        try self.genExpr(call.args[1]);
-                        try self.emit(")");
+                        try emitToBool(self, call.args[1]);
                     } else {
                         try self.genExpr(call.args[1]);
                     }

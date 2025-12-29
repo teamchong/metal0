@@ -110,11 +110,38 @@ const genUlp = h.wrapBlk("ulp", "const _x = @abs(@as(f64, __v)); const _exp = @a
 
 // Classification functions that handle PyPowResult union type via runtime.math.*
 // Note: std.math uses camelCase (isNan, isInf, isFinite)
+
+/// Helper: emit runtime.math.func(expr) with guaranteed bracket matching
+fn emitRuntimeMathCall(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { f: []const u8, e: ast.Node };
+    try self.emitCallCtx("runtime.math", Ctx{ .f = func, .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(".");
+            try s.emit(ctx.f);
+            try s.emitCallCtx("", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.Lib.math.copysign(expr1, expr2) with guaranteed bracket matching
+fn emitCopysignCall(self: *NativeCodegen, expr1: ast.Node, expr2: ast.Node) CodegenError!void {
+    const Ctx = struct { e1: ast.Node, e2: ast.Node };
+    try self.emitCallCtx("runtime.Lib.math.copysign", Ctx{ .e1 = expr1, .e2 = expr2 }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.e1);
+            try s.emit(", ");
+            try s.genExpr(ctx.e2);
+        }
+    }.f);
+}
+
 fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isNan(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeMathCall(self, "isNan", args[0]);
     } else {
         try self.emit("false");
     }
@@ -122,9 +149,7 @@ fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isInf(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeMathCall(self, "isInf", args[0]);
     } else {
         try self.emit("false");
     }
@@ -132,9 +157,7 @@ fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime.math.isFinite(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeMathCall(self, "isFinite", args[0]);
     } else {
         try self.emit("true");
     }
@@ -144,11 +167,7 @@ fn genCopysign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
         // Use runtime.Lib.math.copysign which handles PyValue arguments
         // Don't wrap with @as(f64, ...) since copysign handles type conversion internally
-        try self.emit("runtime.Lib.math.copysign(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(")");
+        try emitCopysignCall(self, args[0], args[1]);
     } else {
         try self.emit("@as(f64, 0.0)");
     }
