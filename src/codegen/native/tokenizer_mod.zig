@@ -40,9 +40,11 @@ fn handleEncode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         if (type_traits.isUnknown(arg_type)) {
             // PyObject (PyString) - convert to native string
-            try self.emit("runtime.PyString.getValue(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
+            try self.emitCallCtx("runtime.PyString.getValue", args[0], struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                }
+            }.f);
         } else {
             // Native string - use directly
             try self.genExpr(args[0]);
@@ -75,20 +77,33 @@ fn handleDecode(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for tokenizer.count_tokens(text)
 fn handleCountTokens(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("(try runtime.tokenizer.encode(__global_allocator, ");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    }
-    try self.emit(")).len");
+    // Uses emitCallCtx for inner call, then adds .len suffix
+    const Ctx = struct { a: []ast.Node };
+    try self.withParensCtx(Ctx{ .a = args }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitCallCtx("try runtime.tokenizer.encode", ctx.a, struct {
+                pub fn g(s2: *NativeCodegen, a: []ast.Node) CodegenError!void {
+                    try s2.emit("__global_allocator, ");
+                    if (a.len > 0) {
+                        try s2.genExpr(a[0]);
+                    }
+                }
+            }.g);
+        }
+    }.f);
+    try self.emit(".len");
 }
 
 /// Generate code for tokenizer.load(path) or tokenizer.init(path)
 fn handleLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("try runtime.tokenizer.init(__global_allocator, ");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    }
-    try self.emit(")");
+    try self.emitCallCtx("try runtime.tokenizer.init", args, struct {
+        pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            if (a.len > 0) {
+                try s.genExpr(a[0]);
+            }
+        }
+    }.f);
 }
 
 /// Generate code for tokenizer.init(path) - alias for load
@@ -98,22 +113,24 @@ fn handleInit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 /// Generate code for tokenizer.pre_tokenize(text, method="whitespace")
 fn handlePreTokenize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.tokenizer.Tokenizer.pre_tokenizers.whitespace(");
-
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    }
-
-    try self.emit(", __global_allocator)");
+    try self.emitCallCtx("runtime.tokenizer.Tokenizer.pre_tokenizers.whitespace", args, struct {
+        pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            if (a.len > 0) {
+                try s.genExpr(a[0]);
+            }
+            try s.emit(", __global_allocator");
+        }
+    }.f);
 }
 
 /// Generate code for tokenizer.normalize(text, method="lowercase")
 fn handleNormalize(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.tokenizer.Tokenizer.normalizers.lowercase(");
-
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    }
-
-    try self.emit(", __global_allocator)");
+    try self.emitCallCtx("runtime.tokenizer.Tokenizer.normalizers.lowercase", args, struct {
+        pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            if (a.len > 0) {
+                try s.genExpr(a[0]);
+            }
+            try s.emit(", __global_allocator");
+        }
+    }.f);
 }
