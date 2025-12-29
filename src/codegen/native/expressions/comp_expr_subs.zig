@@ -270,9 +270,7 @@ fn genBuiltinCallWithSubs(
 
     if (std.mem.eql(u8, func_name, "bool") and c.args.len == 1) {
         // bool(x) in comprehension - use runtime.toBool with substitution
-        try self.emit("runtime.toBool(");
-        try genExprWithSubs(self, c.args[0], subs);
-        try self.emit(")");
+        try emitToBoolWithSubs(self, c.args[0], subs);
     } else if (std.mem.eql(u8, func_name, "int") and c.args.len >= 1) {
         // int(x) or int(x, base) in comprehension - cast with substitution
         try self.emit("@as(i64, @intCast(");
@@ -290,9 +288,7 @@ fn genBuiltinCallWithSubs(
         try self.emit(").len))");
     } else if (std.mem.eql(u8, func_name, "abs") and c.args.len == 1) {
         // abs(x) in comprehension - use @abs with substitution
-        try self.emit("@abs(");
-        try genExprWithSubs(self, c.args[0], subs);
-        try self.emit(")");
+        try emitAbsWithSubs(self, c.args[0], subs);
     } else if (std.mem.eql(u8, func_name, "float") and c.args.len == 1) {
         // float(x) in comprehension - use runtime.floatBuiltinCall with substitution
         try self.emit("(runtime.floatBuiltinCall(");
@@ -300,15 +296,8 @@ fn genBuiltinCallWithSubs(
         try self.emit(", .{}) catch 0.0)");
     } else if (std.mem.eql(u8, func_name, "complex") and c.args.len >= 1) {
         // complex(x) or complex(x, y) in comprehension - use runtime.PyComplex.create
-        try self.emit("runtime.PyComplex.create(");
-        try genExprWithSubs(self, c.args[0], subs);
-        try self.emit(", ");
-        if (c.args.len >= 2) {
-            try genExprWithSubs(self, c.args[1], subs);
-        } else {
-            try self.emit("0.0");
-        }
-        try self.emit(")");
+        const imag = if (c.args.len >= 2) c.args[1] else null;
+        try emitComplexWithSubs(self, c.args[0], imag, subs);
     } else if (std.mem.eql(u8, func_name, "bytes") and c.args.len > 0) {
         try genBytesCallWithSubs(self, c, subs);
     } else if ((std.mem.eql(u8, func_name, "set") or std.mem.eql(u8, func_name, "frozenset")) and c.args.len == 1) {
@@ -488,9 +477,7 @@ fn genIfExprWithSubs(
         try self.emit(" != 0");
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try self.emit("runtime.pyTruthy(");
-        try genExprWithSubs(self, ie.condition.*, subs);
-        try self.emit(")");
+        try emitPyTruthyWithSubs(self, ie.condition.*, subs);
     } else {
         // Boolean or other type - use directly
         try genExprWithSubs(self, ie.condition.*, subs);
@@ -552,6 +539,61 @@ fn emitFloorDivWithSubs(
             try genExprWithSubs(s, ctx.l, ctx.sb);
             try s.emit(", ");
             try genExprWithSubs(s, ctx.r, ctx.sb);
+        }
+    }.f);
+}
+
+/// Helper context for single-arg builtin calls with substitutions
+const SingleArgSubsCtx = struct {
+    arg: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+};
+
+/// Helper: emit runtime.toBool(expr) with substitutions
+fn emitToBoolWithSubs(self: *NativeCodegen, arg: ast.Node, subs: *const hashmap_helper.StringHashMap([]const u8)) CodegenError!void {
+    try self.emitCallCtx("runtime.toBool", SingleArgSubsCtx{ .arg = arg, .subs = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: SingleArgSubsCtx) CodegenError!void {
+            try genExprWithSubs(s, ctx.arg, ctx.subs);
+        }
+    }.f);
+}
+
+/// Helper: emit @abs(expr) with substitutions
+fn emitAbsWithSubs(self: *NativeCodegen, arg: ast.Node, subs: *const hashmap_helper.StringHashMap([]const u8)) CodegenError!void {
+    try self.emitCallCtx("@abs", SingleArgSubsCtx{ .arg = arg, .subs = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: SingleArgSubsCtx) CodegenError!void {
+            try genExprWithSubs(s, ctx.arg, ctx.subs);
+        }
+    }.f);
+}
+
+/// Helper context for two-arg calls with substitutions
+const TwoArgSubsCtx = struct {
+    arg1: ast.Node,
+    arg2: ?ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+};
+
+/// Helper: emit runtime.PyComplex.create(real, imag) with substitutions
+fn emitComplexWithSubs(self: *NativeCodegen, real: ast.Node, imag: ?ast.Node, subs: *const hashmap_helper.StringHashMap([]const u8)) CodegenError!void {
+    try self.emitCallCtx("runtime.PyComplex.create", TwoArgSubsCtx{ .arg1 = real, .arg2 = imag, .subs = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: TwoArgSubsCtx) CodegenError!void {
+            try genExprWithSubs(s, ctx.arg1, ctx.subs);
+            try s.emit(", ");
+            if (ctx.arg2) |a2| {
+                try genExprWithSubs(s, a2, ctx.subs);
+            } else {
+                try s.emit("0.0");
+            }
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyTruthy(expr) with substitutions
+fn emitPyTruthyWithSubs(self: *NativeCodegen, arg: ast.Node, subs: *const hashmap_helper.StringHashMap([]const u8)) CodegenError!void {
+    try self.emitCallCtx("runtime.pyTruthy", SingleArgSubsCtx{ .arg = arg, .subs = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: SingleArgSubsCtx) CodegenError!void {
+            try genExprWithSubs(s, ctx.arg, ctx.subs);
         }
     }.f);
 }

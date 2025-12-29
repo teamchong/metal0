@@ -57,6 +57,11 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                 return true;
             }
         }
+        // Also check if the inferred result type is pyvalue
+        const result_type = self.type_inferrer.inferExpr(expr) catch return false;
+        if (result_type == .pyvalue or result_type == .unknown) {
+            return true;
+        }
     }
 
     // Check if this is a variable with uncertain confidence
