@@ -867,14 +867,18 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For list_iterator (SequenceIterator), call .next() directly
+    // Uses withParensCtx for guaranteed bracket matching
     const is_list_iterator = switch (arg_type) {
         .list_iterator => true,
         else => false,
     };
     if (is_list_iterator) {
-        try self.emit("(");
-        try self.genExpr(args[0]);
-        try self.emit(".next() catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\") })");
+        try self.withParensCtx(args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+                try s.emit(".next() catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\") }");
+            }
+        }.f);
         return;
     }
 

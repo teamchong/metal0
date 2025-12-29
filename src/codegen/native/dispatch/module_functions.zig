@@ -881,21 +881,28 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         try self.genExpr(call.args[2]);
         try self.emit("), ");
         // Handle need_hi kwarg - convert to bool with != 0 in case it's i64
+        // Uses withParensCtx for guaranteed bracket matching
         var found_need_hi = false;
         for (call.keyword_args) |kw| {
             if (std.mem.eql(u8, kw.name, "need_hi")) {
-                try self.emit("(");
-                try self.genExpr(kw.value);
-                try self.emit(" != 0)");
+                try self.withParensCtx(kw.value, struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                        try s.emit(" != 0");
+                    }
+                }.f);
                 found_need_hi = true;
                 break;
             }
         }
         if (!found_need_hi) {
             if (call.args.len > 3) {
-                try self.emit("(");
-                try self.genExpr(call.args[3]);
-                try self.emit(" != 0)");
+                try self.withParensCtx(call.args[3], struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                        try s.emit(" != 0");
+                    }
+                }.f);
             } else {
                 try self.emit("false");
             }
