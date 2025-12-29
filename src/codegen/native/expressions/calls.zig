@@ -99,30 +99,39 @@ fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 }
 
 /// Emit @as(i64, expr) wrapper for integer literals
-/// Helper guarantees matching parentheses by always emitting both open and close
+/// Uses emitCallCtx for guaranteed bracket matching
 fn emitAsI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    const genExpr = @import("../expressions.zig").genExpr;
-    try self.emit("@as(i64, ");
-    try genExpr(self, expr);
-    try self.emit(")");
+    try self.emitCallCtx("@as", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            const genExpr = @import("../expressions.zig").genExpr;
+            try s.emit("i64, ");
+            try genExpr(s, e);
+        }
+    }.f);
 }
 
 /// Emit runtime.toFloat(expr) for type conversion
-/// Helper guarantees matching parentheses by always emitting both open and close
+/// Uses emitCallCtx for guaranteed bracket matching
 fn emitToFloat(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    const genExpr = @import("../expressions.zig").genExpr;
-    try self.emit("runtime.toFloat(");
-    try genExpr(self, expr);
-    try self.emit(")");
+    try self.emitCallCtx("runtime.toFloat", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            const genExpr = @import("../expressions.zig").genExpr;
+            try genExpr(s, e);
+        }
+    }.f);
 }
 
 /// Emit try runtime.PyValue.fromAlloc(__global_allocator, expr) for runtime PyValue conversion
-/// Helper guarantees matching parentheses by always emitting both open and close
+/// Uses emitCallCtx for guaranteed bracket matching
 pub fn emitPyValueFromAlloc(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    const genExpr = @import("../expressions.zig").genExpr;
-    try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-    try genExpr(self, expr);
-    try self.emit(")");
+    try self.emit("try ");
+    try self.emitCallCtx("runtime.PyValue.fromAlloc", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            const genExpr = @import("../expressions.zig").genExpr;
+            try s.emit("__global_allocator, ");
+            try genExpr(s, e);
+        }
+    }.f);
 }
 
 // Import trait functions for type checking
