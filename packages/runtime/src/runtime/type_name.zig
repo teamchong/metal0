@@ -17,25 +17,9 @@ pub fn pyTypeName(value: anytype) []const u8 {
         return value.typeName();
     }
 
-    // Special handling for PyValue - return Python type name based on variant
+    // Special handling for PyValue - use centralized typeName() (SINGLE SOURCE OF TRUTH)
     if (T == PyValue) {
-        return switch (value) {
-            .int => "int",
-            .float => "float",
-            .string => "str",
-            .bytes => "bytes",
-            .bool => "bool",
-            .none => "NoneType",
-            .not_implemented => "NotImplementedType",
-            .list => "list",
-            .pylist => "list", // CPython list also reports as "list"
-            .tuple => "tuple",
-            .bigint => "int",
-            .complex => "complex",
-            .type_obj => "type",
-            .ptr => "object",
-            .object => |o| if (o.vtable.class_name) |name| name else "object",
-        };
+        return value.typeName();
     }
 
     // Map Zig types to Python type names using runtime introspection
