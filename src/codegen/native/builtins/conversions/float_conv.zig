@@ -13,18 +13,36 @@ const builder_mod = @import("codegen.builder");
 /// Inside try blocks, use "try" to propagate errors to handlers.
 /// Inside assertRaises context, return error union as-is for expectError to check.
 /// Otherwise, use "catch 0.0" to silently handle errors.
-/// Helper: emit @as(f64, @floatFromInt(expr)) with structured emitParens
+/// Helper: emit @as(f64, @floatFromInt(expr)) - fully structured, no separate emit(")")
 fn emitAsF64FromInt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("@as(f64, @floatFromInt");
-    try self.emitParens(expr);
-    try self.emit(")");
+    try self.emitCallCtx("@as", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("f64, ");
+            try s.emitCallCtx("@floatFromInt", e, struct {
+                pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                    try s2.genExpr(e2);
+                }
+            }.g);
+        }
+    }.f);
 }
 
-/// Helper: emit @as(f64, @floatFromInt(@intFromBool(expr))) - bool to float
+/// Helper: emit @as(f64, @floatFromInt(@intFromBool(expr))) - bool to float, fully structured
 fn emitAsF64FromBool(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("@as(f64, @floatFromInt(@intFromBool");
-    try self.emitParens(expr);
-    try self.emit("))");
+    try self.emitCallCtx("@as", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("f64, ");
+            try s.emitCallCtx("@floatFromInt", e, struct {
+                pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                    try s2.emitCallCtx("@intFromBool", e2, struct {
+                        pub fn h(s3: *NativeCodegen, e3: ast.Node) CodegenError!void {
+                            try s3.genExpr(e3);
+                        }
+                    }.h);
+                }
+            }.g);
+        }
+    }.f);
 }
 
 fn emitFloatErrorHandling(self: *NativeCodegen, expr_start: []const u8, expr_end: []const u8) CodegenError!void {
