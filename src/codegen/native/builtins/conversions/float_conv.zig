@@ -153,9 +153,12 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Strip leading + for Zig compatibility (Zig doesn't accept "+123")
             const parse_str = if (str_val.len > 0 and str_val[0] == '+') str_val[1..] else str_val;
             if (std.fmt.parseFloat(f64, parse_str)) |_| {
-                try self.emit("@as(f64, ");
-                try self.emit(parse_str);
-                try self.emit(")");
+                try self.emitCallCtx("@as", parse_str, struct {
+                    pub fn f(s: *NativeCodegen, p: []const u8) CodegenError!void {
+                        try s.emit("f64, ");
+                        try s.emit(p);
+                    }
+                }.f);
                 return;
             } else |_| {}
         }
