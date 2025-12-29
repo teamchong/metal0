@@ -11,6 +11,40 @@ const zig_keywords = @import("utils.zig_keywords");
 const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
 const builder_mod = @import("codegen.builder");
 const CompOp = builder_mod.CompOp;
+const ZigValue = builder_mod.ZigValue;
+const CallArg = builder_mod.ZigBuilder.CallArg;
+
+/// Emit func(args...) using builder pattern with auto-closing parens
+fn emitCallWithArgs(self: *NativeCodegen, func_name: []const u8, args: []const ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.withCall(func_name, struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            for (ctx.args, 0..) |arg, i| {
+                if (i > 0) try builder.write(", ");
+                const val = try ctx.self.captureExpr(arg);
+                try builder.emitValueCore(val);
+            }
+        }
+    }.f, .{ .self = self, .args = args });
+    try self.flushBuilder();
+}
+
+/// Emit obj.method(args...) using builder pattern
+fn emitMethodWithArgs(self: *NativeCodegen, obj: ast.Node, method: []const u8, args: []const ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const obj_val = try self.captureExpr(obj);
+    try b.emitValueCore(obj_val);
+    try b.write(".@\"");
+    try b.write(method);
+    try b.write("\"(");
+    for (args, 0..) |arg, i| {
+        if (i > 0) try b.write(", ");
+        const val = try self.captureExpr(arg);
+        try b.emitValueCore(val);
+    }
+    try b.write(")");
+    try self.flushBuilder();
+}
 
 /// Check if a name is a Python builtin type name (not a user variable)
 fn isBuiltinTypeName(name: []const u8) bool {
@@ -113,14 +147,18 @@ fn emitCallableInvocation(
                 try parent.genCall(self, call);
                 return;
             } else if (std.mem.eql(u8, base_name, "self")) {
-                try self.emit("self.@\"");
-                try self.emit(attr.attr);
-                try self.emit("\"(");
+                // Use builder pattern for self.method(args)
+                const b = try self.getBuilder();
+                try b.write("self.@\"");
+                try b.write(attr.attr);
+                try b.write("\"(");
                 for (call_args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
+                    if (i > 0) try b.write(", ");
+                    const arg_val = try self.captureExpr(arg);
+                    try b.emitValueCore(arg_val);
                 }
-                try self.emit(")");
+                try b.write(")");
+                try self.flushBuilder();
                 return;
             } else if (attr.value.* == .call) {
                 if (FloatMethods.get(attr.attr)) |info| {
@@ -161,28 +199,35 @@ fn emitCallableInvocation(
                 }
                 return;
             } else if (PyToZigTypes.has(base_name)) {
-                // Builtin type methods
+                // Builtin type methods - use builder pattern
+                const b = try self.getBuilder();
                 if (std.mem.eql(u8, base_name, "float")) {
                     if (FloatClassMethods.get(attr.attr)) |func_name| {
-                        try self.emit(func_name);
-                        try self.emit("(");
-                        for (call_args, 0..) |arg, i| {
-                            if (i > 0) try self.emit(", ");
-                            try parent.genExpr(self, arg);
-                        }
-                        try self.emit(")");
+                        try b.withCall(func_name, struct {
+                            fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                                for (ctx.args, 0..) |arg, i| {
+                                    if (i > 0) try builder.write(", ");
+                                    const val = try ctx.self.captureExpr(arg);
+                                    try builder.emitValueCore(val);
+                                }
+                            }
+                        }.f, .{ .self = self, .args = call_args });
+                        try self.flushBuilder();
                         return;
                     }
                 }
-                try self.emit("runtime.");
-                try self.emit(base_name);
-                try self.emit(attr.attr);
-                try self.emit("(");
-                for (call_args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
-                try self.emit(")");
+                // Build runtime.base_nameattr(args)
+                const func_name = try std.fmt.allocPrint(self.arena.allocator(), "runtime.{s}{s}", .{ base_name, attr.attr });
+                try b.withCall(func_name, struct {
+                    fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                        for (ctx.args, 0..) |arg, i| {
+                            if (i > 0) try builder.write(", ");
+                            const val = try ctx.self.captureExpr(arg);
+                            try builder.emitValueCore(val);
+                        }
+                    }
+                }.f, .{ .self = self, .args = call_args });
+                try self.flushBuilder();
                 return;
             }
 
@@ -206,15 +251,20 @@ fn emitCallableInvocation(
                 try self.emitFmt("break :{s} error.TypeError; ", .{label});
                 try self.emitInlineBlockEnd();
             } else {
-                try parent.genExpr(self, attr.value.*);
-                try self.emit(".@\"");
-                try self.emit(attr.attr);
-                try self.emit("\"(");
+                // Use builder pattern for variable.method(args)
+                const b = try self.getBuilder();
+                const obj_val = try self.captureExpr(attr.value.*);
+                try b.emitValueCore(obj_val);
+                try b.write(".@\"");
+                try b.write(attr.attr);
+                try b.write("\"(");
                 for (call_args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
+                    if (i > 0) try b.write(", ");
+                    const arg_val = try self.captureExpr(arg);
+                    try b.emitValueCore(arg_val);
                 }
-                try self.emit(")");
+                try b.write(")");
+                try self.flushBuilder();
             }
             return;
         }
@@ -290,59 +340,68 @@ fn emitCallableInvocation(
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "int")) {
-        try self.emit("runtime.intBuiltinCall(__global_allocator, ");
+        // Use builder pattern for int() builtin
+        const b = try self.getBuilder();
+        try b.write("runtime.intBuiltinCall(__global_allocator, ");
         if (call_args.len > 0) {
-            try parent.genExpr(self, call_args[0]);
-            try self.emit(", .{");
-            if (call_args.len > 1) {
-                for (call_args[1..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
+            const first_val = try self.captureExpr(call_args[0]);
+            try b.emitValueCore(first_val);
+            try b.write(", .{");
+            for (call_args[1..], 0..) |arg, i| {
+                if (i > 0) try b.write(", ");
+                const arg_val = try self.captureExpr(arg);
+                try b.emitValueCore(arg_val);
             }
-            try self.emit("}");
+            try b.write("}");
         } else {
-            try self.emit("{}, .{}");
+            try b.write("{}, .{}");
         }
-        try self.emit(")");
+        try b.write(")");
+        try self.flushBuilder();
         return;
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "float")) {
-        try self.emit("runtime.floatBuiltinCall(");
+        // Use builder pattern for float() builtin
+        const b = try self.getBuilder();
+        try b.write("runtime.floatBuiltinCall(");
         if (call_args.len > 0) {
-            try parent.genExpr(self, call_args[0]);
-            try self.emit(", .{");
-            if (call_args.len > 1) {
-                for (call_args[1..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
+            const first_val = try self.captureExpr(call_args[0]);
+            try b.emitValueCore(first_val);
+            try b.write(", .{");
+            for (call_args[1..], 0..) |arg, i| {
+                if (i > 0) try b.write(", ");
+                const arg_val = try self.captureExpr(arg);
+                try b.emitValueCore(arg_val);
             }
-            try self.emit("}");
+            try b.write("}");
         } else {
-            try self.emit("{}, .{}");
+            try b.write("{}, .{}");
         }
-        try self.emit(")");
+        try b.write(")");
+        try self.flushBuilder();
         return;
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "bool")) {
-        try self.emit("runtime.boolBuiltinCall(");
+        // Use builder pattern for bool() builtin
+        const b = try self.getBuilder();
+        try b.write("runtime.boolBuiltinCall(");
         if (call_args.len > 0) {
-            try parent.genExpr(self, call_args[0]);
-            try self.emit(", .{");
-            if (call_args.len > 1) {
-                for (call_args[1..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
+            const first_val = try self.captureExpr(call_args[0]);
+            try b.emitValueCore(first_val);
+            try b.write(", .{");
+            for (call_args[1..], 0..) |arg, i| {
+                if (i > 0) try b.write(", ");
+                const arg_val = try self.captureExpr(arg);
+                try b.emitValueCore(arg_val);
             }
-            try self.emit("}");
+            try b.write("}");
         } else {
-            try self.emit("{}, .{}");
+            try b.write("{}, .{}");
         }
-        try self.emit(")");
+        try b.write(")");
+        try self.flushBuilder();
         return;
     }
 
@@ -361,67 +420,85 @@ fn emitCallableInvocation(
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "iter")) {
         // iter() builtin - CPython aligned: validates args at runtime
-        try self.emit("runtime.builtins.iterBuiltin(&.{");
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.iterBuiltin(&.{");
         for (call_args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try self.emit("runtime.PyValue.from(");
-            try parent.genExpr(self, arg);
-            try self.emit(")");
+            if (i > 0) try b.write(", ");
+            try b.write("runtime.PyValue.from(");
+            const arg_val = try self.captureExpr(arg);
+            try b.emitValueCore(arg_val);
+            try b.write(")");
         }
-        try self.emit("}, __global_allocator)");
+        try b.write("}, __global_allocator)");
+        try self.flushBuilder();
         return;
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "filter")) {
         // filter() builtin - CPython aligned: validates args at runtime
-        try self.emit("runtime.builtins.filter(&.{");
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.filter(&.{");
         for (call_args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try self.emit("runtime.PyValue.from(");
-            try parent.genExpr(self, arg);
-            try self.emit(")");
+            if (i > 0) try b.write(", ");
+            try b.write("runtime.PyValue.from(");
+            const arg_val = try self.captureExpr(arg);
+            try b.emitValueCore(arg_val);
+            try b.write(")");
         }
-        try self.emit("}, __global_allocator)");
+        try b.write("}, __global_allocator)");
+        try self.flushBuilder();
         return;
     }
 
     if (callable == .name and self.callable_vars.contains(callable.name.id)) {
-        try parent.genExpr(self, callable);
-        try self.emit(".call(");
+        // Use builder pattern for callable.call(args)
+        const b = try self.getBuilder();
+        const callable_val = try self.captureExpr(callable);
+        try b.emitValueCore(callable_val);
+        try b.write(".call(");
         for (call_args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try parent.genExpr(self, arg);
+            if (i > 0) try b.write(", ");
+            const arg_val = try self.captureExpr(arg);
+            try b.emitValueCore(arg_val);
         }
-        try self.emit(")");
+        try b.write(")");
+        try self.flushBuilder();
         return;
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "format")) {
-        try self.emit("runtime.builtins.format.call(__global_allocator, ");
+        // Use builder pattern for format() builtin
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.format.call(__global_allocator, ");
         for (call_args, 0..) |arg, i| {
-            if (i > 0) try self.emit(", ");
-            try parent.genExpr(self, arg);
+            if (i > 0) try b.write(", ");
+            const arg_val = try self.captureExpr(arg);
+            try b.emitValueCore(arg_val);
         }
-        try self.emit(")");
+        try b.write(")");
+        try self.flushBuilder();
         return;
     }
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "round")) {
-        try self.emit("runtime.builtins.round(");
+        // Use builder pattern for round() builtin
+        const b = try self.getBuilder();
+        try b.write("runtime.builtins.round(");
         if (call_args.len > 0) {
-            try parent.genExpr(self, call_args[0]);
-            try self.emit(", .{");
-            if (call_args.len > 1) {
-                for (call_args[1..], 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try parent.genExpr(self, arg);
-                }
+            const first_val = try self.captureExpr(call_args[0]);
+            try b.emitValueCore(first_val);
+            try b.write(", .{");
+            for (call_args[1..], 0..) |arg, i| {
+                if (i > 0) try b.write(", ");
+                const arg_val = try self.captureExpr(arg);
+                try b.emitValueCore(arg_val);
             }
-            try self.emit("}");
+            try b.write("}");
         } else {
-            try self.emit("0, .{}");
+            try b.write("0, .{}");
         }
-        try self.emit(")");
+        try b.write(")");
+        try self.flushBuilder();
         return;
     }
 
@@ -435,14 +512,18 @@ fn emitCallableInvocation(
         return;
     }
 
-    // Fallback: simple callable expression
-    try parent.genExpr(self, callable);
-    try self.emit("(");
+    // Fallback: simple callable expression - use builder pattern
+    const b = try self.getBuilder();
+    const callable_val = try self.captureExpr(callable);
+    try b.emitValueCore(callable_val);
+    try b.write("(");
     for (call_args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
-        try parent.genExpr(self, arg);
+        if (i > 0) try b.write(", ");
+        const arg_val = try self.captureExpr(arg);
+        try b.emitValueCore(arg_val);
     }
-    try self.emit(")");
+    try b.write(")");
+    try self.flushBuilder();
 }
 
 // Simple assertions via comptime generators
