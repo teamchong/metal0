@@ -9,6 +9,17 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
+/// Helper: emit @intCast(args[idx]) or default "0" if idx out of bounds
+fn emitIntCastArg(self: *NativeCodegen, args: []ast.Node, idx: usize) CodegenError!void {
+    if (args.len > idx) {
+        try self.emit("@intCast(");
+        try self.genExpr(args[idx]);
+        try self.emit(")");
+    } else {
+        try self.emit("0");
+    }
+}
+
 /// datetime.datetime class methods (datetime.datetime.now(), datetime.datetime(...))
 pub const DatetimeFuncs = std.StaticStringMap(ModuleHandler).initComptime(.{
     .{ "now", genDatetimeNow },
@@ -142,13 +153,13 @@ pub fn genDatetimeConstructor(self: *NativeCodegen, args: []ast.Node) CodegenErr
     try self.emit("), .day = @intCast(");
     try self.genExpr(args[2]);
     try self.emit("), .hour = ");
-    if (args.len > 3) { try self.emit("@intCast("); try self.genExpr(args[3]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 3);
     try self.emit(", .minute = ");
-    if (args.len > 4) { try self.emit("@intCast("); try self.genExpr(args[4]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 4);
     try self.emit(", .second = ");
-    if (args.len > 5) { try self.emit("@intCast("); try self.genExpr(args[5]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 5);
     try self.emit(", .microsecond = ");
-    if (args.len > 6) { try self.emit("@intCast("); try self.genExpr(args[6]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 6);
     try self.emit(" }");
 }
 
@@ -170,13 +181,13 @@ pub fn genDateConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 /// Generate datetime.time(hour=0, minute=0, second=0, microsecond=0)
 pub fn genTimeConstructor(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("runtime.datetime.Time{ .hour = ");
-    if (args.len > 0) { try self.emit("@intCast("); try self.genExpr(args[0]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 0);
     try self.emit(", .minute = ");
-    if (args.len > 1) { try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 1);
     try self.emit(", .second = ");
-    if (args.len > 2) { try self.emit("@intCast("); try self.genExpr(args[2]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 2);
     try self.emit(", .microsecond = ");
-    if (args.len > 3) { try self.emit("@intCast("); try self.genExpr(args[3]); try self.emit(")"); } else try self.emit("0");
+    try emitIntCastArg(self, args, 3);
     try self.emit(" }");
 }
 
