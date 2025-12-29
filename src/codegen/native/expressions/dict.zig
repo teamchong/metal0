@@ -24,6 +24,56 @@ const ZigValue = builder_mod.ZigValue;
 // Dict operation helpers - auto-closing patterns
 // ============================================
 
+/// Helper: emit @as(i64, expr) with guaranteed bracket matching
+fn emitAsI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("@as", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("i64, ");
+            try genExpr(s, e);
+        }
+    }.f);
+}
+
+/// Helper: emit try runtime.toPyValue(alloc, expr) with guaranteed bracket matching
+fn emitToPyValue(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { a: []const u8, e: ast.Node };
+    try self.emitCallCtx("try runtime.toPyValue", Ctx{ .a = alloc_name, .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(ctx.a);
+            try s.emit(", ");
+            try genExpr(s, ctx.e);
+        }
+    }.f);
+}
+
+/// Helper: emit try runtime.PyValue.fromAlloc(alloc, expr) with guaranteed bracket matching
+fn emitPyValueFromAlloc(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { a: []const u8, e: ast.Node };
+    try self.emitCallCtx("try runtime.PyValue.fromAlloc", Ctx{ .a = alloc_name, .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(ctx.a);
+            try s.emit(", ");
+            try genExpr(s, ctx.e);
+        }
+    }.f);
+}
+
+/// Helper: emit try alloc.dupe(u8, expr) with guaranteed bracket matching
+fn emitDupeString(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { a: []const u8, e: ast.Node };
+    try self.emitCallCtx("try ", Ctx{ .a = alloc_name, .e = expr }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit(ctx.a);
+            try s.emitCallCtx(".dupe", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.emit("u8, ");
+                    try genExpr(ss, e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
 /// Emit hashmap_helper.StringHashMap(value_type).init(alloc)
 /// MIGRATED TO BUILDER: uses emitMethodCallExpr
 fn emitStringHashMapInit(self: *NativeCodegen, value_type: []const u8, alloc_name: []const u8) CodegenError!void {
@@ -599,20 +649,14 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         switch (key_classification) {
             .int => {
                 // Cast to i64 for AutoArrayHashMap
-                try self.emit("@as(i64, ");
-                try genExpr(self, key);
-                try self.emit(")");
+                try emitAsI64(self, key);
             },
             .string => {
                 try genExpr(self, key);
             },
             .pyvalue => {
                 // Convert key to PyValue for PyValueHashMap
-                try self.emit("try runtime.toPyValue(");
-                try self.emit(alloc_name);
-                try self.emit(", ");
-                try genExpr(self, key);
-                try self.emit(")");
+                try emitToPyValue(self, alloc_name, key);
             },
         }
         try self.emit(", ");
@@ -621,11 +665,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         switch (key_classification) {
             .pyvalue => {
                 // PyValueHashMap always uses PyValue values
-                try self.emit("try runtime.toPyValue(");
-                try self.emit(alloc_name);
-                try self.emit(", ");
-                try genExpr(self, value);
-                try self.emit(")");
+                try emitToPyValue(self, alloc_name, value);
             },
             else => {
                 // If dict values are string type and this value isn't string, convert it
@@ -635,21 +675,13 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
                         try genValueToString(self, value, value_type, alloc_name);
                     } else if (has_mixed_types) {
                         // For mixed-type dicts, duplicate ALL strings so we can free uniformly
-                        try self.emit("try ");
-                        try self.emit(alloc_name);
-                        try self.emit(".dupe(u8, ");
-                        try genExpr(self, value);
-                        try self.emit(")");
+                        try emitDupeString(self, alloc_name, value);
                     } else {
                         try genExpr(self, value);
                     }
                 } else if (val_type == .pyvalue) {
                     // PyValue: wrap the value with PyValue.fromAlloc()
-                    try self.emit("try runtime.PyValue.fromAlloc(");
-                    try self.emit(alloc_name);
-                    try self.emit(", ");
-                    try genExpr(self, value);
-                    try self.emit(")");
+                    try emitPyValueFromAlloc(self, alloc_name, value);
                 } else {
                     try genExpr(self, value);
                 }
