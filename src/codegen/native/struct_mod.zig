@@ -158,9 +158,11 @@ fn genUnpackFrom(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try c.genExpr(a[1]);
             try c.emit("; const _offset: usize = ");
             if (a.len > 2) {
-                try c.emit("@intCast(");
-                try c.genExpr(a[2]);
-                try c.emit(")");
+                try c.emitCallCtx("@intCast", a[2], struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                    }
+                }.f);
             } else {
                 try c.emit("0");
             }

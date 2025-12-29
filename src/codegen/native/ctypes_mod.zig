@@ -135,24 +135,42 @@ fn genCVoidP(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
 
 fn genMemmove(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len >= 3) {
-        try self.emit("runtime.ctypes.memmove(@ptrCast(");
-        try self.genExpr(args[0]);
-        try self.emit("), @ptrCast(");
-        try self.genExpr(args[1]);
-        try self.emit("), ");
-        try self.genExpr(args[2]);
-        try self.emit(")");
+        const Ctx = struct { a0: ast.Node, a1: ast.Node, a2: ast.Node };
+        try self.emitCallCtx("runtime.ctypes.memmove", Ctx{ .a0 = args[0], .a1 = args[1], .a2 = args[2] }, struct {
+            pub fn f(s: *m.NativeCodegen, ctx: Ctx) m.CodegenError!void {
+                try s.emitCallCtx("@ptrCast", ctx.a0, struct {
+                    pub fn g(s2: *m.NativeCodegen, e: ast.Node) m.CodegenError!void {
+                        try s2.genExpr(e);
+                    }
+                }.g);
+                try s.emit(", ");
+                try s.emitCallCtx("@ptrCast", ctx.a1, struct {
+                    pub fn g(s2: *m.NativeCodegen, e: ast.Node) m.CodegenError!void {
+                        try s2.genExpr(e);
+                    }
+                }.g);
+                try s.emit(", ");
+                try s.genExpr(ctx.a2);
+            }
+        }.f);
     } else try self.emit("{}");
 }
 
 fn genMemset(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     if (args.len >= 3) {
-        try self.emit("runtime.ctypes.memset(@ptrCast(");
-        try self.genExpr(args[0]);
-        try self.emit("), ");
-        try self.genExpr(args[1]);
-        try self.emit(", ");
-        try self.genExpr(args[2]);
-        try self.emit(")");
+        const Ctx = struct { a0: ast.Node, a1: ast.Node, a2: ast.Node };
+        try self.emitCallCtx("runtime.ctypes.memset", Ctx{ .a0 = args[0], .a1 = args[1], .a2 = args[2] }, struct {
+            pub fn f(s: *m.NativeCodegen, ctx: Ctx) m.CodegenError!void {
+                try s.emitCallCtx("@ptrCast", ctx.a0, struct {
+                    pub fn g(s2: *m.NativeCodegen, e: ast.Node) m.CodegenError!void {
+                        try s2.genExpr(e);
+                    }
+                }.g);
+                try s.emit(", ");
+                try s.genExpr(ctx.a1);
+                try s.emit(", ");
+                try s.genExpr(ctx.a2);
+            }
+        }.f);
     } else try self.emit("{}");
 }

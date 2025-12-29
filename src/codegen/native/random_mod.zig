@@ -177,9 +177,11 @@ fn genChoices(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try c.genExpr(a[0]);
             try c.emit("; const k: usize = ");
             if (a.len > 1) {
-                try c.emit("@intCast(");
-                try c.genExpr(a[1]);
-                try c.emit(")");
+                try c.emitCallCtx("@intCast", a[1], struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                    }
+                }.f);
             } else {
                 try c.emit("1");
             }

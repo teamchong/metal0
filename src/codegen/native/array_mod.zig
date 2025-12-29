@@ -157,9 +157,11 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 
             // Discard arguments (still need to evaluate them for side effects)
             if (a.len > 0) {
-                try c.emit("runtime.discard(");
-                try c.genExpr(a[0]);
-                try c.emit(")");
+                try c.emitCallCtx("runtime.discard", a[0], struct {
+                    pub fn f(s: *h.NativeCodegen, e: ast.Node) h.CodegenError!void {
+                        try s.genExpr(e);
+                    }
+                }.f);
                 if (a.len > 1) {
                     // For initializers, populate the array from the bytes
                     try c.emit("; var __arr_init = ");
