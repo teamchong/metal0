@@ -206,6 +206,12 @@ pub const ZigBuilder = struct {
         }
     }
 
+    /// Write a newline to the body buffer
+    pub fn writeNewline(self: *ZigBuilder) !void {
+        try self.body.append(self.allocator, '\n');
+        self.line_counter += 1;
+    }
+
     /// Write formatted to body buffer
     pub fn writeFmt(self: *ZigBuilder, comptime fmt: []const u8, args: anytype) !void {
         const start = self.body.items.len;
@@ -1397,6 +1403,29 @@ pub const ZigBuilder = struct {
         return try self.locals.allocNamed(ty.*, name);
     }
 
+    /// Declare a constant with a try-wrapped function call as the value:
+    /// const name: type = try func(args...);
+    pub fn declareConstCall(self: *ZigBuilder, name: []const u8, ty: *const ZigType, func: []const u8, args: []const CallArg) !LocalIndex {
+        try self.writeIndent();
+        try self.writeFmt("const {s}", .{name});
+
+        // Emit type annotation if not inferred
+        if (ty.* != .any) {
+            try self.write(": ");
+            var type_buf: std.ArrayList(u8) = .{};
+            defer type_buf.deinit(self.allocator);
+            try ty.emit(type_buf.writer(self.allocator));
+            try self.write(type_buf.items);
+        }
+
+        try self.write(" = try ");
+        try self.emitCallExpr(func, args);
+        try self.write(";\n");
+
+        try self.bindings.put(name, ty.*);
+        return try self.locals.allocNamed(ty.*, name);
+    }
+
     /// Declare a variable: var name: type = value;
     pub fn declareVar(self: *ZigBuilder, name: []const u8, ty: *const ZigType, value: ZigValue) !LocalIndex {
         try self.writeIndent();
@@ -1994,16 +2023,22 @@ pub const ZigBuilder = struct {
         try self.write(");\n");
     }
 
-    /// Emit a raw statement
+    /// Emit raw content (no indent, no newline) - for expression fragments
+    /// Use emitStatement() for full statements that need indent+newline
     pub fn emitRaw(self: *ZigBuilder, code: []const u8) !void {
+        try self.write(code);
+    }
+
+    /// Alias for emitRaw (kept for compatibility during migration)
+    pub fn emitRawLine(self: *ZigBuilder, code: []const u8) !void {
+        try self.write(code);
+    }
+
+    /// Emit a full statement (with indent + newline)
+    pub fn emitStatement(self: *ZigBuilder, code: []const u8) !void {
         try self.writeIndent();
         try self.write(code);
         try self.write("\n");
-    }
-
-    /// Emit a raw line (no indent, no newline auto-add)
-    pub fn emitRawLine(self: *ZigBuilder, code: []const u8) !void {
-        try self.write(code);
     }
 
     // ============================================
@@ -2798,6 +2833,33 @@ pub const ZigBuilder = struct {
         try self.write(" }");
     }
 
+    /// Anonymous struct TYPE with callback body (auto-close guaranteed)
+    /// Unlike withAnonStruct which generates literals (.{ }), this generates type definitions.
+    ///
+    /// Example:
+    ///   try builder.withStructType(struct {
+    ///       fn emit(b: *ZigBuilder, _: void) !void {
+    ///           try b.withPubFnDef("encode", "self: *@This()", "[]u8", ...);
+    ///       }
+    ///   }.emit, {});
+    ///
+    /// Generates: struct { pub fn encode(...) ... { ... } }
+    pub fn withStructType(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.write("struct {\n");
+        self.indent();
+        try body_fn(self, context);
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}");
+    }
+
+    /// Anonymous struct TYPE + empty instance (auto-close guaranteed)
+    /// Generates: struct { ... }{}
+    pub fn withStructInstance(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.withStructType(body_fn, context);
+        try self.write("{}");
+    }
+
     /// Inline for loop with callback body (auto-close guaranteed)
     ///
     /// Example:
@@ -3126,6 +3188,20 @@ pub const ZigBuilder = struct {
         try self.write("}\n");
     }
 
+    /// While loop with capture (auto-close guaranteed)
+    /// Generates: while (condition) |capture| { body }
+    pub fn withWhileCapture(self: *ZigBuilder, condition: []const u8, capture: []const u8, body_fn: anytype, context: anytype) !void {
+        try self.writeIndent();
+        try self.writeFmt("while ({s}) |{s}| {{\n", .{ condition, capture });
+        self.indent();
+
+        try body_fn(self, context);
+
+        self.dedent();
+        try self.writeIndent();
+        try self.write("}\n");
+    }
+
     /// Switch statement with callback body (auto-close guaranteed)
     ///
     /// Example:
@@ -3160,6 +3236,15 @@ pub const ZigBuilder = struct {
     pub fn emitConstRaw(self: *ZigBuilder, name: []const u8, value: []const u8) !void {
         try self.writeIndent();
         try self.writeFmt("const {s} = {s};\n", .{ name, value });
+    }
+
+    /// Emit const declaration with value wrapped by prefix/suffix
+    /// Generates: const {name} = {prefix}{value}{suffix};
+    pub fn emitConstWithValue(self: *ZigBuilder, name: []const u8, prefix: []const u8, value: ZigValue, suffix: []const u8) !void {
+        try self.writeIndent();
+        try self.writeFmt("const {s} = {s}", .{ name, prefix });
+        try self.emitValue(value, .{});
+        try self.writeFmt("{s};\n", .{suffix});
     }
 
     /// Emit const declaration with type and raw value
@@ -3242,6 +3327,51 @@ pub const ZigBuilder = struct {
         } else {
             try self.write("\n");
         }
+    }
+
+    // ============================================
+    // Simple bracket wrappers
+    // ============================================
+
+    /// Wrap content in parentheses: (...)
+    /// Use for expressions that need grouping
+    pub fn withParen(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.write("(");
+        try body_fn(self, context);
+        try self.write(")");
+    }
+
+    /// Wrap content in braces: {...}
+    /// Use for anonymous struct/array literals
+    pub fn withBraces(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.write("{");
+        try body_fn(self, context);
+        try self.write("}");
+    }
+
+    /// Wrap content in .{...} for Zig anonymous struct literals
+    pub fn withAnonLiteral(self: *ZigBuilder, body_fn: anytype, context: anytype) !void {
+        try self.write(".{");
+        try body_fn(self, context);
+        try self.write("}");
+    }
+
+    /// Emit a binary operation with parentheses: (left op right)
+    pub fn withBinaryOp(self: *ZigBuilder, op: []const u8, left_fn: anytype, right_fn: anytype, context: anytype) !void {
+        try self.write("(");
+        try left_fn(self, context);
+        try self.write(op);
+        try right_fn(self, context);
+        try self.write(")");
+    }
+
+    /// Emit function call with args: func(arg1, arg2, ...)
+    /// Guarantees closing paren
+    pub fn withCall(self: *ZigBuilder, func_name: []const u8, args_fn: anytype, context: anytype) !void {
+        try self.write(func_name);
+        try self.write("(");
+        try args_fn(self, context);
+        try self.write(")");
     }
 };
 
