@@ -7,6 +7,27 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
+/// Helper: emit runtime.PyComplex.fromValue(expr) with guaranteed bracket matching
+fn emitComplexFromValue(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.PyComplex.fromValue", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.PyComplex.create(real, imag) with guaranteed bracket matching
+fn emitComplexCreate(self: *NativeCodegen, real: ast.Node, imag: ast.Node) CodegenError!void {
+    const Ctx = struct { r: ast.Node, i: ast.Node };
+    try self.emitCallCtx("runtime.PyComplex.create", Ctx{ .r = real, .i = imag }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.r);
+            try s.emit(", ");
+            try s.genExpr(ctx.i);
+        }
+    }.f);
+}
+
 /// Generate code for complex(real, imag)
 /// Creates a complex number
 pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -18,18 +39,12 @@ pub fn genComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (args.len == 1) {
         // complex(x) - x can be a number or string
-        try self.emit("runtime.PyComplex.fromValue(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitComplexFromValue(self, args[0]);
         return;
     }
 
     // complex(real, imag)
-    try self.emit("runtime.PyComplex.create(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(")");
+    try emitComplexCreate(self, args[0], args[1]);
 }
 
 /// Generate code for object()
