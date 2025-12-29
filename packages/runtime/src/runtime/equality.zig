@@ -156,163 +156,47 @@ pub fn boolEql(a: bool, b: bool) bool {
 /// Use this for uncertain types to avoid monomorphization explosion
 /// Handles Python cross-type numeric equality: complex(0) == 0 == 0.0 == False
 pub fn pyValueEql(a: PyValue, b: PyValue) bool {
-    const a_tag = @as(std.meta.Tag(PyValue), a);
-    const b_tag = @as(std.meta.Tag(PyValue), b);
-
-    // Same type: direct comparison
-    if (a_tag == b_tag) {
-        return switch (a) {
-            .int => |ai| ai == b.int,
-            .float => |af| @as(u64, @bitCast(af)) == @as(u64, @bitCast(b.float)),
-            .string => |as| std.mem.eql(u8, as, b.string),
-            .bool => |ab| ab == b.bool,
-            .none => true,
-            .tuple => |at| pyValueTupleEql(at, b.tuple),
-            .list => |al| pyValueListEql(al.items, b.list.items),
-            .complex => |ac| ac.real == b.complex.real and ac.imag == b.complex.imag,
-            .bigint => |ab| ab.eql(&b.bigint),
-            else => false, // Other types (ptr, object, etc.) not yet supported
-        };
-    }
-
-    // Different types: handle Python numeric cross-type equality
-    // In Python: complex(0) == 0 == 0.0 == False (all True)
-    return switch (a) {
-        .complex => |ac| switch (b) {
-            // complex(0j) == 0 (int)
-            .int => |bi| ac.imag == 0.0 and ac.real == @as(f64, @floatFromInt(bi)),
-            // complex(0j) == 0.0 (float)
-            .float => |bf| ac.imag == 0.0 and ac.real == bf,
-            // complex(0j) == False (bool)
-            .bool => |bb| ac.imag == 0.0 and ac.real == @as(f64, if (bb) 1.0 else 0.0),
-            else => false,
-        },
-        .int => |ai| switch (b) {
-            .complex => |bc| bc.imag == 0.0 and @as(f64, @floatFromInt(ai)) == bc.real,
-            .float => |bf| @as(f64, @floatFromInt(ai)) == bf,
-            .bool => |bb| ai == @as(i64, if (bb) 1 else 0),
-            .bigint => |bb| blk: {
-                // Compare i64 with BigInt: use BigInt's comparison
-                const ai_big = BigInt.fromInt(std.heap.page_allocator, ai) catch return false;
-                break :blk ai_big.eql(&bb);
-            },
-            else => false,
-        },
-        .float => |af| switch (b) {
-            .complex => |bc| bc.imag == 0.0 and af == bc.real,
-            .int => |bi| af == @as(f64, @floatFromInt(bi)),
-            .bool => |bb| af == @as(f64, if (bb) 1.0 else 0.0),
-            .bigint => |bb| blk: {
-                // Compare float with BigInt: convert BigInt to float (may lose precision)
-                // This matches Python semantics where large ints compare with floats
-                const bf = bb.toFloat();
-                break :blk af == bf;
-            },
-            else => false,
-        },
-        .bool => |ab| switch (b) {
-            .complex => |bc| bc.imag == 0.0 and bc.real == @as(f64, if (ab) 1.0 else 0.0),
-            .int => |bi| @as(i64, if (ab) 1 else 0) == bi,
-            .float => |bf| @as(f64, if (ab) 1.0 else 0.0) == bf,
-            else => false,
-        },
-        .bigint => |ab| switch (b) {
-            .float => |bf| blk: {
-                // Compare BigInt with float: convert BigInt to float (may lose precision)
-                // This matches Python semantics where large ints compare with floats
-                const af = ab.toFloat();
-                break :blk af == bf;
-            },
-            .int => |bi| blk: {
-                // Compare BigInt with i64: use BigInt's comparison
-                const bi_big = BigInt.fromInt(std.heap.page_allocator, bi) catch return false;
-                break :blk ab.eql(&bi_big);
-            },
-            .bool => |bb| blk: {
-                // Compare BigInt with bool: 0 == False, 1 == True
-                const bi = if (bb) @as(i64, 1) else @as(i64, 0);
-                const bi_big = BigInt.fromInt(std.heap.page_allocator, bi) catch return false;
-                break :blk ab.eql(&bi_big);
-            },
-            else => false,
-        },
-        else => false,
-    };
-}
-
-/// PyValue tuple equality helper
-fn pyValueTupleEql(a: []const PyValue, b: []const PyValue) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |ai, bi| {
-        if (!pyValueEql(ai, bi)) return false;
-    }
-    return true;
-}
-
-/// PyValue list equality helper
-fn pyValueListEql(a: []const PyValue, b: []const PyValue) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |ai, bi| {
-        if (!pyValueEql(ai, bi)) return false;
-    }
-    return true;
+    // Delegate to PyValue.eql() (SINGLE SOURCE OF TRUTH in object.zig)
+    // PyValue.eql() handles:
+    // - All PyValue variants including VM-specific types (dict, code, function, etc.)
+    // - Cross-type numeric comparison (int/float/bool/complex/bigint)
+    // - Class instances with __eq__ dunder methods
+    // - NaN identity semantics for containers
+    return a.eql(b);
 }
 
 // =============================================================================
 // PyValue-First Comparison Operators (compile ONCE - no monomorphization)
+// All delegate to PyValue methods (SINGLE SOURCE OF TRUTH in object.zig)
 // =============================================================================
 
 /// PyValue less-than comparison - compiles ONCE
 pub fn pyValueLt(a: PyValue, b: PyValue) bool {
-    return switch (a) {
-        .int => |ai| switch (b) {
-            .int => |bi| ai < bi,
-            .float => |bf| @as(f64, @floatFromInt(ai)) < bf,
-            else => false,
-        },
-        .float => |af| switch (b) {
-            .int => |bi| af < @as(f64, @floatFromInt(bi)),
-            .float => |bf| af < bf,
-            else => false,
-        },
-        .string => |as| switch (b) {
-            .string => |bs| std.mem.order(u8, as, bs) == .lt,
-            else => false,
-        },
-        .bool => |ab| switch (b) {
-            .bool => |bb| !ab and bb, // false < true
-            else => false,
-        },
-        .tuple => |at| switch (b) {
-            .tuple => |bt| pyValueTupleLt(at, bt),
-            else => false,
-        },
-        .list => |al| switch (b) {
-            .list => |bl| pyValueTupleLt(al.items, bl.items),
-            else => false,
-        },
-        else => false,
-    };
+    // Delegate to PyValue.lt() (SINGLE SOURCE OF TRUTH in object.zig)
+    return a.lt(b);
 }
 
 /// PyValue less-than-or-equal comparison - compiles ONCE
 pub fn pyValueLe(a: PyValue, b: PyValue) bool {
-    return pyValueLt(a, b) or pyValueEql(a, b);
+    // Delegate to PyValue.le() (SINGLE SOURCE OF TRUTH in object.zig)
+    return a.le(b);
 }
 
 /// PyValue greater-than comparison - compiles ONCE
 pub fn pyValueGt(a: PyValue, b: PyValue) bool {
-    return pyValueLt(b, a);
+    // Delegate to PyValue.gt() (SINGLE SOURCE OF TRUTH in object.zig)
+    return a.gt(b);
 }
 
 /// PyValue greater-than-or-equal comparison - compiles ONCE
 pub fn pyValueGe(a: PyValue, b: PyValue) bool {
-    return pyValueLe(b, a);
+    // Delegate to PyValue.ge() (SINGLE SOURCE OF TRUTH in object.zig)
+    return a.ge(b);
 }
 
 /// PyValue not-equal comparison - compiles ONCE
 pub fn pyValueNe(a: PyValue, b: PyValue) bool {
-    return !pyValueEql(a, b);
+    return !a.eql(b);
 }
 
 // =============================================================================
@@ -470,17 +354,6 @@ fn pyIdenticalSameType(comptime T: type, a: T, b: T) bool {
 
     // Primitives: identity == equality
     return a == b;
-}
-
-/// PyValue tuple/list lexicographic less-than helper
-fn pyValueTupleLt(a: []const PyValue, b: []const PyValue) bool {
-    const min_len = @min(a.len, b.len);
-    for (0..min_len) |i| {
-        if (pyValueLt(a[i], b[i])) return true;
-        if (pyValueLt(b[i], a[i])) return false;
-    }
-    // Equal prefix - shorter is less
-    return a.len < b.len;
 }
 
 // =============================================================================
