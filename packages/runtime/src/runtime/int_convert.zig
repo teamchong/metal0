@@ -39,6 +39,15 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
                 .not_implemented => "'NotImplementedType' object cannot be interpreted as an integer",
                 .int => "'int' object cannot be interpreted as an integer", // shouldn't happen
                 .bigint => "'int' object cannot be interpreted as an integer", // shouldn't happen - bigint should convert
+                // VM-specific types
+                .dict => "'dict' object cannot be interpreted as an integer",
+                .code => "'code' object cannot be interpreted as an integer",
+                .function => "'function' object cannot be interpreted as an integer",
+                .builtin_fn => "'builtin_function' object cannot be interpreted as an integer",
+                .iterator => "'iterator' object cannot be interpreted as an integer",
+                .range => "'range' object cannot be interpreted as an integer",
+                .exception => "'Exception' object cannot be interpreted as an integer",
+                .generator => "'generator' object cannot be interpreted as an integer",
             };
             setException("TypeError", msg);
             return PythonError.TypeError;

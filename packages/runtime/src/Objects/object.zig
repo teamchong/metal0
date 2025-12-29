@@ -1,14 +1,16 @@
-/// Dynamic value type for runtime attribute storage
-/// Supports comptime SIMD operations for string comparisons
+/// Unified PyValue - Runtime-typed value for both AOT and VM paths
+/// This is THE SINGLE source of truth for dynamic Python values.
+/// Both the bytecode VM and AOT-compiled code use this same type.
 const std = @import("std");
 const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
 const pytype = @import("pytype.zig");
 const cpython = @import("../cpython.zig");
 
-/// PyValue - Runtime-typed value for dynamic attributes
+/// PyValue - Unified runtime value type for AOT and VM
 /// Uses tagged union for type safety
 pub const PyValue = union(enum) {
+    // === Primitive types ===
     int: i64,
     float: f64,
     string: []const u8,
@@ -16,14 +18,241 @@ pub const PyValue = union(enum) {
     bool: bool,
     none: void,
     not_implemented: void, // Python's NotImplemented singleton
-    list: *std.ArrayListUnmanaged(PyValue), // Mutable list (Two-Flow Phase 11)
+
+    // === Container types ===
+    list: *std.ArrayListUnmanaged(PyValue), // Mutable list
     tuple: []const PyValue,
+    dict: *Dict, // Python dict (shared with VM)
+
+    // === Numeric types ===
     bigint: bigint.BigInt, // For integers that don't fit in i64
     complex: Complex, // Python complex number
+
+    // === Type/class types ===
     type_obj: *pytype.PyType, // Python type/class object (for metaclasses)
     ptr: *anyopaque, // For types that can't be represented (no type info)
     object: ObjectInstance, // Class instance with type information for method dispatch
     pylist: *cpython.PyListObject, // Python list from eval() - allows len() etc.
+
+    // === VM-specific types (also usable by AOT for eval/exec) ===
+    code: *const CodeObject, // Compiled bytecode
+    function: *Function, // Python function object
+    builtin_fn: *const BuiltinFn, // Built-in function pointer
+    iterator: *Iterator, // Iterator for for loops
+    range: Range, // range() object
+    exception: *Exception, // Exception object
+    generator: *Generator, // Generator object (suspended coroutine)
+
+    /// Dict type - uses StringHashMapUnmanaged for Zig 0.15 compatibility
+    pub const Dict = std.StringHashMapUnmanaged(PyValue);
+
+    /// Built-in function signature
+    pub const BuiltinFn = fn (std.mem.Allocator, []const PyValue) anyerror!PyValue;
+
+    /// Python range object
+    pub const Range = struct {
+        start: i64,
+        stop: i64,
+        step: i64 = 1,
+
+        /// Create an iterator from this range
+        pub fn iter(self: Range) Iterator {
+            return .{ .source = .{ .range = self } };
+        }
+    };
+
+    /// Iterator over sequences
+    pub const Iterator = struct {
+        source: IterSource,
+        index: usize = 0,
+
+        pub const IterSource = union(enum) {
+            list: *std.ArrayListUnmanaged(PyValue),
+            tuple: []const PyValue,
+            string: []const u8,
+            range: Range,
+        };
+
+        /// Get next value or null if exhausted
+        pub fn next(self: *Iterator) ?PyValue {
+            switch (self.source) {
+                .list => |l| {
+                    if (self.index < l.items.len) {
+                        const val = l.items[self.index];
+                        self.index += 1;
+                        return val;
+                    }
+                    return null;
+                },
+                .tuple => |t| {
+                    if (self.index < t.len) {
+                        const val = t[self.index];
+                        self.index += 1;
+                        return val;
+                    }
+                    return null;
+                },
+                .string => |s| {
+                    if (self.index < s.len) {
+                        const val = PyValue{ .string = s[self.index..][0..1] };
+                        self.index += 1;
+                        return val;
+                    }
+                    return null;
+                },
+                .range => |r| {
+                    const current = r.start + @as(i64, @intCast(self.index)) * r.step;
+                    if ((r.step > 0 and current < r.stop) or (r.step < 0 and current > r.stop)) {
+                        self.index += 1;
+                        return .{ .int = current };
+                    }
+                    return null;
+                },
+            }
+        }
+    };
+
+    /// Exception object for exception handling
+    pub const Exception = struct {
+        exc_type: []const u8, // Exception type name (e.g., "ValueError")
+        message: []const u8, // Exception message
+        cause: ?*Exception = null, // Chained exception (__cause__)
+    };
+
+    /// Generator object - suspended coroutine
+    pub const Generator = struct {
+        code: *const CodeObject,
+        ip: usize = 0, // Saved instruction pointer
+        locals: [256]?PyValue = [_]?PyValue{null} ** 256, // Saved locals
+        stack: std.ArrayListUnmanaged(PyValue) = .{}, // Saved stack
+        cells: []?*Cell = &.{}, // Closure cells
+        globals: *Dict,
+        running: bool = false,
+        exhausted: bool = false,
+
+        pub fn deinit(self: *Generator, allocator: std.mem.Allocator) void {
+            self.stack.deinit(allocator);
+        }
+    };
+
+    /// Python function object
+    pub const Function = struct {
+        code: *const CodeObject,
+        globals: *Dict,
+        defaults: []const PyValue = &.{},
+        name: []const u8 = "<function>",
+        closure: []?*Cell = &.{}, // Captured free variables
+    };
+
+    /// Closure cell for captured variables
+    pub const Cell = struct {
+        value: ?PyValue = null,
+    };
+
+    /// Code object flags
+    pub const CodeFlags = packed struct {
+        generator: bool = false,
+        coroutine: bool = false,
+        async_generator: bool = false,
+        varargs: bool = false, // Function accepts *args
+        varkeywords: bool = false, // Function accepts **kwargs
+        nested: bool = false, // Nested function
+        nofree: bool = false, // No free variables
+        _padding: u1 = 0,
+    };
+
+    /// Exception table entry for mapping bytecode ranges to handlers
+    pub const ExcEntry = struct {
+        start: u32, // Start of try block
+        end: u32, // End of try block
+        target: u32, // Handler target
+        depth: u16, // Stack depth at start
+        lasti: bool, // Push lasti to stack
+    };
+
+    /// CodeObject - compiled bytecode for a function or module
+    /// This is the unified representation for both VM execution and AOT eval/exec
+    pub const CodeObject = struct {
+        /// Raw bytecode instructions
+        bytecode: []const u8,
+
+        /// Constant pool (literals, nested code objects, etc.)
+        constants: []const PyValue,
+
+        /// Local variable names (indexed by LOAD_FAST/STORE_FAST)
+        varnames: []const []const u8,
+
+        /// Free variable names (closures from enclosing scopes)
+        freevars: []const []const u8 = &.{},
+
+        /// Cell variable names (locals captured by nested functions)
+        cellvars: []const []const u8 = &.{},
+
+        /// Global/attribute names (indexed by LOAD_GLOBAL/LOAD_ATTR)
+        names: []const []const u8,
+
+        /// Number of local variables
+        nlocals: u16 = 0,
+
+        /// Maximum stack depth needed
+        stacksize: u16 = 256,
+
+        /// Number of arguments (positional)
+        argcount: u16 = 0,
+
+        /// Number of positional-only arguments
+        posonlyargcount: u16 = 0,
+
+        /// Number of keyword-only arguments
+        kwonlyargcount: u16 = 0,
+
+        /// Code flags
+        flags: CodeFlags = .{},
+
+        /// Source filename
+        filename: []const u8 = "<string>",
+
+        /// Function/module name
+        name: []const u8 = "<module>",
+
+        /// First source line number
+        firstlineno: u32 = 1,
+
+        /// Line number table (maps bytecode offset to source line)
+        linetable: []const u8 = &.{},
+
+        /// Exception table
+        exctable: []const ExcEntry = &.{},
+
+        /// Get line number for bytecode offset
+        pub fn getLineNo(self: *const CodeObject, offset: usize) u32 {
+            // Simple line table format: pairs of (bytecode_delta, line_delta)
+            var current_offset: usize = 0;
+            var current_line: u32 = self.firstlineno;
+            var i: usize = 0;
+
+            while (i + 1 < self.linetable.len) {
+                const bc_delta = self.linetable[i];
+                const line_delta: i8 = @bitCast(self.linetable[i + 1]);
+                current_offset += bc_delta;
+                if (current_offset > offset) break;
+                current_line = @intCast(@as(i64, current_line) + line_delta);
+                i += 2;
+            }
+
+            return current_line;
+        }
+
+        /// Find exception handler for offset
+        pub fn findHandler(self: *const CodeObject, offset: usize) ?*const ExcEntry {
+            for (self.exctable) |*entry| {
+                if (offset >= entry.start and offset < entry.end) {
+                    return entry;
+                }
+            }
+            return null;
+        }
+    };
 
     pub const Complex = struct { real: f64, imag: f64 };
 
@@ -494,12 +723,42 @@ pub const PyValue = union(enum) {
             .list => |list| list.items.len > 0,
             .pylist => |pylist| pylist.ob_base.ob_size > 0, // CPython list
             .tuple => |v| v.len > 0,
+            .dict => |d| d.count() > 0,
             .bigint => |v| !v.isZero(),
             .complex => |v| v.real != 0.0 or v.imag != 0.0, // 0j is falsy
             .type_obj => true, // Type objects are always truthy
             .ptr => true, // Objects are truthy by default
             .object => true, // Class instances are truthy by default
+            // VM-specific types
+            .range => |r| blk: {
+                // range is truthy if it has any elements
+                if (r.step > 0) break :blk r.start < r.stop;
+                if (r.step < 0) break :blk r.start > r.stop;
+                break :blk false;
+            },
+            .code, .function, .builtin_fn, .iterator, .exception, .generator => true,
         };
+    }
+
+    /// Convert to boolean (Python truthiness) - alias for isTruthy
+    /// This name is used by the VM
+    pub fn toBool(self: PyValue) bool {
+        return self.isTruthy();
+    }
+
+    /// Check if this is an integer
+    pub fn isInt(self: PyValue) bool {
+        return self == .int;
+    }
+
+    /// Check if this is a float
+    pub fn isFloat(self: PyValue) bool {
+        return self == .float;
+    }
+
+    /// Check if this is a string
+    pub fn isString(self: PyValue) bool {
+        return self == .string;
     }
 
     /// Check if this value is NaN (for float/complex types)
@@ -724,9 +983,22 @@ pub const PyValue = union(enum) {
                     return .{ .string = value[0..arr_info.len] };
                 }
             }
-            // Handle *cpython.PyObject - extract actual Python value
-            if (ptr_info.child == cpython.PyObject) {
-                const obj: *cpython.PyObject = value;
+            // Handle *cpython.PyObject (or any PyObject-like struct from c_interop)
+            // Check by layout: struct with ob_refcnt and ob_type fields
+            const is_pyobject_like = blk: {
+                if (ptr_info.child == cpython.PyObject) break :blk true;
+                // Also check for c_interop's PyObject (same layout, different type)
+                if (@typeInfo(ptr_info.child) == .@"struct") {
+                    const ChildT = ptr_info.child;
+                    if (@hasField(ChildT, "ob_refcnt") and @hasField(ChildT, "ob_type")) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+            if (is_pyobject_like) {
+                // Cast to runtime's PyObject type (same layout, safe cast)
+                const obj: *cpython.PyObject = @ptrCast(@alignCast(value));
                 // Check bool BEFORE int (PyBoolObject inherits from PyLongObject)
                 if (cpython.PyBool_Check(obj)) {
                     const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
@@ -740,9 +1012,20 @@ pub const PyValue = union(enum) {
                     const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(obj));
                     return .{ .float = float_obj.ob_fval };
                 }
-                if (cpython.PyUnicode_Check(obj)) {
-                    // Get string value - for now return empty, proper impl needs allocator
-                    return .{ .string = "" };
+                // Check for PyUnicode by type name (cross-module compatible)
+                const type_obj = obj.ob_type;
+                const type_name = std.mem.span(type_obj.tp_name);
+                if (std.mem.eql(u8, type_name, "str")) {
+                    // CPython-style compact ASCII: data follows PyASCIIObject struct
+                    // PyASCIIObject = { ob_base(16) + length(8) + hash(8) + state(4) } = 36 bytes
+                    // But with alignment, it's 40 bytes. String data starts at offset 40.
+                    const obj_ptr: [*]const u8 = @ptrCast(obj);
+                    // Read length from offset 16 (after ob_base)
+                    const length_ptr: *const isize = @ptrCast(@alignCast(obj_ptr + 16));
+                    const length: usize = @intCast(length_ptr.*);
+                    // Data follows at offset 40 (sizeof PyASCIIObject rounded to alignment)
+                    const data_ptr = obj_ptr + 40;
+                    return .{ .string = data_ptr[0..length] };
                 }
                 if (cpython.PyList_Check(obj)) {
                     // Store the PyList as a PyObject with list semantics
@@ -848,6 +1131,53 @@ pub const PyValue = union(enum) {
                         .vtable = vtable_ptr,
                     },
                 };
+            }
+            // Handle ArrayListUnmanaged(PyValue) - structs with items and capacity
+            if (@hasField(T, "items") and @hasField(T, "capacity")) {
+                const ItemsType = @TypeOf(value.items);
+                // Check if items is a slice of PyValue
+                if (@typeInfo(ItemsType) == .pointer and @typeInfo(ItemsType).pointer.size == .slice) {
+                    const ItemType = @typeInfo(ItemsType).pointer.child;
+                    if (ItemType == PyValue) {
+                        // Store the ArrayList in thread-local storage and return as tuple
+                        // (can't allocate a list without allocator, so use tuple representation)
+                        const len = value.items.len;
+                        if (len <= 8) {
+                            const TupleStorage = struct {
+                                threadlocal var buffers: [4][8]PyValue = undefined;
+                                threadlocal var next_buffer: u2 = 0;
+                            };
+                            const buf_idx = TupleStorage.next_buffer;
+                            TupleStorage.next_buffer +%= 1;
+                            for (0..len) |i| {
+                                TupleStorage.buffers[buf_idx][i] = value.items[i];
+                            }
+                            return .{ .tuple = TupleStorage.buffers[buf_idx][0..len] };
+                        }
+                        // Too large - fallback to none
+                        return .{ .none = {} };
+                    }
+                }
+            }
+            return .{ .none = {} };
+        } else if (info == .array) {
+            // Handle fixed-size arrays [N]T
+            const array_info = @typeInfo(T).array;
+            if (array_info.child == PyValue) {
+                const len = array_info.len;
+                if (len <= 8) {
+                    const TupleStorage = struct {
+                        threadlocal var buffers: [4][8]PyValue = undefined;
+                        threadlocal var next_buffer: u2 = 0;
+                    };
+                    const buf_idx = TupleStorage.next_buffer;
+                    TupleStorage.next_buffer +%= 1;
+                    for (0..len) |i| {
+                        TupleStorage.buffers[buf_idx][i] = value[i];
+                    }
+                    return .{ .tuple = TupleStorage.buffers[buf_idx][0..len] };
+                }
+                return .{ .none = {} };
             }
             return .{ .none = {} };
         } else if (info == .@"fn") {
@@ -1288,6 +1618,36 @@ pub const PyValue = union(enum) {
             .float => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .float = @mod(a, @as(f64, @floatFromInt(b))) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = @mod(a, b) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            else => .{ .none = {} },
+        };
+    }
+
+    /// Power: self ** other
+    pub fn pow(self: PyValue, other: PyValue) PyValue {
+        return switch (self) {
+            .int => |a| switch (other) {
+                .int => |b| blk: {
+                    if (b < 0) {
+                        // Negative exponent - return float
+                        break :blk .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), @as(f64, @floatFromInt(b))) };
+                    }
+                    if (b > 63) {
+                        // Would overflow i64 - return float
+                        break :blk .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), @as(f64, @floatFromInt(b))) };
+                    }
+                    break :blk .{ .int = std.math.powi(i64, a, @intCast(b)) catch {
+                        // Overflow - fall back to float
+                        return .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), @as(f64, @floatFromInt(b))) };
+                    } };
+                },
+                .float => |b| .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), b) },
+                else => .{ .none = {} },
+            },
+            .float => |a| switch (other) {
+                .int => |b| .{ .float = std.math.pow(f64, a, @as(f64, @floatFromInt(b))) },
+                .float => |b| .{ .float = std.math.pow(f64, a, b) },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },
@@ -1743,6 +2103,15 @@ pub const PyValue = union(enum) {
             .bigint => |v| v.isZero(),
             .complex => |v| v.real == 0.0 and v.imag == 0.0,
             .ptr, .type_obj, .object => false, // Objects are truthy by default
+            // VM-specific types
+            .dict => |d| d.count() == 0,
+            .range => |r| blk: {
+                // range is falsy if it's empty
+                if (r.step > 0) break :blk r.start >= r.stop;
+                if (r.step < 0) break :blk r.start <= r.stop;
+                break :blk true; // step == 0 would be an error, treat as falsy
+            },
+            .code, .function, .builtin_fn, .iterator, .exception, .generator => false, // These are truthy by default
         };
     }
 
@@ -1901,6 +2270,15 @@ pub const PyValue = union(enum) {
                     // Both returned NotImplemented, fall back to identity
                     break :blk self_obj.ptr == other_obj.ptr;
                 },
+                // VM-specific types - use identity comparison
+                .dict => |d| d == other.dict,
+                .code => |c| c == other.code,
+                .function => |f| f == other.function,
+                .builtin_fn => |b| b == other.builtin_fn,
+                .iterator => |i| i == other.iterator,
+                .range => |r| r.start == other.range.start and r.stop == other.range.stop and r.step == other.range.step,
+                .exception => |e| e == other.exception,
+                .generator => |g| g == other.generator,
             };
         }
 
