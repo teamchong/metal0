@@ -8,6 +8,71 @@ const producesBlockExpression = @import("../expressions.zig").producesBlockExpre
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const emitPyValueFromAlloc = @import("../expressions/calls.zig").emitPyValueFromAlloc;
 
+/// Helper: emit runtime.pyListAppendPV(__global_allocator, &obj, runtime.PyValue.from(item)) with bracket matching
+fn emitPyListAppendPV(self: *NativeCodegen, obj: ast.Node, item: ast.Node, use_try: bool, catch_unreachable: bool) CodegenError!void {
+    const Ctx = struct { o: ast.Node, i: ast.Node, try_prefix: bool, catch_unreach: bool };
+    if (use_try) try self.emit("try ");
+    try self.emitCallCtx("runtime.pyListAppendPV", Ctx{ .o = obj, .i = item, .try_prefix = use_try, .catch_unreach = catch_unreachable }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try emitObjExpr(s, ctx.o);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.i, struct {
+                pub fn inner(ss: *NativeCodegen, i: ast.Node) CodegenError!void {
+                    try ss.genExpr(i);
+                }
+            }.inner);
+        }
+    }.f);
+    if (catch_unreachable) try self.emit(" catch unreachable");
+}
+
+/// Helper: emit runtime.pyListExtendPV(__global_allocator, &obj, runtime.PyValue.from(arg)) with bracket matching
+fn emitPyListExtendPV(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, a: ast.Node };
+    try self.emitCallCtx("try runtime.pyListExtendPV", Ctx{ .o = obj, .a = arg }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try emitObjExpr(s, ctx.o);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.a, struct {
+                pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                    try ss.genExpr(a);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyListInsertPV(__global_allocator, &obj, idx, runtime.PyValue.from(item)) with bracket matching
+fn emitPyListInsertPV(self: *NativeCodegen, obj: ast.Node, idx: ast.Node, item: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, idx: ast.Node, i: ast.Node };
+    try self.emitCallCtx("try runtime.pyListInsertPV", Ctx{ .o = obj, .idx = idx, .i = item }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try emitObjExpr(s, ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.idx);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.i, struct {
+                pub fn inner(ss: *NativeCodegen, i: ast.Node) CodegenError!void {
+                    try ss.genExpr(i);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.listExtendIterable(__global_allocator, &obj, arg) with bracket matching
+fn emitListExtendIterable(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, a: ast.Node };
+    try self.emitCallCtx("try runtime.listExtendIterable", Ctx{ .o = obj, .a = arg }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try emitObjExpr(s, ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.a);
+        }
+    }.f);
+}
+
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     if (producesBlockExpression(obj)) {
@@ -65,19 +130,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
         // In defer blocks, 'try' is not allowed - use catch unreachable instead
-        if (self.inside_defer) {
-            try self.emit("runtime.pyListAppendPV(__global_allocator, &");
-            try emitObjExpr(self, obj);
-            try self.emit(", runtime.PyValue.from(");
-            try self.genExpr(args[0]);
-            try self.emit(")) catch unreachable");
-        } else {
-            try self.emit("try runtime.pyListAppendPV(__global_allocator, &");
-            try emitObjExpr(self, obj);
-            try self.emit(", runtime.PyValue.from(");
-            try self.genExpr(args[0]);
-            try self.emit("))");
-        }
+        try emitPyListAppendPV(self, obj, args[0], !self.inside_defer, self.inside_defer);
         return;
     }
 
@@ -241,11 +294,7 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if list is uncertain
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
-        try self.emit("try runtime.pyListExtendPV(__global_allocator, &");
-        try emitObjExpr(self, obj);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitPyListExtendPV(self, obj, args[0]);
         return;
     }
 
@@ -326,11 +375,7 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 try self.genExpr(arg);
                 try self.emit("); }");
             } else {
-                try self.emit("try runtime.listExtendIterable(__global_allocator, &");
-                try emitObjExpr(self, obj);
-                try self.emit(", ");
-                try self.genExpr(arg);
-                try self.emit(")");
+                try emitListExtendIterable(self, obj, arg);
             }
         } else {
             // Assume ArrayList variable - use .items
@@ -362,13 +407,7 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if list is uncertain
     if (isListUncertain(self, obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
-        try self.emit("try runtime.pyListInsertPV(__global_allocator, &");
-        try emitObjExpr(self, obj);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[1]);
-        try self.emit("))");
+        try emitPyListInsertPV(self, obj, args[0], args[1]);
         return;
     }
 

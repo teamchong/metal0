@@ -7,6 +7,74 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const expr_emitter = @import("../expr_emitter.zig");
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 
+/// Helper: emit runtime.pySetAddPV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
+fn emitPySetAddPV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, e: ast.Node };
+    try self.emitCallCtx("try runtime.pySetAddPV", Ctx{ .o = obj, .e = elem }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try s.genExpr(ctx.o);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pySetRemovePV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
+fn emitPySetRemovePV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, e: ast.Node };
+    try self.emitCallCtx("try runtime.pySetRemovePV", Ctx{ .o = obj, .e = elem }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try s.genExpr(ctx.o);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pySetDiscardPV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
+fn emitPySetDiscardPV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, e: ast.Node };
+    try self.emitCallCtx("runtime.pySetDiscardPV", Ctx{ .o = obj, .e = elem }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try s.genExpr(ctx.o);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.e, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pySetClearPV(&obj) with bracket matching
+fn emitPySetClearPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pySetClearPV", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emit("&");
+            try s.genExpr(o);
+        }
+    }.f);
+}
+
+/// Helper: emit try runtime.pySetPopPVFunc(__global_allocator, &obj) with bracket matching
+fn emitPySetPopPVFunc(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("try runtime.pySetPopPVFunc", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try s.genExpr(o);
+        }
+    }.f);
+}
+
 /// Check if a set expression is uncertain (needs PyValue operations)
 /// Two-Flow: routes uncertain sets to runtime helpers
 fn isSetUncertain(self: *NativeCodegen, obj: ast.Node) bool {
@@ -48,11 +116,7 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetAddPV(__global_allocator, &");
-        try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitPySetAddPV(self, obj, args[0]);
         return;
     }
 
@@ -75,11 +139,7 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetRemovePV(__global_allocator, &");
-        try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitPySetRemovePV(self, obj, args[0]);
         return;
     }
 
@@ -104,11 +164,7 @@ pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetDiscardPV(__global_allocator, &");
-        try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitPySetDiscardPV(self, obj, args[0]);
         return;
     }
 
@@ -130,9 +186,7 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("runtime.pySetClearPV(&");
-        try self.genExpr(obj);
-        try self.emit(")");
+        try emitPySetClearPV(self, obj);
         return;
     }
 
@@ -150,9 +204,7 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
     if (isSetUncertain(self, obj)) {
         // Route to runtime helper for PyValue sets
-        try self.emit("try runtime.pySetPopPVFunc(__global_allocator, &");
-        try self.genExpr(obj);
-        try self.emit(")");
+        try emitPySetPopPVFunc(self, obj);
         return;
     }
 

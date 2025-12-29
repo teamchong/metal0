@@ -10,6 +10,94 @@ const NativeType = @import("../../../analysis/native_types.zig").NativeType;
 const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
+/// Helper: emit runtime.pyDictKeysPV(__global_allocator, runtime.PyValue.from(obj)) with bracket matching
+fn emitPyDictKeysPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyDictKeysPV", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emitCallCtx("__global_allocator, runtime.PyValue.from", o, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyDictValuesPV(__global_allocator, runtime.PyValue.from(obj)) with bracket matching
+fn emitPyDictValuesPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyDictValuesPV", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emitCallCtx("__global_allocator, runtime.PyValue.from", o, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyDictItemsPV(__global_allocator, runtime.PyValue.from(obj)) with bracket matching
+fn emitPyDictItemsPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyDictItemsPV", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emitCallCtx("__global_allocator, runtime.PyValue.from", o, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyDictUpdatePV(__global_allocator, &obj, runtime.PyValue.from(arg)) with bracket matching
+fn emitPyDictUpdatePV(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, a: ast.Node };
+    try self.emitCallCtx("runtime.pyDictUpdatePV", Ctx{ .o = obj, .a = arg }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try s.genExpr(ctx.o);
+            try s.emitCallCtx(", runtime.PyValue.from", ctx.a, struct {
+                pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                    try ss.genExpr(a);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyDictCopyPV(__global_allocator, runtime.PyValue.from(obj)) with bracket matching
+fn emitPyDictCopyPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyDictCopyPV", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emitCallCtx("__global_allocator, runtime.PyValue.from", o, struct {
+                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try ss.genExpr(e);
+                }
+            }.inner);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyDictClearPV(&obj) with bracket matching
+fn emitPyDictClearPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyDictClearPV", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emit("&");
+            try s.genExpr(o);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyDictPopitem(__global_allocator, &obj) with bracket matching
+fn emitPyDictPopitem(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyDictPopitem", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emit("__global_allocator, &");
+            try s.genExpr(o);
+        }
+    }.f);
+}
+
 /// Check if a dict expression is uncertain (needs PyValue operations)
 /// Two-Flow: routes uncertain dicts to runtime helpers
 fn isDictUncertain(self: *NativeCodegen, obj: ast.Node) bool {
@@ -129,9 +217,7 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictKeysPV(__global_allocator, runtime.PyValue.from(");
-        try self.genExpr(obj);
-        try self.emit("))");
+        try emitPyDictKeysPV(self, obj);
         return;
     }
 
@@ -203,9 +289,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictValuesPV(__global_allocator, runtime.PyValue.from(");
-        try self.genExpr(obj);
-        try self.emit("))");
+        try emitPyDictValuesPV(self, obj);
         return;
     }
 
@@ -271,9 +355,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictItemsPV(__global_allocator, runtime.PyValue.from(");
-        try self.genExpr(obj);
-        try self.emit("))");
+        try emitPyDictItemsPV(self, obj);
         return;
     }
 
@@ -417,11 +499,7 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictUpdatePV(__global_allocator, &");
-        try self.genExpr(obj);
-        try self.emit(", runtime.PyValue.from(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitPyDictUpdatePV(self, obj, args[0]);
         return;
     }
 
@@ -476,9 +554,7 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictClearPV(&");
-        try self.genExpr(obj);
-        try self.emit(")");
+        try emitPyDictClearPV(self, obj);
         return;
     }
 
@@ -495,9 +571,7 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictCopyPV(__global_allocator, runtime.PyValue.from(");
-        try self.genExpr(obj);
-        try self.emit("))");
+        try emitPyDictCopyPV(self, obj);
         return;
     }
 
@@ -621,9 +695,7 @@ pub fn genPopitem(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
     if (isDictUncertain(self, obj)) {
         // Route to runtime helper for PyValue dicts
-        try self.emit("runtime.pyDictPopitem(__global_allocator, &");
-        try self.genExpr(obj);
-        try self.emit(")");
+        try emitPyDictPopitem(self, obj);
         return;
     }
 
