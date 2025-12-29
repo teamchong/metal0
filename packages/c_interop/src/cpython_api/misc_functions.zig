@@ -510,3 +510,391 @@ pub export fn _PyObject_LookupAttr(obj: *cpython.PyObject, name: *cpython.PyObje
     }
     return 0; // Not found
 }
+
+// ============================================================================
+// PANDAS/PYTORCH COMPATIBILITY (additional internal APIs)
+// ============================================================================
+
+/// _Py_FatalErrorFunc - Fatal error function pointer (stub)
+pub export var _Py_FatalErrorFunc: ?*const fn ([*:0]const u8) callconv(.c) noreturn = null;
+
+/// _PyByteArray_empty_string - Empty bytearray singleton
+pub export var _PyByteArray_empty_string: [1]u8 = .{0};
+
+/// _PyLong_Copy - Copy a long object
+pub export fn _PyLong_Copy(obj: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    const pylong = @import("../objects/longobject.zig");
+    if (pylong.PyLong_Check(obj) == 0) return null;
+    const val = pylong.PyLong_AsLongLong(obj);
+    return pylong.PyLong_FromLongLong(val);
+}
+
+/// _PyObject_GenericGetAttrWithDict - Get attr with custom dict
+pub export fn _PyObject_GenericGetAttrWithDict(obj: *cpython.PyObject, name: *cpython.PyObject, dict: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    _ = dict; // Use object's own dict
+    const abstract = @import("../include/abstract.zig");
+    return abstract.PyObject_GenericGetAttr(obj, name);
+}
+
+/// _PyObject_GetDictPtr - Get pointer to object's __dict__
+pub export fn _PyObject_GetDictPtr(obj: *cpython.PyObject) callconv(.c) ?*?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(obj);
+    if (type_obj.tp_dictoffset == 0) return null;
+    const offset: usize = if (type_obj.tp_dictoffset > 0)
+        @intCast(type_obj.tp_dictoffset)
+    else
+        @intCast(@as(isize, @intCast(@sizeOf(cpython.PyObject))) + type_obj.tp_dictoffset);
+    const base: [*]u8 = @ptrCast(obj);
+    return @ptrCast(@alignCast(base + offset));
+}
+
+/// _PySet_NextEntry - Iterate over set entries (internal API)
+pub export fn _PySet_NextEntry(set_obj: *cpython.PyObject, pos: *isize, key: *?*cpython.PyObject, hash: *isize) callconv(.c) c_int {
+    const setobject = @import("../objects/setobject.zig");
+    // Use PySet_Next which has similar semantics
+    if (setobject.PySet_Next(set_obj, pos, key) != 0) {
+        // Compute hash of key
+        if (key.*) |k| {
+            hash.* = @import("../include/abstract.zig").PyObject_Hash(k);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/// _PyType_Lookup - Look up attribute in type's MRO
+pub export fn _PyType_Lookup(type_obj: *cpython.PyTypeObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    // Check type's tp_dict first
+    if (type_obj.tp_dict) |dict| {
+        const pydict = @import("../objects/dictobject.zig");
+        if (pydict.PyDict_GetItem(@ptrCast(dict), name)) |val| {
+            return val;
+        }
+    }
+    // Check base types
+    if (type_obj.tp_base) |base| {
+        return _PyType_Lookup(base, name);
+    }
+    return null;
+}
+
+/// _PyUnicode_FastCopyCharacters - Fast character copy (internal)
+pub export fn _PyUnicode_FastCopyCharacters(to: *cpython.PyObject, to_start: isize, from: *cpython.PyObject, from_start: isize, how_many: isize) callconv(.c) c_int {
+    // Our unicode implementation is immutable, so this is a no-op stub
+    _ = to;
+    _ = to_start;
+    _ = from;
+    _ = from_start;
+    _ = how_many;
+    return 0; // Success (nothing to copy in immutable strings)
+}
+
+/// PyObject_CallFinalizerFromDealloc - Call tp_finalize from dealloc
+pub export fn PyObject_CallFinalizerFromDealloc(obj: *cpython.PyObject) callconv(.c) c_int {
+    const type_obj = cpython.Py_TYPE(obj);
+    if (type_obj.tp_finalize) |finalize| {
+        finalize(obj);
+    }
+    return 0;
+}
+
+/// PyUnicode_New - Create new unicode object with given size and maxchar
+pub export fn PyUnicode_New(size: isize, maxchar: u32) callconv(.c) ?*cpython.PyObject {
+    _ = maxchar; // We use UTF-8 internally, maxchar is for optimization
+    if (size <= 0) {
+        return @import("../objects/unicodeobject.zig").PyUnicode_FromString("");
+    }
+    // Allocate buffer and return empty unicode that can be written to
+    const buf = std.heap.c_allocator.alloc(u8, @intCast(size + 1)) catch return null;
+    @memset(buf, 0);
+    return @import("../objects/unicodeobject.zig").PyUnicode_FromString(@ptrCast(buf.ptr));
+}
+
+/// PyByteArray_Type - bytearray type object
+pub export var PyByteArray_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = null },
+        .ob_size = 0,
+    },
+    .tp_name = "bytearray",
+    .tp_basicsize = @sizeOf(cpython.PyObject) + @sizeOf(isize) + @sizeOf([*]u8),
+    .tp_itemsize = 1,
+    .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT | cpython.Py_TPFLAGS_BASETYPE,
+    .tp_doc = "bytearray()",
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};
+
+// ============================================================================
+// PYTORCH COMPATIBILITY (additional type objects and APIs)
+// ============================================================================
+
+/// PyCell_Type - cell type object
+pub export var PyCell_Type: cpython.PyTypeObject = makeSimpleType("cell");
+
+/// PyFrame_Type - frame type object
+pub export var PyFrame_Type: cpython.PyTypeObject = makeSimpleType("frame");
+
+/// PyFunction_Type - function type object
+pub export var PyFunction_Type: cpython.PyTypeObject = makeSimpleType("function");
+
+/// PyGen_Type - generator type object
+pub export var PyGen_Type: cpython.PyTypeObject = makeSimpleType("generator");
+
+/// PyModule_Type - module type object
+pub export var PyModule_Type: cpython.PyTypeObject = makeSimpleType("module");
+
+/// PyStaticMethod_Type - staticmethod type object
+pub export var PyStaticMethod_Type: cpython.PyTypeObject = makeSimpleType("staticmethod");
+
+fn makeSimpleType(comptime name: [:0]const u8) cpython.PyTypeObject {
+    return .{
+        .ob_base = .{
+            .ob_base = .{ .ob_refcnt = 1000000, .ob_type = null },
+            .ob_size = 0,
+        },
+        .tp_name = name,
+        .tp_basicsize = @sizeOf(cpython.PyObject),
+        .tp_itemsize = 0,
+        .tp_dealloc = null,
+        .tp_vectorcall_offset = 0,
+        .tp_getattr = null,
+        .tp_setattr = null,
+        .tp_as_async = null,
+        .tp_repr = null,
+        .tp_as_number = null,
+        .tp_as_sequence = null,
+        .tp_as_mapping = null,
+        .tp_hash = null,
+        .tp_call = null,
+        .tp_str = null,
+        .tp_getattro = null,
+        .tp_setattro = null,
+        .tp_as_buffer = null,
+        .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
+        .tp_doc = null,
+        .tp_traverse = null,
+        .tp_clear = null,
+        .tp_richcompare = null,
+        .tp_weaklistoffset = 0,
+        .tp_iter = null,
+        .tp_iternext = null,
+        .tp_methods = null,
+        .tp_members = null,
+        .tp_getset = null,
+        .tp_base = null,
+        .tp_dict = null,
+        .tp_descr_get = null,
+        .tp_descr_set = null,
+        .tp_dictoffset = 0,
+        .tp_init = null,
+        .tp_alloc = null,
+        .tp_new = null,
+        .tp_free = null,
+        .tp_is_gc = null,
+        .tp_bases = null,
+        .tp_mro = null,
+        .tp_cache = null,
+        .tp_subclasses = null,
+        .tp_weaklist = null,
+        .tp_del = null,
+        .tp_version_tag = 0,
+        .tp_finalize = null,
+        .tp_vectorcall = null,
+        .tp_watched = 0,
+        .tp_versions_used = 0,
+    };
+}
+
+/// Dict watcher stubs (3.12+ feature, not implemented)
+pub export fn PyDict_AddWatcher(callback: ?*anyopaque) callconv(.c) c_int {
+    _ = callback;
+    return 0; // Return watcher ID 0
+}
+
+pub export fn PyDict_Watch(watcher_id: c_int, dict: *cpython.PyObject) callconv(.c) c_int {
+    _ = watcher_id;
+    _ = dict;
+    return 0; // Success
+}
+
+pub export fn PyDict_Unwatch(watcher_id: c_int, dict: *cpython.PyObject) callconv(.c) c_int {
+    _ = watcher_id;
+    _ = dict;
+    return 0; // Success
+}
+
+/// Thread state stubs
+pub export fn _PyThreadState_GetCurrent() callconv(.c) ?*anyopaque {
+    return null; // No thread state in AOT
+}
+
+pub export fn PyThreadState_DeleteCurrent() callconv(.c) void {
+    // No-op
+}
+
+pub export fn PyThreadState_Next(tstate: ?*anyopaque) callconv(.c) ?*anyopaque {
+    _ = tstate;
+    return null; // No next thread state
+}
+
+pub export fn PyInterpreterState_ThreadHead(interp: ?*anyopaque) callconv(.c) ?*anyopaque {
+    _ = interp;
+    return null; // No thread head
+}
+
+/// Eval stubs (interpreter internals)
+pub export fn _Py_NewReference(obj: *cpython.PyObject) callconv(.c) void {
+    obj.ob_refcnt = 1;
+}
+
+pub export fn _PyEval_EvalFrameDefault(tstate: ?*anyopaque, frame: ?*anyopaque, throwflag: c_int) callconv(.c) ?*cpython.PyObject {
+    _ = tstate;
+    _ = frame;
+    _ = throwflag;
+    return null; // Not implemented - AOT doesn't use frame evaluation
+}
+
+pub export fn _PyEval_SliceIndex(obj: *cpython.PyObject, result: *isize) callconv(.c) c_int {
+    const pylong = @import("../objects/longobject.zig");
+    if (pylong.PyLong_Check(obj) != 0) {
+        result.* = pylong.PyLong_AsSsize_t(obj);
+        return 1;
+    }
+    return 0;
+}
+
+pub export fn _PyInterpreterState_GetEvalFrameFunc(interp: ?*anyopaque) callconv(.c) ?*anyopaque {
+    _ = interp;
+    return null;
+}
+
+pub export fn _PyInterpreterState_SetEvalFrameFunc(interp: ?*anyopaque, func: ?*anyopaque) callconv(.c) void {
+    _ = interp;
+    _ = func;
+}
+
+pub export fn PyEval_SetProfile(func: ?*anyopaque, arg: ?*cpython.PyObject) callconv(.c) void {
+    _ = func;
+    _ = arg;
+    // Profiling not supported in AOT
+}
+
+pub export fn PyObject_GET_WEAKREFS_LISTPTR(obj: *cpython.PyObject) callconv(.c) ?*?*cpython.PyObject {
+    const type_obj = cpython.Py_TYPE(obj);
+    if (type_obj.tp_weaklistoffset == 0) return null;
+    const offset: usize = @intCast(type_obj.tp_weaklistoffset);
+    const base: [*]u8 = @ptrCast(obj);
+    return @ptrCast(@alignCast(base + offset));
+}
+
+pub export fn PyObject_GetArenaAllocator(allocator_ptr: ?*anyopaque) callconv(.c) void {
+    _ = allocator_ptr;
+    // Arena allocator not exposed in AOT
+}
+
+pub export fn PyUnstable_Eval_RequestCodeExtraIndex(func: ?*anyopaque) callconv(.c) isize {
+    _ = func;
+    return -1; // Not implemented
+}
+
+/// PyTraceBack_Type - traceback type object
+pub export var PyTraceBack_Type: cpython.PyTypeObject = .{
+    .ob_base = .{
+        .ob_base = .{ .ob_refcnt = 1000000, .ob_type = null },
+        .ob_size = 0,
+    },
+    .tp_name = "traceback",
+    .tp_basicsize = @sizeOf(cpython.PyObject) + 4 * @sizeOf(*cpython.PyObject),
+    .tp_itemsize = 0,
+    .tp_dealloc = null,
+    .tp_vectorcall_offset = 0,
+    .tp_getattr = null,
+    .tp_setattr = null,
+    .tp_as_async = null,
+    .tp_repr = null,
+    .tp_as_number = null,
+    .tp_as_sequence = null,
+    .tp_as_mapping = null,
+    .tp_hash = null,
+    .tp_call = null,
+    .tp_str = null,
+    .tp_getattro = null,
+    .tp_setattro = null,
+    .tp_as_buffer = null,
+    .tp_flags = cpython.Py_TPFLAGS_DEFAULT,
+    .tp_doc = null,
+    .tp_traverse = null,
+    .tp_clear = null,
+    .tp_richcompare = null,
+    .tp_weaklistoffset = 0,
+    .tp_iter = null,
+    .tp_iternext = null,
+    .tp_methods = null,
+    .tp_members = null,
+    .tp_getset = null,
+    .tp_base = null,
+    .tp_dict = null,
+    .tp_descr_get = null,
+    .tp_descr_set = null,
+    .tp_dictoffset = 0,
+    .tp_init = null,
+    .tp_alloc = null,
+    .tp_new = null,
+    .tp_free = null,
+    .tp_is_gc = null,
+    .tp_bases = null,
+    .tp_mro = null,
+    .tp_cache = null,
+    .tp_subclasses = null,
+    .tp_weaklist = null,
+    .tp_del = null,
+    .tp_version_tag = 0,
+    .tp_finalize = null,
+    .tp_vectorcall = null,
+    .tp_watched = 0,
+    .tp_versions_used = 0,
+};

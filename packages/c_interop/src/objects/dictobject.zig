@@ -853,6 +853,34 @@ pub export fn PyDict_GetItemBatch(obj: *cpython.PyObject, keys: [*]*cpython.PyOb
 }
 
 // ============================================================================
+// Internal CPython API (underscore-prefixed, used by pandas/numpy)
+// ============================================================================
+
+/// _PyDict_NewPresized - Create dict with preallocated size (internal API)
+pub export fn _PyDict_NewPresized(minused: isize) callconv(.c) ?*cpython.PyObject {
+    // Create a normal dict - our implementation handles growth automatically
+    _ = minused; // Preallocating not needed for our hashmap implementation
+    return PyDict_New();
+}
+
+/// _PyDict_GetItem_KnownHash - Get item with precomputed hash (internal API)
+pub export fn _PyDict_GetItem_KnownHash(obj: *cpython.PyObject, key: *cpython.PyObject, hash: isize) callconv(.c) ?*cpython.PyObject {
+    _ = hash; // Our implementation computes hash internally
+    return PyDict_GetItem(obj, key);
+}
+
+/// _PyDict_SetItem_KnownHash - Set item with precomputed hash (internal API)
+pub export fn _PyDict_SetItem_KnownHash(obj: *cpython.PyObject, key: *cpython.PyObject, value: *cpython.PyObject, hash: isize) callconv(.c) c_int {
+    _ = hash; // Our implementation computes hash internally
+    return PyDict_SetItem(obj, key, value);
+}
+
+/// _PyDict_Pop - Pop item from dict (internal API, alias for PyDict_Pop)
+pub export fn _PyDict_Pop(obj: *cpython.PyObject, key: *cpython.PyObject, default_value: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
+    return PyDict_Pop(obj, key, default_value);
+}
+
+// ============================================================================
 // Internal helpers (for use by other c_interop modules)
 // ============================================================================
 

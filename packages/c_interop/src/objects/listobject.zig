@@ -683,6 +683,11 @@ pub export fn PyList_Extend(obj: *cpython.PyObject, other: *cpython.PyObject) ca
     return 0;
 }
 
+/// _PyList_Extend - internal API alias (used by pandas)
+pub export fn _PyList_Extend(obj: *cpython.PyObject, other: *cpython.PyObject) callconv(.c) c_int {
+    return PyList_Extend(obj, other);
+}
+
 // Tests
 test "list exports" {
     _ = PyList_New;
