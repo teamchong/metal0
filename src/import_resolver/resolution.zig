@@ -257,6 +257,51 @@ pub fn isLocalModule(
     return false;
 }
 
+/// Check if a module is installed in site-packages (ANY package, not just C extensions)
+/// This is used to determine if a module should be handled via subprocess proxy
+/// Returns true for numpy, pytest, requests, etc. - ANY installed package
+pub fn isInstalledPackage(
+    module_name: []const u8,
+    allocator: std.mem.Allocator,
+) bool {
+    // Get site-packages directories
+    const site_packages = discovery.discoverSitePackages(allocator) catch return false;
+    defer {
+        for (site_packages) |path| allocator.free(path);
+        allocator.free(site_packages);
+    }
+
+    // Check each site-packages directory
+    for (site_packages) |site_dir| {
+        // 1. Check for direct module file: site-packages/module.py
+        const module_file = std.fmt.allocPrint(
+            allocator,
+            "{s}/{s}.py",
+            .{ site_dir, module_name },
+        ) catch continue;
+        defer allocator.free(module_file);
+
+        if (std.fs.cwd().access(module_file, .{})) |_| {
+            return true;
+        } else |_| {}
+
+        // 2. Check for package directory: site-packages/module/
+        const pkg_path = std.fmt.allocPrint(
+            allocator,
+            "{s}/{s}",
+            .{ site_dir, module_name },
+        ) catch continue;
+        defer allocator.free(pkg_path);
+
+        // Check if it's a directory (package)
+        var pkg_dir = std.fs.cwd().openDir(pkg_path, .{}) catch continue;
+        pkg_dir.close();
+        return true; // Directory exists = installed package
+    }
+
+    return false;
+}
+
 /// Check if a module is a C extension or package containing C extensions
 /// Searches site-packages and virtual env paths
 pub fn isCExtension(

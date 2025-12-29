@@ -101,20 +101,23 @@ pub fn emitVMFallback(self: *NativeCodegen, source: []const u8) CodegenError!voi
 }
 
 /// Helper to escape a string for Zig string literal
+/// NOTE: This writes through the builder to maintain correct output order.
 fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
-    const b = try self.getBuilder();
+    // Write to a temp buffer first, then emit through builder
+    var buf: [4096]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    const writer = fbs.writer();
     for (source) |c| {
         switch (c) {
-            '"' => try b.write("\\\""),
-            '\\' => try b.write("\\\\"),
-            '\n' => try b.write("\\n"),
-            '\r' => try b.write("\\r"),
-            '\t' => try b.write("\\t"),
-            else => try b.body.append(b.allocator, c),
+            '"' => writer.writeAll("\\\"") catch break,
+            '\\' => writer.writeAll("\\\\") catch break,
+            '\n' => writer.writeAll("\\n") catch break,
+            '\r' => writer.writeAll("\\r") catch break,
+            '\t' => writer.writeAll("\\t") catch break,
+            else => writer.writeByte(c) catch break,
         }
     }
-    const output = try b.getBodyDupe();
-    try self.output.appendSlice(self.allocator, output);
+    try self.emit(fbs.getWritten());
 }
 
 // Import AST printer for VM fallback
@@ -1375,7 +1378,7 @@ pub const NativeCodegen = struct {
         try emitConst(self, "const __intern = struct {\n");
 
         for (self.intern_list.items, 0..) |str, i| {
-            try self.output.writer(self.allocator).print("    pub const s{d}: []const u8 = \"{s}\";\n", .{ i, str });
+            try self.emitFmt("    pub const s{d}: []const u8 = \"{s}\";\n", .{ i, str });
         }
 
         try emitConst(self, "};\n\n");
@@ -1383,7 +1386,7 @@ pub const NativeCodegen = struct {
 
     /// Get the reference to an interned string by index
     pub fn getInternRef(self: *NativeCodegen, idx: usize) !void {
-        try self.output.writer(self.allocator).print("__intern.s{d}", .{idx});
+        try self.emitFmt("__intern.s{d}", .{idx});
     }
 
     /// Build call graph from module AST for unified function analysis
@@ -2677,22 +2680,16 @@ pub const NativeCodegen = struct {
     // instead of defining local emitConst/emitFmtConst functions.
     // ============================================================
 
-    /// Emit a constant string to the output buffer.
-    /// This is the centralized emit method - all codegen should use self.emit().
+    /// Write to builder. Call flushBuilder() when done accumulating.
     pub fn emit(self: *NativeCodegen, val: []const u8) CodegenError!void {
         const b = try self.getBuilder();
         try b.write(val);
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
     }
 
-    /// Emit formatted output to the buffer.
-    /// This is the centralized emit method - all codegen should use self.emitFmt().
+    /// Write formatted to builder. Call flushBuilder() when done accumulating.
     pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
         const b = try self.getBuilder();
         try b.writeFmt(fmt, args);
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
     }
 
     /// Flush builder output to the main output buffer.
@@ -2709,14 +2706,85 @@ pub const NativeCodegen = struct {
 
     /// Emit a variable name with proper escaping for Zig keywords and shadowing.
     /// Use this for variable declarations and references.
+    /// NOTE: This writes through the builder to maintain correct output order.
     pub fn emitVarName(self: *NativeCodegen, name: []const u8) CodegenError!void {
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name);
+        // Write to temp buffer first to go through builder (maintains output order)
+        var buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        zig_keywords.writeLocalVarName(fbs.writer(), name) catch |err| switch (err) {
+            error.NoSpaceLeft => {
+                // Name too long for fixed buffer, fall back to dynamic allocation
+                var list: std.ArrayList(u8) = .{};
+                defer list.deinit(self.allocator);
+                try zig_keywords.writeLocalVarName(list.writer(self.allocator), name);
+                try self.emit(list.items);
+                return;
+            },
+            else => |e| return e,
+        };
+        try self.emit(fbs.getWritten());
     }
 
     /// Emit an identifier with proper escaping for Zig keywords (no underscore suffix).
     /// Use this for field names, method names, and type names only.
+    /// NOTE: This writes through the builder to maintain correct output order.
     pub fn emitIdent(self: *NativeCodegen, name: []const u8) CodegenError!void {
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name);
+        // Write to temp buffer first to go through builder (maintains output order)
+        var buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        zig_keywords.writeEscapedIdent(fbs.writer(), name) catch |err| switch (err) {
+            error.NoSpaceLeft => {
+                // Name too long for fixed buffer, fall back to dynamic allocation
+                var list: std.ArrayList(u8) = .{};
+                defer list.deinit(self.allocator);
+                try zig_keywords.writeEscapedIdent(list.writer(self.allocator), name);
+                try self.emit(list.items);
+                return;
+            },
+            else => |e| return e,
+        };
+        try self.emit(fbs.getWritten());
+    }
+
+    /// Emit a dotted identifier with proper escaping (e.g., "test.support" -> "@\"test\".@\"support\"").
+    /// Use this for module names with dots.
+    /// NOTE: This writes through the builder to maintain correct output order.
+    pub fn emitDottedIdent(self: *NativeCodegen, name: []const u8) CodegenError!void {
+        // Write to temp buffer first to go through builder (maintains output order)
+        var buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        zig_keywords.writeEscapedDottedIdent(fbs.writer(), name) catch |err| switch (err) {
+            error.NoSpaceLeft => {
+                // Name too long for fixed buffer, fall back to dynamic allocation
+                var list: std.ArrayList(u8) = .{};
+                defer list.deinit(self.allocator);
+                try zig_keywords.writeEscapedDottedIdent(list.writer(self.allocator), name);
+                try self.emit(list.items);
+                return;
+            },
+            else => |e| return e,
+        };
+        try self.emit(fbs.getWritten());
+    }
+
+    /// Emit an import path with proper escaping for Zig keywords.
+    /// NOTE: This writes through the builder to maintain correct output order.
+    pub fn emitImportPath(self: *NativeCodegen, path: []const u8) CodegenError!void {
+        // Write to temp buffer first to go through builder (maintains output order)
+        var buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        zig_keywords.writeEscapedImportPath(fbs.writer(), path) catch |err| switch (err) {
+            error.NoSpaceLeft => {
+                // Path too long for fixed buffer, fall back to dynamic allocation
+                var list: std.ArrayList(u8) = .{};
+                defer list.deinit(self.allocator);
+                try zig_keywords.writeEscapedImportPath(list.writer(self.allocator), path);
+                try self.emit(list.items);
+                return;
+            },
+            else => |e| return e,
+        };
+        try self.emit(fbs.getWritten());
     }
 
     /// Emit a parameter discard statement: `_ = &param_name;`
@@ -2764,8 +2832,8 @@ pub const NativeCodegen = struct {
             // Use the __shadow suffix to match signature
             try self.emitFmt("{s}__shadow", .{param_name});
         } else {
-            // Use writeLocalVarName for Zig keyword escaping (e.g., "packed" -> "@\"packed\"")
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), param_name);
+            // Use emitVarName for Zig keyword escaping (writes through builder)
+            try self.emitVarName(param_name);
         }
         try self.emit(";\n");
     }
@@ -3173,76 +3241,10 @@ pub const NativeCodegen = struct {
         return code;
     }
 
-    /// Emit a ZigValue to the output buffer
-    /// This allows mixing builder-style values with emit-style output
+    /// Emit a ZigValue to the builder. Caller must call flushBuilder() when done.
     pub fn emitZigValue(self: *NativeCodegen, value: builder_mod.ZigValue) CodegenError!void {
         const b = try self.getBuilder();
-        switch (value) {
-            .none => {},
-            .certain_int => |v| try emitFmtConst(self, "{d}", .{v}),
-            .certain_float => |v| {
-                if (std.math.isNan(v)) {
-                    try emitConst(self, "std.math.nan(f64)");
-                } else if (std.math.isInf(v)) {
-                    if (v > 0) {
-                        try emitConst(self, "std.math.inf(f64)");
-                    } else {
-                        try emitConst(self, "-std.math.inf(f64)");
-                    }
-                } else {
-                    try emitFmtConst(self, "{d}", .{v});
-                }
-            },
-            .certain_bool => |v| try emitConst(self, if (v) "true" else "false"),
-            .certain_str => |s| {
-                try emitConst(self, "\"");
-                for (s) |c| {
-                    switch (c) {
-                        '\n' => try emitConst(self, "\\n"),
-                        '\r' => try emitConst(self, "\\r"),
-                        '\t' => try emitConst(self, "\\t"),
-                        '\\' => try emitConst(self, "\\\\"),
-                        '"' => try emitConst(self, "\\\""),
-                        else => {
-                            if (c < 32 or c > 126) {
-                                try emitFmtConst(self, "\\x{x:0>2}", .{c});
-                            } else {
-                                try self.output.append(self.allocator, c);
-                            }
-                        },
-                    }
-                }
-                try emitConst(self, "\"");
-            },
-            .certain_null => try emitConst(self, "null"),
-            .named => |name| try emitConst(self, name),
-            .raw_expr => |expr| try emitConst(self, expr),
-            else => {
-                // For complex values, use a temporary buffer to avoid conflicts
-                // with nested operations that may modify the builder
-                const builder_save: ?[]const u8 = blk: {
-                    const content = try b.getBodyDupe();
-                    if (content.len > 0) {
-                        break :blk try self.arena.allocator().dupe(u8, content);
-                    }
-                    break :blk null;
-                };
-
-                // Emit value into now-empty builder
-                try b.emitValue(value, builder_mod.EmitConfig.forExpression());
-
-                // Copy result to arena (must copy before writing to builder to avoid alias)
-                const emitted = try self.arena.allocator().dupe(u8, try b.getBodyDupe());
-
-                // Restore builder state first, then emit to output
-                if (builder_save) |saved| {
-                    try b.write(saved);
-                }
-
-                // Now emit the captured content to output
-                try emitConst(self, emitted);
-            },
-        }
+        try b.emitValue(value, builder_mod.EmitConfig.forExpression());
     }
 
     /// Static indent strings for O(1) lookup instead of O(n) loop
@@ -3474,7 +3476,7 @@ pub const NativeCodegen = struct {
             if (occurrence_count <= 1) {
                 try self.emitIndent();
                 try emitConst(self, "_ = &");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
+                try self.emitVarName(emit_name);
                 try emitConst(self, ";\n");
             }
 
@@ -3564,7 +3566,7 @@ pub const NativeCodegen = struct {
             if (occurrence_count <= 1) {
                 try self.emitIndent();
                 try emitConst(self, "_ = &");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), emit_name);
+                try self.emitVarName(emit_name);
                 try emitConst(self, ";\n");
             }
         }

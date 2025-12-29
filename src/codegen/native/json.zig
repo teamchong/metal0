@@ -48,14 +48,14 @@ pub fn genJsonLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         const id = self.nextNameId();
         const b = try self.getBuilder();
         try b.writeFmt("(__json_loads_{d}: {{ const json_str_obj = try runtime.PyString.create({s}, ", .{ id, alloc_name });
-        const output1 = try b.getBodyDupe();
+        const output1 = b.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output1);
 
         try self.genExpr(args[0]);
 
         const b2 = try self.getBuilder();
         try b2.writeFmt("); defer runtime.decref(json_str_obj, {s}); break :__json_loads_{d} try runtime.json.loads(json_str_obj, {s}); }})", .{ alloc_name, id, alloc_name });
-        const output2 = try b2.getBodyDupe();
+        const output2 = b2.getBodyAndClear();
         try self.output.appendSlice(self.allocator, output2);
     }
 }
@@ -100,7 +100,7 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     self.indent();
     try b.writeIndent();
     try b.write("const _dict_map = ");
-    const output1 = try b.getBodyDupe();
+    const output1 = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output1);
 
     // Get the dict expression
@@ -118,7 +118,7 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     try b2.write("while (_it.next()) |_entry| {\n");
     self.indent();
     try b2.writeIndent();
-    const output2 = try b2.getBodyDupe();
+    const output2 = b2.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output2);
 
     // Convert value to PyObject based on type
@@ -139,7 +139,7 @@ fn genJsonDumpsDict(self: *NativeCodegen, dict_expr: ast.Node, value_type: Nativ
     self.dedent();
     try b3.writeIndent();
     try b3.write("})");
-    const output3 = try b3.getBodyDupe();
+    const output3 = b3.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output3);
 }
 
@@ -151,7 +151,7 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     self.indent();
     try b.writeIndent();
     try b.write("const _list_arr = ");
-    const output1 = try b.getBodyDupe();
+    const output1 = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output1);
 
     // Get the list expression
@@ -167,7 +167,7 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     try b2.write("for (_list_arr.items) |_item| {\n");
     self.indent();
     try b2.writeIndent();
-    const output2 = try b2.getBodyDupe();
+    const output2 = b2.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output2);
 
     // Convert element to PyObject based on type
@@ -188,7 +188,7 @@ fn genJsonDumpsList(self: *NativeCodegen, list_expr: ast.Node, elem_type: Native
     self.dedent();
     try b3.writeIndent();
     try b3.write("})");
-    const output3 = try b3.getBodyDupe();
+    const output3 = b3.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output3);
 }
 
@@ -225,7 +225,7 @@ fn genValueToPyObject(self: *NativeCodegen, value_expr: []const u8, value_type: 
             try b.write(");\n");
         },
     }
-    const output = try b.getBodyDupe();
+    const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -241,7 +241,7 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.indent();
     try b.writeIndent();
     try b.write("const _file = ");
-    const output1 = try b.getBodyDupe();
+    const output1 = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output1);
 
     try self.genExpr(args[0]);
@@ -255,7 +255,7 @@ pub fn genJsonLoad(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.dedent();
     try b2.writeIndent();
     try b2.write("})");
-    const output2 = try b2.getBodyDupe();
+    const output2 = b2.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output2);
 }
 
@@ -271,7 +271,7 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.indent();
     try b.writeIndent();
     try b.write("const _obj = ");
-    const output1 = try b.getBodyDupe();
+    const output1 = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output1);
 
     try self.genExpr(args[0]);
@@ -280,7 +280,7 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try b2.write(";\n");
     try b2.writeIndent();
     try b2.write("const _file = ");
-    const output2 = try b2.getBodyDupe();
+    const output2 = b2.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output2);
 
     try self.genExpr(args[1]);
@@ -296,7 +296,7 @@ pub fn genJsonDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     self.dedent();
     try b3.writeIndent();
     try b3.write("})");
-    const output3 = try b3.getBodyDupe();
+    const output3 = b3.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output3);
 }
 
@@ -320,7 +320,7 @@ pub fn genJSONEncoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     self.dedent();
     try b.writeIndent();
     try b.write("}{}");
-    const output = try b.getBodyDupe();
+    const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -348,6 +348,6 @@ pub fn genJSONDecoder(self: *NativeCodegen, args: []ast.Node) CodegenError!void 
     self.dedent();
     try b.writeIndent();
     try b.write("}{}");
-    const output = try b.getBodyDupe();
+    const output = b.getBodyAndClear();
     try self.output.appendSlice(self.allocator, output);
 }

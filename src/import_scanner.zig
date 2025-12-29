@@ -284,9 +284,11 @@ pub const ImportGraph = struct {
                 std.debug.print("  Skipped import (codegen_dispatch): {s}\n", .{import_name});
                 continue;
             }
-            // Skip C extension modules - they're loaded at runtime via c_interop
-            if (import_resolver.isCExtension(import_name, self.allocator)) {
-                std.debug.print("  Skipped import (c_extension): {s}\n", .{import_name});
+            // Skip ALL installed packages (not just C extensions)
+            // They're loaded at runtime via subprocess proxy (c_interop for C extensions,
+            // Python subprocess for pure Python packages like pytest)
+            if (import_resolver.isInstalledPackage(import_name, self.allocator)) {
+                std.debug.print("  Skipped import (installed_package): {s}\n", .{import_name});
                 continue;
             }
             // Skip 'builtins' module - it's Python's special module for built-in functions

@@ -553,10 +553,11 @@ pub fn collectImports(
                 continue;
             }
 
-            // Check if it's a C extension first - C extensions loaded via c_interop at runtime
-            const is_c_ext = import_resolver.isCExtension(python_module, self.allocator);
-            if (is_c_ext) {
-                std.debug.print("Info: C extension module '{s}' will be loaded at runtime via c_interop\n", .{python_module});
+            // Check if it's an installed package first - loaded via c_interop at runtime
+            // This includes C extensions (numpy) AND pure Python packages (pytest)
+            const is_installed = import_resolver.isInstalledPackage(python_module, self.allocator);
+            if (is_installed) {
+                std.debug.print("Info: Installed package '{s}' will be loaded at runtime via c_interop\n", .{python_module});
                 // Mark as C extension - loaded at runtime via PyImport_ImportModule
                 // Find alias for this module (e.g., np for numpy)
                 var alias_name: []const u8 = python_module;

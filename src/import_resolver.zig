@@ -15,6 +15,7 @@ pub const resolveImportSource = resolution.resolveImportSource;
 pub const resolveImport = resolution.resolveImport;
 pub const isLocalModule = resolution.isLocalModule;
 pub const isCExtension = resolution.isCExtension;
+pub const isInstalledPackage = resolution.isInstalledPackage;
 pub const isBuiltinModule = resolution.isBuiltinModule;
 
 pub const getFileDirectory = helpers.getFileDirectory;

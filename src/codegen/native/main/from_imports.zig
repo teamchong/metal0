@@ -69,7 +69,7 @@ const OperatorWrappers = std.StaticStringMap([]const u8).initComptime(.{
 /// Generate wrapper function for operator module function
 fn generateOperatorWrapper(self: *NativeCodegen, name: []const u8, symbol_name: []const u8) !void {
     try self.emit("fn ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+    try self.emitIdent(symbol_name);
     try self.emit(OperatorWrappers.get(name) orelse "(a: anytype, b: anytype) @TypeOf(a) { _ = b; return a; }\n");
 }
 
@@ -191,9 +191,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
                 // Generate: const symbol_name = os.path.function_name;
                 try self.emit("const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                try self.emitIdent(symbol_name);
                 try self.emit(" = os.path.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name);
+                try self.emitIdent(name);
                 try self.emit(";\n");
                 try generated_symbols.put(symbol_name, {});
             }
@@ -292,7 +292,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 // Generate get_feature_macros function - returns comptime struct for dead code elimination
                 if (std.mem.eql(u8, name, "get_feature_macros")) {
                     try self.emit("fn ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                    try self.emitIdent(symbol_name);
                     try self.emit("() runtime.FeatureMacros {\n");
                     try self.emit("    return runtime.FeatureMacros{};\n");
                     try self.emit("}\n");
@@ -391,7 +391,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     }
                     if (is_known) {
                         try self.emit("const ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                        try self.emitIdent(symbol_name);
                         try self.emit(" = contextlib.");
                         try self.emit(name);
                         try self.emit(";\n");
@@ -454,7 +454,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     }
                     if (is_known) {
                         try self.emit("const ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                        try self.emitIdent(symbol_name);
                         try self.emit(" = itertools.");
                         try self.emit(name);
                         try self.emit(";\n");
@@ -617,7 +617,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     // Generate: const symbol_name = &[_][]const u8{}; for stub module imports
                     // Empty array is safer than null - can be iterated without type errors
                     try self.emit("const ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                    try self.emitIdent(symbol_name);
                     try self.emit(": []const []const u8 = &[_][]const u8{};\n");
                     try generated_symbols.put(symbol_name, {});
                     // Track for local variable shadowing prevention
@@ -637,7 +637,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 if (generated_symbols.contains(symbol_name)) continue;
                 // Generate: const symbol_name = null; for unavailable modules
                 try self.emit("const ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+                try self.emitIdent(symbol_name);
                 try self.emit(": ?*anyopaque = null;\n");
                 try generated_symbols.put(symbol_name, {});
                 // Track for local variable shadowing prevention
@@ -755,17 +755,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             }
 
             try self.emit("const ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), symbol_name);
+            try self.emitIdent(symbol_name);
             try self.emit(" = ");
 
             // Normal case: use module const reference
-            // Use writeEscapedIdent (not writeLocalVarName) to match module import generation in generator.zig
-            // Generator uses writeEscapedIdent, so module 'math' becomes 'const math = ...'
-            // We must also use writeEscapedIdent so from-import 'const isinf = math.isinf' matches
+            // Use emitIdent (not emitVarName) to match module import generation in generator.zig
+            // Generator uses emitIdent, so module 'math' becomes 'const math = ...'
+            // We must also use emitIdent so from-import 'const isinf = math.isinf' matches
             if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
-                try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), from_imp.module);
+                try self.emitDottedIdent(from_imp.module);
             } else {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), from_imp.module);
+                try self.emitIdent(from_imp.module);
             }
             try self.emit(".");
             try self.emit(name);
@@ -795,7 +795,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
         var const_iter = const_symbols.iterator();
         while (const_iter.next()) |entry| {
             try self.emit("    _ = &");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.key_ptr.*);
+            try self.emitIdent(entry.key_ptr.*);
             try self.emit(";\n");
         }
         try self.emit("}\n");
