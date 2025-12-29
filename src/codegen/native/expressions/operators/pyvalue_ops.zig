@@ -241,51 +241,66 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
         return self.isVarUncertain(name);
     }
 
-    // Check attribute access - use the same logic as isOperandUncertainLeaf
-    // For self.xxx and other class instance access, check class_fields registry for known field types
+    // Check attribute access - must be consistent with builder's exprToValue confidence tracking
+    // The builder marks class instance attributes and unknown type attributes as uncertain
     if (expr == .attribute) {
         const attr = expr.attribute;
 
-        // FIRST: Check if base is an anytype parameter - if so, NOT uncertain
-        // Anytype parameters use comptime polymorphism, so attribute access is resolved at compile time
         if (attr.value.* == .name) {
             const base_name = attr.value.name.id;
-            if (self.anytype_params.contains(base_name)) {
-                return false; // Anytype attribute access is NOT uncertain
+
+            // For self.xxx in class methods - check field type rather than marking all as uncertain
+            // Only mark as uncertain if the field type is actually unknown/pyvalue
+            if (std.mem.eql(u8, base_name, "self")) {
+                if (self.current_class_name) |class_name| {
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr.attr)) |field_type| {
+                            // Field has a known type - only uncertain if pyvalue/unknown
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
+                    }
+                    // Field not found in registry - assume NOT uncertain (use native ops)
+                    return false;
+                }
             }
+
+            // For anytype param attributes - uncertain because the param's type is unknown
+            // (builder's exprToValue marks unknown type attributes as uncertain at line 2532-2533)
+            if (self.anytype_params.contains(base_name)) {
+                return true; // Anytype attribute access IS uncertain in binop context
+            }
+
             // Also check for "_converted" suffix variables derived from anytype params
-            // e.g., other_converted is created from anytype param "other" during comptime type dispatch
             if (std.mem.endsWith(u8, base_name, "_converted")) {
                 const original_name = base_name[0 .. base_name.len - "_converted".len];
                 if (self.anytype_params.contains(original_name)) {
-                    return false; // Converted anytype param attribute access is NOT uncertain
-                }
-            }
-        }
-
-        // For self.xxx access in class methods, check if the field has a known type
-        // from the class field registry. If so, use the field type, not inference.
-        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-            if (self.current_class_name) |class_name| {
-                if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
-                    if (class_info.fields.get(attr.attr)) |field_type| {
-                        // Field has a known type - only uncertain if pyvalue/unknown
-                        return field_type == .pyvalue or field_type == .unknown;
+                    // Converted anytype has known class type, check if field is primitive
+                    const var_type = self.type_inferrer.getScopedVar(base_name) orelse
+                        self.type_inferrer.var_types.get(base_name);
+                    if (var_type) |vt| {
+                        if (vt == .class_instance) {
+                            // Class instance - check field type in class registry
+                            const class_name = vt.class_instance;
+                            if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                if (class_info.fields.get(attr.attr)) |field_type| {
+                                    // Field has a known type - only uncertain if pyvalue/unknown
+                                    return field_type == .pyvalue or field_type == .unknown;
+                                }
+                            }
+                            // Field not found - assume NOT uncertain
+                            return false;
+                        }
                     }
+                    // If not registered as class_instance, fall through to check field type
                 }
-                // If we're in a class context but field not found, assume it's NOT uncertain
-                // (self.xxx access in class methods should use native types)
-                return false;
             }
-        }
-        // For other variable access, check if the variable is a known class instance
-        // This handles cases like other_converted.__den where other_converted is of type Rat
-        if (attr.value.* == .name) {
-            const var_name = attr.value.name.id;
-            const var_type = self.type_inferrer.getScopedVar(var_name) orelse
-                self.type_inferrer.var_types.get(var_name);
+
+            // For other variable access, check if the variable is a known class instance
+            const var_type = self.type_inferrer.getScopedVar(base_name) orelse
+                self.type_inferrer.var_types.get(base_name);
             if (var_type) |vt| {
                 if (vt == .class_instance) {
+                    // Class instance - check field type in class registry
                     const class_name = vt.class_instance;
                     if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                         if (class_info.fields.get(attr.attr)) |field_type| {
@@ -293,9 +308,16 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                             return field_type == .pyvalue or field_type == .unknown;
                         }
                     }
+                    // Field not found - assume NOT uncertain
+                    return false;
+                }
+                if (vt == .unknown) {
+                    // Unknown type attributes are uncertain
+                    return true;
                 }
             }
         }
+
         // For other attribute access, use type inference
         const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
         return attr_type == .pyvalue or attr_type == .unknown;

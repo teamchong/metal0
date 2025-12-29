@@ -2027,9 +2027,11 @@ pub fn genMethodSignatureWithSkip(
             // Method returns an anytype param - use @TypeOf(param)
             // Use writeParamName to handle renamed params (e.g., init -> init_arg)
             if (needs_error) try self.emit("!");
-            try self.emit("@TypeOf(");
-            try zig_keywords.writeParamName(self.output.writer(self.allocator), param_name);
-            try self.emit(")");
+            try self.emitCallCtx("@TypeOf", param_name, struct {
+                pub fn f(s: *NativeCodegen, pn: []const u8) CodegenError!void {
+                    try zig_keywords.writeParamName(s.output.writer(s.allocator), pn);
+                }
+            }.f);
         } else {
             // First, check if method returns a constructor call to a nested class
             // This handles inherited methods like aug_test.__add__ returning aug_test(...)

@@ -241,9 +241,12 @@ fn genPrintComplex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit(").data) catch \"<bytes>\"});\n");
         } else if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
             // Two-Flow: Unknown/PyValue types - use runtime printer
-            try self.emit("runtime.printPyObject(");
-            try self.genExpr(arg);
-            try self.emit(");\n");
+            try self.emitCallCtx("runtime.printPyObject", arg, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                }
+            }.f);
+            try self.emit(";\n");
         } else if (arg_type == .pyobject) {
             // C extension PyObjects - print address
             // Full string conversion requires unified type system (future work)

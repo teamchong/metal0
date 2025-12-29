@@ -32,9 +32,12 @@ fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Use toPathStr for robust type extraction - works with any input type
     try self.emitCallCtx("runtime.container_dispatch.toPathStr", expr, struct {
         pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
-            try s.emit("@TypeOf(");
-            try s.genExpr(e);
-            try s.emit("), ");
+            try s.emitCallCtx("@TypeOf", e, struct {
+                pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                    try s2.genExpr(e2);
+                }
+            }.g);
+            try s.emit(", ");
             try s.genExpr(e);
         }
     }.f);

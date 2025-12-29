@@ -1005,9 +1005,12 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
             try genCallableElement(self, elem, this_type);
         } else if (is_pyvalue_list) {
             // Wrap element in PyValue for heterogeneous lists
-            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-            try self.genExpr(elem);
-            try self.emit(")");
+            try self.emitCallCtx("try runtime.PyValue.fromAlloc", elem, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.emit("__global_allocator, ");
+                    try s.genExpr(e);
+                }
+            }.f);
         } else if (elem_type == .unified_int) {
             // Wrap elements in UnifiedInt for lists that contain mixed int sizes
             // e.g., [324, 2**31] - 324 is i64 but list type is UnifiedInt
@@ -1018,9 +1021,11 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
                 try self.genExpr(elem);
             } else if (this_tag == .int) {
                 // Wrap i64 literal/expression in UnifiedInt
-                try self.emit("runtime.UnifiedInt.fromI64(");
-                try self.genExpr(elem);
-                try self.emit(")");
+                try self.emitCallCtx("runtime.UnifiedInt.fromI64", elem, struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                    }
+                }.f);
             } else {
                 // Other types - emit directly and let Zig handle coercion
                 try self.genExpr(elem);
@@ -1051,11 +1056,17 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) 
         },
         .function => {
             // Lambda or function - wrap using fromAny for type erasure
-            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-            try self.genExpr(elem);
-            try self.emit("), ");
-            try self.genExpr(elem);
-            try self.emit(")");
+            try self.emitCallCtx("runtime.builtins.PyCallable.fromAny", elem, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.emitCallCtx("@TypeOf", e, struct {
+                        pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                            try s2.genExpr(e2);
+                        }
+                    }.g);
+                    try s.emit(", ");
+                    try s.genExpr(e);
+                }
+            }.f);
         },
         .class_instance => {
             // Class used as constructor - wrap in PyCallable
@@ -1082,11 +1093,17 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) 
                 }
             }
             // Fallback - wrap using fromAny for type erasure
-            try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-            try self.genExpr(elem);
-            try self.emit("), ");
-            try self.genExpr(elem);
-            try self.emit(")");
+            try self.emitCallCtx("runtime.builtins.PyCallable.fromAny", elem, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.emitCallCtx("@TypeOf", e, struct {
+                        pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                            try s2.genExpr(e2);
+                        }
+                    }.g);
+                    try s.emit(", ");
+                    try s.genExpr(e);
+                }
+            }.f);
         },
     }
 }
