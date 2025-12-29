@@ -32,9 +32,7 @@ fn isSetUncertain(self: *NativeCodegen, obj: ast.Node) bool {
 /// Helper to emit object expression, wrapping in parens if it's a block expression
 fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     if (producesBlockExpression(obj)) {
-        try self.emit("(");
-        try self.genExpr(obj);
-        try self.emit(")");
+        try self.emitParens(obj);
     } else {
         try self.genExpr(obj);
     }
