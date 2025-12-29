@@ -113,36 +113,20 @@ pub fn importModule(module_name: [*:0]const u8) ?*PyObject {
 }
 
 /// Import attribute from module using Python's from-import semantics
-/// Handles namespace packages, re-exports, and lazy imports properly
+/// Handles C extension modules and their direct attributes.
 ///
-/// For "from numpy.testing import assert_", this:
-/// 1. Creates fromlist = ["assert_"]
-/// 2. Calls PyImport_ImportModuleLevel("numpy.testing", fromlist=fromlist)
-/// 3. Gets "assert_" attribute from the returned module
+/// NOTE: This does NOT handle pure Python subpackages of C extensions
+/// (like numpy.testing) - those require the Python interpreter to run __init__.py.
+/// For those cases, consider using pytest or running the test with Python.
+///
+/// For "from numpy import array", this:
+/// 1. Loads the C extension module (numpy)
+/// 2. Gets the attribute (array) from the module
 pub fn fromImport(module_name: [*:0]const u8, attr_name: [*:0]const u8) ?*PyObject {
-    // Create fromlist = [attr_name]
-    const fromlist = traits.externs.PyList_New(1) orelse return null;
-    const attr_str = traits.externs.PyUnicode_FromString(attr_name) orelse {
-        traits.externs.Py_DECREF(fromlist);
-        return null;
-    };
-    // PyList_SetItem steals reference to attr_str, so no need to DECREF it
-    _ = traits.externs.PyList_SetItem(fromlist, 0, attr_str);
+    // Import the module (works for C extensions)
+    const module = import.PyImport_ImportModule(module_name) orelse return null;
 
-    // Import with fromlist - this triggers proper __init__.py loading
-    const module = import.PyImport_ImportModuleLevel(
-        module_name,
-        null,
-        null,
-        fromlist,
-        0,
-    ) orelse {
-        traits.externs.Py_DECREF(fromlist);
-        return null;
-    };
-    traits.externs.Py_DECREF(fromlist);
-
-    // Now get the attribute from the loaded module
+    // Get the attribute from the module
     const result = traits.externs.PyObject_GetAttrString(module, attr_name);
     traits.externs.Py_DECREF(module);
     return result;

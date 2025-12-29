@@ -746,9 +746,10 @@ fn tryLoadSubmoduleExtension(base_path: []const u8, parts: []const []const u8) ?
         var full_buf: [1024]u8 = undefined;
         @memcpy(full_buf[0..pos], path_buf[0..pos]);
         const remaining = std.fmt.bufPrintZ(full_buf[pos..], "{s}", .{ext}) catch continue;
-        _ = remaining;
+        // Calculate total length including extension
+        const total_len = pos + remaining.len;
 
-        const path_z: [:0]const u8 = full_buf[0..pos :0];
+        const path_z: [:0]const u8 = full_buf[0..total_len :0];
         if (loadSharedLibraryWithName(path_z, last_part)) |module| {
             return module;
         }

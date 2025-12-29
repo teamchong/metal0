@@ -268,6 +268,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (emitted_c_ext.contains(key)) continue;
             try emitted_c_ext.put(key, {});
 
+            // Skip dotted module names (e.g., numpy.testing) - only declare root modules
+            // Submodules like numpy.testing are accessed via fromImport()
+            if (std.mem.indexOfScalar(u8, module_name, '.') != null) continue;
+
             // Generate: var np: ?*c_interop.PyObject = null;
             // The import will be done at runtime start via c_interop.importModule()
             // For dotted names like numpy.exceptions, we need to escape: var @"numpy.exceptions": ...
@@ -1665,6 +1669,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
                 if (emitted_c_ext.contains(key)) continue;
                 try emitted_c_ext.put(key, {});
+
+                // Skip dotted module names (e.g., numpy.testing) - only import root modules
+                // Submodules like numpy.testing are accessed via fromImport()
+                if (std.mem.indexOfScalar(u8, module_name, '.') != null) continue;
 
                 try self.emitIndent();
                 // For dotted names like numpy.exceptions, escape the variable name
