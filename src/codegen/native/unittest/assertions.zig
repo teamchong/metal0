@@ -395,14 +395,21 @@ fn emitCallableInvocation(
 
     if (callable == .name and std.mem.eql(u8, callable.name.id, "next")) {
         // next() returns error union, use try to propagate or catch to handle
-        try self.emit("(runtime.builtins.next(");
-        if (call_args.len > 0) {
-            try self.emit("&");
-            try parent.genExpr(self, call_args[0]);
-        } else {
-            try self.emit("&.{}");
-        }
-        try self.emit(") catch |err| if (err == error.StopIteration) @panic(\"StopIteration\") else @panic(\"TypeError\"))");
+        try self.withParensCtx(call_args, struct {
+            pub fn emit(s: *NativeCodegen, args: []const ast.Node) CodegenError!void {
+                try s.emitCallCtx("runtime.builtins.next", args, struct {
+                    pub fn inner(s2: *NativeCodegen, a: []const ast.Node) CodegenError!void {
+                        if (a.len > 0) {
+                            try s2.emit("&");
+                            try parent.genExpr(s2, a[0]);
+                        } else {
+                            try s2.emit("&.{}");
+                        }
+                    }
+                }.inner);
+                try s.emit(" catch |err| if (err == error.StopIteration) @panic(\"StopIteration\") else @panic(\"TypeError\")");
+            }
+        }.emit);
         return;
     }
 
