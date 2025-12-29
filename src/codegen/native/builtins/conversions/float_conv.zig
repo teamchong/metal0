@@ -13,6 +13,20 @@ const builder_mod = @import("codegen.builder");
 /// Inside try blocks, use "try" to propagate errors to handlers.
 /// Inside assertRaises context, return error union as-is for expectError to check.
 /// Otherwise, use "catch 0.0" to silently handle errors.
+/// Helper: emit @as(f64, @floatFromInt(expr)) with structured emitParens
+fn emitAsF64FromInt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emit("@as(f64, @floatFromInt");
+    try self.emitParens(expr);
+    try self.emit(")");
+}
+
+/// Helper: emit @as(f64, @floatFromInt(@intFromBool(expr))) - bool to float
+fn emitAsF64FromBool(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emit("@as(f64, @floatFromInt(@intFromBool");
+    try self.emitParens(expr);
+    try self.emit("))");
+}
+
 fn emitFloatErrorHandling(self: *NativeCodegen, expr_start: []const u8, expr_end: []const u8) CodegenError!void {
     // Uses auto-close pattern for guaranteed bracket matching
     const Ctx = struct { es: []const u8, ee: []const u8, try_body: bool, assert_raises: bool };
@@ -167,17 +181,13 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             return;
         }
-        try self.emit("@as(f64, @floatFromInt(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitAsF64FromInt(self, args[0]);
         return;
     }
 
     // Cast bool to float (True -> 1.0, False -> 0.0)
     if (type_traits.isBoolean(arg_type)) {
-        try self.emit("@as(f64, @floatFromInt(@intFromBool(");
-        try self.genExpr(args[0]);
-        try self.emit(")))");
+        try emitAsF64FromBool(self, args[0]);
         return;
     }
 
