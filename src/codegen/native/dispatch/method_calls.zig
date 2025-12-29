@@ -15,11 +15,18 @@ const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
-/// Helper: emit @as(i64, @intFromBool(obj)) for bool to int conversion
+/// Helper: emit @as(i64, @intFromBool(obj)) - fully structured with emitCallCtx
 fn emitBoolToInt(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    try self.emit("@as(i64, @intFromBool(");
-    try self.genExpr(obj);
-    try self.emit("))");
+    try self.emitCallCtx("@as", obj, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("i64, ");
+            try s.emitCallCtx("@intFromBool", e, struct {
+                pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                    try s2.genExpr(e2);
+                }
+            }.g);
+        }
+    }.f);
 }
 
 /// Builtin types that support __new__ with value extraction
