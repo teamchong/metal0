@@ -9,12 +9,14 @@ const NativeCodegen = @import("main.zig").NativeCodegen;
 /// Handler function type
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 
-/// Helper: emit @intCast(args[idx]) or default "0" if idx out of bounds
+/// Helper: emit @intCast(args[idx]) or default "0" if idx out of bounds - fully structured
 fn emitIntCastArg(self: *NativeCodegen, args: []ast.Node, idx: usize) CodegenError!void {
     if (args.len > idx) {
-        try self.emit("@intCast(");
-        try self.genExpr(args[idx]);
-        try self.emit(")");
+        try self.emitCallCtx("@intCast", args[idx], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         try self.emit("0");
     }
