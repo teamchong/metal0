@@ -60,7 +60,7 @@ fn logicTableDecorator(self: *h.NativeCodegen, args: []@import("analysis.ast").N
 }
 
 /// cosine_sim(a, b) - cosine similarity between two vectors
-/// GPU dispatch on Apple Silicon, SIMD fallback elsewhere
+/// Uses SIMD vectorization for high performance
 fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
         try self.emit("@as(f64, 0.0)");
@@ -72,13 +72,36 @@ fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Cod
     try self.genExpr(args[0]);
     try self.emit("; const __b = ");
     try self.genExpr(args[1]);
-    // GPU-accelerated dot product with normalization
-    // Use @TypeOf to infer element type from array (works with f32 or f64)
+    // SIMD-accelerated dot product with normalization
     try self.emitFmt(
         \\; const __dim = @min(__a.len, __b.len);
-        \\const __ElemType = @typeInfo(@TypeOf(__a)).array.child;
-        \\var __dot: __ElemType = 0.0; var __norm_a: __ElemType = 0.0; var __norm_b: __ElemType = 0.0;
+        \\// Infer element type from slice/array
+        \\const __TypeInfo = @typeInfo(@TypeOf(__a));
+        \\const __ElemType = switch (__TypeInfo) {{
+        \\    .pointer => __TypeInfo.pointer.child,
+        \\    .array => __TypeInfo.array.child,
+        \\    else => f64,
+        \\}};
+        \\// SIMD vectorized cosine similarity using 4-element vectors
+        \\const __Vec4 = @Vector(4, __ElemType);
+        \\var __dot_vec: __Vec4 = @splat(0);
+        \\var __norm_a_vec: __Vec4 = @splat(0);
+        \\var __norm_b_vec: __Vec4 = @splat(0);
         \\var __i: usize = 0;
+        \\// Main SIMD loop - process 4 elements at a time
+        \\const __simd_end = __dim & ~@as(usize, 3);
+        \\while (__i < __simd_end) : (__i += 4) {{
+        \\    const __a_vec: __Vec4 = __a[__i..][0..4].*;
+        \\    const __b_vec: __Vec4 = __b[__i..][0..4].*;
+        \\    __dot_vec += __a_vec * __b_vec;
+        \\    __norm_a_vec += __a_vec * __a_vec;
+        \\    __norm_b_vec += __b_vec * __b_vec;
+        \\}}
+        \\// Reduce SIMD vectors to scalars
+        \\var __dot = @reduce(.Add, __dot_vec);
+        \\var __norm_a = @reduce(.Add, __norm_a_vec);
+        \\var __norm_b = @reduce(.Add, __norm_b_vec);
+        \\// Handle remainder elements
         \\while (__i < __dim) : (__i += 1) {{
         \\    __dot += __a[__i] * __b[__i];
         \\    __norm_a += __a[__i] * __a[__i];
@@ -91,6 +114,7 @@ fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Cod
 }
 
 /// l2_distance(a, b) - L2 (Euclidean) distance between two vectors
+/// Uses SIMD vectorization for high performance
 fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
         try self.emit("@as(f64, 0.0)");
@@ -104,9 +128,28 @@ fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
     try self.genExpr(args[1]);
     try self.emitFmt(
         \\; const __dim = @min(__a.len, __b.len);
-        \\const __ElemType = @typeInfo(@TypeOf(__a)).array.child;
-        \\var __sum: __ElemType = 0.0;
+        \\// Infer element type from slice/array
+        \\const __TypeInfo = @typeInfo(@TypeOf(__a));
+        \\const __ElemType = switch (__TypeInfo) {{
+        \\    .pointer => __TypeInfo.pointer.child,
+        \\    .array => __TypeInfo.array.child,
+        \\    else => f64,
+        \\}};
+        \\// SIMD vectorized L2 distance using 4-element vectors
+        \\const __Vec4 = @Vector(4, __ElemType);
+        \\var __sum_vec: __Vec4 = @splat(0);
         \\var __i: usize = 0;
+        \\// Main SIMD loop - process 4 elements at a time
+        \\const __simd_end = __dim & ~@as(usize, 3);
+        \\while (__i < __simd_end) : (__i += 4) {{
+        \\    const __a_vec: __Vec4 = __a[__i..][0..4].*;
+        \\    const __b_vec: __Vec4 = __b[__i..][0..4].*;
+        \\    const __diff_vec = __a_vec - __b_vec;
+        \\    __sum_vec += __diff_vec * __diff_vec;
+        \\}}
+        \\// Reduce SIMD vector to scalar
+        \\var __sum = @reduce(.Add, __sum_vec);
+        \\// Handle remainder elements
         \\while (__i < __dim) : (__i += 1) {{
         \\    const __diff = __a[__i] - __b[__i];
         \\    __sum += __diff * __diff;
@@ -117,6 +160,7 @@ fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
 }
 
 /// dot_product(a, b) - dot product of two vectors
+/// Uses SIMD vectorization for high performance
 fn dotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
         try self.emit("@as(f64, 0.0)");
@@ -130,9 +174,27 @@ fn dotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
     try self.genExpr(args[1]);
     try self.emitFmt(
         \\; const __dim = @min(__a.len, __b.len);
-        \\const __ElemType = @typeInfo(@TypeOf(__a)).array.child;
-        \\var __sum: __ElemType = 0.0;
+        \\// Infer element type from slice/array - use pointer.child for slices, array.child for arrays
+        \\const __TypeInfo = @typeInfo(@TypeOf(__a));
+        \\const __ElemType = switch (__TypeInfo) {{
+        \\    .pointer => __TypeInfo.pointer.child,
+        \\    .array => __TypeInfo.array.child,
+        \\    else => f64,
+        \\}};
+        \\// SIMD vectorized dot product using 4-element vectors
+        \\const __Vec4 = @Vector(4, __ElemType);
+        \\var __sum_vec: __Vec4 = @splat(0);
         \\var __i: usize = 0;
+        \\// Main SIMD loop - process 4 elements at a time
+        \\const __simd_end = __dim & ~@as(usize, 3);
+        \\while (__i < __simd_end) : (__i += 4) {{
+        \\    const __a_vec: __Vec4 = __a[__i..][0..4].*;
+        \\    const __b_vec: __Vec4 = __b[__i..][0..4].*;
+        \\    __sum_vec += __a_vec * __b_vec;
+        \\}}
+        \\// Reduce SIMD vector to scalar
+        \\var __sum = @reduce(.Add, __sum_vec);
+        \\// Handle remainder elements
         \\while (__i < __dim) : (__i += 1) {{
         \\    __sum += __a[__i] * __b[__i];
         \\}}
