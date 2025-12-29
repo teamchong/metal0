@@ -369,23 +369,8 @@ pub fn toBoolWithError(value: anytype) !bool {
 /// - false for: 0, 0.0, false, "", [], {}, None
 /// - true for everything else
 pub fn toBoolValue(value: PyValue) bool {
-    return switch (value) {
-        .int => |i| i != 0,
-        .float => |f| f != 0.0 and !std.math.isNan(f),
-        .bool => |b| b,
-        .string => |s| s.len > 0,
-        .none => false,
-        .list => |l| l.items.len > 0,
-        .pylist => |l| l.ob_base.ob_size > 0, // CPython list
-        .tuple => |t| t.len > 0,
-        .bytes => |b| b.data.len > 0,
-        .bigint => |b| !b.isZero(),
-        .complex => |c| c.real != 0.0 or c.imag != 0.0, // 0j is falsy
-        .ptr => true, // Pointers are truthy
-        .type_obj => true, // Type objects are truthy
-        .object => true, // Class instances are truthy (TODO: call __bool__ via vtable)
-        .not_implemented => true, // NotImplemented is truthy
-    };
+    // Use centralized isTruthy() (SINGLE SOURCE OF TRUTH in object.zig)
+    return value.isTruthy();
 }
 
 /// Validate that __bool__ returns bool (Python 3 requirement)
