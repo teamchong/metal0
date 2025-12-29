@@ -54,20 +54,33 @@ pub fn genPack(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Float format - need to handle both native float and PyValue
             if (is_float_arg) {
                 // Known float type - use @floatCast directly
-                try self.emitFmt("const _val{d}: {s} = @floatCast(", .{ i, getPackType(fc) });
-                try self.genExpr(arg);
-                try self.emit(")");
+                try self.emitFmt("const _val{d}: {s} = ", .{ i, getPackType(fc) });
+                try self.emitCallCtx("@floatCast", arg, struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                    }
+                }.f);
             } else {
                 // Unknown/PyValue - use runtime.toFloat to extract
-                try self.emitFmt("const _val{d}: {s} = @floatCast(runtime.toFloat(", .{ i, getPackType(fc) });
-                try self.genExpr(arg);
-                try self.emit("))");
+                try self.emitFmt("const _val{d}: {s} = ", .{ i, getPackType(fc) });
+                try self.emitCallCtx("@floatCast", arg, struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.emitCallCtx("runtime.toFloat", e, struct {
+                            pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                                try s2.genExpr(e2);
+                            }
+                        }.g);
+                    }
+                }.f);
             }
         } else {
             // Integer format
-            try self.emitFmt("const _val{d}: {s} = runtime.packInt(", .{ i, getPackType(fc) });
-            try self.genExpr(arg);
-            try self.emit(")");
+            try self.emitFmt("const _val{d}: {s} = ", .{ i, getPackType(fc) });
+            try self.emitCallCtx("runtime.packInt", arg, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                }
+            }.f);
         }
         try self.emitFmt("; const _bytes{d} = std.mem.asBytes(&_val{d}); @memcpy(_buf[_pos..][0.._bytes{d}.len], _bytes{d}); _pos += _bytes{d}.len; ", .{ i, i, i, i, i });
     }

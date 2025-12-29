@@ -145,13 +145,20 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     // runtime.set_ops.SetOps(KeyType).remove(&set, key) handles AutoHashMap vs ArrayHashMap
-    try self.emit("try runtime.set_ops.SetOps(@TypeOf(");
-    try self.genExpr(args[0]);
-    try self.emit(")).remove(&");
-    try emitObjExpr(self, obj);
-    try self.emit(", ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    const Ctx = struct { o: ast.Node, a: ast.Node };
+    try self.emitCallCtx("try runtime.set_ops.SetOps", Ctx{ .o = obj, .a = args[0] }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitCallCtx("@TypeOf", ctx.a, struct {
+                pub fn g(s2: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s2.genExpr(e);
+                }
+            }.g);
+            try s.emit(").remove(&");
+            try emitObjExpr(s, ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.a);
+        }
+    }.f);
 }
 
 /// Generate code for set.discard(elem)
@@ -169,13 +176,20 @@ pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     }
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
-    try self.emit("runtime.set_ops.SetOps(@TypeOf(");
-    try self.genExpr(args[0]);
-    try self.emit(")).discard(&");
-    try emitObjExpr(self, obj);
-    try self.emit(", ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    const Ctx = struct { o: ast.Node, a: ast.Node };
+    try self.emitCallCtx("runtime.set_ops.SetOps", Ctx{ .o = obj, .a = args[0] }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitCallCtx("@TypeOf", ctx.a, struct {
+                pub fn g(s2: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s2.genExpr(e);
+                }
+            }.g);
+            try s.emit(").discard(&");
+            try emitObjExpr(s, ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.a);
+        }
+    }.f);
 }
 
 /// Generate code for set.clear()
@@ -210,11 +224,18 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
     // Use runtime helper to avoid comptime explosion
     // Get key type from set's KV struct
-    try self.emit("try runtime.set_ops.SetOps(std.meta.fieldInfo(@TypeOf(");
-    try emitObjExpr(self, obj);
-    try self.emit(").Unmanaged.KV, .key).type).pop(&");
-    try emitObjExpr(self, obj);
-    try self.emit(")");
+    try self.emitCallCtx("try runtime.set_ops.SetOps", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.emit("std.meta.fieldInfo(");
+            try s.emitCallCtx("@TypeOf", o, struct {
+                pub fn g(s2: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try emitObjExpr(s2, e);
+                }
+            }.g);
+            try s.emit(".Unmanaged.KV, .key).type).pop(&");
+            try emitObjExpr(s, o);
+        }
+    }.f);
 }
 
 /// Generate code for set.copy()

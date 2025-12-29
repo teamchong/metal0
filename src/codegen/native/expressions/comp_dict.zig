@@ -99,9 +99,12 @@ pub fn genDictComp(self: *NativeCodegen, dictcomp: ast.Node.DictComp) CodegenErr
         try genExpr(self, dictcomp.key.*);
         try self.emit(", ");
         if (self.target_dict_value_type != null) {
-            try self.emit("try runtime.toPyValue(__global_allocator, ");
-            try genExpr(self, dictcomp.value.*);
-            try self.emit(")");
+            try self.emitCallCtx("try runtime.toPyValue", dictcomp.value.*, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.emit("__global_allocator, ");
+                    try genExpr(s, e);
+                }
+            }.f);
         } else {
             try genExpr(self, dictcomp.value.*);
         }
