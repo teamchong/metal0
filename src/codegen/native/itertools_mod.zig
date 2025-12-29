@@ -40,48 +40,53 @@ pub fn emitIter(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
     // - PyValue (extracts .list or .tuple slice)
     // - Regular slices (returns as-is)
     // This is safer than trying to detect specific types
-    try self.emit("runtime.iterSlice(");
-    try self.genExpr(arg);
-    try self.emit(")");
+    try self.emitCallCtx("runtime.iterSlice", arg, struct {
+        pub fn f(s: *NativeCodegen, a: ast.Node) CodegenError!void {
+            try s.genExpr(a);
+        }
+    }.f);
 }
 
 /// Generate a native Zig slice for range(start, stop, step)
 fn emitNativeRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Generate a comptime-friendly range: &[_]i64{start..stop} or runtime ArrayList
     // For simplicity, generate a block that builds an ArrayList
-    try self.emit("(");
-    try self.withInlineBlock("range", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit(" var __rs = std.ArrayListUnmanaged(i64){}; ");
-            if (a.len == 0) {
-                try c.emitFmt("break :{s} __rs.items; ", .{label});
-                return;
-            }
+    // Use withParensCtx for guaranteed bracket matching
+    try self.withParensCtx(args, struct {
+        fn f(c: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            try c.withInlineBlock("range", a, struct {
+                fn emit(cc: *NativeCodegen, label: []const u8, aa: []ast.Node) !void {
+                    try cc.emit(" var __rs = std.ArrayListUnmanaged(i64){}; ");
+                    if (aa.len == 0) {
+                        try cc.emitFmt("break :{s} __rs.items; ", .{label});
+                        return;
+                    }
 
-            // Determine start, stop, step
-            if (a.len == 1) {
-                // range(stop): 0..stop, step=1
-                try c.emit("var __i: i64 = 0; while (__i < ");
-                try c.genExpr(a[0]);
-                try c.emit(") : (__i += 1) { __rs.append(__global_allocator, __i) catch continue; }");
-            } else if (a.len >= 2) {
-                // range(start, stop) or range(start, stop, step)
-                try c.emit("var __i: i64 = ");
-                try c.genExpr(a[0]);
-                try c.emit("; const __stop: i64 = ");
-                try c.genExpr(a[1]);
-                try c.emit("; const __step: i64 = ");
-                if (a.len >= 3) {
-                    try c.genExpr(a[2]);
-                } else {
-                    try c.emit("1");
+                    // Determine start, stop, step
+                    if (aa.len == 1) {
+                        // range(stop): 0..stop, step=1
+                        try cc.emit("var __i: i64 = 0; while (__i < ");
+                        try cc.genExpr(aa[0]);
+                        try cc.emit(") : (__i += 1) { __rs.append(__global_allocator, __i) catch continue; }");
+                    } else if (aa.len >= 2) {
+                        // range(start, stop) or range(start, stop, step)
+                        try cc.emit("var __i: i64 = ");
+                        try cc.genExpr(aa[0]);
+                        try cc.emit("; const __stop: i64 = ");
+                        try cc.genExpr(aa[1]);
+                        try cc.emit("; const __step: i64 = ");
+                        if (aa.len >= 3) {
+                            try cc.genExpr(aa[2]);
+                        } else {
+                            try cc.emit("1");
+                        }
+                        try cc.emit("; while (if (__step > 0) __i < __stop else __i > __stop) : (__i += __step) { __rs.append(__global_allocator, __i) catch continue; }");
+                    }
+                    try cc.emitFmt(" break :{s} __rs.items; ", .{label});
                 }
-                try c.emit("; while (if (__step > 0) __i < __stop else __i > __stop) : (__i += __step) { __rs.append(__global_allocator, __i) catch continue; }");
-            }
-            try c.emitFmt(" break :{s} __rs.items; ", .{label});
+            }.emit);
         }
-    }.emit);
-    try self.emit(")");
+    }.f);
 }
 
 const pt = h.pass("std.ArrayListUnmanaged(i64){}");

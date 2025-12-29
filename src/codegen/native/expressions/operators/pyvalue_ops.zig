@@ -43,17 +43,101 @@ pub const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
 /// NOTE: The confidence map defaults to `.uncertain` for untracked variables, so we need
 /// to distinguish between "explicitly uncertain" and "not tracked". We check if confidence
 /// is in the map before trusting the uncertain default.
+/// Check if expression contains any attribute access that involves 'self'
+/// This is used to detect class field access like self.__num, self.__den
+fn containsSelfAttribute(expr: ast.Node) bool {
+    switch (expr) {
+        .attribute => |attr| {
+            // Check if the base object is 'self'
+            if (attr.value.* == .name) {
+                if (std.mem.eql(u8, attr.value.name.id, "self")) {
+                    return true;
+                }
+            }
+            // Also check for chained access like self.foo.bar
+            return containsSelfAttribute(attr.value.*);
+        },
+        .binop => |binop| {
+            return containsSelfAttribute(binop.left.*) or containsSelfAttribute(binop.right.*);
+        },
+        .unaryop => |unaryop| {
+            return containsSelfAttribute(unaryop.operand.*);
+        },
+        else => return false,
+    }
+}
+
+/// Check if any leaf expression in the tree is uncertain
+/// This traverses binops recursively to find uncertain leaves
+fn hasUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
+    switch (expr) {
+        .binop => |binop| {
+            // Recursively check both operands for uncertain leaves
+            return hasUncertainLeaf(self, binop.left.*) or hasUncertainLeaf(self, binop.right.*);
+        },
+        .unaryop => |unaryop| {
+            return hasUncertainLeaf(self, unaryop.operand.*);
+        },
+        else => {
+            // For leaf nodes, use the standard uncertainty check
+            return isOperandUncertainLeaf(self, expr);
+        },
+    }
+}
+
+/// Check if a leaf expression is uncertain (non-recursive)
+fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
+    // Check if this is a variable with uncertain confidence
+    if (expr == .name) {
+        const name = expr.name.id;
+        if (std.mem.eql(u8, name, "self")) return false;
+        if (self.anytype_params.contains(name)) return false;
+
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            switch (vt) {
+                .pyvalue, .unknown => return true,
+                .string, .int, .float, .bool, .none, .bytes => {
+                    if (self.type_inferrer.hasTrackedConfidence(name)) {
+                        return self.isVarUncertain(name);
+                    }
+                    return false;
+                },
+                .class_instance => return false,
+                else => {},
+            }
+        }
+        return self.isVarUncertain(name);
+    }
+
+    // Check attribute access - be more aggressive for class field access
+    if (expr == .attribute) {
+        const attr = expr.attribute;
+        // If accessing self.something, check the inferred type
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            const attr_type = self.type_inferrer.inferExpr(expr) catch return true; // Be conservative on error
+            // For class fields, if the type is unknown/pyvalue OR if it's a primitive that could come
+            // from floor division or other operations that might produce PyValue, treat as uncertain
+            return attr_type == .pyvalue or attr_type == .unknown or attr_type == .int or attr_type == .float;
+        }
+        // For other attribute access, check the inferred type
+        const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
+        return attr_type == .pyvalue or attr_type == .unknown;
+    }
+
+    return false;
+}
+
 pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     // Check if operand is a binary operation that would return PyValue
     // This handles nested operations like: (a * b) + (c * d) where inner ops use PyValue
     if (expr == .binop) {
         const binop = expr.binop;
-        // If this binary op has a PyValue method, recursively check its operands
-        // If either operand of the nested binop is uncertain, the nested binop returns PyValue
+        // If this binary op has a PyValue method and ANY of its leaves are uncertain,
+        // the entire binop returns PyValue
         if (PyValueMethods.get(@tagName(binop.op)) != null) {
-            const left_uncertain = isOperandUncertain(self, binop.left.*);
-            const right_uncertain = isOperandUncertain(self, binop.right.*);
-            if (left_uncertain or right_uncertain) {
+            if (hasUncertainLeaf(self, expr)) {
                 return true;
             }
         }

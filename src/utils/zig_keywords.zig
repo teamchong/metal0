@@ -272,6 +272,16 @@ fn containsSpecialChars(name: []const u8) bool {
 
 /// This avoids allocation by writing directly
 pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
+    // Handle pointer dereference expressions (e.g., "p_a_1.*" from try-except hoisting)
+    // The ".*" suffix is NOT part of the identifier - it's the dereference operator
+    // Emit base part with normal escaping, then ".*" literally
+    if (std.mem.endsWith(u8, name, ".*")) {
+        const base = name[0 .. name.len - 2];
+        try writeEscapedIdent(writer, base);
+        try writer.writeAll(".*");
+        return;
+    }
+
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");
@@ -286,6 +296,16 @@ pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
 /// Write local variable name, renaming if it would shadow a method or module import
 /// Use this for local variable declarations and usages, NOT for method/field names
 pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
+    // Handle pointer dereference expressions (e.g., "p_a_1.*" from try-except hoisting)
+    // The ".*" suffix is NOT part of the identifier - it's the dereference operator
+    // Emit base part with normal escaping, then ".*" literally
+    if (std.mem.endsWith(u8, name, ".*")) {
+        const base = name[0 .. name.len - 2];
+        try writeLocalVarName(writer, base);
+        try writer.writeAll(".*");
+        return;
+    }
+
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");
