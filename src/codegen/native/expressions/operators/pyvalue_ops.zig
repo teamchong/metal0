@@ -114,6 +114,16 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
     // Check attribute access - only treat as uncertain if type is pyvalue/unknown
     if (expr == .attribute) {
         const attr = expr.attribute;
+
+        // FIRST: Check if base is an anytype parameter - if so, NOT uncertain
+        // Anytype parameters use comptime polymorphism, so attribute access is resolved at compile time
+        if (attr.value.* == .name) {
+            const base_name = attr.value.name.id;
+            if (self.anytype_params.contains(base_name)) {
+                return false; // Anytype attribute access is NOT uncertain
+            }
+        }
+
         // For self.xxx access in class methods, check if the field has a known type
         // from the class field registry. If so, use the field type, not inference.
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
@@ -122,6 +132,24 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
                     if (class_info.fields.get(attr.attr)) |field_type| {
                         // Field has a known type - only uncertain if pyvalue/unknown
                         return field_type == .pyvalue or field_type == .unknown;
+                    }
+                }
+            }
+        }
+        // For other variable access, check if the variable is a known class instance
+        // This handles cases like other_converted.__den where other_converted is of type Rat
+        if (attr.value.* == .name) {
+            const var_name = attr.value.name.id;
+            const var_type = self.type_inferrer.getScopedVar(var_name) orelse
+                self.type_inferrer.var_types.get(var_name);
+            if (var_type) |vt| {
+                if (vt == .class_instance) {
+                    const class_name = vt.class_instance;
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr.attr)) |field_type| {
+                            // Field has a known type - only uncertain if pyvalue/unknown
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
                     }
                 }
             }
@@ -194,8 +222,51 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
         return self.isVarUncertain(name);
     }
 
-    // Check attribute access - if the inferred type is PyValue, treat as uncertain
+    // Check attribute access - use the same logic as isOperandUncertainLeaf
+    // For self.xxx and other class instance access, check class_fields registry for known field types
     if (expr == .attribute) {
+        const attr = expr.attribute;
+
+        // FIRST: Check if base is an anytype parameter - if so, NOT uncertain
+        // Anytype parameters use comptime polymorphism, so attribute access is resolved at compile time
+        if (attr.value.* == .name) {
+            const base_name = attr.value.name.id;
+            if (self.anytype_params.contains(base_name)) {
+                return false; // Anytype attribute access is NOT uncertain
+            }
+        }
+
+        // For self.xxx access in class methods, check if the field has a known type
+        // from the class field registry. If so, use the field type, not inference.
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            if (self.current_class_name) |class_name| {
+                if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                    if (class_info.fields.get(attr.attr)) |field_type| {
+                        // Field has a known type - only uncertain if pyvalue/unknown
+                        return field_type == .pyvalue or field_type == .unknown;
+                    }
+                }
+            }
+        }
+        // For other variable access, check if the variable is a known class instance
+        // This handles cases like other_converted.__den where other_converted is of type Rat
+        if (attr.value.* == .name) {
+            const var_name = attr.value.name.id;
+            const var_type = self.type_inferrer.getScopedVar(var_name) orelse
+                self.type_inferrer.var_types.get(var_name);
+            if (var_type) |vt| {
+                if (vt == .class_instance) {
+                    const class_name = vt.class_instance;
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr.attr)) |field_type| {
+                            // Field has a known type - only uncertain if pyvalue/unknown
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
+                    }
+                }
+            }
+        }
+        // For other attribute access, use type inference
         const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
         return attr_type == .pyvalue or attr_type == .unknown;
     }

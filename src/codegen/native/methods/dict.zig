@@ -138,18 +138,29 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
         const default_val = if (args.len >= 2) args[1] else null;
         // Route to PyValue.pyDictGet
         if (default_val) |def| {
-            try self.emit("(");
-            try self.genExpr(obj);
-            try self.emit(".pyDictGet(");
-            try self.genExpr(args[0]);
-            try self.emit(") orelse ");
-            try self.genExpr(def);
-            try self.emit(")");
+            const Ctx = struct { o: ast.Node, k: ast.Node, d: ast.Node };
+            try self.withParensCtx(Ctx{ .o = obj, .k = args[0], .d = def }, struct {
+                pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                    try s.genExpr(ctx.o);
+                    try s.emitCallCtx(".pyDictGet", ctx.k, struct {
+                        pub fn inner(ss: *NativeCodegen, k: ast.Node) CodegenError!void {
+                            try ss.genExpr(k);
+                        }
+                    }.inner);
+                    try s.emit(" orelse ");
+                    try s.genExpr(ctx.d);
+                }
+            }.emit);
         } else {
+            const Ctx = struct { o: ast.Node, k: ast.Node };
             try self.genExpr(obj);
-            try self.emit(".pyDictGet(");
-            try self.genExpr(args[0]);
-            try self.emit(").?");
+            try self.emitCallCtx(".pyDictGet", Ctx{ .o = obj, .k = args[0] }, struct {
+                pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                    _ = ctx.o; // obj already emitted before this call
+                    try s.genExpr(ctx.k);
+                }
+            }.emit);
+            try self.emit(".?");
         }
         return;
     }

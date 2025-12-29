@@ -218,15 +218,19 @@ pub fn genTruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
 /// Python: (10.0).__rtruediv__(3) -> 0.3 (i.e., 3 / 10.0)
 pub fn genRtruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // args[0] / obj
-    try self.emit("(@as(f64, @floatFromInt(");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("1");
-    }
-    try self.emit(")) / ");
-    try self.genExpr(obj);
-    try self.emit(")");
+    const Ctx = struct { o: ast.Node, a: []ast.Node };
+    try self.withParensCtx(Ctx{ .o = obj, .a = args }, struct {
+        pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("@as(f64, @floatFromInt(");
+            if (ctx.a.len > 0) {
+                try s.genExpr(ctx.a[0]);
+            } else {
+                try s.emit("1");
+            }
+            try s.emit(")) / ");
+            try s.genExpr(ctx.o);
+        }
+    }.emit);
 }
 
 /// Generate float.__floordiv__(other) - floor division
