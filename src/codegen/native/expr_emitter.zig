@@ -143,6 +143,30 @@ pub const ExprEmitter = struct {
         };
     }
 
+    /// Create a labeled block with a runtime-generated temp variable name
+    /// Use with name_gen.temp() for unique variable names
+    /// Pattern: label_N: { const temp = expr; break :label_N result; }
+    pub fn labeledBlockDyn(
+        self: *ExprEmitter,
+        comptime prefix: []const u8,
+        temp_var: []const u8, // runtime string from name_gen.temp()
+        expr: ast.Node,
+    ) CodegenError!LabeledBlock {
+        const label_id = self.codegen.block_label_counter;
+        self.codegen.block_label_counter += 1;
+
+        // Emit block start with temp variable
+        try self.codegen.emitFmt("({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
+        try genExpr(self.codegen, expr);
+        try self.codegen.emit("; ");
+
+        return LabeledBlock{
+            .emitter = self,
+            .label_id = label_id,
+            .prefix = prefix,
+        };
+    }
+
     /// Create a labeled block without a temp variable
     /// Use when you just need a block scope for complex expressions
     pub fn labeledBlockRaw(

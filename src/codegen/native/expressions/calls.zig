@@ -34,28 +34,59 @@ const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 
 // MIGRATED TO ZIGBUILDER
+// Builder-based call helpers with auto-closing patterns
 
 // ============================================
-// Call helpers - auto-closing patterns
+// Builder-based call helpers (REAL migration)
 // ============================================
 
-/// Emit runtime function call start: runtime.funcName(
-/// Note: Opens paren that caller must close
-fn emitRuntimeCallStart(self: *NativeCodegen, func_name: []const u8) CodegenError!void {
-    try self.emit("runtime.");
-    try self.emit(func_name);
-    try self.emit("(");
+const CallArg = builder_mod.ZigBuilder.CallArg;
+
+/// Build runtime function call using builder: runtime.funcName(args...)
+/// Returns ZigValue for composed expressions, auto-closes parentheses
+fn buildRuntimeCall(self: *NativeCodegen, func_name: []const u8, args: []const CallArg) CodegenError!ZigValue {
+    const b = try self.getBuilder();
+    const full_name = try std.fmt.allocPrint(self.arena.allocator(), "runtime.{s}", .{func_name});
+    try b.emitCallExpr(full_name, args);
+    return ZigValue.raw(b.getBodyAndClear());
 }
 
-/// Emit class init call start: ClassName.init(__global_allocator
-/// Note: Opens paren that caller must close
-fn emitInitCallStart(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
-    try self.emit(class_name);
-    try self.emit(".init(__global_allocator");
+/// Build class init call using builder: ClassName.init(__global_allocator, args...)
+/// Returns ZigValue, auto-closes parentheses via emitCallExpr
+fn buildInitCall(self: *NativeCodegen, class_name: []const u8, args: []const ast.Node) CodegenError!ZigValue {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+
+    // Build function name: ClassName.init
+    const func_name = try std.fmt.allocPrint(alloc, "{s}.init", .{class_name});
+
+    // Build CallArg array: [allocator, arg1, arg2, ...]
+    var call_args: std.ArrayList(CallArg) = .{};
+    try call_args.append(alloc, .allocator);
+    for (args) |arg| {
+        const arg_value = try self.exprToValue(arg);
+        try call_args.append(alloc, .{ .value = arg_value });
+    }
+
+    // Auto-closing call emission
+    try b.emitCallExpr(func_name, call_args.items);
+    return ZigValue.raw(b.getBodyAndClear());
 }
+
+/// Emit a PyValue.from(inner_value) expression using the builder
+/// Use this when you already have a builder and want to emit inline
+fn emitPyValueFromValue(b: *builder_mod.ZigBuilder, inner_value: ZigValue) !void {
+    try b.write("runtime.PyValue.from(");
+    try b.emitValueCore(inner_value);
+    try b.write(")");
+}
+
+// NOTE: Legacy helpers emitRuntimeCallStart/emitInitCallStart have been removed.
+// Use buildRuntimeCall() or b.emitCallExpr() with CallArg array instead.
 
 /// Emit PyValue.from wrapper: runtime.PyValue.from(expr)
 /// Uses auto-close pattern to guarantee matching parentheses
+/// TODO: Migrate callers to use builder pattern instead
 fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const genExpr = @import("../expressions.zig").genExpr;
     try self.emit("runtime.PyValue.from");
@@ -198,12 +229,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // pickle.loads and other modules use different signatures
             if (self.from_import_needs_allocator.contains("loads")) {
                 // json.loads wrapper - call with allocator
-                const alloc_name = "__global_allocator";
-                try self.emit("try loads(");
-                try genExpr(self, call.args[0]);
-                try self.emit(", ");
-                try self.emit(alloc_name);
-                try self.emit(")");
+                const b = try self.getBuilder();
+                const arg_value = try self.exprToValue(call.args[0]);
+                try b.emitTryCallExpr("loads", &.{
+                    .{ .value = arg_value },
+                    .allocator,
+                });
+                try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                 return;
             }
             // For pickle.loads: const loads = pickle.loads expects (data, allocator)
@@ -312,21 +344,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Handle self.NestedClass() pattern - nested class constructor call via self
         // This must be checked FIRST before other method call patterns
+        // MIGRATED TO BUILDER: uses buildInitCall
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
             if (self.nested_class_aliases.get(attr.attr)) |aliased_name| {
                 // Generate: AliasedName.init(__global_allocator, args...)
                 // Class-body-level nested classes return @This(), NOT error union
                 // So we don't need try here (unlike method-local nested classes)
-                try emitInitCallStart(self, aliased_name);
+                // Collect all args (positional + keyword values)
+                const alloc = self.arena.allocator();
+                var all_args: std.ArrayList(ast.Node) = .{};
                 for (call.args) |arg| {
-                    try self.emit(", ");
-                    try genExpr(self, arg);
+                    all_args.append(alloc, arg) catch unreachable;
                 }
                 for (call.keyword_args) |kwarg| {
-                    try self.emit(", ");
-                    try genExpr(self, kwarg.value);
+                    all_args.append(alloc, kwarg.value) catch unreachable;
                 }
-                try self.emit(")");
+                const result = try buildInitCall(self, aliased_name, all_args.items);
+                try self.emitZigValue(result);
                 return;
             }
         }
@@ -369,28 +403,36 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Handle object.__hash__(value) - Python's base hash implementation
         // This is equivalent to runtime.pyHash(value) or id(value) for identity hash
+        // MIGRATED TO BUILDER: uses exprToValue + emitZigValue
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "object")) {
             if (std.mem.eql(u8, attr.attr, "__hash__")) {
                 // object.__hash__(x) -> runtime.pyHash(x) for consistency with hash()
-                try emitRuntimeCallStart(self, "pyHash");
                 if (call.args.len > 0) {
-                    try genExpr(self, call.args[0]);
+                    const arg_value = try self.exprToValue(call.args[0]);
+                    const result = try buildRuntimeCall(self, "pyHash", &.{.{ .value = arg_value }});
+                    try self.emitZigValue(result);
+                } else {
+                    const result = try buildRuntimeCall(self, "pyHash", &.{});
+                    try self.emitZigValue(result);
                 }
-                try self.emit(")");
                 return;
             }
         }
 
         // Handle float.__getformat__(typestr) - Python float format introspection
+        // MIGRATED TO BUILDER: uses exprToValue + emitZigValue
         if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "float")) {
             if (std.mem.eql(u8, attr.attr, "__getformat__")) {
                 // float.__getformat__('double') -> runtime.floatGetFormat("double")
                 // Returns error union - caller decides if try/catch is needed
-                try emitRuntimeCallStart(self, "floatGetFormat");
                 if (call.args.len > 0) {
-                    try genExpr(self, call.args[0]);
+                    const arg_value = try self.exprToValue(call.args[0]);
+                    const result = try buildRuntimeCall(self, "floatGetFormat", &.{.{ .value = arg_value }});
+                    try self.emitZigValue(result);
+                } else {
+                    const result = try buildRuntimeCall(self, "floatGetFormat", &.{});
+                    try self.emitZigValue(result);
                 }
-                try self.emit(")");
                 return;
             }
         }
@@ -398,6 +440,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Handle int.from_bytes(bytes, byteorder) and bool.from_bytes(bytes, byteorder)
         // Python: int.from_bytes(b'\x00\x01', 'big') -> 1
         // Python: bool.from_bytes(b'\x00', 'big') -> False
+        // MIGRATED TO BUILDER: uses exprToValue + emitZigValue
         if (attr.value.* == .name) {
             const type_name = attr.value.name.id;
             const is_int_type = std.mem.eql(u8, type_name, "int");
@@ -407,38 +450,41 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (std.mem.eql(u8, attr.attr, "from_bytes")) {
                     // int.from_bytes(bytes, byteorder) -> runtime.intFromBytes(bytes, byteorder)
                     // bool.from_bytes(bytes, byteorder) -> (runtime.intFromBytes(bytes, byteorder) != 0)
+                    const b = try self.getBuilder();
+
+                    // Build args for intFromBytes
+                    const arg0 = if (call.args.len > 0) try self.exprToValue(call.args[0]) else ZigValue.raw("\"\"");
+                    const arg1 = if (call.args.len > 1) try self.exprToValue(call.args[1]) else ZigValue.raw("\"big\"");
+
                     if (is_bool_type) {
-                        try self.emit("(runtime.intFromBytes(");
-                    } else {
-                        try self.emit("runtime.intFromBytes(");
+                        try b.write("(");
                     }
-                    if (call.args.len > 0) {
-                        try genExpr(self, call.args[0]);
-                    }
-                    if (call.args.len > 1) {
-                        try self.emit(", ");
-                        try genExpr(self, call.args[1]);
-                    } else {
-                        try self.emit(", \"big\"");
-                    }
+                    try b.emitCallExpr("runtime.intFromBytes", &.{
+                        .{ .value = arg0 },
+                        .{ .value = arg1 },
+                    });
                     if (is_bool_type) {
-                        try self.emit(") != 0)");
-                    } else {
-                        try self.emit(")");
+                        try b.write(" != 0)");
                     }
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 }
 
                 if (std.mem.eql(u8, attr.attr, "to_bytes") and is_int_type) {
-                    // int.to_bytes(value, length, byteorder) -> runtime.intToBytes(value, length, byteorder)
-                    // Note: In Python it's value.to_bytes(length, byteorder)
-                    // but int.to_bytes(value, length, byteorder) is also valid
-                    try self.emit("runtime.intToBytes(__global_allocator, ");
-                    for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try genExpr(self, arg);
+                    // int.to_bytes(value, length, byteorder) -> runtime.intToBytes(allocator, value, length, byteorder)
+                    const b = try self.getBuilder();
+                    const alloc = self.arena.allocator();
+
+                    // Build CallArg array: [allocator, args...]
+                    var call_args: std.ArrayList(CallArg) = .{};
+                    try call_args.append(alloc, .allocator);
+                    for (call.args) |arg| {
+                        const arg_value = try self.exprToValue(arg);
+                        try call_args.append(alloc, .{ .value = arg_value });
                     }
-                    try self.emit(")");
+
+                    try b.emitCallExpr("runtime.intToBytes", call_args.items);
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 }
             }
@@ -947,21 +993,27 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Lambda call: square(5) -> (try square.call(5))
             // Inline struct lambdas need .call() method invocation
             // Lambda return types may be error unions (!T), wrap with try
-            try self.emit("(try ");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit(".call(");
+            // MIGRATED TO BUILDER: uses exprToValue + emitZigValue
+            const b = try self.getBuilder();
+            const escaped_name = try zig_keywords.escapeIfKeyword(self.arena.allocator(), func_name);
+            try b.write("(try ");
+            try b.write(escaped_name);
+            try b.write(".call(");
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
+                if (i > 0) try b.write(", ");
+                const arg_value = try self.exprToValue(arg);
+                try b.emitValueCore(arg_value);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
+                if (i > 0 or call.args.len > 0) try b.write(", ");
+                const arg_value = try self.exprToValue(kwarg.value);
+                try b.emitValueCore(arg_value);
             }
 
-            try self.emit("))");
+            try b.write("))");
+            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
             return;
         }
 
@@ -1038,6 +1090,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         // Check if this is a callable variable (PyCallable - from iterating over callable list)
+        // MIGRATED TO BUILDER: uses emitMethodCallExpr for .call() method
         if (self.callable_vars.contains(raw_func_name)) {
             // Check if this callable returns an error union (like OperatorPow)
             const returns_error = self.error_callable_vars.contains(raw_func_name);
@@ -1045,42 +1098,59 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             //                f("100") -> f.call("100") for regular callables
             // In assertRaises context, don't use try - let error propagate for expectError to check
             const use_try = returns_error and !self.in_assert_raises_context;
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
+            const escaped_name = try zig_keywords.escapeIfKeyword(alloc, func_name);
+            const receiver = ZigValue.raw(escaped_name);
+
+            // Collect all args as ZigValues
+            var call_args: std.ArrayList(CallArg) = .{};
+            for (call.args) |arg| {
+                const arg_value = try self.exprToValue(arg);
+                try call_args.append(alloc, .{ .value = arg_value });
+            }
+            for (call.keyword_args) |kwarg| {
+                const arg_value = try self.exprToValue(kwarg.value);
+                try call_args.append(alloc, .{ .value = arg_value });
+            }
+
             if (use_try) {
-                try self.emit("(try ");
-            }
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit(".call(");
-
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
-            }
-
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
-            }
-
-            if (use_try) {
-                try self.emit("))");
+                try b.write("(try ");
+                try b.emitMethodCallExpr(receiver, "call", call_args.items);
+                try b.write(")");
             } else {
-                try self.emit(")");
+                try b.emitMethodCallExpr(receiver, "call", call_args.items);
             }
+            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
             return;
         }
 
         // Handle vararg loop variable calls FIRST: c(arg) where c is from "for c in *classes"
         // Vararg loop variables are types (structs) at comptime, need .init() to instantiate
         // This MUST be checked before is_pyvalue_callable since vararg vars are typed as unknown
+        // Pattern: try runtime.PyValue.fromAlloc(allocator, try VarName.init(allocator, args...))
         if (self.vararg_loop_vars.contains(raw_func_name)) {
-            try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, try ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-            try self.emit(".init(__global_allocator");
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
+            const escaped_name = try zig_keywords.escapeIfKeyword(alloc, func_name);
+
+            // Build inner call: VarName.init(__global_allocator, args...)
+            const init_func = try std.fmt.allocPrint(alloc, "{s}.init", .{escaped_name});
+            var init_args: std.ArrayList(CallArg) = .{};
+            try init_args.append(alloc, .allocator);
             for (call.args) |arg| {
-                try self.emit(", ");
-                try genExpr(self, arg);
+                const arg_value = try self.exprToValue(arg);
+                try init_args.append(alloc, .{ .value = arg_value });
             }
-            try self.emit("))");
+            try b.emitTryCallExpr(init_func, init_args.items);
+            const inner_call = b.getBodyAndClear();
+
+            // Build outer call: try runtime.PyValue.fromAlloc(allocator, inner_result)
+            try b.emitTryCallExpr("runtime.PyValue.fromAlloc", &.{
+                .allocator,
+                .{ .raw = inner_call },
+            });
+            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
             return;
         }
 
@@ -1092,24 +1162,35 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (arg == .starred) break true;
             } else false;
 
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
+            const escaped_name = try zig_keywords.escapeIfKeyword(alloc, func_name);
+            const init_func = try std.fmt.allocPrint(alloc, "{s}.init", .{escaped_name});
+
             if (has_starred and call.args.len == 1 and call.args[0] == .starred) {
                 // Single starred arg - unpack tuple for 2-arg init (Fraction, etc.)
                 // Generate: blk: { const __t = expr; break :blk R.init(__t.@"0", __t.@"1"); }
+                // This is a labeled block construct - keep as special case
                 const starred_value = call.args[0].starred.value.*;
-                try self.emit("__starred_blk: { const __starred_t = ");
-                try genExpr(self, starred_value);
-                try self.emit("; break :__starred_blk ");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-                try self.emit(".init(__starred_t.@\"0\", __starred_t.@\"1\"); }");
+                const sv = try self.exprToValue(starred_value);
+                try b.write("__starred_blk: { const __starred_t = ");
+                try b.emitValueCore(sv);
+                try b.write("; break :__starred_blk ");
+                try b.emitCallExpr(init_func, &.{
+                    .{ .raw = "__starred_t.@\"0\"" },
+                    .{ .raw = "__starred_t.@\"1\"" },
+                });
+                try b.write("; }");
             } else {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-                try self.emit(".init(");
-                for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try genExpr(self, arg);
+                // Normal case: R.init(arg1, arg2, ...)
+                var init_args: std.ArrayList(CallArg) = .{};
+                for (call.args) |arg| {
+                    const arg_value = try self.exprToValue(arg);
+                    try init_args.append(alloc, .{ .value = arg_value });
                 }
-                try self.emit(")");
+                try b.emitCallExpr(init_func, init_args.items);
             }
+            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
             return;
         }
 
@@ -1130,27 +1211,52 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             break :blk false;
         });
         if (is_pyvalue_callable) {
-            // PyValue callable: check(Foo()) -> check.call(&.{runtime.PyValue.from(Foo())})
-            try self.emit("(try ");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit(".call(&.{");
+            // PyValue callable: check(Foo()) -> (try check.call(&.{runtime.PyValue.from(Foo())}))
+            // MIGRATED TO BUILDER: uses emitMethodCallExpr with PyValue.from wrapped args
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
 
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                // Wrap argument in PyValue.from() for non-PyValue types
-                try self.emit("runtime.PyValue.from(");
-                try genExpr(self, arg);
-                try self.emit(")");
+            // Build receiver (escaped variable name)
+            var receiver_buf: std.ArrayList(u8) = .{};
+            try zig_keywords.writeLocalVarName(receiver_buf.writer(alloc), func_name);
+            const receiver = ZigValue.raw(receiver_buf.items);
+
+            // Build array literal of PyValue.from(arg) for each arg
+            var array_literal: std.ArrayList(u8) = .{};
+            try array_literal.appendSlice(alloc, "&.{");
+
+            var first = true;
+            for (call.args) |arg| {
+                if (!first) try array_literal.appendSlice(alloc, ", ");
+                first = false;
+                try array_literal.appendSlice(alloc, "runtime.PyValue.from(");
+                const arg_value = try self.exprToValue(arg);
+                try b.emitValueCore(arg_value);
+                // Copy to avoid aliasing - getBodyAndClear returns a slice that may be reused
+                const arg_str = try alloc.dupe(u8, b.getBodyAndClear());
+                try array_literal.appendSlice(alloc, arg_str);
+                try array_literal.appendSlice(alloc, ")");
             }
-
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try self.emit("runtime.PyValue.from(");
-                try genExpr(self, kwarg.value);
-                try self.emit(")");
+            for (call.keyword_args) |kwarg| {
+                if (!first) try array_literal.appendSlice(alloc, ", ");
+                first = false;
+                try array_literal.appendSlice(alloc, "runtime.PyValue.from(");
+                const kwarg_value = try self.exprToValue(kwarg.value);
+                try b.emitValueCore(kwarg_value);
+                // Copy to avoid aliasing
+                const kwarg_str = try alloc.dupe(u8, b.getBodyAndClear());
+                try array_literal.appendSlice(alloc, kwarg_str);
+                try array_literal.appendSlice(alloc, ")");
             }
+            try array_literal.appendSlice(alloc, "}");
 
-            try self.emit("}))");
+            const array_arg = ZigValue.raw(array_literal.items);
+            try b.write("(try ");
+            try b.emitMethodCallExpr(receiver, "call", &.{.{ .value = array_arg }});
+            try b.write(")");
+            // Copy final result to avoid aliasing
+            const result = try alloc.dupe(u8, b.getBodyAndClear());
+            try self.emitZigValue(ZigValue.raw(result));
             return;
         }
 
@@ -1177,31 +1283,53 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // If parameter might be a Python type constructor, use typeConvert
             // Python types like int/float become Zig types (i64/f64) when passed as anytype
             // type(i) should convert i to the target type using runtime.builtins.typeConvert
+            // MIGRATED TO BUILDER: uses emitCallExpr
             if (might_be_python_type and call.args.len == 1) {
-                try self.emit("runtime.builtins.typeConvert(");
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-                try self.emit(", ");
-                try genExpr(self, call.args[0]);
-                try self.emit(")");
+                const b = try self.getBuilder();
+                const alloc = self.arena.allocator();
+
+                // Build the func_name ZigValue (escaped)
+                var func_buf: std.ArrayList(u8) = .{};
+                try zig_keywords.writeLocalVarName(func_buf.writer(alloc), func_name);
+
+                const arg_value = try self.exprToValue(call.args[0]);
+
+                try b.emitCallExpr("runtime.builtins.typeConvert", &.{
+                    .{ .raw = func_buf.items },
+                    .{ .value = arg_value },
+                });
+                // Copy to avoid aliasing
+                const result = try alloc.dupe(u8, b.getBodyAndClear());
+                try self.emitZigValue(ZigValue.raw(result));
                 return;
             }
 
             // Use .init() pattern for anytype params - works for types like staticmethod/classmethod
             // that are passed as arguments and then called to construct instances
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit(".init(");
+            // MIGRATED TO BUILDER: uses emitMethodCallExpr for .init() method
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
 
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
+            // Build receiver (escaped variable name)
+            var receiver_buf: std.ArrayList(u8) = .{};
+            try zig_keywords.writeLocalVarName(receiver_buf.writer(alloc), func_name);
+            const receiver = ZigValue.raw(receiver_buf.items);
+
+            // Collect all args as ZigValues
+            var call_args: std.ArrayList(CallArg) = .{};
+            for (call.args) |arg| {
+                const arg_value = try self.exprToValue(arg);
+                try call_args.append(alloc, .{ .value = arg_value });
+            }
+            for (call.keyword_args) |kwarg| {
+                const kwarg_value = try self.exprToValue(kwarg.value);
+                try call_args.append(alloc, .{ .value = kwarg_value });
             }
 
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
-            }
-
-            try self.emit(")");
+            try b.emitMethodCallExpr(receiver, "init", call_args.items);
+            // Copy to avoid aliasing
+            const result = try alloc.dupe(u8, b.getBodyAndClear());
+            try self.emitZigValue(ZigValue.raw(result));
             return;
         }
 
@@ -1209,15 +1337,24 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // This is for functions like operator.eq passed as anytype params
         if (is_callable_anytype_param and has_starred_args and call.args.len == 1 and call.args[0] == .starred) {
             const starred_value = call.args[0].starred.value.*;
-            // Generate: op(instances.items[0], instances.items[1])
-            // For ArrayList, access .items; for other types, assume direct indexing
-            // Note: Don't emit "_ = " here - caller context handles the discard
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit("(");
-            try genExpr(self, starred_value);
-            try self.emit(".items[0], ");
-            try genExpr(self, starred_value);
-            try self.emit(".items[1])");
+            const sv = try self.exprToValue(starred_value);
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
+            const escaped_name = try zig_keywords.escapeIfKeyword(alloc, func_name);
+
+            // Emit the value to get its raw string representation
+            try b.emitValueCore(sv);
+            const sv_raw = b.getBodyAndClear();
+
+            // Build args: [sv.items[0], sv.items[1]]
+            const arg0 = try std.fmt.allocPrint(alloc, "{s}.items[0]", .{sv_raw});
+            const arg1 = try std.fmt.allocPrint(alloc, "{s}.items[1]", .{sv_raw});
+
+            try b.emitCallExpr(escaped_name, &.{
+                .{ .raw = arg0 },
+                .{ .raw = arg1 },
+            });
+            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
             return;
         }
 
@@ -1227,50 +1364,58 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         if (self.error_callable_vars.contains(raw_func_name) and !self.callable_vars.contains(raw_func_name)) {
             // In assertRaises context, don't use try - let error propagate for expectError to check
             const use_try = !self.in_assert_raises_context;
+            const b = try self.getBuilder();
+            const alloc = self.arena.allocator();
+            const escaped_name = try zig_keywords.escapeIfKeyword(alloc, func_name);
+
+            // Build CallArg array from args and kwargs
+            var call_args: std.ArrayList(CallArg) = .{};
+            for (call.args) |arg| {
+                const arg_value = try self.exprToValue(arg);
+                try call_args.append(alloc, .{ .value = arg_value });
+            }
+            for (call.keyword_args) |kwarg| {
+                const arg_value = try self.exprToValue(kwarg.value);
+                try call_args.append(alloc, .{ .value = arg_value });
+            }
+
+            // Emit with or without try wrapping
             if (use_try) {
-                try self.emit("(try ");
+                try b.emitTryCallExpr(escaped_name, call_args.items);
             } else {
-                try self.emit("(");
+                try b.emitCallExpr(escaped_name, call_args.items);
             }
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-            try self.emit("(");
-
-            for (call.args, 0..) |arg, i| {
-                if (i > 0) try self.emit(", ");
-                try genExpr(self, arg);
-            }
-
-            for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try self.emit(", ");
-                try genExpr(self, kwarg.value);
-            }
-
-            try self.emit("))");
+            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
             return;
         }
 
         // Check if this is a captured variable being called (captured function/callable from outer scope)
         // Must check BEFORE class constructor check to avoid treating captured callables as classes
+        // MIGRATED TO BUILDER: uses emitCallExpr for function pointer dereference
         if (self.current_class_captures) |captures| {
             for (captures) |captured_name| {
                 if (std.mem.eql(u8, captured_name, raw_func_name)) {
                     // Captured callable: mutate(d) -> __self.__captured_mutate.*(d)
                     // The captured variable is a pointer to a callable, dereference and call
-                    try self.emit("__self.__captured_");
-                    try self.emit(raw_func_name);
-                    try self.emit(".*(");
+                    const b = try self.getBuilder();
+                    const alloc = self.arena.allocator();
 
-                    for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try genExpr(self, arg);
+                    // Build function pointer name: __self.__captured_{name}.*
+                    const func_ptr = try std.fmt.allocPrint(alloc, "__self.__captured_{s}.*", .{raw_func_name});
+
+                    // Collect all args as ZigValues
+                    var call_args: std.ArrayList(CallArg) = .{};
+                    for (call.args) |arg| {
+                        const arg_value = try self.exprToValue(arg);
+                        try call_args.append(alloc, .{ .value = arg_value });
+                    }
+                    for (call.keyword_args) |kwarg| {
+                        const kwarg_value = try self.exprToValue(kwarg.value);
+                        try call_args.append(alloc, .{ .value = kwarg_value });
                     }
 
-                    for (call.keyword_args, 0..) |kwarg, i| {
-                        if (i > 0 or call.args.len > 0) try self.emit(", ");
-                        try genExpr(self, kwarg.value);
-                    }
-
-                    try self.emit(")");
+                    try b.emitCallExpr(func_ptr, call_args.items);
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 }
             }
@@ -1278,6 +1423,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // FIRST: Check if this is a callable class instance (variable holding instance with __call__)
         // e.g., AbstractSuper = AbstractClass(bases=()) then AbstractSuper() should call __call__
+        // MIGRATED TO BUILDER: uses emitMethodCallExpr for __call__ method
         const var_type = self.getVarType(raw_func_name);
         if (var_type) |vt| {
             if (type_traits.isClassInstance(vt)) {
@@ -1285,13 +1431,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Check if this class has __call__ method
                 if (self.class_registry.findMethod(class_name, "__call__") != null) {
                     // Generate: instance.__call__()
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
-                    try self.emit(".__call__(");
-                    for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try genExpr(self, arg);
+                    const b = try self.getBuilder();
+                    const alloc = self.arena.allocator();
+
+                    // Build receiver ZigValue (escaped variable name)
+                    var receiver_buf: std.ArrayList(u8) = .{};
+                    try zig_keywords.writeLocalVarName(receiver_buf.writer(alloc), func_name);
+                    const receiver = ZigValue.raw(receiver_buf.items);
+
+                    // Collect all args as ZigValues
+                    var call_args: std.ArrayList(CallArg) = .{};
+                    for (call.args) |arg| {
+                        const arg_value = try self.exprToValue(arg);
+                        try call_args.append(alloc, .{ .value = arg_value });
                     }
-                    try self.emit(")");
+
+                    try b.emitMethodCallExpr(receiver, "__call__", call_args.items);
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 }
             }
@@ -1540,25 +1696,50 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             } else if (is_runtime_exception) {
                 // Runtime exception type: Exception(arg) -> runtime.Exception.initWithArg(__global_allocator, arg)
-                try self.emit("(try runtime.");
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+                const b = try self.getBuilder();
+                const alloc = self.arena.allocator();
+                const full_name = try std.fmt.allocPrint(alloc, "runtime.{s}", .{func_name});
+
                 // Use initWithArg for single arg, initWithArgs for multiple, init for no args
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
-                    try self.emit(".init(__global_allocator))");
+                    const init_func = try std.fmt.allocPrint(alloc, "{s}.init", .{full_name});
+                    try b.emitTryCallExpr(init_func, &.{.allocator});
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 } else if (call.args.len == 1 and call.keyword_args.len == 0) {
-                    try self.emit(".initWithArg(__global_allocator, ");
-                    try genExpr(self, call.args[0]);
-                    try self.emit("))");
+                    const init_func = try std.fmt.allocPrint(alloc, "{s}.initWithArg", .{full_name});
+                    const arg_value = try self.exprToValue(call.args[0]);
+                    try b.emitTryCallExpr(init_func, &.{
+                        .allocator,
+                        .{ .value = arg_value },
+                    });
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 } else {
-                    // Multiple args - build PyValue array
-                    try self.emit(".initWithArgs(__global_allocator, &[_]runtime.PyValue{");
+                    // Multiple args - build PyValue array inline
+                    const init_func = try std.fmt.allocPrint(alloc, "{s}.initWithArgs", .{full_name});
+
+                    // Build the array literal as raw string
+                    var array_buf: std.ArrayList(u8) = .{};
+                    try array_buf.appendSlice(alloc, "&[_]runtime.PyValue{");
                     for (call.args, 0..) |arg, i| {
-                        if (i > 0) try self.emit(", ");
-                        try emitPyValueFrom(self, arg);
+                        if (i > 0) try array_buf.appendSlice(alloc, ", ");
+                        const arg_value = try self.exprToValue(arg);
+                        try array_buf.appendSlice(alloc, "runtime.PyValue.from(");
+                        // Emit value to builder and capture the string
+                        try b.emitValueCore(arg_value);
+                        // Copy to avoid aliasing
+                        const arg_str = try alloc.dupe(u8, b.getBodyAndClear());
+                        try array_buf.appendSlice(alloc, arg_str);
+                        try array_buf.appendSlice(alloc, ")");
                     }
-                    try self.emit("}))");
+                    try array_buf.appendSlice(alloc, "}");
+
+                    try b.emitTryCallExpr(init_func, &.{
+                        .allocator,
+                        .{ .raw = array_buf.items },
+                    });
+                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
                     return;
                 }
             } else {

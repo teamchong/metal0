@@ -25,40 +25,54 @@ const ZigValue = builder_mod.ZigValue;
 // ============================================
 
 /// Emit hashmap_helper.StringHashMap(value_type).init(alloc)
+/// MIGRATED TO BUILDER: uses emitMethodCallExpr
 fn emitStringHashMapInit(self: *NativeCodegen, value_type: []const u8, alloc_name: []const u8) CodegenError!void {
-    try self.emit("hashmap_helper.StringHashMap(");
-    try self.emit(value_type);
-    try self.emit(").init(");
-    try self.emit(alloc_name);
-    try self.emit(")");
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const receiver_str = try std.fmt.allocPrint(alloc, "hashmap_helper.StringHashMap({s})", .{value_type});
+    const receiver = ZigValue.raw(receiver_str);
+    try b.emitMethodCallExpr(receiver, "init", &.{.{ .raw = alloc_name }});
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
 }
 
 /// Emit std.AutoArrayHashMap(key_type, value_type).init(alloc)
+/// MIGRATED TO BUILDER: uses emitMethodCallExpr
 fn emitAutoArrayHashMapInit(self: *NativeCodegen, key_type: []const u8, value_type: []const u8, alloc_name: []const u8) CodegenError!void {
-    try self.emit("std.AutoArrayHashMap(");
-    try self.emit(key_type);
-    try self.emit(", ");
-    try self.emit(value_type);
-    try self.emit(").init(");
-    try self.emit(alloc_name);
-    try self.emit(")");
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const receiver_str = try std.fmt.allocPrint(alloc, "std.AutoArrayHashMap({s}, {s})", .{ key_type, value_type });
+    const receiver = ZigValue.raw(receiver_str);
+    try b.emitMethodCallExpr(receiver, "init", &.{.{ .raw = alloc_name }});
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
 }
 
 /// Emit runtime.PyValueHashMap(value_type).init(__global_allocator) (Zig 0.15 managed style)
 /// Used for dicts with non-string keys (tuples, ints, bools, mixed types)
 /// Note: ArrayHashMap in Zig 0.15 is managed and requires .init(allocator)
+/// MIGRATED TO BUILDER: uses emitMethodCallExpr
 fn emitPyValueHashMapInit(self: *NativeCodegen, value_type: []const u8) CodegenError!void {
     _ = value_type; // Value type is always PyValue for mixed key dicts
-    try self.emit("runtime.PyValueHashMap(runtime.PyValue).init(__global_allocator)");
+    const b = try self.getBuilder();
+    const receiver = ZigValue.raw("runtime.PyValueHashMap(runtime.PyValue)");
+    try b.emitMethodCallExpr(receiver, "init", &.{.allocator});
+    const result = try self.arena.allocator().dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
 }
 
 /// Emit try alloc.dupe(u8, str) for string duplication
+/// MIGRATED TO BUILDER: uses emitMethodCallExpr with try wrapper
 fn emitAllocDupe(self: *NativeCodegen, alloc_name: []const u8, str: []const u8) CodegenError!void {
-    try self.emit("try ");
-    try self.emit(alloc_name);
-    try self.emit(".dupe(u8, ");
-    try self.emit(str);
-    try self.emit(")");
+    const b = try self.getBuilder();
+    const receiver = ZigValue.raw(alloc_name);
+    try b.write("try ");
+    try b.emitMethodCallExpr(receiver, "dupe", &.{
+        .{ .raw = "u8" },
+        .{ .raw = str },
+    });
+    const result = try self.arena.allocator().dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
 }
 
 /// Key type inference result

@@ -187,41 +187,9 @@ pub const Mock = struct {
     }
 
     /// Compare two MockValues for equality
+    /// Uses MockValue.eql() (SINGLE SOURCE OF TRUTH)
     fn mockValueEquals(a: MockValue, b: MockValue) bool {
-        return switch (a) {
-            .none => b == .none,
-            .int => |av| switch (b) {
-                .int => |bv| av == bv,
-                else => false,
-            },
-            .float => |av| switch (b) {
-                .float => |bv| @abs(av - bv) < 1e-10,
-                else => false,
-            },
-            .string => |av| switch (b) {
-                .string => |bv| std.mem.eql(u8, av, bv),
-                else => false,
-            },
-            .boolean => |av| switch (b) {
-                .boolean => |bv| av == bv,
-                else => false,
-            },
-            .list => |av| switch (b) {
-                .list => |bv| blk: {
-                    if (av.len != bv.len) break :blk false;
-                    for (av, bv) |ai, bi| {
-                        if (!mockValueEquals(ai, bi)) break :blk false;
-                    }
-                    break :blk true;
-                },
-                else => false,
-            },
-            .dict => false, // Dict comparison requires key iteration
-            .mock => |av| switch (b) {
-                .mock => |bv| av == bv,
-                else => false,
-            },
-        };
+        return a.eql(b);
     }
 
     /// Assert the mock was called once with specific args

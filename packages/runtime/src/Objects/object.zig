@@ -601,20 +601,6 @@ pub const PyValue = union(enum) {
         return .{ .none = {} };
     }
 
-    /// Append element to list
-    pub fn pyListAppend(self: PyValue, allocator: std.mem.Allocator, value: PyValue) !void {
-        if (self == .list) {
-            try self.list.append(allocator, value);
-        }
-    }
-
-    /// Append element to list (alias for pyListAppend, used by defaultdict.list factory)
-    pub fn append(self: PyValue, allocator: std.mem.Allocator, value: anytype) !void {
-        if (self == .list) {
-            try self.list.append(allocator, PyValue.from(value));
-        }
-    }
-
     /// Get list items as slice (for iteration)
     pub fn listItems(self: PyValue) []const PyValue {
         return if (self == .list) self.list.items else &[_]PyValue{};
@@ -686,6 +672,15 @@ pub const PyValue = union(enum) {
                 const size: usize = @intCast(pylist.ob_base.ob_size);
                 try writer.print("[<{d} items>]", .{size});
             },
+            // VM-specific types - provide reasonable defaults
+            .dict => |d| try writer.print("{{<{d} items>}}", .{d.count()}),
+            .code => |c| try writer.print("<code object '{s}'>", .{c.name}),
+            .function => |f| try writer.print("<function '{s}'>", .{f.code.name}),
+            .builtin_fn => try writer.writeAll("<built-in function>"),
+            .iterator => try writer.writeAll("<iterator>"),
+            .range => |r| try writer.print("range({d}, {d}, {d})", .{ r.start, r.stop, r.step }),
+            .exception => |e| try writer.print("{s}('{s}')", .{ e.exc_type, e.message }),
+            .generator => try writer.writeAll("<generator object>"),
         }
     }
 
@@ -793,23 +788,108 @@ pub const PyValue = union(enum) {
     }
 
     /// Get Python type name for this value
+    /// This is the SINGLE SOURCE OF TRUTH for type names.
+    /// All code needing type names should call this method.
     pub fn typeName(self: PyValue) []const u8 {
         return switch (self) {
-            .int => "int",
+            .int, .bigint => "int",
             .float => "float",
             .string => "str",
             .bytes => "bytes",
             .bool => "bool",
             .none => "NoneType",
             .not_implemented => "NotImplementedType",
-            .list => "list",
-            .pylist => "list", // CPython list also reports as "list"
+            .list, .pylist => "list",
             .tuple => "tuple",
-            .bigint => "int",
             .complex => "complex",
             .type_obj => "type",
-            .ptr => "object",
-            .object => "object",
+            .ptr, .object => "object",
+            // VM-specific types
+            .dict => "dict",
+            .code => "code",
+            .function => "function",
+            .builtin_fn => "builtin_function_or_method",
+            .iterator => "iterator",
+            .range => "range",
+            .exception => "Exception",
+            .generator => "generator",
+        };
+    }
+
+    /// Get error message for "cannot interpret as integer" - SINGLE SOURCE OF TRUTH
+    /// Used by pyToInt and similar functions.
+    pub fn intErrorMessage(self: PyValue) []const u8 {
+        // Pre-computed messages for common types (Zig can't concat runtime strings)
+        return switch (self) {
+            .string => "'" ++ "str" ++ "' object cannot be interpreted as an integer",
+            .bytes => "'" ++ "bytes" ++ "' object cannot be interpreted as an integer",
+            .float => "'" ++ "float" ++ "' object cannot be interpreted as an integer",
+            .bool => "'" ++ "bool" ++ "' object cannot be interpreted as an integer",
+            .none => "'" ++ "NoneType" ++ "' object cannot be interpreted as an integer",
+            .list, .pylist => "'" ++ "list" ++ "' object cannot be interpreted as an integer",
+            .tuple => "'" ++ "tuple" ++ "' object cannot be interpreted as an integer",
+            .complex => "'" ++ "complex" ++ "' object cannot be interpreted as an integer",
+            .type_obj => "'" ++ "type" ++ "' object cannot be interpreted as an integer",
+            .ptr, .object => "'" ++ "object" ++ "' object cannot be interpreted as an integer",
+            .not_implemented => "'" ++ "NotImplementedType" ++ "' object cannot be interpreted as an integer",
+            .int, .bigint => "'" ++ "int" ++ "' object cannot be interpreted as an integer",
+            .dict => "'" ++ "dict" ++ "' object cannot be interpreted as an integer",
+            .code => "'" ++ "code" ++ "' object cannot be interpreted as an integer",
+            .function => "'" ++ "function" ++ "' object cannot be interpreted as an integer",
+            .builtin_fn => "'" ++ "builtin_function" ++ "' object cannot be interpreted as an integer",
+            .iterator => "'" ++ "iterator" ++ "' object cannot be interpreted as an integer",
+            .range => "'" ++ "range" ++ "' object cannot be interpreted as an integer",
+            .exception => "'" ++ "Exception" ++ "' object cannot be interpreted as an integer",
+            .generator => "'" ++ "generator" ++ "' object cannot be interpreted as an integer",
+        };
+    }
+
+    /// Get repr() string for this value - SINGLE SOURCE OF TRUTH
+    /// All code needing repr should call this method.
+    pub fn repr(self: PyValue, allocator: std.mem.Allocator) ![]const u8 {
+        return switch (self) {
+            .int => |v| std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .float => |v| std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .string => |s| blk: {
+                // String repr needs quotes and escaping
+                var result = std.ArrayList(u8).init(allocator);
+                try result.append(allocator, '\'');
+                for (s) |c| {
+                    if (c == '\'' or c == '\\') {
+                        try result.append(allocator, '\\');
+                    }
+                    try result.append(allocator, c);
+                }
+                try result.append(allocator, '\'');
+                break :blk result.items;
+            },
+            .bytes => |b| std.fmt.allocPrint(allocator, "b'{s}'", .{b.data}),
+            .bool => |v| if (v) allocator.dupe(u8, "True") else allocator.dupe(u8, "False"),
+            .none => allocator.dupe(u8, "None"),
+            .not_implemented => allocator.dupe(u8, "NotImplemented"),
+            .list => |list| std.fmt.allocPrint(allocator, "[<{d} items>]", .{list.items.len}),
+            .pylist => |pylist| std.fmt.allocPrint(allocator, "[<{d} items>]", .{@as(usize, @intCast(pylist.ob_base.ob_size))}),
+            .tuple => |tup| std.fmt.allocPrint(allocator, "(<{d} items>)", .{tup.len}),
+            .bigint => |v| v.toString(allocator, 10) catch allocator.dupe(u8, "<bigint>"),
+            .complex => |c| if (c.real == 0)
+                std.fmt.allocPrint(allocator, "{d}j", .{c.imag})
+            else
+                std.fmt.allocPrint(allocator, "({d}+{d}j)", .{ c.real, c.imag }),
+            .type_obj => |t| std.fmt.allocPrint(allocator, "<class '{s}'>", .{t.name}),
+            .ptr => allocator.dupe(u8, "<PyObject>"),
+            .object => |obj| if (obj.vtable.class_name) |name|
+                std.fmt.allocPrint(allocator, "<{s} instance>", .{name})
+            else
+                allocator.dupe(u8, "<object instance>"),
+            // VM-specific types
+            .dict => |d| std.fmt.allocPrint(allocator, "{{<{d} items>}}", .{d.count()}),
+            .code => |c| std.fmt.allocPrint(allocator, "<code object '{s}'>", .{c.name}),
+            .function => |f| std.fmt.allocPrint(allocator, "<function '{s}'>", .{f.code.name}),
+            .builtin_fn => allocator.dupe(u8, "<built-in function>"),
+            .iterator => allocator.dupe(u8, "<iterator>"),
+            .range => |r| std.fmt.allocPrint(allocator, "range({d}, {d}, {d})", .{ r.start, r.stop, r.step }),
+            .exception => |e| std.fmt.allocPrint(allocator, "{s}('{s}')", .{ e.exc_type, e.message }),
+            .generator => allocator.dupe(u8, "<generator object>"),
         };
     }
 

@@ -78,6 +78,91 @@ fn emitArrayIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
     }.f);
 }
 
+// Import CallArg for builder patterns
+const CallArg = builder_mod.ZigBuilder.CallArg;
+
+/// Emit runtime.PyDict.get(base, key).? using builder pattern
+/// Uses auto-closing emitCallExpr for guaranteed bracket matching
+fn emitPyDictGetUnwrapped(self: *NativeCodegen, base: ast.Node, key: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const base_val = try self.captureExpr(base);
+    const key_val = try self.captureExpr(key);
+    try b.emitCallExpr("runtime.PyDict.get", &[_]CallArg{ .{ .value = base_val }, .{ .value = key_val } });
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+    try self.emit(".?");
+}
+
+/// Emit runtime.container_dispatch.getAt(@TypeOf(base), base, @as(usize, @intCast(idx)))
+/// Uses auto-closing pattern for complex nested expression
+fn emitContainerDispatchGetAt(self: *NativeCodegen, base: ast.Node, index: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    // Capture base and emit to get raw string
+    const base_val = try self.captureExpr(base);
+    try b.emitValueCore(base_val);
+    const base_raw = try alloc.dupe(u8, b.getBodyAndClear());
+    // Build @TypeOf(base) expression
+    const typeof_expr = try std.fmt.allocPrint(alloc, "@TypeOf({s})", .{base_raw});
+    // Capture index and emit to get raw string
+    const idx_val = try self.captureExpr(index);
+    try b.emitValueCore(idx_val);
+    const idx_raw = try alloc.dupe(u8, b.getBodyAndClear());
+    // Build @as(usize, @intCast(idx)) expression
+    const cast_expr = try std.fmt.allocPrint(alloc, "@as(usize, @intCast({s}))", .{idx_raw});
+    try b.emitCallExpr("runtime.container_dispatch.getAt", &[_]CallArg{
+        .{ .raw = typeof_expr },
+        .{ .raw = base_raw },
+        .{ .raw = cast_expr },
+    });
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit obj.__getitem__(idx) using builder pattern for method calls
+/// Used for custom class subscript access
+fn emitGetitemMethodCall(self: *NativeCodegen, obj: ast.Node, idx: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const receiver = try self.captureExpr(obj);
+    const idx_val = try self.captureExpr(idx);
+    try b.emitMethodCallExpr(receiver, "__getitem__", &[_]CallArg{.{ .value = idx_val }});
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit obj.__getitem__(@as(usize, @intCast(idx))) for array.array type
+/// Uses builder pattern with explicit index cast
+fn emitGetitemWithUsizeCast(self: *NativeCodegen, obj: ast.Node, idx: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const receiver = try self.captureExpr(obj);
+    // Capture and cast index
+    const idx_val = try self.captureExpr(idx);
+    try b.emitValueCore(idx_val);
+    const idx_raw = try alloc.dupe(u8, b.getBodyAndClear());
+    const cast_expr = try std.fmt.allocPrint(alloc, "@as(usize, @intCast({s}))", .{idx_raw});
+    try b.emitMethodCallExpr(receiver, "__getitem__", &[_]CallArg{.{ .raw = cast_expr }});
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit (try obj.__getitem__(idx)) for defaultdict access
+/// Uses builder pattern with try wrapping
+fn emitTryGetitemMethodCall(self: *NativeCodegen, obj: ast.Node, idx: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const receiver = try self.captureExpr(obj);
+    const idx_val = try self.captureExpr(idx);
+    // Build method call first
+    try b.emitMethodCallExpr(receiver, "__getitem__", &[_]CallArg{.{ .value = idx_val }});
+    const method_call = try alloc.dupe(u8, b.getBodyAndClear());
+    // Wrap in (try ...)
+    const wrapped = try std.fmt.allocPrint(alloc, "(try {s})", .{method_call});
+    try self.emitZigValue(ZigValue.raw(wrapped));
+}
+
 /// Check if a node is a negative constant
 pub fn isNegativeConstant(node: ast.Node) bool {
     if (node == .constant and node.constant.value == .int) {
@@ -329,12 +414,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             if (type_traits.isClassInstance(subscript_value_type) and
                 std.mem.eql(u8, subscript_value_type.class_instance, "array.array"))
             {
-                try genExpr(self, subscript.value.*);
-                try self.emit(".__getitem__(");
-                // Cast index to usize for __getitem__ method
-                try self.emit("@as(usize, @intCast(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.emit(")))");
+                // array.array __getitem__ with usize cast (builder pattern)
+                try emitGetitemWithUsizeCast(self, subscript.value.*, subscript.slice.index.*);
                 return;
             }
 
@@ -357,10 +438,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
             // If we found a __getitem__ method, generate method call instead of direct subscript
             if (has_magic_method and subscript.value.* == .name) {
-                try genExpr(self, subscript.value.*);
-                try self.emit(".__getitem__(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.emit(")");
+                // Custom class __getitem__ (builder pattern)
+                try emitGetitemMethodCall(self, subscript.value.*, subscript.slice.index.*);
                 return;
             }
 
@@ -422,32 +501,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 try genExpr(self, subscript.slice.index.*);
                 try self.emit(")");
             } else if (is_likely_dict) {
-                // PyObject dict access: runtime.PyDict.get(obj, key).?
-                try self.emit("runtime.PyDict.get(");
-                try genExpr(self, subscript.value.*);
-                try self.emit(", ");
-                try genExpr(self, subscript.slice.index.*);
-                try self.emit(").?");
+                // PyObject dict access: runtime.PyDict.get(obj, key).? (builder pattern)
+                try emitPyDictGetUnwrapped(self, subscript.value.*, subscript.slice.index.*);
             } else if (is_unknown_pyobject and type_traits.isIntegral(index_type)) {
-                // Unknown container with integer index - use container_dispatch which handles
-                // both Zig tuples/structs AND ArrayLists at comptime via type inspection
-                // This prevents type errors when anytype params receive tuples vs lists
-                try self.emit("runtime.container_dispatch.getAt(@TypeOf(");
-                try genExpr(self, subscript.value.*);
-                try self.emit("), ");
-                try genExpr(self, subscript.value.*);
-                try self.emit(", @as(usize, @intCast(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.emit(")))");
+                // Unknown container with integer index - use container_dispatch (builder pattern)
+                try emitContainerDispatchGetAt(self, subscript.value.*, subscript.slice.index.*);
             } else if (is_defaultdict) {
                 // defaultdict access: use __getitem__ which triggers __missing__ for missing keys
-                // This creates and stores the default value for missing keys
-                // Note: mutation marking is handled by markDefaultdictSubscriptMutations() in mutation_analysis.zig
-                try self.emit("(try ");
-                try genExpr(self, subscript.value.*);
-                try self.emit(".__getitem__(");
-                try genExpr(self, subscript.slice.index.*);
-                try self.emit("))");
+                // (try obj.__getitem__(idx)) - builder pattern with try wrapping
+                try emitTryGetitemMethodCall(self, subscript.value.*, subscript.slice.index.*);
             } else if (is_dict or is_counter or is_tracked_dict) {
                 // Native dict/Counter access: dict.get(key).? for raw StringHashMap
                 // Counter returns 0 for missing keys in Python

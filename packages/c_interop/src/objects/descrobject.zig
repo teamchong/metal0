@@ -374,7 +374,7 @@ fn descr_repr_helper(descr: *PyDescrObject, kind: [*:0]const u8) ?*cpython.PyObj
 
     // Copy type name
     if (descr.d_type) |tp| {
-        const type_name = std.mem.span(tp.tp_name);
+        const type_name = std.mem.span(tp.tp_name orelse "unknown");
         const type_len = @min(type_name.len, buf.len - pos - 20);
         @memcpy(buf[pos..][0..type_len], type_name[0..type_len]);
         pos += type_len;

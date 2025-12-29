@@ -21,35 +21,34 @@ const ZigBuilder = builder_mod.ZigBuilder;
 // BigInt operation helpers - builder pattern
 // ============================================
 
-/// Emit runtime.bigint_ops.fromInt(allocator, value) using builder
+/// Emit runtime.bigint_ops.fromInt(allocator, value) using auto-close callback
 fn emitBigIntFromInt(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
-    try b.write("runtime.bigint_ops.fromInt(__global_allocator, ");
-    try self.emitZigValue(operand);
-    try b.write(")");
+    _ = self;
+    try b.emitCallExpr("runtime.bigint_ops.fromInt", &.{ .allocator, .{ .value = operand } });
 }
 
-/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value))) using builder
+/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value)))
 fn emitBigIntFromIntCast(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
     try b.write("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
     try self.emitZigValue(operand);
     try b.write(")))");
 }
 
-/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value)) using builder
+/// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value))
 fn emitBigIntFromI64Cast(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
     try b.write("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
     try self.emitZigValue(operand);
     try b.write("))");
 }
 
-/// Emit shift operand: @as(usize, @intCast(value)) using builder
+/// Emit shift operand: @as(usize, @intCast(value))
 fn emitShiftOperand(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
     try b.write("@as(usize, @intCast(");
     try self.emitZigValue(operand);
     try b.write("))");
 }
 
-/// Emit pow exponent: @as(u32, @intCast(value)) using builder
+/// Emit pow exponent: @as(u32, @intCast(value))
 fn emitPowExponent(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
     try b.write("@as(u32, @intCast(");
     try self.emitZigValue(operand);
@@ -85,61 +84,69 @@ pub const BigIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
 // =============================================================================
 
 /// Emit left operand as BigInt value (for .method() calls)
+/// Uses builder pattern for type-aware emission
 pub fn emitBigIntLeftOperand(s: *NativeCodegen, ltype: NativeType, left: *const ast.Node, aname: []const u8) CodegenError!void {
+    const b = try s.getBuilder();
+    const left_val = try s.exprToValue(left.*);
+
     if (ltype == .bigint) {
         // Already BigInt - wrap in parens to ensure catch precedence is correct
-        try s.emit("(");
-        try genExpr(s, left.*);
-        try s.emit(")");
+        try b.write("(");
+        try s.emitZigValue(left_val);
+        try b.write(")");
     } else if (ltype == .int) {
         if (ltype.int.needsBigInt()) {
-            try s.emit("(runtime.BigInt.fromInt128(");
-            try s.emit(aname);
-            try s.emit(", ");
-            try genExpr(s, left.*);
-            try s.emit(") catch @panic(\"OOM\"))");
+            try b.write("(runtime.BigInt.fromInt128(");
+            try b.write(aname);
+            try b.write(", ");
+            try s.emitZigValue(left_val);
+            try b.write(") catch @panic(\"OOM\"))");
         } else {
-            try s.emit("(runtime.BigInt.fromInt(");
-            try s.emit(aname);
-            try s.emit(", ");
-            try genExpr(s, left.*);
-            try s.emit(") catch @panic(\"OOM\"))");
+            try b.write("(runtime.BigInt.fromInt(");
+            try b.write(aname);
+            try b.write(", ");
+            try s.emitZigValue(left_val);
+            try b.write(") catch @panic(\"OOM\"))");
         }
     } else {
-        try s.emit("(runtime.BigInt.fromInt(");
-        try s.emit(aname);
-        try s.emit(", @as(i64, (");
-        try genExpr(s, left.*);
-        try s.emit("))) catch @panic(\"OOM\"))");
+        try b.write("(runtime.BigInt.fromInt(");
+        try b.write(aname);
+        try b.write(", @as(i64, (");
+        try s.emitZigValue(left_val);
+        try b.write("))) catch @panic(\"OOM\"))");
     }
 }
 
 /// Emit right operand as BigInt pointer reference
+/// Uses builder pattern for type-aware emission
 pub fn emitBigIntRightOperand(s: *NativeCodegen, rtype: NativeType, right: *const ast.Node, aname: []const u8) CodegenError!void {
+    const b = try s.getBuilder();
+    const right_val = try s.exprToValue(right.*);
+
     if (rtype == .bigint) {
-        try s.emit("&(");
-        try genExpr(s, right.*);
-        try s.emit(")");
+        try b.write("&(");
+        try s.emitZigValue(right_val);
+        try b.write(")");
     } else if (rtype == .int) {
         if (rtype.int.needsBigInt()) {
-            try s.emit("&(runtime.BigInt.fromInt128(");
-            try s.emit(aname);
-            try s.emit(", ");
-            try genExpr(s, right.*);
-            try s.emit(") catch @panic(\"OOM\"))");
+            try b.write("&(runtime.BigInt.fromInt128(");
+            try b.write(aname);
+            try b.write(", ");
+            try s.emitZigValue(right_val);
+            try b.write(") catch @panic(\"OOM\"))");
         } else {
-            try s.emit("&(runtime.BigInt.fromInt(");
-            try s.emit(aname);
-            try s.emit(", ");
-            try genExpr(s, right.*);
-            try s.emit(") catch @panic(\"OOM\"))");
+            try b.write("&(runtime.BigInt.fromInt(");
+            try b.write(aname);
+            try b.write(", ");
+            try s.emitZigValue(right_val);
+            try b.write(") catch @panic(\"OOM\"))");
         }
     } else {
-        try s.emit("&(runtime.BigInt.fromInt(");
-        try s.emit(aname);
-        try s.emit(", @as(i64, (");
-        try genExpr(s, right.*);
-        try s.emit("))) catch @panic(\"OOM\"))");
+        try b.write("&(runtime.BigInt.fromInt(");
+        try b.write(aname);
+        try b.write(", @as(i64, (");
+        try s.emitZigValue(right_val);
+        try b.write("))) catch @panic(\"OOM\"))");
     }
 }
 
@@ -148,6 +155,7 @@ pub fn emitBigIntRightOperand(s: *NativeCodegen, rtype: NativeType, right: *cons
 // =============================================================================
 
 /// Context for standard BigInt binary operations (add, sub, mul, etc.)
+/// Uses builder pattern for type-aware emission
 pub const BigIntBinOpCtx = struct {
     cg: *NativeCodegen,
     left_type: NativeType,
@@ -158,13 +166,14 @@ pub const BigIntBinOpCtx = struct {
     alloc_name: []const u8,
 
     pub fn emit(ctx: @This(), _: *NativeCodegen) CodegenError!void {
+        const b = try ctx.cg.getBuilder();
         try emitBigIntLeftOperand(ctx.cg, ctx.left_type, ctx.left, ctx.alloc_name);
-        try ctx.cg.emit(".");
-        try ctx.cg.emit(ctx.method);
-        try ctx.cg.emit("(");
+        try b.write(".");
+        try b.write(ctx.method);
+        try b.write("(");
         try emitBigIntRightOperand(ctx.cg, ctx.right_type, ctx.right, ctx.alloc_name);
-        try ctx.cg.emit(", ");
-        try ctx.cg.emit(ctx.alloc_name);
+        try b.write(", ");
+        try b.write(ctx.alloc_name);
     }
 };
 
@@ -226,6 +235,7 @@ pub const UnknownNegateCtx = struct {
 };
 
 /// Context for BigInt shift operations
+/// Uses builder pattern for type-aware emission
 pub const BigIntShiftCtx = struct {
     cg: *NativeCodegen,
     left_type: NativeType,
@@ -235,17 +245,20 @@ pub const BigIntShiftCtx = struct {
     alloc_name: []const u8,
 
     pub fn emit(ctx: @This(), _: *NativeCodegen) CodegenError!void {
+        const b = try ctx.cg.getBuilder();
+        const right_val = try ctx.cg.exprToValue(ctx.right.*);
         try emitBigIntLeftOperand(ctx.cg, ctx.left_type, ctx.left, ctx.alloc_name);
-        try ctx.cg.emit(".");
-        try ctx.cg.emit(ctx.method);
-        try ctx.cg.emit("(@as(usize, @intCast(");
-        try genExpr(ctx.cg, ctx.right.*);
-        try ctx.cg.emit(")), ");
-        try ctx.cg.emit(ctx.alloc_name);
+        try b.write(".");
+        try b.write(ctx.method);
+        try b.write("(@as(usize, @intCast(");
+        try ctx.cg.emitZigValue(right_val);
+        try b.write(")), ");
+        try b.write(ctx.alloc_name);
     }
 };
 
 /// Context for BigInt pow operation
+/// Uses builder pattern for type-aware emission
 pub const BigIntPowCtx = struct {
     cg: *NativeCodegen,
     left_type: NativeType,
@@ -254,16 +267,19 @@ pub const BigIntPowCtx = struct {
     alloc_name: []const u8,
 
     pub fn emit(ctx: @This(), _: *NativeCodegen) CodegenError!void {
+        const b = try ctx.cg.getBuilder();
+        const right_val = try ctx.cg.exprToValue(ctx.right.*);
         try emitBigIntLeftOperand(ctx.cg, ctx.left_type, ctx.left, ctx.alloc_name);
-        try ctx.cg.emit(".pow(@as(u32, @intCast(");
-        try genExpr(ctx.cg, ctx.right.*);
-        try ctx.cg.emit(")), ");
-        try ctx.cg.emit(ctx.alloc_name);
+        try b.write(".pow(@as(u32, @intCast(");
+        try ctx.cg.emitZigValue(right_val);
+        try b.write(")), ");
+        try b.write(ctx.alloc_name);
     }
 };
 
 /// Context for large exponent pow with bool conversion
-/// Now uses UnifiedInt via unified_int_ops (panics on OOM, no error unions)
+/// Uses UnifiedInt via unified_int_ops (panics on OOM, no error unions)
+/// Uses builder pattern for type-aware emission
 pub const LargeExpPowCtx = struct {
     cg: *NativeCodegen,
     binop: ast.Node.BinOp,
@@ -272,28 +288,32 @@ pub const LargeExpPowCtx = struct {
     alloc_name: []const u8,
 
     pub fn emit(ctx: @This(), _: *NativeCodegen) CodegenError!void {
+        const b = try ctx.cg.getBuilder();
+        const left_val = try ctx.cg.exprToValue(ctx.binop.left.*);
+        const right_val = try ctx.cg.exprToValue(ctx.binop.right.*);
+
         // Use unified_int_ops.pow(left, exp, allocator) -> UnifiedInt
-        try ctx.cg.emit("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
+        try b.write("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
         // Left operand with bool conversion
         if (ctx.left_is_bool) {
-            try ctx.cg.emit("@as(i64, @intFromBool(");
-            try genExpr(ctx.cg, ctx.binop.left.*);
-            try ctx.cg.emit("))");
+            try b.write("@as(i64, @intFromBool(");
+            try ctx.cg.emitZigValue(left_val);
+            try b.write("))");
         } else {
-            try genExpr(ctx.cg, ctx.binop.left.*);
+            try ctx.cg.emitZigValue(left_val);
         }
-        try ctx.cg.emit("), @as(u32, @intCast(");
+        try b.write("), @as(u32, @intCast(");
         // Right operand with bool conversion
         if (ctx.right_is_bool) {
-            try ctx.cg.emit("@as(i64, @intFromBool(");
-            try genExpr(ctx.cg, ctx.binop.right.*);
-            try ctx.cg.emit("))");
+            try b.write("@as(i64, @intFromBool(");
+            try ctx.cg.emitZigValue(right_val);
+            try b.write("))");
         } else {
-            try genExpr(ctx.cg, ctx.binop.right.*);
+            try ctx.cg.emitZigValue(right_val);
         }
-        try ctx.cg.emit(")), ");
-        try ctx.cg.emit(ctx.alloc_name);
-        try ctx.cg.emit(")");
+        try b.write(")), ");
+        try b.write(ctx.alloc_name);
+        try b.write(")");
     }
 };
 
@@ -343,34 +363,38 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
 }
 
 /// Emit an operand as a BigInt value (AST node version)
+/// Uses builder pattern for type-aware emission
 /// Handles conversion from i64, i128, or existing BigInt
 pub fn emitBigIntOperand(self: *NativeCodegen, op_type: NativeType, node: *const ast.Node, alloc_name: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    const node_val = try self.exprToValue(node.*);
+
     if (op_type == .bigint) {
         // Already BigInt - emit directly
-        try genExpr(self, node.*);
+        try self.emitZigValue(node_val);
     } else if (op_type == .int) {
         if (op_type.int.needsBigInt()) {
-            // Large int (i128) - use fromInt128
-            try self.emit("runtime.bigint_ops.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", @as(i64, @intCast(");
-            try genExpr(self, node.*);
-            try self.emit(")))");
+            // Large int (i128) - use fromInt with cast
+            try b.write("runtime.bigint_ops.fromInt(");
+            try b.write(alloc_name);
+            try b.write(", @as(i64, @intCast(");
+            try self.emitZigValue(node_val);
+            try b.write(")))");
         } else {
             // Normal i64
-            try self.emit("runtime.bigint_ops.fromInt(");
-            try self.emit(alloc_name);
-            try self.emit(", ");
-            try genExpr(self, node.*);
-            try self.emit(")");
+            try b.write("runtime.bigint_ops.fromInt(");
+            try b.write(alloc_name);
+            try b.write(", ");
+            try self.emitZigValue(node_val);
+            try b.write(")");
         }
     } else {
         // Unknown type - try to convert as i64
-        try self.emit("runtime.bigint_ops.fromInt(");
-        try self.emit(alloc_name);
-        try self.emit(", @as(i64, ");
-        try genExpr(self, node.*);
-        try self.emit("))");
+        try b.write("runtime.bigint_ops.fromInt(");
+        try b.write(alloc_name);
+        try b.write(", @as(i64, ");
+        try self.emitZigValue(node_val);
+        try b.write("))");
     }
 }
 

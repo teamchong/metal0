@@ -17,8 +17,29 @@ const UnittestAssertions = self_analyzer.unittest_assertion_methods;
 const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
+const CallArg = builder_mod.ZigBuilder.CallArg;
 
 // MIGRATED TO ZIGBUILDER
+
+/// Emit runtime.pyTypeName(expr) using builder pattern
+fn emitPyTypeName(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const expr_val = try self.captureExpr(expr);
+    try b.emitCallExpr("runtime.pyTypeName", &[_]CallArg{.{ .value = expr_val }});
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.PyFile.getClosed(expr) using builder pattern
+fn emitPyFileGetClosed(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const expr_val = try self.captureExpr(expr);
+    try b.emitCallExpr("runtime.PyFile.getClosed", &[_]CallArg{.{ .value = expr_val }});
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+}
 
 /// Check if a string is all uppercase (for detecting constants)
 fn isAllUppercase(s: []const u8) bool {
@@ -315,10 +336,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (std.mem.eql(u8, attr.attr, "__name__") and attr.value.* == .call) {
         const call = attr.value.call;
         if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "type") and call.args.len == 1) {
-            // type(x).__name__ -> runtime.pyTypeName(x)
-            try self.emit("runtime.pyTypeName(");
-            try genExpr(self, call.args[0]);
-            try self.emit(")");
+            // type(x).__name__ -> runtime.pyTypeName(x) (builder pattern)
+            try emitPyTypeName(self, call.args[0]);
             return;
         }
     }
@@ -401,6 +420,19 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             }
         }
 
+        // Check if this is a C extension module (numpy, pandas, etc.)
+        // np.__version__ -> c_interop.getAttr(np.?, "__version__")
+        if (self.isCExtensionModule(module_name)) {
+            // Resolve alias to actual module name for error messages
+            const actual_module = self.c_extension_modules.get(module_name) orelse module_name;
+            try self.emit("runtime.PyValue.from(c_interop.getAttr(");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
+            try self.emit(".?, \"");
+            try self.emit(attr_name);
+            try self.emitFmt("\") orelse @panic(\"Failed to get attribute '{s}' from C extension module '{s}'\"))", .{ attr_name, actual_module });
+            return;
+        }
+
         // Check if this module is imported (fallback for function references)
         if (self.imported_modules.contains(module_name)) {
             // Check if this is a runtime module or a compiled Python module
@@ -478,10 +510,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     const value_type = try self.type_inferrer.inferExpr(attr.value.*);
     if (value_type == .file) {
         if (std.mem.eql(u8, attr.attr, "closed")) {
-            // File.closed property - call getClosed helper
-            try self.emit("runtime.PyFile.getClosed(");
-            try genExpr(self, attr.value.*);
-            try self.emit(")");
+            // File.closed property (builder pattern)
+            try emitPyFileGetClosed(self, attr.value.*);
             return;
         }
     }

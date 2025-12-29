@@ -296,6 +296,173 @@ Here's how `print(sum([1, 2, 3]))` flows through the compiler:
    -> Native binary
 ```
 
+## Two-Tier Compilation: AOT + Surgical VM Fallback
+
+metal0 uses a **two-tier compilation strategy** to achieve both maximum performance and full Python compatibility:
+
+1. **Tier 1: AOT Compilation** - Static Python code compiles to native Zig (30x faster than CPython)
+2. **Tier 2: Bytecode VM** - Dynamic features (`eval()`, `exec()`) use an embedded bytecode interpreter
+
+### Key Principle: Surgical Fallback
+
+**Only the specific expression** falls back to the VM, NOT the entire function or file.
+
+```python
+def calculate(x, y):
+    a = x + y          # ← AOT compiled to native Zig
+    b = a * 2          # ← AOT compiled to native Zig
+    c = eval("a + b")  # ← Only this expression uses VM
+    return c + 1       # ← AOT compiled to native Zig
+```
+
+Generated Zig code:
+
+```zig
+fn calculate(x: i64, y: i64) i64 {
+    const a = x + y;                          // Native Zig
+    const b = a * 2;                          // Native Zig
+    const c = runtime.PyValue.from(           // VM call wrapped in PyValue
+        try runtime.eval(__global_allocator, "a + b")
+    );
+    return c.asInt() + 1;                     // Native Zig
+}
+```
+
+### Three Levels of VM Fallback
+
+| Pattern | Compilation | When Used |
+|---------|-------------|-----------|
+| **Comptime eval** | Bytecode embedded at compile time | `eval("1 + 2")` - string literal |
+| **Runtime eval** | Bytecode compiled at runtime | `eval(user_input)` - dynamic string |
+| **Type dunder fallback** | String interpolation to VM | `complex.__eq__(a, b)` - unsupported type dunders |
+
+### Comptime Eval Optimization
+
+When `eval()` has a **string literal** argument, metal0 compiles the bytecode at Zig compile time and embeds it directly:
+
+```python
+result = eval("1 + 2 * 3")  # String literal - comptime optimized
+```
+
+Generated:
+
+```zig
+const _bytecode_0 = [_]u8{ 0x01, 0x02, ... };  // Bytecode embedded at compile time
+var _program_0 = runtime.BytecodeProgram.deserialize(__global_allocator, &_bytecode_0);
+var _vm_0 = runtime.BytecodeVM.init(__global_allocator);
+const result = runtime.PyValue.from(_vm_0.execute(&_program_0));
+```
+
+### VM Fallback Analysis (`vm_fallback_analysis.zig`)
+
+Before code generation, metal0 scans function bodies to identify:
+
+1. **Variables used in VM expressions** - Must be available when VM runs
+2. **Lambda captures** - Variables captured from outer scope in lambdas
+3. **Type dunder patterns** - Calls like `complex.__eq__(a, b)` that need VM
+
+This ensures variables are properly scoped and not optimized away before the VM needs them.
+
+### Performance Impact
+
+| Code Pattern | Execution Path | Relative Speed |
+|--------------|----------------|----------------|
+| `x + y` (numeric) | Native Zig | 30x CPython |
+| `eval("x + y")` literal | Embedded bytecode | ~1x CPython |
+| `eval(dynamic_string)` | Runtime bytecode | ~0.8x CPython |
+| `complex.__eq__(a, b)` | VM fallback | ~1x CPython |
+
+The key insight: **Contamination is minimal**. One `eval()` doesn't slow down the entire program - only that specific expression pays the VM overhead.
+
+### Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/codegen/native/builtins/eval.zig` | `eval()` and `exec()` code generation |
+| `src/codegen/native/builtins/compile.zig` | `compile()` builtin |
+| `src/codegen/native/statements/functions/generators/body/vm_fallback_analysis.zig` | Pre-scan for VM variable usage |
+| `packages/runtime/src/bytecode/vm.zig` | Bytecode interpreter |
+| `packages/runtime/src/bytecode/frame.zig` | VM stack frame and PyValue |
+| `src/codegen/bytecode.zig` | Python-to-bytecode compiler |
+
+## CPython-Compatible Memory Layout
+
+metal0 implements Python types using Zig's `extern struct` with **exact CPython memory layout**. This enables:
+
+1. **C extension compatibility** - C extensions can work with metal0 objects
+2. **FFI interop** - Direct memory layout matching CPython
+3. **Debugging** - GDB/LLDB can inspect objects using CPython struct definitions
+
+### Example: PyObject Layout
+
+```zig
+// packages/runtime/src/cpython.zig
+
+/// PyObject - Base object header (CPython compatible)
+/// Layout: ob_refcnt (8 bytes) + ob_type (8 bytes) = 16 bytes
+pub const PyObject = extern struct {
+    ob_refcnt: Py_ssize_t,
+    ob_type: *PyTypeObject,
+};
+
+/// PyListObject - Exact CPython list layout
+pub const PyListObject = extern struct {
+    ob_base: PyVarObject,
+    ob_item: [*]*PyObject,  // Array of PyObject pointers
+    allocated: Py_ssize_t,
+};
+
+/// PyUnicodeObject - Python string
+pub const PyUnicodeObject = extern struct {
+    ob_base: PyObject,
+    length: Py_ssize_t,
+    hash: Py_ssize_t,
+    state: u32,
+    _padding: u32,
+    data: [*]const u8,
+};
+```
+
+### Type Mapping
+
+| CPython Type | metal0 Zig Type | Memory Compatible |
+|--------------|-----------------|-------------------|
+| `PyObject*` | `*cpython.PyObject` | ✅ Yes |
+| `PyListObject*` | `*cpython.PyListObject` | ✅ Yes |
+| `PyLongObject*` | `*cpython.PyLongObject` | ✅ Yes |
+| `PyFloatObject*` | `*cpython.PyFloatObject` | ✅ Yes |
+| `PyUnicodeObject*` | `*cpython.PyUnicodeObject` | ✅ Yes |
+| `PyTypeObject*` | `*cpython.PyTypeObject` | ✅ Yes |
+
+## Shared Infrastructure
+
+Both the AOT compiler and bytecode VM share the same core implementations:
+
+| Component | Location | Used By |
+|-----------|----------|---------|
+| `cpython.zig` types | `packages/runtime/src/cpython.zig` | AOT + VM |
+| `PyValue` (unified) | `packages/runtime/src/Objects/object.zig` | AOT + VM |
+| Arithmetic ops | `PyValue.add/sub/mul/div/floordiv/mod/pow` | AOT + VM |
+| String operations | `packages/runtime/src/runtime/string_utils.zig` | AOT + VM |
+| Integer overflow | `packages/runtime/src/runtime/unified_int_ops.zig` | AOT + VM |
+
+### Design Principles
+
+From `bytecode.zig` header:
+```
+/// 1. Stable bytecode format (NOT CPython opcodes)
+/// 2. VM dispatches to existing runtime functions (no reimplementation)
+/// 3. Shares freeze infrastructure with edgebox
+```
+
+### How It Works
+
+1. **Unified PyValue**: The `PyValue` type in `Objects/object.zig` is the single source of truth. The VM imports this directly via `bytecode/frame.zig`.
+
+2. **Shared Arithmetic**: Both paths use `PyValue.add()`, `PyValue.sub()`, etc. The VM's `vmAdd/vmSub/vmMul` methods are thin wrappers that call these shared implementations.
+
+3. **Identical Results**: Both paths produce identical results for the same operations because they share the same code.
+
 ## Debugging
 
 metal0 supports standard Python toolchains for debugging (e.g., VSCode debugger).

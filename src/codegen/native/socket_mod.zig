@@ -103,7 +103,7 @@ fn genCreateConn(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     try self.withInlineBlock("conn", args, struct {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const addr_label = (try c.getBuilder()).freshInlineLabel("addr") catch "__addr";
+            const addr_label = try (try c.getBuilder()).freshInlineLabel("addr");
             try c.emit("const _addr_tuple = ");
             try c.genExpr(a[0]);
             try c.emitFmt("; const _host = _addr_tuple.@\"0\"; const _port = _addr_tuple.@\"1\"; const _sock = std.posix.socket(std.posix.AF.INET, std.posix.SOCK.STREAM, 0) catch break :{s} @as(i64, -1); var _addr: std.posix.sockaddr.in = .{{ .family = std.posix.AF.INET, .port = std.mem.nativeToBig(u16, @intCast(_port)), .addr = {s}: {{ if (std.mem.eql(u8, _host, \"localhost\") or std.mem.eql(u8, _host, \"127.0.0.1\")) {{ break :{s} .{{ .s_addr = std.mem.nativeToBig(u32, 0x7f000001) }}; }} else {{ break :{s} .{{ .s_addr = 0 }}; }} }}, .zero = [_]u8{{0}} ** 8 }}; std.posix.connect(_sock, @ptrCast(&_addr), @sizeOf(@TypeOf(_addr))) catch break :{s} @as(i64, -1); break :{s} @as(i64, @intCast(_sock))", .{ label, addr_label, addr_label, addr_label, label, label });

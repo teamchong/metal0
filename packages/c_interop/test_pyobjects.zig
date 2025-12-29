@@ -28,7 +28,7 @@ pub fn main() !void {
     const x_long = @as(*cpython.PyLongObject, @ptrCast(x.?));
     const type_obj = cpython.Py_TYPE(&x_long.ob_base.ob_base);
 
-    std.debug.print("Type name: {s}\n", .{type_obj.tp_name});
+    std.debug.print("Type name: {s}\n", .{std.mem.span(type_obj.tp_name orelse "unknown")});
 
     // Test small int cache
     const cached1 = pylong.PyLong_FromLong(100);

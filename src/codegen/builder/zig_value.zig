@@ -186,6 +186,18 @@ pub const ZigValue = union(enum) {
     /// Array/slice literal
     array: ArrayValue,
 
+    /// Python list (ArrayList)
+    list: ListValue,
+
+    /// Python tuple
+    tuple: TupleValue,
+
+    /// Python dict
+    dict: DictValue,
+
+    /// Python set
+    set: SetValue,
+
     /// Struct literal
     struct_literal: StructLiteralValue,
 
@@ -202,6 +214,10 @@ pub const ZigValue = union(enum) {
     /// Use sparingly - prefer structured values
     raw_expr: []const u8,
 
+    /// Typed raw expression (captured complex expression with confidence tracking)
+    /// Used for calls/attributes/subscripts that need complex dispatch but tracked confidence
+    typed_raw: TypedRawValue,
+
     /// Field access (obj.field)
     field_access: FieldAccessValue,
 
@@ -210,6 +226,15 @@ pub const ZigValue = union(enum) {
 
     /// Function call result (func(args))
     call_result: CallResultValue,
+
+    /// Ternary/conditional expression (if-else)
+    ternary: TernaryValue,
+
+    /// Boolean operation (and/or)
+    boolop: BoolOpValue,
+
+    /// Type cast expression (@as(T, @builtin(inner)))
+    cast: CastValue,
 
     // ============================================
     // Type information
@@ -225,13 +250,19 @@ pub const ZigValue = union(enum) {
             // Compound values inherit from their construction
             .bigint, .unified_int => .certain,
             .array, .struct_literal => .certain,
+            // Container types are certain (element types are known)
+            .list, .tuple, .dict, .set => .certain,
             .method_result => |m| m.confidence,
             .binop_result => |b| b.confidence,
             .unaryop_result => |u| u.confidence,
             .field_access => |f| f.confidence,
             .subscript => |s| s.confidence,
             .call_result => |c| c.confidence,
+            .ternary => |t| t.confidence,
+            .boolop => |bo| bo.confidence,
+            .cast => .certain, // Casts produce certain types
             .raw_expr => .certain, // Raw expressions are user-controlled
+            .typed_raw => |t| t.confidence,
             .none => .certain,
         };
     }
@@ -334,6 +365,89 @@ pub const ZigValue = union(enum) {
     pub fn void_() ZigValue {
         return .{ .none = {} };
     }
+
+    // ============================================
+    // Type detection for builder dispatch
+    // ============================================
+
+    /// Check if this value is a BigInt
+    pub fn isBigInt(self: ZigValue) bool {
+        return self == .bigint;
+    }
+
+    /// Check if this value is a UnifiedInt
+    pub fn isUnifiedInt(self: ZigValue) bool {
+        return self == .unified_int;
+    }
+
+    /// Check if this value is a complex number (tracked via raw expression pattern)
+    pub fn isComplex(self: ZigValue) bool {
+        // Complex values come through raw_expr with PyComplex pattern
+        return switch (self) {
+            .raw_expr => |r| std.mem.indexOf(u8, r, "PyComplex") != null,
+            .typed_raw => |t| t.type_hint != null and t.type_hint.? == .other, // Complex maps to other
+            else => false,
+        };
+    }
+
+    /// Check if this value is a list
+    pub fn isList(self: ZigValue) bool {
+        return self == .list;
+    }
+
+    /// Check if this value is a tuple
+    pub fn isTuple(self: ZigValue) bool {
+        return self == .tuple;
+    }
+
+    /// Check if this value is a string (certain or uncertain)
+    pub fn isString(self: ZigValue) bool {
+        return switch (self) {
+            .certain_str => true,
+            .typed_raw => |t| t.type_hint != null and t.type_hint.? == .string,
+            else => false,
+        };
+    }
+
+    /// Check if this value needs BigInt or UnifiedInt operations
+    pub fn needsBigIntOps(self: ZigValue) bool {
+        return self.isBigInt() or self.isUnifiedInt();
+    }
+
+    /// Get type hint from typed_raw, if available
+    pub fn typeHint(self: ZigValue) ?CertainType {
+        return switch (self) {
+            .typed_raw => |t| t.type_hint,
+            else => null,
+        };
+    }
+
+    // ============================================
+    // Auto-close wrapper constructors (for callbacks)
+    // ============================================
+
+    /// Wrap value in @as(T, inner)
+    /// Example: wrapAs("i64", x) => @as(i64, x)
+    pub fn wrapAs(comptime target_type: []const u8, inner: ZigValue) ZigValue {
+        _ = inner;
+        // Return a cast wrapper that will be emitted as @as(T, inner)
+        return .{ .cast = .{
+            .target_type = target_type,
+            .builtin = null,
+            .inner = null, // Will use the inner value during emission
+        } };
+    }
+
+    /// Wrap value in @as(T, @builtin(inner))
+    /// Example: wrapCast("i64", "@intCast", x) => @as(i64, @intCast(x))
+    pub fn wrapCast(comptime target_type: []const u8, comptime builtin: []const u8, inner: ZigValue) ZigValue {
+        _ = inner;
+        return .{ .cast = .{
+            .target_type = target_type,
+            .builtin = builtin,
+            .inner = null,
+        } };
+    }
 };
 
 /// Type hint for uncertain values (helps with optimization)
@@ -392,6 +506,45 @@ pub const ArrayValue = struct {
     elements: []const ZigValue,
     /// Element type (if known)
     element_type: ?[]const u8,
+};
+
+/// Python list value (ArrayList)
+pub const ListValue = struct {
+    /// Element values
+    elements: []const ZigValue,
+    /// Element type (e.g., "i64", "runtime.PyValue")
+    element_type: []const u8,
+    /// Whether to use array optimization (constant homogeneous elements)
+    use_array: bool = false,
+};
+
+/// Python tuple value (fixed-size, heterogeneous)
+pub const TupleValue = struct {
+    /// Element values
+    elements: []const ZigValue,
+};
+
+/// Python dict value
+pub const DictValue = struct {
+    /// Key-value pairs
+    pairs: []const DictPair,
+    /// Key type (e.g., "[]const u8")
+    key_type: []const u8,
+    /// Value type (e.g., "i64", "runtime.PyValue")
+    value_type: []const u8,
+
+    pub const DictPair = struct {
+        key: ZigValue,
+        value: ZigValue,
+    };
+};
+
+/// Python set value
+pub const SetValue = struct {
+    /// Element values
+    elements: []const ZigValue,
+    /// Element type
+    element_type: []const u8,
 };
 
 /// Struct literal value
@@ -502,6 +655,48 @@ pub const CallResultValue = struct {
     return_type_hint: ?CertainType = null,
 };
 
+/// Typed raw expression value
+/// Used for complex expressions (calls, attributes, subscripts) that need
+/// the existing dispatch logic but still track type confidence
+pub const TypedRawValue = struct {
+    /// The captured raw Zig expression
+    raw: []const u8,
+    /// Result confidence (from type inference)
+    confidence: TypeConfidence,
+    /// Optional type hint for optimization
+    type_hint: ?CertainType = null,
+};
+
+/// Ternary/conditional expression (if-else expression)
+/// Python: value if condition else other_value
+/// Zig: if (condition) value else other_value
+pub const TernaryValue = struct {
+    /// Condition expression
+    condition: *const ZigValue,
+    /// True branch value
+    then_value: *const ZigValue,
+    /// False branch value (else)
+    else_value: *const ZigValue,
+    /// Result confidence (combined from both branches)
+    confidence: TypeConfidence,
+};
+
+/// Boolean operation value (and/or)
+/// Python: a and b, a or b
+pub const BoolOpValue = struct {
+    /// Operator (and/or)
+    op: BoolOpKind,
+    /// Operand values
+    values: []const ZigValue,
+    /// Result confidence
+    confidence: TypeConfidence,
+
+    pub const BoolOpKind = enum {
+        and_,
+        or_,
+    };
+};
+
 /// Import UnaryOp from zig_expr to avoid duplication
 pub const UnaryOp = @import("zig_expr.zig").UnaryOp;
 
@@ -513,6 +708,16 @@ pub const UnaryOpResultValue = struct {
     operand: *const ZigValue,
     /// Result confidence
     confidence: TypeConfidence,
+};
+
+/// Type cast value: @as(target_type, @builtin(inner)) or @as(target_type, inner)
+pub const CastValue = struct {
+    /// Target type (e.g., "i64", "usize")
+    target_type: []const u8,
+    /// Optional builtin to apply before cast (e.g., "@intCast", "@floatFromInt")
+    builtin: ?[]const u8,
+    /// Inner value (null means use placeholder - will be filled during emission)
+    inner: ?*const ZigValue,
 };
 
 // ============================================

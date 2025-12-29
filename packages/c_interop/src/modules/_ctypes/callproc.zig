@@ -177,12 +177,12 @@ fn isCDataObject(obj: *cpython.PyObject) bool {
     // Check if the type has CDataObject in its hierarchy
     const tp = obj.ob_type;
     if (tp.tp_base) |base| {
-        const base_name = std.mem.span(base.tp_name);
+        const base_name = std.mem.span(base.tp_name orelse "unknown");
         if (std.mem.indexOf(u8, base_name, "CData") != null) {
             return true;
         }
     }
-    const type_name = std.mem.span(tp.tp_name);
+    const type_name = std.mem.span(tp.tp_name orelse "unknown");
     return std.mem.indexOf(u8, type_name, "CData") != null or
         std.mem.indexOf(u8, type_name, "c_") != null or
         std.mem.indexOf(u8, type_name, "POINTER") != null or
@@ -207,7 +207,7 @@ fn getTypeTag(type_obj: ?*cpython.PyObject) u8 {
     }
 
     // Check type name for hints
-    const type_name = std.mem.span(type_obj.?.ob_type.tp_name);
+    const type_name = std.mem.span(type_obj.?.ob_type.tp_name orelse "unknown");
     if (std.mem.indexOf(u8, type_name, "c_void_p") != null) return FFI_TYPE_POINTER;
     if (std.mem.indexOf(u8, type_name, "c_char_p") != null) return FFI_TYPE_POINTER;
     if (std.mem.indexOf(u8, type_name, "c_wchar_p") != null) return FFI_TYPE_POINTER;

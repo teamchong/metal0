@@ -26,8 +26,8 @@ fn exceptionTypeMatches(exc: *runtime.PyObject, type_obj: *runtime.PyObject) boo
 
     if (exc_type == match_type_ptr) return true;
 
-    const exc_name = exc_type.tp_name;
-    const match_name = match_type_ptr.tp_name;
+    const exc_name = exc_type.tp_name orelse return false;
+    const match_name = match_type_ptr.tp_name orelse return false;
 
     if (std.mem.eql(u8, std.mem.span(exc_name), std.mem.span(match_name))) {
         return true;

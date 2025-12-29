@@ -41,6 +41,10 @@ const BinOp = @import("zig_value.zig").BinOp;
 const UnaryOp = @import("zig_value.zig").UnaryOp;
 const UnaryOpResultValue = @import("zig_value.zig").UnaryOpResultValue;
 const CallResultValue = @import("zig_value.zig").CallResultValue;
+const ListValue = @import("zig_value.zig").ListValue;
+const TupleValue = @import("zig_value.zig").TupleValue;
+const DictValue = @import("zig_value.zig").DictValue;
+const SetValue = @import("zig_value.zig").SetValue;
 
 const ZigType = @import("zig_type.zig").ZigType;
 const TypePool = @import("zig_type.zig").TypePool;
@@ -224,6 +228,166 @@ pub const ZigBuilder = struct {
         try self.types.appendSlice(self.allocator, s);
     }
 
+    // ============================================
+    // Auto-closing call emission (industry standard)
+    // ============================================
+
+    /// Argument type for emitCall
+    pub const CallArg = union(enum) {
+        /// A ZigValue to emit
+        value: ZigValue,
+        /// Raw string to emit
+        raw: []const u8,
+        /// The global allocator (__global_allocator)
+        allocator,
+        /// Self reference
+        self_ref,
+    };
+
+    /// Emit a function call expression (no semicolon/newline - for use within expressions)
+    /// Example: emitCallExpr("runtime.bigint_ops.add", &.{.{.value = lhs}, .{.value = rhs}, .allocator})
+    /// Produces: runtime.bigint_ops.add(lhs_expr, rhs_expr, __global_allocator)
+    pub fn emitCallExpr(self: *ZigBuilder, func: []const u8, args: []const CallArg) !void {
+        try self.write(func);
+        try self.write("(");
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.write(", ");
+            switch (arg) {
+                .value => |v| try self.emitValueCore(v),
+                .raw => |r| try self.write(r),
+                .allocator => try self.write("__global_allocator"),
+                .self_ref => try self.write("self"),
+            }
+        }
+        try self.write(")");
+    }
+
+    /// Emit a function call wrapped in (try ...) for error-returning functions
+    /// Example: emitTryCallExpr("runtime.ValueError.init", &.{.allocator})
+    /// Produces: (try runtime.ValueError.init(__global_allocator))
+    pub fn emitTryCallExpr(self: *ZigBuilder, func: []const u8, args: []const CallArg) !void {
+        try self.write("(try ");
+        try self.emitCallExpr(func, args);
+        try self.write(")");
+    }
+
+    /// Emit a method call expression (no semicolon/newline - for use within expressions)
+    /// Example: emitMethodCallExpr(obj, "add", &.{.{.value = other}})
+    /// Produces: obj_expr.add(other_expr)
+    pub fn emitMethodCallExpr(self: *ZigBuilder, receiver: ZigValue, method: []const u8, args: []const CallArg) !void {
+        try self.emitValueCore(receiver);
+        try self.write(".");
+        try self.write(method);
+        try self.write("(");
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.write(", ");
+            switch (arg) {
+                .value => |v| try self.emitValueCore(v),
+                .raw => |r| try self.write(r),
+                .allocator => try self.write("__global_allocator"),
+                .self_ref => try self.write("self"),
+            }
+        }
+        try self.write(")");
+    }
+
+    /// Emit a binary runtime operation (handles type coercion automatically)
+    /// For BigInt: emitRuntimeBinOp(.bigint, .add, lhs, rhs)
+    /// Produces: runtime.bigint_ops.add(lhs, rhs, __global_allocator)
+    pub fn emitRuntimeBinOp(self: *ZigBuilder, kind: RuntimeOpKind, op: []const u8, lhs: ZigValue, rhs: ZigValue) !void {
+        const prefix = switch (kind) {
+            .bigint => "runtime.bigint_ops.",
+            .unified_int => "runtime.unified_int_ops.",
+            .complex => "runtime.PyComplex.",
+            .pyvalue => "runtime.PyValue.from(",
+        };
+
+        switch (kind) {
+            .bigint => {
+                try self.write(prefix);
+                try self.write(op);
+                try self.write("(");
+                // Convert lhs to BigInt if needed
+                if (lhs.isBigInt()) {
+                    try self.emitValueCore(lhs);
+                } else {
+                    try self.write("runtime.bigint_ops.fromInt(__global_allocator, ");
+                    try self.emitValueCore(lhs);
+                    try self.write(")");
+                }
+                try self.write(", ");
+                // Convert rhs to BigInt if needed
+                if (rhs.isBigInt()) {
+                    try self.emitValueCore(rhs);
+                } else {
+                    try self.write("runtime.bigint_ops.fromInt(__global_allocator, ");
+                    try self.emitValueCore(rhs);
+                    try self.write(")");
+                }
+                try self.write(", __global_allocator)");
+            },
+            .unified_int => {
+                try self.write(prefix);
+                try self.write(op);
+                try self.write("(");
+                // Convert lhs to UnifiedInt if needed
+                if (lhs.isUnifiedInt()) {
+                    try self.emitValueCore(lhs);
+                } else {
+                    try self.write("runtime.unified_int_ops.fromI64(");
+                    try self.emitValueCore(lhs);
+                    try self.write(")");
+                }
+                try self.write(", ");
+                // Convert rhs to UnifiedInt if needed
+                if (rhs.isUnifiedInt()) {
+                    try self.emitValueCore(rhs);
+                } else {
+                    try self.write("runtime.unified_int_ops.fromI64(");
+                    try self.emitValueCore(rhs);
+                    try self.write(")");
+                }
+                try self.write(", __global_allocator)");
+            },
+            .complex => {
+                try self.emitValueCore(lhs);
+                try self.write(".");
+                try self.write(op);
+                try self.write("(");
+                try self.emitValueCore(rhs);
+                try self.write(")");
+            },
+            .pyvalue => {
+                try self.write("runtime.PyValue.from(");
+                try self.emitValueCore(lhs);
+                try self.write(").");
+                try self.write(op);
+                try self.write("(runtime.PyValue.from(");
+                try self.emitValueCore(rhs);
+                try self.write("))");
+            },
+        }
+    }
+
+    /// Runtime operation kind for type-aware dispatch
+    pub const RuntimeOpKind = enum {
+        bigint,
+        unified_int,
+        complex,
+        pyvalue,
+    };
+
+    /// Emit a repeat operation (string/list/tuple * int)
+    /// Produces: runtime.strRepeat(__global_allocator, collection, @as(usize, @intCast(count)))
+    fn emitRepeat(self: *ZigBuilder, func: []const u8, collection: ZigValue, count: ZigValue) !void {
+        try self.write(func);
+        try self.write("(__global_allocator, ");
+        try self.emitValueCore(collection);
+        try self.write(", @as(usize, @intCast(");
+        try self.emitValueCore(count);
+        try self.write(")))");
+    }
+
     /// Static indent strings for O(1) lookup
     const INDENT_STRINGS = [_][]const u8{
         "",
@@ -390,7 +554,8 @@ pub const ZigBuilder = struct {
     }
 
     /// Core value emission (no wrapping)
-    fn emitValueCore(self: *ZigBuilder, value: ZigValue) Allocator.Error!void {
+    /// Public for use in codegen modules that need direct value emission
+    pub fn emitValueCore(self: *ZigBuilder, value: ZigValue) Allocator.Error!void {
         switch (value) {
             .none => try self.write("{}"),
             .local => |idx| {
@@ -448,6 +613,7 @@ pub const ZigBuilder = struct {
                 try self.write("runtime.PyValue{ .none = {} }");
             },
             .raw_expr => |expr| try self.write(expr),
+            .typed_raw => |t| try self.write(t.raw),
             .bigint => |_| try self.write("runtime.BigInt.zero()"), // TODO: proper BigInt emission
             .unified_int => |_| try self.write("runtime.UnifiedInt{ .small = 0 }"), // TODO
             .array => |arr| {
@@ -457,6 +623,87 @@ pub const ZigBuilder = struct {
                     try self.emitValueCore(elem);
                 }
                 try self.write(" }");
+            },
+            .list => |l| {
+                // Python list -> Zig ArrayList
+                // Check if elements need PyValue.from() wrapping
+                const needs_pyvalue_wrap = std.mem.eql(u8, l.element_type, "runtime.PyValue");
+
+                if (l.use_array and l.elements.len > 0) {
+                    // Optimization: constant homogeneous list can use fixed array
+                    try self.writeFmt("[_]{s}{{ ", .{l.element_type});
+                    for (l.elements, 0..) |elem, i| {
+                        if (i > 0) try self.write(", ");
+                        if (needs_pyvalue_wrap) {
+                            try self.write("runtime.PyValue.from(");
+                            try self.emitValueCore(elem);
+                            try self.write(")");
+                        } else {
+                            try self.emitValueCore(elem);
+                        }
+                    }
+                    try self.write(" }");
+                } else if (l.elements.len == 0) {
+                    // Empty list
+                    try self.writeFmt("std.ArrayListUnmanaged({s}){{}}", .{l.element_type});
+                } else {
+                    // Dynamic list with runtime allocation
+                    try self.write("blk: {\n");
+                    try self.writeFmt("    var __list = std.ArrayListUnmanaged({s}){{}};\n", .{l.element_type});
+                    for (l.elements) |elem| {
+                        try self.write("    __list.append(__global_allocator, ");
+                        if (needs_pyvalue_wrap) {
+                            try self.write("runtime.PyValue.from(");
+                            try self.emitValueCore(elem);
+                            try self.write(")");
+                        } else {
+                            try self.emitValueCore(elem);
+                        }
+                        try self.write(") catch @panic(\"OOM\");\n");
+                    }
+                    try self.write("    break :blk __list;\n}");
+                }
+            },
+            .tuple => |t| {
+                // Python tuple -> Zig anonymous tuple
+                try self.write(".{ ");
+                for (t.elements, 0..) |elem, i| {
+                    if (i > 0) try self.write(", ");
+                    try self.emitValueCore(elem);
+                }
+                try self.write(" }");
+            },
+            .dict => |d| {
+                // Python dict -> Zig HashMap
+                if (d.pairs.len == 0) {
+                    try self.writeFmt("hashmap_helper.StringHashMap({s}).init(__global_allocator)", .{d.value_type});
+                } else {
+                    try self.write("blk: {\n");
+                    try self.writeFmt("    var __dict = hashmap_helper.StringHashMap({s}).init(__global_allocator);\n", .{d.value_type});
+                    for (d.pairs) |pair| {
+                        try self.write("    __dict.put(__global_allocator, ");
+                        try self.emitValueCore(pair.key);
+                        try self.write(", ");
+                        try self.emitValueCore(pair.value);
+                        try self.write(") catch @panic(\"OOM\");\n");
+                    }
+                    try self.write("    break :blk __dict;\n}");
+                }
+            },
+            .set => |s| {
+                // Python set -> Zig HashSet
+                if (s.elements.len == 0) {
+                    try self.writeFmt("std.AutoHashMap({s}, void).init(__global_allocator)", .{s.element_type});
+                } else {
+                    try self.write("blk: {\n");
+                    try self.writeFmt("    var __set = std.AutoHashMap({s}, void).init(__global_allocator);\n", .{s.element_type});
+                    for (s.elements) |elem| {
+                        try self.write("    __set.put(__global_allocator, ");
+                        try self.emitValueCore(elem);
+                        try self.write(", {}) catch @panic(\"OOM\");\n");
+                    }
+                    try self.write("    break :blk __set;\n}");
+                }
             },
             .struct_literal => |s| {
                 try self.write(s.type_name);
@@ -496,7 +743,73 @@ pub const ZigBuilder = struct {
             .call_result => |c| {
                 try self.emitCallResult(c);
             },
+            .ternary => |t| {
+                try self.emitTernary(t);
+            },
+            .boolop => |bo| {
+                try self.emitBoolOp(bo);
+            },
+            .cast => |c| {
+                // @as(target_type, @builtin(inner)) or @as(target_type, inner)
+                try self.write("@as(");
+                try self.write(c.target_type);
+                try self.write(", ");
+                if (c.builtin) |builtin| {
+                    try self.write(builtin);
+                    try self.write("(");
+                    if (c.inner) |inner| {
+                        try self.emitValueCore(inner.*);
+                    }
+                    try self.write(")");
+                } else {
+                    if (c.inner) |inner| {
+                        try self.emitValueCore(inner.*);
+                    }
+                }
+                try self.write(")");
+            },
         }
+    }
+
+    /// Type-aware ternary/conditional expression emission
+    /// Python: value if condition else other_value
+    /// Zig: if (condition) value else other_value
+    const TernaryValue = @import("zig_value.zig").TernaryValue;
+
+    fn emitTernary(self: *ZigBuilder, t: TernaryValue) Allocator.Error!void {
+        try self.write("(if (");
+        // Emit condition with truthiness conversion if needed
+        try self.emitToBool(t.condition.*);
+        try self.write(") ");
+        try self.emitValueCore(t.then_value.*);
+        try self.write(" else ");
+        try self.emitValueCore(t.else_value.*);
+        try self.write(")");
+    }
+
+    /// Type-aware boolean operation emission (and/or)
+    /// Python short-circuit semantics: a and b, a or b
+    const BoolOpValue = @import("zig_value.zig").BoolOpValue;
+
+    fn emitBoolOp(self: *ZigBuilder, bo: BoolOpValue) Allocator.Error!void {
+        if (bo.values.len == 0) {
+            // Empty - shouldn't happen but handle gracefully
+            try self.write("true");
+            return;
+        }
+
+        try self.write("(");
+        for (bo.values, 0..) |val, i| {
+            if (i > 0) {
+                switch (bo.op) {
+                    .and_ => try self.write(" and "),
+                    .or_ => try self.write(" or "),
+                }
+            }
+            // Each operand needs truthiness conversion
+            try self.emitToBool(val);
+        }
+        try self.write(")");
     }
 
     /// Type-aware function call emission
@@ -550,6 +863,110 @@ pub const ZigBuilder = struct {
             else => {},
         }
 
+        // ============================================
+        // BigInt operations - uses emitRuntimeBinOp
+        // ============================================
+        if (lhs.isBigInt() or rhs.isBigInt()) {
+            const bigint_op: ?[]const u8 = switch (b.op) {
+                .add => "add",
+                .sub => "sub",
+                .mul => "mul",
+                .floor_div => "divFloor",
+                .mod => "mod",
+                .bit_and => "bitAnd",
+                .bit_or => "bitOr",
+                .bit_xor => "bitXor",
+                .lshift => "shl",
+                .rshift => "shr",
+                else => null,
+            };
+            if (bigint_op) |op_fn| {
+                try self.emitRuntimeBinOp(.bigint, op_fn, lhs, rhs);
+                return;
+            }
+        }
+
+        // ============================================
+        // UnifiedInt operations - uses emitRuntimeBinOp
+        // ============================================
+        if (lhs.isUnifiedInt() or rhs.isUnifiedInt()) {
+            const unified_op: ?[]const u8 = switch (b.op) {
+                .add => "add",
+                .sub => "sub",
+                .mul => "mul",
+                .floor_div => "divFloor",
+                .mod => "mod",
+                .pow => "pow",
+                .bit_and => "bitAnd",
+                .bit_or => "bitOr",
+                .bit_xor => "bitXor",
+                .lshift => "shl",
+                .rshift => "shr",
+                else => null,
+            };
+            if (unified_op) |op_fn| {
+                try self.emitRuntimeBinOp(.unified_int, op_fn, lhs, rhs);
+                return;
+            }
+        }
+
+        // ============================================
+        // Complex operations - uses emitRuntimeBinOp
+        // ============================================
+        if (lhs.isComplex() or rhs.isComplex()) {
+            const complex_op: ?[]const u8 = switch (b.op) {
+                .add => "add",
+                .sub => "sub",
+                .mul => "mul",
+                .div => "div",
+                else => null,
+            };
+            if (complex_op) |op_fn| {
+                try self.emitRuntimeBinOp(.complex, op_fn, lhs, rhs);
+                return;
+            }
+        }
+
+        // ============================================
+        // String/list/tuple repeat - uses emitCall
+        // ============================================
+        if (b.op == .mul) {
+            // String * int -> repeat string
+            if (lhs.isString() and rhs.certainType() == .int) {
+                try self.emitRepeat("runtime.strRepeat", lhs, rhs);
+                return;
+            }
+            // int * string -> repeat string
+            if (lhs.certainType() == .int and rhs.isString()) {
+                try self.emitRepeat("runtime.strRepeat", rhs, lhs);
+                return;
+            }
+            // List * int -> repeat list
+            if (lhs.isList() and rhs.certainType() == .int) {
+                try self.emitRepeat("runtime.listRepeat", lhs, rhs);
+                return;
+            }
+            // int * list -> repeat list
+            if (lhs.certainType() == .int and rhs.isList()) {
+                try self.emitRepeat("runtime.listRepeat", rhs, lhs);
+                return;
+            }
+            // Tuple * int -> repeat tuple
+            if (lhs.isTuple() and rhs.certainType() == .int) {
+                try self.emitRepeat("runtime.tupleRepeat", lhs, rhs);
+                return;
+            }
+            // int * tuple -> repeat tuple
+            if (lhs.certainType() == .int and rhs.isTuple()) {
+                try self.emitRepeat("runtime.tupleRepeat", rhs, lhs);
+                return;
+            }
+        }
+
+        // ============================================
+        // Native operations for simple types
+        // ============================================
+
         // Both certain: check if same type for optimized native path
         if (lhs_conf == .certain and rhs_conf == .certain) {
             const lhs_ty = lhs.certainType();
@@ -569,29 +986,54 @@ pub const ZigBuilder = struct {
                     },
                     .div => {
                         // Python division always returns float
-                        try self.write("(@as(f64, @floatFromInt(");
-                        try self.emitValueCore(lhs);
-                        try self.write(")) / @as(f64, @floatFromInt(");
-                        try self.emitValueCore(rhs);
-                        try self.write(")))");
+                        if (lhs_ty == .int and rhs_ty == .int) {
+                            try self.write("(@as(f64, @floatFromInt(");
+                            try self.emitValueCore(lhs);
+                            try self.write(")) / @as(f64, @floatFromInt(");
+                            try self.emitValueCore(rhs);
+                            try self.write(")))");
+                        } else {
+                            // At least one is float, use direct division
+                            try self.write("(");
+                            try self.emitValueCore(lhs);
+                            try self.write(" / ");
+                            try self.emitValueCore(rhs);
+                            try self.write(")");
+                        }
                         return;
                     },
                     .floor_div => {
-                        // Floor division: @divFloor
-                        try self.write("@divFloor(");
-                        try self.emitValueCore(lhs);
-                        try self.write(", ");
-                        try self.emitValueCore(rhs);
-                        try self.write(")");
+                        // Floor division: @divFloor for ints, @divFloor with floats needs special handling
+                        if (lhs_ty == .float or rhs_ty == .float) {
+                            try self.write("@floor(");
+                            try self.emitValueCore(lhs);
+                            try self.write(" / ");
+                            try self.emitValueCore(rhs);
+                            try self.write(")");
+                        } else {
+                            try self.write("@divFloor(");
+                            try self.emitValueCore(lhs);
+                            try self.write(", ");
+                            try self.emitValueCore(rhs);
+                            try self.write(")");
+                        }
                         return;
                     },
                     .mod => {
-                        // Modulo: @mod
-                        try self.write("@mod(");
-                        try self.emitValueCore(lhs);
-                        try self.write(", ");
-                        try self.emitValueCore(rhs);
-                        try self.write(")");
+                        // Modulo: @mod for ints, @mod with floats needs special handling
+                        if (lhs_ty == .float or rhs_ty == .float) {
+                            try self.write("@mod(");
+                            try self.emitValueCore(lhs);
+                            try self.write(", ");
+                            try self.emitValueCore(rhs);
+                            try self.write(")");
+                        } else {
+                            try self.write("@mod(");
+                            try self.emitValueCore(lhs);
+                            try self.write(", ");
+                            try self.emitValueCore(rhs);
+                            try self.write(")");
+                        }
                         return;
                     },
                     else => {},
@@ -1145,6 +1587,55 @@ pub const ZigBuilder = struct {
     }
 
     // ============================================
+    // Container literal API
+    // ============================================
+
+    /// Create a list value (Python list -> Zig ArrayList)
+    pub fn list(self: *ZigBuilder, elements: []const ZigValue, element_type: []const u8, use_array: bool) !ZigValue {
+        const elements_copy = try self.allocator.alloc(ZigValue, elements.len);
+        @memcpy(elements_copy, elements);
+
+        return .{ .list = .{
+            .elements = elements_copy,
+            .element_type = element_type,
+            .use_array = use_array,
+        } };
+    }
+
+    /// Create a tuple value (Python tuple -> Zig anonymous struct)
+    pub fn tuple_(self: *ZigBuilder, elements: []const ZigValue) !ZigValue {
+        const elements_copy = try self.allocator.alloc(ZigValue, elements.len);
+        @memcpy(elements_copy, elements);
+
+        return .{ .tuple = .{
+            .elements = elements_copy,
+        } };
+    }
+
+    /// Create a dict value (Python dict -> Zig HashMap)
+    pub fn dict(self: *ZigBuilder, pairs: []const DictValue.DictPair, key_type: []const u8, value_type: []const u8) !ZigValue {
+        const pairs_copy = try self.allocator.alloc(DictValue.DictPair, pairs.len);
+        @memcpy(pairs_copy, pairs);
+
+        return .{ .dict = .{
+            .pairs = pairs_copy,
+            .key_type = key_type,
+            .value_type = value_type,
+        } };
+    }
+
+    /// Create a set value (Python set -> Zig HashSet)
+    pub fn set_(self: *ZigBuilder, elements: []const ZigValue, element_type: []const u8) !ZigValue {
+        const elements_copy = try self.allocator.alloc(ZigValue, elements.len);
+        @memcpy(elements_copy, elements);
+
+        return .{ .set = .{
+            .elements = elements_copy,
+            .element_type = element_type,
+        } };
+    }
+
+    // ============================================
     // Control flow API
     // ============================================
 
@@ -1466,8 +1957,8 @@ pub const ZigBuilder = struct {
     // Expression statements API
     // ============================================
 
-    /// Emit a function call as statement
-    pub fn emitCall(self: *ZigBuilder, func: []const u8, args: []const ZigValue) !void {
+    /// Emit a function call as statement (with semicolon and newline)
+    pub fn emitCallStmt(self: *ZigBuilder, func: []const u8, args: []const ZigValue) !void {
         try self.writeIndent();
         try self.write(func);
         try self.write("(");
@@ -1478,8 +1969,8 @@ pub const ZigBuilder = struct {
         try self.write(");\n");
     }
 
-    /// Emit a method call as statement
-    pub fn emitMethodCall(self: *ZigBuilder, receiver: ZigValue, method: []const u8, args: []const ZigValue) !void {
+    /// Emit a method call as statement (with semicolon and newline)
+    pub fn emitMethodCallStmt(self: *ZigBuilder, receiver: ZigValue, method: []const u8, args: []const ZigValue) !void {
         try self.writeIndent();
         try self.emitValue(receiver, EmitConfig.forExpression());
         try self.writeFmt(".{s}(", .{method});

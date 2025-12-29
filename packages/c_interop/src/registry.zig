@@ -11,6 +11,10 @@ pub const ImportContext = detection.ImportContext;
 pub const MappingRegistry = mapper.MappingRegistry;
 pub const FunctionMapping = mapper.FunctionMapping;
 
+// Re-export cpython types for generated code
+const cpython_api = @import("include/object.zig");
+pub const PyObject = cpython_api.PyObject;
+
 /// Global registry containing all available mappings
 pub var global_registry: ?*mapper.MappingRegistry = null;
 
@@ -89,6 +93,10 @@ pub const frame = @import("objects/frameobject.zig");
 pub const file = @import("include/fileobject.zig");
 pub const datetime = @import("include/datetime.zig");
 pub const cpython_import = @import("include/import.zig");
+pub const unicodeobject = @import("include/unicodeobject.zig");
+
+// Re-export commonly used functions
+pub const PyUnicode_AsUTF8 = @import("include/unicodeobject.zig").PyUnicode_AsUTF8;
 
 // ============================================================================
 // Generic C Extension Module Calls
@@ -96,31 +104,25 @@ pub const cpython_import = @import("include/import.zig");
 
 const cpython = @import("include/object.zig");
 
-/// Call a function on a C extension module (e.g., numpy.array, pandas.DataFrame)
-///
-/// Usage in generated code:
-///   c_interop.callModuleFunction("numpy", "array", .{args...})
-///
-/// Returns: ?*cpython.PyObject (null on error)
+/// Import a C extension module by name (e.g., "numpy", "pandas")
+/// Currently a stub - C extensions require native reimplementation
+pub fn importModule(module_name: [*:0]const u8) ?*PyObject {
+    _ = module_name;
+    // C extensions not supported without native reimplementation
+    return null;
+}
+
+/// Call a function on a C extension module
+/// Currently a stub - C extensions require native reimplementation
 pub fn callModuleFunction(
     module_name: [*:0]const u8,
     func_name: [*:0]const u8,
     args: anytype,
 ) ?*cpython.PyObject {
-    // Import the module
-    const module = cpython_import.PyImport_ImportModule(module_name) orelse return null;
-    defer traits.externs.Py_DECREF(module);
-
-    // Get the function attribute
-    const func = traits.externs.PyObject_GetAttrString(module, func_name) orelse return null;
-    defer traits.externs.Py_DECREF(func);
-
-    // Build args tuple
-    const args_tuple = buildArgsTuple(args) orelse return null;
-    defer traits.externs.Py_DECREF(args_tuple);
-
-    // Call the function
-    return traits.externs.PyObject_CallObject(func, args_tuple);
+    _ = module_name;
+    _ = func_name;
+    _ = args;
+    return null;
 }
 
 /// Build a Python tuple from Zig arguments
@@ -161,10 +163,10 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
         .float, .comptime_float => traits.externs.PyFloat_FromDouble(@floatCast(value)),
         .bool => if (value) traits.externs.Py_True() else traits.externs.Py_False(),
         .pointer => |ptr| blk: {
-            if (ptr.size == .Slice and ptr.child == u8) {
+            if (ptr.size == .slice and ptr.child == u8) {
                 // String slice
                 break :blk traits.externs.PyUnicode_FromStringAndSize(value.ptr, @intCast(value.len));
-            } else if (ptr.size == .One) {
+            } else if (ptr.size == .one) {
                 // Assume it's already a PyObject*
                 traits.externs.Py_INCREF(@ptrCast(value));
                 break :blk @ptrCast(value);
@@ -192,63 +194,50 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
     };
 }
 
-/// Call a method on a PyObject (e.g., arr.sum(), df.head())
-///
-/// Usage:
-///   c_interop.callMethod(obj, "sum", .{})
-///
-/// Returns: ?*cpython.PyObject (null on error)
+/// Call a method on a PyObject
+/// Currently a stub - C extensions require native reimplementation
 pub fn callMethod(
     obj: *cpython.PyObject,
     method_name: [*:0]const u8,
     args: anytype,
 ) ?*cpython.PyObject {
-    // Get the method
-    const method = traits.externs.PyObject_GetAttrString(obj, method_name) orelse return null;
-    defer traits.externs.Py_DECREF(method);
-
-    // Build args tuple
-    const args_tuple = buildArgsTuple(args) orelse return null;
-    defer traits.externs.Py_DECREF(args_tuple);
-
-    // Call the method
-    return traits.externs.PyObject_CallObject(method, args_tuple);
+    _ = obj;
+    _ = method_name;
+    _ = args;
+    return null;
 }
 
 /// Get an attribute from a PyObject
+/// Currently a stub - C extensions require native reimplementation
 pub fn getAttr(
     obj: *cpython.PyObject,
     attr_name: [*:0]const u8,
 ) ?*cpython.PyObject {
-    return traits.externs.PyObject_GetAttrString(obj, attr_name);
+    _ = obj;
+    _ = attr_name;
+    return null;
 }
 
 /// Set an attribute on a PyObject
+/// Currently a stub - C extensions require native reimplementation
 pub fn setAttr(
     obj: *cpython.PyObject,
     attr_name: [*:0]const u8,
     value: *cpython.PyObject,
 ) bool {
-    return traits.externs.PyObject_SetAttrString(obj, attr_name, value) == 0;
+    _ = obj;
+    _ = attr_name;
+    _ = value;
+    return false;
 }
 
 /// Get an attribute from a C extension module by name
-/// Used for accessing module-level attributes like np.__version__
-///
-/// Usage in generated code:
-///   c_interop.getModuleAttr("numpy", "__version__")
-///
-/// Returns: ?*cpython.PyObject (null on error)
+/// Currently a stub - C extensions require native reimplementation
 pub fn getModuleAttr(
     module_name: [*:0]const u8,
     attr_name: [*:0]const u8,
 ) ?*cpython.PyObject {
-    // Import the module
-    const module = cpython_import.PyImport_ImportModule(module_name) orelse return null;
-    defer traits.externs.Py_DECREF(module);
-
-    // Get the attribute (returns new reference)
-    const attr = traits.externs.PyObject_GetAttrString(module, attr_name) orelse return null;
-
-    return attr;
+    _ = module_name;
+    _ = attr_name;
+    return null;
 }

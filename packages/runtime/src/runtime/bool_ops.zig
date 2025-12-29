@@ -421,11 +421,9 @@ pub fn validateFloatReturn(value: anytype) PythonError!f64 {
         return value;
     }
     // Handle PyValue union (when __float__ returns stored value)
+    // Use centralized toFloat() (SINGLE SOURCE OF TRUTH in object.zig)
     if (T == PyValue) {
-        switch (value) {
-            .float => |f| return f,
-            else => return PythonError.TypeError,
-        }
+        return value.toFloat() orelse return PythonError.TypeError;
     }
     // Handle struct with __base_value__ (float subclass)
     if (type_info == .@"struct") {

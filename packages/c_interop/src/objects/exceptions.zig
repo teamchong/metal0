@@ -1498,3 +1498,27 @@ pub export var PyExc_ImportWarning: cpython.PyTypeObject = makeExceptionType("Im
 pub export var PyExc_RuntimeWarning: cpython.PyTypeObject = makeExceptionType("RuntimeWarning", &PyExc_Warning, "Warning about runtime behavior.");
 pub export var PyExc_FutureWarning: cpython.PyTypeObject = makeExceptionType("FutureWarning", &PyExc_Warning, "Warning about future incompatibilities.");
 pub export var PyExc_UnboundLocalError: cpython.PyTypeObject = makeExceptionType("UnboundLocalError", &PyExc_NameError, "Local name referenced but not bound.");
+
+// Additional exception types for 100% coverage
+pub export var PyExc_BaseExceptionGroup: cpython.PyTypeObject = makeExceptionType("BaseExceptionGroup", &PyExc_BaseException, "A group of base exceptions.");
+pub export var PyExc_BlockingIOError: cpython.PyTypeObject = makeExceptionType("BlockingIOError", &PyExc_OSError, "I/O operation would block.");
+pub export var PyExc_ChildProcessError: cpython.PyTypeObject = makeExceptionType("ChildProcessError", &PyExc_OSError, "Child process error.");
+pub export var PyExc_EncodingWarning: cpython.PyTypeObject = makeExceptionType("EncodingWarning", &PyExc_Warning, "Warning about encoding.");
+pub export var PyExc_EnvironmentError: cpython.PyTypeObject = makeExceptionType("EnvironmentError", &PyExc_OSError, "OS environment error (alias for OSError).");
+pub export var PyExc_IncompleteInputError: cpython.PyTypeObject = makeExceptionType("IncompleteInputError", &PyExc_SyntaxError, "Incomplete input.");
+pub export var PyExc_IndentationError: cpython.PyTypeObject = makeExceptionType("IndentationError", &PyExc_SyntaxError, "Improper indentation.");
+pub export var PyExc_InterpreterError: cpython.PyTypeObject = makeExceptionType("InterpreterError", &PyExc_Exception, "Interpreter error.");
+pub export var PyExc_InterpreterNotFoundError: cpython.PyTypeObject = makeExceptionType("InterpreterNotFoundError", &PyExc_Exception, "Interpreter not found.");
+pub export var PyExc_InterruptedError: cpython.PyTypeObject = makeExceptionType("InterruptedError", &PyExc_OSError, "Interrupted system call.");
+pub export var PyExc_IsADirectoryError: cpython.PyTypeObject = makeExceptionType("IsADirectoryError", &PyExc_OSError, "Operation not permitted on directory.");
+pub export var PyExc_KeyboardInterrupt: cpython.PyTypeObject = makeExceptionType("KeyboardInterrupt", &PyExc_BaseException, "User interrupted execution.");
+pub export var PyExc_NotADirectoryError: cpython.PyTypeObject = makeExceptionType("NotADirectoryError", &PyExc_OSError, "Not a directory.");
+pub export var PyExc_PendingDeprecationWarning: cpython.PyTypeObject = makeExceptionType("PendingDeprecationWarning", &PyExc_Warning, "Warning about pending deprecation.");
+pub export var PyExc_ProcessLookupError: cpython.PyTypeObject = makeExceptionType("ProcessLookupError", &PyExc_OSError, "Process not found.");
+pub export var PyExc_PythonFinalizationError: cpython.PyTypeObject = makeExceptionType("PythonFinalizationError", &PyExc_Exception, "Error during Python finalization.");
+pub export var PyExc_SyntaxWarning: cpython.PyTypeObject = makeExceptionType("SyntaxWarning", &PyExc_Warning, "Warning about syntax.");
+pub export var PyExc_SystemExit: cpython.PyTypeObject = makeExceptionType("SystemExit", &PyExc_BaseException, "Request to exit interpreter.");
+pub export var PyExc_TabError: cpython.PyTypeObject = makeExceptionType("TabError", &PyExc_IndentationError, "Improper mixture of tabs and spaces.");
+pub export var PyExc_UnicodeTranslateError: cpython.PyTypeObject = makeExceptionType("UnicodeTranslateError", &PyExc_UnicodeError, "Unicode translation error.");
+pub export var PyExc_UnicodeWarning: cpython.PyTypeObject = makeExceptionType("UnicodeWarning", &PyExc_Warning, "Warning about Unicode.");
+pub export var PyExc_WindowsError: cpython.PyTypeObject = makeExceptionType("WindowsError", &PyExc_OSError, "Windows system error (alias for OSError).");

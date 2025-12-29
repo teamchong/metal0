@@ -21,6 +21,31 @@ Python is slow. Packaging is painful. metal0 fixes both:
 | **Docker** | 900MB | <1MB |
 | **Startup** | 50ms | 1ms |
 
+## How it Works
+
+metal0 uses **two-tier compilation** for maximum speed while maintaining full Python compatibility:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  def calculate(x, y):                                        │
+│      a = x + y          # ← Tier 1: AOT → Native Zig (30x)  │
+│      b = a * 2          # ← Tier 1: AOT → Native Zig        │
+│      c = eval("a + b")  # ← Tier 2: Bytecode VM (~1x)       │
+│      return c + 1       # ← Tier 1: AOT → Native Zig        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+| Tier | What | Speed | When Used |
+|------|------|-------|-----------|
+| **Tier 1: AOT** | Python → Zig → Native | 30x CPython | Static code (99% of code) |
+| **Tier 2: VM** | Bytecode interpreter | ~1x CPython | `eval()`, `exec()`, dynamic features |
+
+**Key insight:** Only the specific `eval()` expression uses the VM - surrounding code stays native. One dynamic call doesn't slow down your entire program.
+
+**CPython C API Compatible:** All Python types use `extern struct` with exact CPython memory layout (`ob_refcnt`, `ob_type`, etc.), enabling C extension compatibility.
+
+📖 **[Full Architecture Documentation](docs/architecture.md#two-tier-compilation-aot--surgical-vm-fallback)** | **[C API Layout](docs/architecture.md#cpython-compatible-memory-layout)**
+
 ## Benchmarks
 
 All benchmarks on Apple M2.

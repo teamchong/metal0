@@ -42,6 +42,43 @@ fn emitFmtConst(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) C
     return self.emitFmt(fmt, args);
 }
 
+/// Check if all elements are constant literals of the same type (for array optimization)
+fn isConstantHomogeneous(elts: []const ast.Node) bool {
+    if (elts.len == 0) return false;
+
+    // Get the type of the first element
+    const first_type: ?enum { int, float, string, bool } = switch (elts[0]) {
+        .constant => |c| switch (c.value) {
+            .int => .int,
+            .float => .float,
+            .string => .string,
+            .bool => .bool,
+            else => null,
+        },
+        else => null,
+    };
+
+    // If first element is not a simple constant, can't use array optimization
+    if (first_type == null) return false;
+
+    // Check all other elements have the same type
+    for (elts[1..]) |elem| {
+        const elem_type: ?@TypeOf(first_type.?) = switch (elem) {
+            .constant => |c| switch (c.value) {
+                .int => .int,
+                .float => .float,
+                .string => .string,
+                .bool => .bool,
+                else => null,
+            },
+            else => null,
+        };
+        if (elem_type == null or elem_type.? != first_type.?) return false;
+    }
+
+    return true;
+}
+
 /// Emit bytecode VM fallback for uncertain/dynamic expressions
 /// Used when native codegen can't handle a construct - falls back to VM execution
 pub fn emitVMFallback(self: *NativeCodegen, source: []const u8) CodegenError!void {
@@ -2243,10 +2280,17 @@ pub const NativeCodegen = struct {
                     return try self.captureExpr(node);
                 }
 
-                // BigInt/UnifiedInt need special handling
-                if (bigint_ops.needsBigInt(left_type) or bigint_ops.needsBigInt(right_type) or
-                    unified_int_ops.isUnifiedInt(left_type) or unified_int_ops.isUnifiedInt(right_type))
-                {
+                // BigInt operations - create ZigValue.bigint variant for builder dispatch
+                if (bigint_ops.needsBigInt(left_type) or bigint_ops.needsBigInt(right_type)) {
+                    // For now, use captureExpr - full migration requires creating BigIntValue
+                    // TODO: Create proper ZigValue.bigint variants for full builder dispatch
+                    return try self.captureExpr(node);
+                }
+
+                // UnifiedInt operations - create ZigValue.unified_int variant for builder dispatch
+                if (unified_int_ops.isUnifiedInt(left_type) or unified_int_ops.isUnifiedInt(right_type)) {
+                    // For now, use captureExpr - full migration requires creating UnifiedIntValue
+                    // TODO: Create proper ZigValue.unified_int variants for full builder dispatch
                     return try self.captureExpr(node);
                 }
 
@@ -2373,47 +2417,181 @@ pub const NativeCodegen = struct {
                 return try self.captureExpr(node);
             },
 
-            // Boolean operations (and/or) - use builder.binOp for short-circuit
+            // Boolean operations (and/or) - proper BoolOpValue with type tracking
             .boolop => |b| {
-                // Process all values and combine with and/or
+                // Handle single value case
                 if (b.values.len < 2) {
+                    if (b.values.len == 1) {
+                        return try self.exprToValue(b.values[0]);
+                    }
                     return try self.captureExpr(node);
                 }
 
-                const op: builder_mod.BinOp = switch (b.op) {
-                    .And => .@"and",
-                    .Or => .@"or",
-                };
-
-                // Start with first two values
-                var result = try self.exprToValue(b.values[0]);
-                const builder = try self.getBuilder();
-
-                for (b.values[1..]) |val| {
-                    const right_val = try self.exprToValue(val);
-                    result = try builder.binOp(op, result, right_val);
+                // Convert all operand values
+                var values = try self.allocator.alloc(builder_mod.ZigValue, b.values.len);
+                var has_uncertain = false;
+                for (b.values, 0..) |val, i| {
+                    values[i] = try self.exprToValue(val);
+                    if (values[i].confidence() == .uncertain) {
+                        has_uncertain = true;
+                    }
                 }
 
-                return result;
+                const op_kind: builder_mod.BoolOpValue.BoolOpKind = switch (b.op) {
+                    .And => .and_,
+                    .Or => .or_,
+                };
+
+                return builder_mod.ZigValue{
+                    .boolop = .{
+                        .op = op_kind,
+                        .values = values,
+                        .confidence = if (has_uncertain) .uncertain else .certain,
+                    },
+                };
             },
 
-            // Function calls have complex dispatch (builtins, methods, ctypes) - use captureExpr
-            .call => {
-                return try self.captureExpr(node);
+            // Function calls - infer return type confidence, use captureExprTyped
+            .call => |c| {
+                // Use inferCallTyped to get return type confidence
+                const calls = @import("../../../analysis/native_types/calls.zig");
+                const typed_result = calls.inferCallTyped(
+                    self.allocator,
+                    &self.type_inferrer.var_types,
+                    &self.type_inferrer.class_fields,
+                    &self.type_inferrer.func_return_types,
+                    c,
+                    self.type_inferrer,
+                ) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+
+                // Convert analysis TypeConfidence to builder TypeConfidence
+                const confidence: builder_mod.TypeConfidence = switch (typed_result.confidence) {
+                    .certain => .certain,
+                    .uncertain => .uncertain,
+                };
+
+                return try self.captureExprTyped(node, confidence);
             },
 
-            // Attribute access has complex method/property handling - use captureExpr
-            .attribute => {
-                return try self.captureExpr(node);
+            // Attribute access - infer attribute type confidence
+            .attribute => |a| {
+                // Check if accessing a known type's attribute
+                const obj_type = self.inferExprScoped(a.value.*) catch .unknown;
+
+                // Builtin types have certain attribute types
+                const confidence: builder_mod.TypeConfidence = blk: {
+                    // String/bytes/list/dict methods are certain
+                    if (string_traits.isStringLike(obj_type) or
+                        container_traits.isList(obj_type) or
+                        container_traits.isDict(obj_type) or
+                        container_traits.isTuple(obj_type) or
+                        container_traits.isSet(obj_type))
+                    {
+                        break :blk .certain;
+                    }
+
+                    // Module access (math.sqrt, os.path) - check if obj is a known module name
+                    if (a.value.* == .name) {
+                        const module_name = a.value.name.id;
+                        // Known stdlib modules have certain return types
+                        const known_modules = std.StaticStringMap(void).initComptime(.{
+                            .{ "math", {} }, .{ "os", {} }, .{ "sys", {} }, .{ "re", {} },
+                            .{ "json", {} }, .{ "random", {} }, .{ "time", {} }, .{ "datetime", {} },
+                            .{ "collections", {} }, .{ "itertools", {} }, .{ "functools", {} },
+                            .{ "pathlib", {} }, .{ "io", {} }, .{ "hashlib", {} }, .{ "struct", {} },
+                            .{ "socket", {} }, .{ "sqlite3", {} }, .{ "ctypes", {} },
+                        });
+                        if (known_modules.has(module_name)) {
+                            break :blk .certain;
+                        }
+                    }
+
+                    // Class instance attributes are uncertain unless type-annotated
+                    if (type_traits.isClassInstance(obj_type)) {
+                        break :blk .uncertain;
+                    }
+
+                    // Unknown type -> uncertain
+                    if (obj_type == .unknown) {
+                        break :blk .uncertain;
+                    }
+
+                    // Default to certain for known primitive types
+                    break :blk .certain;
+                };
+
+                return try self.captureExprTyped(node, confidence);
             },
 
-            // Subscript access has complex slice/index handling - use captureExpr
-            .subscript => {
-                return try self.captureExpr(node);
+            // Subscript access - infer element type confidence
+            .subscript => |s| {
+                // Check container type for element confidence
+                const container_type = self.inferExprScoped(s.value.*) catch .unknown;
+
+                const confidence: builder_mod.TypeConfidence = blk: {
+                    // List/tuple/string subscript -> certain element type
+                    if (container_traits.isList(container_type) or
+                        container_traits.isTuple(container_type) or
+                        string_traits.isStringLike(container_type))
+                    {
+                        break :blk .certain;
+                    }
+
+                    // Dict subscript -> element type is uncertain unless typed
+                    if (container_traits.isDict(container_type)) {
+                        // Could enhance this to check dict value type annotation
+                        break :blk .uncertain;
+                    }
+
+                    // Unknown container -> uncertain
+                    if (container_type == .unknown) {
+                        break :blk .uncertain;
+                    }
+
+                    // Default to certain for known types
+                    break :blk .certain;
+                };
+
+                return try self.captureExprTyped(node, confidence);
             },
 
-            // Container literals - use captureExpr for proper builder save/restore
-            .list, .tuple, .dict, .set => {
+            // List literal - use builder.list with type inference
+            .list => |l| {
+                // Infer element type from type inferrer
+                const list_type = self.inferExprScoped(node) catch .unknown;
+                const element_type: []const u8 = switch (list_type) {
+                    .list => |elem_ptr| elem_ptr.*.toSimpleZigType(),
+                    else => "runtime.PyValue",
+                };
+
+                // Check if array optimization is possible (constant homogeneous)
+                const use_array = l.elts.len > 0 and isConstantHomogeneous(l.elts);
+
+                // Convert elements
+                var elements = try self.allocator.alloc(builder_mod.ZigValue, l.elts.len);
+                for (l.elts, 0..) |elem, i| {
+                    elements[i] = try self.exprToValue(elem);
+                }
+
+                const builder = try self.getBuilder();
+                return try builder.list(elements, element_type, use_array);
+            },
+
+            // Tuple literal - use builder.tuple_
+            .tuple => |t| {
+                var elements = try self.allocator.alloc(builder_mod.ZigValue, t.elts.len);
+                for (t.elts, 0..) |elem, i| {
+                    elements[i] = try self.exprToValue(elem);
+                }
+
+                const builder = try self.getBuilder();
+                return try builder.tuple_(elements);
+            },
+
+            // Dict and set still need captureExpr for complex handling
+            .dict, .set => {
                 return try self.captureExpr(node);
             },
 
@@ -2422,9 +2600,37 @@ pub const NativeCodegen = struct {
                 return try self.captureExpr(node);
             },
 
-            // Conditional expression (ternary) - use captureExpr for proper builder save/restore
-            .if_expr => {
-                return try self.captureExpr(node);
+            // Conditional expression (ternary) - proper ZigValue with type inference
+            .if_expr => |ie| {
+                // Convert condition, then, and else to ZigValue
+                const cond_val = try self.exprToValue(ie.condition.*);
+                const then_val = try self.exprToValue(ie.body.*);
+                const else_val = try self.exprToValue(ie.orelse_value.*);
+
+                // Allocate persistent storage for pointers
+                const cond_ptr = try self.arena.allocator().create(builder_mod.ZigValue);
+                const then_ptr = try self.arena.allocator().create(builder_mod.ZigValue);
+                const else_ptr = try self.arena.allocator().create(builder_mod.ZigValue);
+                cond_ptr.* = cond_val;
+                then_ptr.* = then_val;
+                else_ptr.* = else_val;
+
+                // Combine confidence from both branches
+                const then_conf = then_val.confidence();
+                const else_conf = else_val.confidence();
+                const result_conf = if (then_conf == .uncertain or else_conf == .uncertain)
+                    builder_mod.TypeConfidence.uncertain
+                else
+                    builder_mod.TypeConfidence.certain;
+
+                return builder_mod.ZigValue{
+                    .ternary = .{
+                        .condition = cond_ptr,
+                        .then_value = then_ptr,
+                        .else_value = else_ptr,
+                        .confidence = result_conf,
+                    },
+                };
             },
 
             // Comprehensions - use captureExpr for proper builder save/restore
@@ -2869,6 +3075,51 @@ pub const NativeCodegen = struct {
         return builder_mod.ZigValue.raw(code);
     }
 
+    /// Capture an expression with type confidence tracking
+    /// Like captureExpr but returns typed_raw with confidence info
+    pub fn captureExprTyped(self: *NativeCodegen, expr: ast.Node, typed_confidence: builder_mod.TypeConfidence) CodegenError!builder_mod.ZigValue {
+        const expressions = @import("../expressions.zig");
+
+        // Save builder state - nested code may use builder and flush
+        const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+            const content = b.getBodyAndClear();
+            if (content.len > 0) {
+                break :blk try self.arena.allocator().dupe(u8, content);
+            }
+            break :blk null;
+        } else null;
+
+        // Save current output position
+        const start_pos = self.output.items.len;
+
+        // Generate the expression into the output buffer
+        try expressions.genExpr(self, expr);
+
+        // Flush builder to ensure any pending output gets written
+        try self.flushBuilder();
+
+        // Extract the generated code
+        const generated = self.output.items[start_pos..];
+
+        // Copy to arena so it persists
+        const code = try self.arena.allocator().dupe(u8, generated);
+
+        // Remove the generated code from output (we're capturing it)
+        self.output.shrinkRetainingCapacity(start_pos);
+
+        // Restore builder state
+        if (builder_save) |saved| {
+            if (self.builder) |b| {
+                try b.write(saved);
+            }
+        }
+
+        return builder_mod.ZigValue{ .typed_raw = .{
+            .raw = code,
+            .confidence = typed_confidence,
+        } };
+    }
+
     /// Capture a statement's generated code (for builder integration)
     /// Similar to captureExpr but for statements
     /// IMPORTANT: Saves and restores builder state to prevent nested generateStmt
@@ -2967,13 +3218,29 @@ pub const NativeCodegen = struct {
             .named => |name| try emitConst(self, name),
             .raw_expr => |expr| try emitConst(self, expr),
             else => {
-                // For complex values, use builder to emit and copy
-                const start = b.body.items.len;
+                // For complex values, use a temporary buffer to avoid conflicts
+                // with nested operations that may modify the builder
+                const builder_save: ?[]const u8 = blk: {
+                    const content = b.getBodyAndClear();
+                    if (content.len > 0) {
+                        break :blk try self.arena.allocator().dupe(u8, content);
+                    }
+                    break :blk null;
+                };
+
+                // Emit value into now-empty builder
                 try b.emitValue(value, builder_mod.EmitConfig.forExpression());
-                const emitted = b.body.items[start..];
+
+                // Copy result to arena (must copy before writing to builder to avoid alias)
+                const emitted = try self.arena.allocator().dupe(u8, b.getBodyAndClear());
+
+                // Restore builder state first, then emit to output
+                if (builder_save) |saved| {
+                    try b.write(saved);
+                }
+
+                // Now emit the captured content to output
                 try emitConst(self, emitted);
-                // Roll back builder
-                b.body.shrinkRetainingCapacity(start);
             },
         }
     }

@@ -1001,10 +1001,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Two-Flow: Include .pyvalue for uncertain types
                 if (type_traits.isUnknown(value_type) or value_type == .pyvalue) {
                     // PyObject/PyValue: capture in block and decref immediately
-                    // { const __unused = expr; runtime.decref(__unused, __global_allocator); }
-                    try self.emit("{ const __unused = ");
+                    const unused = try self.name_gen.temp();
+                    try self.emitFmt("{{ const {s} = ", .{unused});
                     try self.genExpr(assign.value.*);
-                    try self.emit("; runtime.decref(__unused, __global_allocator); }\n");
+                    try self.emitFmt("; runtime.decref({s}, __global_allocator); }}\n", .{unused});
                 } else {
                     try self.emit("_ = ");
                     try self.genExpr(assign.value.*);
@@ -1549,14 +1549,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_async_call) {
                 // Auto-await: wrap async call with scheduler init + wait + result extraction
                 const label = try self.emitInlineBlockStart("async");
+                const num_threads = try self.name_gen.temp();
+                const thread = try self.name_gen.temp();
+                const result = try self.name_gen.temp();
                 try self.emit("\n");
                 try self.emitIndent();
                 // Initialize scheduler if needed (first async call)
                 try self.emit("    if (!runtime.scheduler_initialized) {\n");
                 try self.emitIndent();
-                try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+                try self.emitFmt("        const {s} = std.Thread.getCpuCount() catch 8;\n", .{num_threads});
                 try self.emitIndent();
-                try self.emit("        runtime.scheduler = runtime.Scheduler.init(__global_allocator, __num_threads) catch unreachable;\n");
+                try self.emitFmt("        runtime.scheduler = runtime.Scheduler.init(__global_allocator, {s}) catch unreachable;\n", .{num_threads});
                 try self.emitIndent();
                 try self.emit("        runtime.scheduler.?.start() catch unreachable;\n");
                 try self.emitIndent();
@@ -1564,15 +1567,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emitIndent();
                 try self.emit("    }\n");
                 try self.emitIndent();
-                try self.emit("    const __thread = ");
+                try self.emitFmt("    const {s} = ", .{thread});
                 try self.genExpr(assign.value.*);
                 try self.emit(";\n");
                 try self.emitIndent();
-                try self.emit("    runtime.scheduler.?.wait(__thread);\n");
+                try self.emitFmt("    runtime.scheduler.?.wait({s});\n", .{thread});
                 try self.emitIndent();
-                try self.emit("    const __result = __thread.result orelse unreachable;\n");
+                try self.emitFmt("    const {s} = {s}.result orelse unreachable;\n", .{ result, thread });
                 try self.emitIndent();
-                try self.emitFmt("    break :{s} @as(*i64, @ptrCast(@alignCast(__result))).*;\n", .{label});
+                try self.emitFmt("    break :{s} @as(*i64, @ptrCast(@alignCast({s}))).*;\n", .{ label, result });
                 try self.emitIndent();
                 try self.emitInlineBlockEnd();
                 try self.emit(");\n");
@@ -2193,8 +2196,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         _ = try self.emitInlineBlockStart("dict");
                         try self.emit("\n");
                         self.indent_level += 1;
+                        const cont = try self.name_gen.temp();
                         try self.emitIndent();
-                        try self.emit("const __cont = ");
+                        try self.emitFmt("const {s} = ", .{cont});
                         if (is_nested) {
                             try self.genSubscriptLHS(subscript.value.subscript);
                         } else {
@@ -2202,19 +2206,20 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         }
                         try self.emit(";\n");
                         // For PyValue keys, extract the string
+                        const key = try self.name_gen.temp();
                         if (index_type == .pyvalue) {
                             try self.emitIndent();
-                            try self.emit("const __key = ");
+                            try self.emitFmt("const {s} = ", .{key});
                             try self.genExpr(subscript.slice.index.*);
                             try self.emit(".asString();\n");
                         }
                         try self.emitIndent();
-                        try self.emit("if (@TypeOf(__cont) == runtime.PyValue) {\n");
+                        try self.emitFmt("if (@TypeOf({s}) == runtime.PyValue) {{\n", .{cont});
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("try __cont.pyDictPut(__global_allocator, ");
+                        try self.emitFmt("try {s}.pyDictPut(__global_allocator, ", .{cont});
                         if (index_type == .pyvalue) {
-                            try self.emit("__key");
+                            try self.emit(key);
                         } else {
                             try self.genExpr(subscript.slice.index.*);
                         }
@@ -2227,9 +2232,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         self.indent_level += 1;
                         try self.emitIndent();
                         // ArrayHashMap.put() doesn't take allocator
-                        try self.emit("try __cont.put(");
+                        try self.emitFmt("try {s}.put(", .{cont});
                         if (index_type == .pyvalue) {
-                            try self.emit("__key");
+                            try self.emit(key);
                         } else {
                             try self.genExpr(subscript.slice.index.*);
                         }
@@ -2268,74 +2273,85 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit("{\n");
                 self.indent_level += 1;
 
+                // Generate unique temp names for this scope
+                const slice_target = try self.name_gen.temp();
+                const slice_src = try self.name_gen.temp();
+
                 // Get container reference
                 try self.emitIndent();
-                try self.emit("const __slice_target = &");
+                try self.emitFmt("const {s} = &", .{slice_target});
                 try self.genExpr(subscript.value.*);
                 try self.emit(";\n");
 
                 // Get source data
                 try self.emitIndent();
-                try self.emit("const __slice_src = ");
+                try self.emitFmt("const {s} = ", .{slice_src});
                 try self.genExpr(assign.value.*);
                 try self.emit(";\n");
 
                 if (container_traits.isList(container_type)) {
                     if (is_full_slice) {
                         // a[:] = data - replace entire list
+                        const item = try self.name_gen.temp();
                         try self.emitIndent();
-                        try self.emit("__slice_target.clearRetainingCapacity();\n");
+                        try self.emitFmt("{s}.clearRetainingCapacity();\n", .{slice_target});
                         try self.emitIndent();
-                        try self.emit("for (__slice_src.items) |__item| {\n");
+                        try self.emitFmt("for ({s}.items) |{s}| {{\n", .{ slice_src, item });
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("__slice_target.append(__global_allocator, __item) catch unreachable;\n");
+                        try self.emitFmt("{s}.append(__global_allocator, {s}) catch unreachable;\n", .{ slice_target, item });
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emit("}\n");
                     } else {
                         // a[start:end] = data - replace slice with new data
+                        const slice_start = try self.name_gen.temp();
+                        const slice_end = try self.name_gen.temp();
+                        const i = try self.name_gen.temp();
+                        const j = try self.name_gen.temp();
+                        const item = try self.name_gen.temp();
+
                         // Calculate start and end indices
                         try self.emitIndent();
                         if (slice.lower) |lower| {
-                            try self.emit("const __slice_start: usize = @intCast(");
+                            try self.emitFmt("const {s}: usize = @intCast(", .{slice_start});
                             try self.genExpr(lower.*);
                             try self.emit(");\n");
                         } else {
-                            try self.emit("const __slice_start: usize = 0;\n");
+                            try self.emitFmt("const {s}: usize = 0;\n", .{slice_start});
                         }
 
                         try self.emitIndent();
                         if (slice.upper) |upper| {
-                            try self.emit("const __slice_end: usize = @intCast(");
+                            try self.emitFmt("const {s}: usize = @intCast(", .{slice_end});
                             try self.genExpr(upper.*);
                             try self.emit(");\n");
                         } else {
-                            try self.emit("const __slice_end: usize = __slice_target.items.len;\n");
+                            try self.emitFmt("const {s}: usize = {s}.items.len;\n", .{ slice_end, slice_target });
                         }
 
                         // Remove elements in [start, end) range
                         try self.emitIndent();
-                        try self.emit("var __i: usize = __slice_start;\n");
+                        try self.emitFmt("var {s}: usize = {s};\n", .{ i, slice_start });
                         try self.emitIndent();
-                        try self.emit("while (__i < __slice_end) : (__i += 1) {\n");
+                        try self.emitFmt("while ({s} < {s}) : ({s} += 1) {{\n", .{ i, slice_end, i });
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("_ = __slice_target.orderedRemove(__slice_start);\n");
+                        try self.emitFmt("_ = {s}.orderedRemove({s});\n", .{ slice_target, slice_start });
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emit("}\n");
 
                         // Insert new elements at start position
                         try self.emitIndent();
-                        try self.emit("var __j: usize = 0;\n");
+                        try self.emitFmt("var {s}: usize = 0;\n", .{j});
                         try self.emitIndent();
-                        try self.emit("for (__slice_src.items) |__item| {\n");
+                        try self.emitFmt("for ({s}.items) |{s}| {{\n", .{ slice_src, item });
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("__slice_target.insert(__global_allocator, __slice_start + __j, __item) catch unreachable;\n");
+                        try self.emitFmt("{s}.insert(__global_allocator, {s} + {s}, {s}) catch unreachable;\n", .{ slice_target, slice_start, j, item });
                         try self.emitIndent();
-                        try self.emit("__j += 1;\n");
+                        try self.emitFmt("{s} += 1;\n", .{j});
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emit("}\n");
@@ -2344,70 +2360,82 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Fixed array/slice/ArrayList: copy items
                     if (slice.step != null) {
                         // Stepped slice assignment: a[start::step] = src
+                        const idx = try self.name_gen.temp();
+                        const step = try self.name_gen.temp();
+                        const target_len = try self.name_gen.temp();
+                        const src_data = try self.name_gen.temp();
+                        const src_idx = try self.name_gen.temp();
+
                         // Replace elements at indices start, start+step, start+2*step, ...
                         try self.emitIndent();
                         if (slice.lower) |lower| {
-                            try self.emit("var __idx: usize = @intCast(");
+                            try self.emitFmt("var {s}: usize = @intCast(", .{idx});
                             try self.genExpr(lower.*);
                             try self.emit(");\n");
                         } else {
-                            try self.emit("var __idx: usize = 0;\n");
+                            try self.emitFmt("var {s}: usize = 0;\n", .{idx});
                         }
 
                         try self.emitIndent();
-                        try self.emit("const __step: usize = @intCast(");
+                        try self.emitFmt("const {s}: usize = @intCast(", .{step});
                         try self.genExpr(slice.step.?.*);
                         try self.emit(");\n");
 
                         try self.emitIndent();
                         // Use container_dispatch helpers - avoids inline @hasField monomorphization
-                        try self.emit("const __target_len = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
+                        try self.emitFmt("const {s} = runtime.container_dispatch.getPtrLen(@TypeOf({s}), {s});\n", .{ target_len, slice_target, slice_target });
                         try self.emitIndent();
-                        try self.emit("const __src_data = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
+                        try self.emitFmt("const {s} = runtime.container_dispatch.getSlice(@TypeOf({s}), {s});\n", .{ src_data, slice_src, slice_src });
                         try self.emitIndent();
-                        try self.emit("var __src_idx: usize = 0;\n");
+                        try self.emitFmt("var {s}: usize = 0;\n", .{src_idx});
                         try self.emitIndent();
-                        try self.emit("while (__idx < __target_len and __src_idx < __src_data.len) {\n");
+                        try self.emitFmt("while ({s} < {s} and {s} < {s}.len) {{\n", .{ idx, target_len, src_idx, src_data });
                         self.indent_level += 1;
                         try self.emitIndent();
-                        try self.emit("runtime.container_dispatch.setPtrAt(@TypeOf(__slice_target), @TypeOf(__src_data[0]), __slice_target, __idx, __src_data[__src_idx]);\n");
+                        try self.emitFmt("runtime.container_dispatch.setPtrAt(@TypeOf({s}), @TypeOf({s}[0]), {s}, {s}, {s}[{s}]);\n", .{ slice_target, src_data, slice_target, idx, src_data, src_idx });
                         try self.emitIndent();
-                        try self.emit("__idx += __step;\n");
+                        try self.emitFmt("{s} += {s};\n", .{ idx, step });
                         try self.emitIndent();
-                        try self.emit("__src_idx += 1;\n");
+                        try self.emitFmt("{s} += 1;\n", .{src_idx});
                         self.indent_level -= 1;
                         try self.emitIndent();
                         try self.emit("}\n");
                     } else {
                         // Contiguous slice assignment
+                        const slice_start = try self.name_gen.temp();
+                        const slice_end = try self.name_gen.temp();
+                        const copy_len = try self.name_gen.temp();
+                        const target_slice = try self.name_gen.temp();
+                        const src_slice = try self.name_gen.temp();
+
                         try self.emitIndent();
                         if (slice.lower) |lower| {
-                            try self.emit("const __slice_start: usize = @intCast(");
+                            try self.emitFmt("const {s}: usize = @intCast(", .{slice_start});
                             try self.genExpr(lower.*);
                             try self.emit(");\n");
                         } else {
-                            try self.emit("const __slice_start: usize = 0;\n");
+                            try self.emitFmt("const {s}: usize = 0;\n", .{slice_start});
                         }
 
                         try self.emitIndent();
                         if (slice.upper) |upper| {
-                            try self.emit("const __slice_end: usize = @intCast(");
+                            try self.emitFmt("const {s}: usize = @intCast(", .{slice_end});
                             try self.genExpr(upper.*);
                             try self.emit(");\n");
                         } else {
                             // Use container_dispatch helper - avoids inline @hasField monomorphization
-                            try self.emit("const __slice_end: usize = runtime.container_dispatch.getPtrLen(@TypeOf(__slice_target), __slice_target);\n");
+                            try self.emitFmt("const {s}: usize = runtime.container_dispatch.getPtrLen(@TypeOf({s}), {s});\n", .{ slice_end, slice_target, slice_target });
                         }
 
                         try self.emitIndent();
                         // Use container_dispatch helpers - avoids inline @hasField monomorphization
-                        try self.emit("const __copy_len = @min(__slice_end - __slice_start, runtime.container_dispatch.getLen(@TypeOf(__slice_src), __slice_src));\n");
+                        try self.emitFmt("const {s} = @min({s} - {s}, runtime.container_dispatch.getLen(@TypeOf({s}), {s}));\n", .{ copy_len, slice_end, slice_start, slice_src, slice_src });
                         try self.emitIndent();
-                        try self.emit("const __target_slice = runtime.container_dispatch.getMutSlice(@TypeOf(__slice_target.*), __slice_target);\n");
+                        try self.emitFmt("const {s} = runtime.container_dispatch.getMutSlice(@TypeOf({s}.*), {s});\n", .{ target_slice, slice_target, slice_target });
                         try self.emitIndent();
-                        try self.emit("const __src_slice = runtime.container_dispatch.getSlice(@TypeOf(__slice_src), __slice_src);\n");
+                        try self.emitFmt("const {s} = runtime.container_dispatch.getSlice(@TypeOf({s}), {s});\n", .{ src_slice, slice_src, slice_src });
                         try self.emitIndent();
-                        try self.emit("@memcpy(__target_slice[__slice_start..][0..__copy_len], __src_slice[0..__copy_len]);\n");
+                        try self.emitFmt("@memcpy({s}[{s}..][0..{s}], {s}[0..{s}]);\n", .{ target_slice, slice_start, copy_len, src_slice, copy_len });
                     }
                 }
 

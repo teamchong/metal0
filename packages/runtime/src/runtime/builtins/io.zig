@@ -5,6 +5,7 @@ const cpython = @import("../../cpython.zig");
 const pyint = @import("../../Objects/intobject.zig");
 const pystring = @import("../../Objects/unicodeobject.zig");
 const repr = @import("repr.zig");
+const PyValue = @import("../../Objects/object.zig").PyValue;
 
 const PyObject = runtime_core.PyObject;
 const PyInt = pyint.PyInt;
@@ -94,6 +95,43 @@ pub fn printWithOptions(
 fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocator: std.mem.Allocator) void {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
+
+    // Handle PyValue tagged union (from c_interop, eval, etc.)
+    if (T == PyValue) {
+        switch (value) {
+            .int => |i| {
+                var buf: [32]u8 = undefined;
+                const formatted = std.fmt.bufPrint(&buf, "{d}", .{i}) catch return;
+                output.appendSlice(allocator, formatted) catch unreachable;
+            },
+            .float => |f| {
+                if (std.math.isNan(f)) {
+                    output.appendSlice(allocator, "nan") catch unreachable;
+                } else if (std.math.isInf(f)) {
+                    output.appendSlice(allocator, if (f < 0) "-inf" else "inf") catch unreachable;
+                } else {
+                    var buf: [64]u8 = undefined;
+                    const formatted = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return;
+                    output.appendSlice(allocator, formatted) catch unreachable;
+                }
+            },
+            .string => |s| output.appendSlice(allocator, s) catch unreachable,
+            .bool => |b| output.appendSlice(allocator, if (b) "True" else "False") catch unreachable,
+            .none => output.appendSlice(allocator, "None") catch unreachable,
+            .bytes => |b| output.appendSlice(allocator, repr.bytesRepr(allocator, b.data) catch "b''") catch unreachable,
+            .ptr => {
+                var buf: [64]u8 = undefined;
+                const formatted = std.fmt.bufPrint(&buf, "<object at {*}>", .{value.ptr}) catch return;
+                output.appendSlice(allocator, formatted) catch unreachable;
+            },
+            else => {
+                var buf: [256]u8 = undefined;
+                const formatted = std.fmt.bufPrint(&buf, "{any}", .{value}) catch return;
+                output.appendSlice(allocator, formatted) catch unreachable;
+            },
+        }
+        return;
+    }
 
     // Handle null (Python's None) - check optional types
     if (info == .optional or info == .null) {

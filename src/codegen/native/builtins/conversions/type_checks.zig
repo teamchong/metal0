@@ -147,9 +147,26 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Check if it's a user-defined class by looking in the class registry
     if (type_name) |tname| {
-        if (self.class_registry.classes.contains(tname)) {
-            // User-defined class - check if @TypeOf(x) == ClassName
-            // For anytype params or unknown types, this is a comptime check
+        if (self.class_registry.classes.get(tname)) |class_def| {
+            // Check if class has ABCMeta metaclass - requires runtime check for virtual subclasses
+            const has_abc_metaclass = if (class_def.metaclass) |mc|
+                std.mem.eql(u8, mc, "ABCMeta") or std.mem.eql(u8, mc, "abc.ABCMeta")
+            else
+                false;
+
+            if (has_abc_metaclass) {
+                // ABCMeta class - use runtime check to support virtual subclasses
+                // isinstance(x, ABCClass) must check ABC registry for registered virtual subclasses
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+                try self.genExpr(args[0]);
+                try self.emitFmt("); break :__m{d}_blk runtime.isSubclass(T, ", .{id});
+                try self.emit(tname);
+                try self.emit("); }");
+                return;
+            }
+
+            // Regular class (no ABCMeta) - use fast compile-time check
             const id = self.nextNameId();
             try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
             try self.genExpr(args[0]);
@@ -169,6 +186,25 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // IMPORTANT: This must come BEFORE the type variable check to handle nested classes like Key3
         if (self.current_class_name) |class_name| {
             if (std.mem.eql(u8, tname, class_name)) {
+                // Check if current class has ABCMeta metaclass
+                const current_has_abc = if (self.class_registry.classes.get(class_name)) |cd|
+                    if (cd.metaclass) |mc|
+                        std.mem.eql(u8, mc, "ABCMeta") or std.mem.eql(u8, mc, "abc.ABCMeta")
+                    else
+                        false
+                else
+                    false;
+
+                if (current_has_abc) {
+                    // ABCMeta class - use runtime check
+                    const id = self.nextNameId();
+                    try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+                    try self.genExpr(args[0]);
+                    try self.emitFmt("); break :__m{d}_blk runtime.isSubclass(T, @This()); }}", .{id});
+                    return;
+                }
+
+                // Regular class - use fast compile-time check
                 const id = self.nextNameId();
                 try self.emitFmt("__m{d}_blk: {{ const __obj_type = @TypeOf(", .{id});
                 try self.genExpr(args[0]);

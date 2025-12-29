@@ -39,7 +39,7 @@ fn genFilter(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
     try self.withInlineBlock("flt", args, struct {
         fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const inner_label = (try c.getBuilder()).freshInlineLabel("fm") catch "__fm";
+            const inner_label = try (try c.getBuilder()).freshInlineLabel("fm");
             try c.emit("const _names = ");
             try c.genExpr(a[0]);
             try c.emit("; const _pattern = ");

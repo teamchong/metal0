@@ -114,11 +114,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Check if obj needs temp variable (list literal, comprehension, etc.)
     if (needsTempVariable(obj)) {
         // Use temp variable pattern for list literals
+        const list_temp = try self.name_gen.temp();
         // In defer blocks, 'try' is not allowed - use catch unreachable instead
         if (self.inside_defer) {
-            try self.emit("{ var __list_temp = ");
+            try self.emitFmt("{{ var {s} = ", .{list_temp});
             try self.genExpr(obj);
-            try self.emit("; __list_temp.append(__global_allocator, ");
+            try self.emitFmt("; {s}.append(__global_allocator, ", .{list_temp});
 
             if (elem_is_pyvalue) {
                 try self.emit("runtime.PyValue.fromAlloc(__global_allocator, ");
@@ -129,9 +130,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                const callable_temp = try self.name_gen.temp();
+                try self.emitFmt("const {s} = ", .{callable_temp});
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf({s}), {s}); ", .{ label2, callable_temp, callable_temp });
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
@@ -139,9 +141,9 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
             try self.emit(") catch unreachable; }");
         } else {
-            try self.emit("{ var __list_temp = ");
+            try self.emitFmt("{{ var {s} = ", .{list_temp});
             try self.genExpr(obj);
-            try self.emit("; try __list_temp.append(__global_allocator, ");
+            try self.emitFmt("; try {s}.append(__global_allocator, ", .{list_temp});
 
             if (elem_is_pyvalue) {
                 try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
@@ -152,9 +154,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                const callable_temp = try self.name_gen.temp();
+                try self.emitFmt("const {s} = ", .{callable_temp});
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf({s}), {s}); ", .{ label2, callable_temp, callable_temp });
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
@@ -178,9 +181,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                const callable_temp = try self.name_gen.temp();
+                try self.emitFmt("const {s} = ", .{callable_temp});
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf({s}), {s}); ", .{ label2, callable_temp, callable_temp });
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
@@ -201,9 +205,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
                 const label2 = try self.emitInlineBlockStart("callable");
-                try self.emit("const __callable_temp = ");
+                const callable_temp = try self.name_gen.temp();
+                try self.emitFmt("const {s} = ", .{callable_temp});
                 try self.genExpr(args[0]);
-                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf(__callable_temp), __callable_temp); ", .{label2});
+                try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf({s}), {s}); ", .{ label2, callable_temp, callable_temp });
                 try self.emitInlineBlockEnd();
             } else {
                 try self.genExpr(args[0]);
@@ -257,9 +262,10 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     // Check if argument is a list literal - use & slice syntax
     if (arg == .list) {
         if (obj_needs_temp) {
-            try self.emit("{ var __list_temp = ");
+            const list_temp = try self.name_gen.temp();
+            try self.emitFmt("{{ var {s} = ", .{list_temp});
             try self.genExpr(obj);
-            try self.emit("; try __list_temp.appendSlice(__global_allocator, &");
+            try self.emitFmt("; try {s}.appendSlice(__global_allocator, &", .{list_temp});
             try self.genExpr(arg);
             try self.emit("); }");
         } else {
@@ -273,18 +279,21 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         // Block expression (list comprehension, call, etc.) - need temp for arg
         if (obj_needs_temp) {
             // Both obj and arg need temp variables
-            try self.emit("{ var __list_temp = ");
+            const list_temp = try self.name_gen.temp();
+            const arg_temp = try self.name_gen.temp();
+            try self.emitFmt("{{ var {s} = ", .{list_temp});
             try self.genExpr(obj);
-            try self.emit("; const __arg_temp = ");
+            try self.emitFmt("; const {s} = ", .{arg_temp});
             try self.genExpr(arg);
-            try self.emit("; try __list_temp.appendSlice(__global_allocator, __arg_temp.items); }");
+            try self.emitFmt("; try {s}.appendSlice(__global_allocator, {s}.items); }}", .{ list_temp, arg_temp });
         } else {
             // Only arg needs temp (existing code)
-            try self.emit("{ const __list_temp = ");
+            const arg_temp = try self.name_gen.temp();
+            try self.emitFmt("{{ const {s} = ", .{arg_temp});
             try self.genExpr(arg);
             try self.emit("; try ");
             try emitObjExpr(self, obj);
-            try self.emit(".appendSlice(__global_allocator, __list_temp.items); }");
+            try self.emitFmt(".appendSlice(__global_allocator, {s}.items); }}", .{arg_temp});
         }
     } else {
         // Check if argument might have __iter__ instead of .items
@@ -315,9 +324,10 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             if (obj_needs_temp) {
                 // List literal with custom iterable: [].extend(BadLen())
                 // Create a temp list variable first, then extend it
-                try self.emit("{ var __list_temp = ");
+                const list_temp = try self.name_gen.temp();
+                try self.emitFmt("{{ var {s} = ", .{list_temp});
                 try self.genExpr(obj);
-                try self.emit("; try runtime.listExtendIterable(__global_allocator, &__list_temp, ");
+                try self.emitFmt("; try runtime.listExtendIterable(__global_allocator, &{s}, ", .{list_temp});
                 try self.genExpr(arg);
                 try self.emit("); }");
             } else {
@@ -330,9 +340,10 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         } else {
             // Assume ArrayList variable - use .items
             if (obj_needs_temp) {
-                try self.emit("{ var __list_temp = ");
+                const list_temp = try self.name_gen.temp();
+                try self.emitFmt("{{ var {s} = ", .{list_temp});
                 try self.genExpr(obj);
-                try self.emit("; try __list_temp.appendSlice(__global_allocator, ");
+                try self.emitFmt("; try {s}.appendSlice(__global_allocator, ", .{list_temp});
                 try self.genExpr(arg);
                 try self.emit(".items); }");
             } else {
@@ -368,9 +379,10 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Check if obj needs temp variable (list literal, comprehension, etc.)
     if (needsTempVariable(obj)) {
-        try self.emit("{ var __list_temp = ");
+        const list_temp = try self.name_gen.temp();
+        try self.emitFmt("{{ var {s} = ", .{list_temp});
         try self.genExpr(obj);
-        try self.emit("; try __list_temp.insert(__global_allocator, @intCast(");
+        try self.emitFmt("; try {s}.insert(__global_allocator, @intCast(", .{list_temp});
         try self.genExpr(args[0]);
         try self.emit("), ");
         try self.genExpr(args[1]);
@@ -395,13 +407,14 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Generate: { const idx = std.mem.indexOfScalar(T, list.items, item).?; _ = list.orderedRemove(idx); }
-    try self.emit("{ const __idx = std.mem.indexOfScalar(i64, ");
+    const idx = try self.name_gen.temp();
+    try self.emitFmt("{{ const {s} = std.mem.indexOfScalar(i64, ", .{idx});
     try self.genExpr(obj);
     try self.emit(".items, ");
     try self.genExpr(args[0]);
     try self.emit(").?; _ = ");
     try self.genExpr(obj);
-    try self.emit(".orderedRemove(__idx); }");
+    try self.emitFmt(".orderedRemove({s}); }}", .{idx});
 }
 
 /// Generate code for list.reverse()
@@ -418,10 +431,11 @@ pub fn genReverse(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     };
 
     if (needs_temp) {
-        // Generate: { var __list_temp = expr; std.mem.reverse(i64, __list_temp.items); }
-        try self.emit("{ var __list_temp = ");
+        // Generate: { var list_temp = expr; std.mem.reverse(i64, list_temp.items); }
+        const list_temp = try self.name_gen.temp();
+        try self.emitFmt("{{ var {s} = ", .{list_temp});
         try self.genExpr(obj);
-        try self.emit("; std.mem.reverse(i64, __list_temp.items); }");
+        try self.emitFmt("; std.mem.reverse(i64, {s}.items); }}", .{list_temp});
     } else {
         // Generate: std.mem.reverse(T, list.items)
         try self.emit("std.mem.reverse(i64, ");
@@ -444,10 +458,11 @@ pub fn genSort(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     };
 
     if (needs_temp) {
-        // Generate: { var __list_temp = expr; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }
-        try self.emit("{ var __list_temp = ");
+        // Generate: { var list_temp = expr; std.mem.sort(i64, list_temp.items, {}, comptime std.sort.asc(i64)); }
+        const list_temp = try self.name_gen.temp();
+        try self.emitFmt("{{ var {s} = ", .{list_temp});
         try self.genExpr(obj);
-        try self.emit("; std.mem.sort(i64, __list_temp.items, {}, comptime std.sort.asc(i64)); }");
+        try self.emitFmt("; std.mem.sort(i64, {s}.items, {{}}, comptime std.sort.asc(i64)); }}", .{list_temp});
     } else {
         // Generate: std.mem.sort(i64, list.items, {}, comptime std.sort.asc(i64))
         try self.emit("std.mem.sort(i64, ");
@@ -463,9 +478,10 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     // Handle list literals and temporary expressions that need temp variable
     if (needsTempVariable(obj)) {
-        try self.emit("{ var __list_temp = ");
+        const list_temp = try self.name_gen.temp();
+        try self.emitFmt("{{ var {s} = ", .{list_temp});
         try self.genExpr(obj);
-        try self.emit("; __list_temp.clearRetainingCapacity(); }");
+        try self.emitFmt("; {s}.clearRetainingCapacity(); }}", .{list_temp});
     } else {
         // Generate: list.clearRetainingCapacity()
         try emitObjExpr(self, obj);
@@ -489,9 +505,10 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         // (they use the allocator stored internally)
         if (needsTempVariable(obj)) {
             const label = try self.emitInlineBlockStart("copy");
-            try self.emit("const __list_temp = ");
+            const list_temp = try self.name_gen.temp();
+            try self.emitFmt("const {s} = ", .{list_temp});
             try self.genExpr(obj);
-            try self.emitFmt("; break :{s} try __list_temp.clone(); ", .{label});
+            try self.emitFmt("; break :{s} try {s}.clone(); ", .{ label, list_temp });
             try self.emitInlineBlockEnd();
         } else {
             try self.emit("try ");
@@ -502,9 +519,10 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         // ArrayList.clone() requires allocator argument
         if (needsTempVariable(obj)) {
             const label = try self.emitInlineBlockStart("copy");
-            try self.emit("const __list_temp = ");
+            const list_temp = try self.name_gen.temp();
+            try self.emitFmt("const {s} = ", .{list_temp});
             try self.genExpr(obj);
-            try self.emitFmt("; break :{s} try __list_temp.clone(__global_allocator); ", .{label});
+            try self.emitFmt("; break :{s} try {s}.clone(__global_allocator); ", .{ label, list_temp });
             try self.emitInlineBlockEnd();
         } else {
             try self.emit("try ");
@@ -596,20 +614,22 @@ pub fn genExtendleft(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     const arg = args[0];
 
     // Check if argument is a list literal - use & slice syntax
+    const ext_item = try self.name_gen.temp();
     if (arg == .list) {
         // Array literals: iterate directly with &
         try self.emit("{ for (&");
         try self.genExpr(arg);
-        try self.emit(") |__ext_item| { try ");
+        try self.emitFmt(") |{s}| {{ try ", .{ext_item});
         try self.genExpr(obj);
-        try self.emit(".insert(__global_allocator, 0, __ext_item); } }");
+        try self.emitFmt(".insert(__global_allocator, 0, {s}); }} }}", .{ext_item});
     } else {
         // ArrayList variable: use .items
-        try self.emit("{ const __ext_temp = ");
+        const ext_temp = try self.name_gen.temp();
+        try self.emitFmt("{{ const {s} = ", .{ext_temp});
         try self.genExpr(arg);
-        try self.emit(".items; for (__ext_temp) |__ext_item| { try ");
+        try self.emitFmt(".items; for ({s}) |{s}| {{ try ", .{ ext_temp, ext_item });
         try self.genExpr(obj);
-        try self.emit(".insert(__global_allocator, 0, __ext_item); } }");
+        try self.emitFmt(".insert(__global_allocator, 0, {s}); }} }}", .{ext_item});
     }
 }
 

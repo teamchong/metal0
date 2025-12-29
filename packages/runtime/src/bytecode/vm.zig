@@ -1333,19 +1333,14 @@ pub const VM = struct {
     }
 
     // ========================================
-    // Arithmetic helpers (dispatch to runtime)
+    // Arithmetic helpers - use shared PyValue methods
+    // Both VM and AOT now use the same arithmetic implementation
     // ========================================
 
+    /// Add two values using shared PyValue.add implementation
     fn vmAdd(self: *VM, a: PyValue, b: PyValue) VMError!PyValue {
-        if (a.isInt() and b.isInt()) {
-            // TODO: Use unified_int_ops for overflow handling
-            return .{ .int = a.asInt() +% b.asInt() };
-        }
-        if (a.isFloat() or b.isFloat()) {
-            return .{ .float = a.asFloat() + b.asFloat() };
-        }
+        // String concatenation needs allocation
         if (a.isString() and b.isString()) {
-            // Concatenate strings
             const str_a = a.asString();
             const str_b = b.asString();
             const result = self.allocator.alloc(u8, str_a.len + str_b.len) catch return VMError.OutOfMemory;
@@ -1353,75 +1348,44 @@ pub const VM = struct {
             @memcpy(result[str_a.len..], str_b);
             return .{ .string = result };
         }
-        return VMError.TypeError;
+        // Use unified PyValue.add for numeric operations
+        const result = a.add(b);
+        return if (result == .none) VMError.TypeError else result;
     }
 
+    /// Subtract two values using shared PyValue.sub implementation
     fn vmSub(self: *VM, a: PyValue, b: PyValue) VMError!PyValue {
         _ = self;
-        if (a.isInt() and b.isInt()) {
-            return .{ .int = a.asInt() -% b.asInt() };
-        }
-        if (a.isFloat() or b.isFloat()) {
-            return .{ .float = a.asFloat() - b.asFloat() };
-        }
-        return VMError.TypeError;
+        const result = a.sub(b);
+        return if (result == .none) VMError.TypeError else result;
     }
 
+    /// Multiply two values using shared PyValue.mul implementation
     fn vmMul(self: *VM, a: PyValue, b: PyValue) VMError!PyValue {
         _ = self;
-        if (a.isInt() and b.isInt()) {
-            return .{ .int = a.asInt() *% b.asInt() };
-        }
-        if (a.isFloat() or b.isFloat()) {
-            return .{ .float = a.asFloat() * b.asFloat() };
-        }
-        return VMError.TypeError;
+        const result = a.mul(b);
+        return if (result == .none) VMError.TypeError else result;
     }
 
+    /// Floor divide using shared PyValue.floordiv implementation
     fn vmFloorDiv(self: *VM, a: PyValue, b: PyValue) VMError!PyValue {
         _ = self;
-        if (a.isInt() and b.isInt()) {
-            const bi = b.asInt();
-            if (bi == 0) return VMError.ZeroDivisionError;
-            return .{ .int = @divFloor(a.asInt(), bi) };
-        }
-        if (a.isFloat() or b.isFloat()) {
-            const bf = b.asFloat();
-            if (bf == 0.0) return VMError.ZeroDivisionError;
-            return .{ .float = @floor(a.asFloat() / bf) };
-        }
-        return VMError.TypeError;
+        const result = a.floordiv(b);
+        return if (result == .none) VMError.ZeroDivisionError else result;
     }
 
+    /// Modulo using shared PyValue.mod implementation
     fn vmMod(self: *VM, a: PyValue, b: PyValue) VMError!PyValue {
         _ = self;
-        if (a.isInt() and b.isInt()) {
-            const bi = b.asInt();
-            if (bi == 0) return VMError.ZeroDivisionError;
-            return .{ .int = @mod(a.asInt(), bi) };
-        }
-        if (a.isFloat() or b.isFloat()) {
-            const bf = b.asFloat();
-            if (bf == 0.0) return VMError.ZeroDivisionError;
-            return .{ .float = @mod(a.asFloat(), bf) };
-        }
-        return VMError.TypeError;
+        const result = a.mod(b);
+        return if (result == .none) VMError.ZeroDivisionError else result;
     }
 
+    /// Power using shared PyValue.pow implementation
     fn vmPow(self: *VM, a: PyValue, b: PyValue) VMError!PyValue {
         _ = self;
-        if (a.isInt() and b.isInt() and b.asInt() >= 0) {
-            const exp = b.asInt();
-            if (exp > 63) {
-                // Would need BigInt
-                return .{ .float = std.math.pow(f64, a.asFloat(), b.asFloat()) };
-            }
-            return .{ .int = std.math.powi(i64, a.asInt(), @intCast(exp)) catch {
-                // Overflow - fall back to float
-                return .{ .float = std.math.pow(f64, a.asFloat(), b.asFloat()) };
-            } };
-        }
-        return .{ .float = std.math.pow(f64, a.asFloat(), b.asFloat()) };
+        const result = a.pow(b);
+        return if (result == .none) VMError.TypeError else result;
     }
 
     // ========================================

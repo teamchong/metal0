@@ -240,6 +240,38 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 3.6: Generate c_interop import if C extension modules are used
     if (self.c_extension_modules.count() > 0) {
         try self.emit("const c_interop = @import(\"c_interop\");\n");
+
+        // PHASE 3.6.1: Generate C extension module imports
+        // import numpy as np -> var np: ?*c_interop.PyObject = null;
+        // The actual import happens at runtime in main() before any code runs
+        // Track which modules we've already emitted (avoid duplicates from alias + module_name)
+        var emitted_c_ext = hashmap_helper.StringHashMap(void).init(self.allocator);
+        defer emitted_c_ext.deinit();
+
+        for (self.c_extension_modules.keys()) |key| {
+            const module_name = self.c_extension_modules.get(key).?;
+            // Skip module_name -> module_name entries if we have an alias
+            if (std.mem.eql(u8, key, module_name)) {
+                // Check if there's an alias for this module
+                var has_alias = false;
+                for (self.c_extension_modules.keys()) |k| {
+                    const v = self.c_extension_modules.get(k).?;
+                    if (std.mem.eql(u8, v, module_name) and !std.mem.eql(u8, k, module_name)) {
+                        has_alias = true;
+                        break;
+                    }
+                }
+                if (has_alias) continue; // Skip - we'll use the alias instead
+            }
+
+            // Avoid duplicate emissions
+            if (emitted_c_ext.contains(key)) continue;
+            try emitted_c_ext.put(key, {});
+
+            // Generate: var np: ?*c_interop.PyObject = null;
+            // The import will be done at runtime start via c_interop.importModule()
+            try self.emitFmt("var {s}: ?*c_interop.PyObject = null;\n", .{key});
+        }
     }
 
     // PHASE 3.7: Emit module assignments for registry modules
@@ -1599,6 +1631,40 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try zig_keywords.writeEscapedDottedIdent(self.output.writer(self.allocator), mod_name);
                     try self.emit(".init(__global_allocator);\n");
                 }
+            }
+        }
+
+        // Initialize C extension modules via c_interop.importModule()
+        // import numpy as np -> np = c_interop.importModule("numpy") orelse @panic("...");
+        if (self.c_extension_modules.count() > 0) {
+            try self.emit("\n");
+            try self.emitIndent();
+            try self.emit("// Initialize C extension modules\n");
+
+            // Track emitted to avoid duplicates
+            var emitted_c_ext = hashmap_helper.StringHashMap(void).init(self.allocator);
+            defer emitted_c_ext.deinit();
+
+            for (self.c_extension_modules.keys()) |key| {
+                const module_name = self.c_extension_modules.get(key).?;
+                // Skip module_name -> module_name entries if we have an alias
+                if (std.mem.eql(u8, key, module_name)) {
+                    var has_alias = false;
+                    for (self.c_extension_modules.keys()) |k| {
+                        const v = self.c_extension_modules.get(k).?;
+                        if (std.mem.eql(u8, v, module_name) and !std.mem.eql(u8, k, module_name)) {
+                            has_alias = true;
+                            break;
+                        }
+                    }
+                    if (has_alias) continue;
+                }
+
+                if (emitted_c_ext.contains(key)) continue;
+                try emitted_c_ext.put(key, {});
+
+                try self.emitIndent();
+                try self.emitFmt("{s} = c_interop.importModule(\"{s}\") orelse @panic(\"Failed to import C extension module: {s}\");\n", .{ key, module_name, module_name });
             }
         }
     }

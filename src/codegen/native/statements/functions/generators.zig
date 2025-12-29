@@ -1821,14 +1821,55 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // For classes with metaclass=ABCMeta, generate register() method
-    // register(cls) is used to register virtual subclasses - we make it a no-op
+    // register(cls) registers virtual subclasses in the global ABC registry
     if (class.metaclass) |mc| {
         if (std.mem.eql(u8, mc, "ABCMeta")) {
             try self.emit("\n");
             try self.emitIndent();
-            try self.emit("// ABCMeta.register - register virtual subclass (no-op for AOT)\n");
+            try self.emit("// ABCMeta.register - register virtual subclass\n");
             try self.emitIndent();
-            try self.emit("pub fn register(_: anytype) void {}\n");
+            try self.emit("pub fn register(subclass: anytype) void {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("const SubType = if (@typeInfo(@TypeOf(subclass)) == .type) subclass else @TypeOf(subclass);\n");
+            try self.emitIndent();
+            try self.emit("if (@hasDecl(SubType, \"__name__\")) {\n");
+            self.indent();
+            try self.emitIndent();
+            // Use @This().__name__ to avoid conflict with module-level __name__
+            try self.emit("runtime.registerVirtualSubclass(@This().__name__, SubType.__name__);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+
+            // ABCMeta._abc_registry_clear - clear all virtual subclass registrations
+            try self.emit("\n");
+            try self.emitIndent();
+            try self.emit("// ABCMeta._abc_registry_clear - clear virtual subclass registry\n");
+            try self.emitIndent();
+            try self.emit("pub fn _abc_registry_clear() void {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("runtime.clearRegistryForClass(@This().__name__);\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
+
+            // ABCMeta._abc_caches_clear - for compatibility (no-op in our implementation)
+            try self.emit("\n");
+            try self.emitIndent();
+            try self.emit("// ABCMeta._abc_caches_clear - clear subclass caches (no-op)\n");
+            try self.emitIndent();
+            try self.emit("pub fn _abc_caches_clear() void {\n");
+            self.indent();
+            try self.emitIndent();
+            try self.emit("// No caching in our implementation\n");
+            self.dedent();
+            try self.emitIndent();
+            try self.emit("}\n");
         }
     }
 

@@ -795,6 +795,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 continue;
             }
 
+            // Skip C extension modules (they are loaded at runtime via c_interop)
+            if (import_resolver.isCExtension(module_name, aa)) {
+                continue;
+            }
+
             const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry2, &sig_cache2) catch |err| {
                 std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_name, err });
                 std.debug.print("  Module compilation is required for correct code generation.\n", .{});

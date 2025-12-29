@@ -108,14 +108,14 @@ fn printUnknownType(obj: *PyObject) void {
         if (tryPrintStringResult(cast, repr_func(obj))) return;
     }
     // Fallback: print type name and pointer
-    std.debug.print("<{s} at {*}>", .{ std.mem.span(type_obj.tp_name), obj });
+    std.debug.print("<{s} at {*}>", .{ std.mem.span(type_obj.tp_name orelse "unknown"), obj });
 }
 
 /// Try to print a string result from tp_str/tp_repr
 fn tryPrintStringResult(cast: anytype, result: *PyObject) bool {
     const result_type = Py_TYPE(result);
     if (result_type == &cpython.PyUnicode_Type or
-        std.mem.eql(u8, std.mem.span(result_type.tp_name), "str"))
+        std.mem.eql(u8, std.mem.span(result_type.tp_name orelse ""), "str"))
     {
         const str_obj = cast(PyUnicodeObject, result);
         const len: usize = @intCast(str_obj.length);
