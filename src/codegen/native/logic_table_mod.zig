@@ -1,48 +1,33 @@
-/// Python logic_table module - @logic_table decorator for GPU-accelerated data processing
+/// Python logic_table module - @logic_table decorator for compiled Python
 ///
-/// The @logic_table decorator transforms Python classes into high-performance
-/// data processing pipelines that execute on GPU (Metal/wgpu) or CPU (SIMD).
+/// The @logic_table decorator compiles Python classes to native Zig code.
+/// Python for loops are ACTUALLY compiled - no template substitution.
 ///
 /// Example:
 /// ```python
-/// from logic_table import logic_table, cosine_sim
+/// from logic_table import logic_table
 ///
 /// @logic_table
-/// class FraudDetector:
-///     def score(self, transactions):
-///         return cosine_sim(transactions.embedding, self.fraud_pattern)
+/// class VectorOps:
+///     def dot_product(self, a, b):
+///         result = 0.0
+///         for i in range(len(a)):
+///             result = result + a[i] * b[i]
+///         return result
 /// ```
 ///
-/// This compiles to native Zig code with automatic GPU dispatch.
+/// This compiles the actual Python for loop to native Zig code.
 ///
 const std = @import("std");
 const h = @import("mod_helper.zig");
 
 /// Module functions for logic_table operations
+/// NOTE: No hardcoded SIMD templates - Python code is actually compiled
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     // Decorator - marks class for compilation
     .{ "logic_table", logicTableDecorator },
 
-    // Vector similarity functions (GPU-accelerated)
-    .{ "cosine_sim", cosineSim },
-    .{ "cosine_similarity", cosineSim },
-    .{ "l2_distance", l2Distance },
-    .{ "euclidean_distance", l2Distance },
-    .{ "dot_product", dotProduct },
-    .{ "dot", dotProduct },
-
-    // Batch operations (tiered dispatch: SIMD <10K, GPU >=10K)
-    .{ "batch_dot_product", batchDotProduct },
-    .{ "batch_cosine_sim", batchCosineSim },
-    .{ "batch_l2_distance", batchL2Distance },
-    .{ "batch_normalize", batchNormalize },
-    .{ "l2_normalize", batchNormalize },
-
-    // Aggregations
-    .{ "sum_vectors", sumVectors },
-    .{ "mean_vectors", meanVectors },
-
-    // Table operations
+    // Table operations (these are legitimate helpers, not SIMD cheats)
     .{ "read_lance", readLance },
     .{ "filter", tableFilter },
     .{ "project", tableProject },
@@ -53,350 +38,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "col", columnAccess },
 });
 
-/// @logic_table decorator - marks class for GPU compilation
+/// @logic_table decorator - marks class for compilation
 /// Returns struct type with _is_logic_table marker
 fn logicTableDecorator(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     _ = args;
     try self.emit("struct { _is_logic_table: bool = true }{}");
-}
-
-/// cosine_sim(a, b) - cosine similarity between two vectors
-/// Uses SIMD vectorization for high performance
-fn cosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("@as(f64, 0.0)");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("cossim");
-    try self.emit("const __a = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __b = ");
-    try self.genExpr(args[1]);
-    // SIMD-accelerated dot product with normalization
-    try self.emitFmt(
-        \\; const __dim = @min(__a.len, __b.len);
-        \\// Infer element type from slice/array
-        \\const __TypeInfo = @typeInfo(@TypeOf(__a));
-        \\const __ElemType = switch (__TypeInfo) {{
-        \\    .pointer => __TypeInfo.pointer.child,
-        \\    .array => __TypeInfo.array.child,
-        \\    else => f64,
-        \\}};
-        \\// SIMD vectorized cosine similarity using 4-element vectors
-        \\const __Vec4 = @Vector(4, __ElemType);
-        \\var __dot_vec: __Vec4 = @splat(0);
-        \\var __norm_a_vec: __Vec4 = @splat(0);
-        \\var __norm_b_vec: __Vec4 = @splat(0);
-        \\var __i: usize = 0;
-        \\// Main SIMD loop - process 4 elements at a time
-        \\const __simd_end = __dim & ~@as(usize, 3);
-        \\while (__i < __simd_end) : (__i += 4) {{
-        \\    const __a_vec: __Vec4 = __a[__i..][0..4].*;
-        \\    const __b_vec: __Vec4 = __b[__i..][0..4].*;
-        \\    __dot_vec += __a_vec * __b_vec;
-        \\    __norm_a_vec += __a_vec * __a_vec;
-        \\    __norm_b_vec += __b_vec * __b_vec;
-        \\}}
-        \\// Reduce SIMD vectors to scalars
-        \\var __dot = @reduce(.Add, __dot_vec);
-        \\var __norm_a = @reduce(.Add, __norm_a_vec);
-        \\var __norm_b = @reduce(.Add, __norm_b_vec);
-        \\// Handle remainder elements
-        \\while (__i < __dim) : (__i += 1) {{
-        \\    __dot += __a[__i] * __b[__i];
-        \\    __norm_a += __a[__i] * __a[__i];
-        \\    __norm_b += __b[__i] * __b[__i];
-        \\}}
-        \\const __denom = @sqrt(__norm_a) * @sqrt(__norm_b);
-        \\break :{s} @as(f64, if (__denom > 0.0) __dot / __denom else 0.0);
-    , .{label});
-    try self.emitInlineBlockEnd();
-}
-
-/// l2_distance(a, b) - L2 (Euclidean) distance between two vectors
-/// Uses SIMD vectorization for high performance
-fn l2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("@as(f64, 0.0)");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("l2dist");
-    try self.emit("const __a = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __b = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt(
-        \\; const __dim = @min(__a.len, __b.len);
-        \\// Infer element type from slice/array
-        \\const __TypeInfo = @typeInfo(@TypeOf(__a));
-        \\const __ElemType = switch (__TypeInfo) {{
-        \\    .pointer => __TypeInfo.pointer.child,
-        \\    .array => __TypeInfo.array.child,
-        \\    else => f64,
-        \\}};
-        \\// SIMD vectorized L2 distance using 4-element vectors
-        \\const __Vec4 = @Vector(4, __ElemType);
-        \\var __sum_vec: __Vec4 = @splat(0);
-        \\var __i: usize = 0;
-        \\// Main SIMD loop - process 4 elements at a time
-        \\const __simd_end = __dim & ~@as(usize, 3);
-        \\while (__i < __simd_end) : (__i += 4) {{
-        \\    const __a_vec: __Vec4 = __a[__i..][0..4].*;
-        \\    const __b_vec: __Vec4 = __b[__i..][0..4].*;
-        \\    const __diff_vec = __a_vec - __b_vec;
-        \\    __sum_vec += __diff_vec * __diff_vec;
-        \\}}
-        \\// Reduce SIMD vector to scalar
-        \\var __sum = @reduce(.Add, __sum_vec);
-        \\// Handle remainder elements
-        \\while (__i < __dim) : (__i += 1) {{
-        \\    const __diff = __a[__i] - __b[__i];
-        \\    __sum += __diff * __diff;
-        \\}}
-        \\break :{s} @sqrt(__sum);
-    , .{label});
-    try self.emitInlineBlockEnd();
-}
-
-/// dot_product(a, b) - dot product of two vectors
-/// Uses SIMD vectorization for high performance
-fn dotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("@as(f64, 0.0)");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("dotprod");
-    try self.emit("const __a = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __b = ");
-    try self.genExpr(args[1]);
-    try self.emitFmt(
-        \\; const __dim = @min(__a.len, __b.len);
-        \\// Infer element type from slice/array - use pointer.child for slices, array.child for arrays
-        \\const __TypeInfo = @typeInfo(@TypeOf(__a));
-        \\const __ElemType = switch (__TypeInfo) {{
-        \\    .pointer => __TypeInfo.pointer.child,
-        \\    .array => __TypeInfo.array.child,
-        \\    else => f64,
-        \\}};
-        \\// SIMD vectorized dot product using 4-element vectors
-        \\const __Vec4 = @Vector(4, __ElemType);
-        \\var __sum_vec: __Vec4 = @splat(0);
-        \\var __i: usize = 0;
-        \\// Main SIMD loop - process 4 elements at a time
-        \\const __simd_end = __dim & ~@as(usize, 3);
-        \\while (__i < __simd_end) : (__i += 4) {{
-        \\    const __a_vec: __Vec4 = __a[__i..][0..4].*;
-        \\    const __b_vec: __Vec4 = __b[__i..][0..4].*;
-        \\    __sum_vec += __a_vec * __b_vec;
-        \\}}
-        \\// Reduce SIMD vector to scalar
-        \\var __sum = @reduce(.Add, __sum_vec);
-        \\// Handle remainder elements
-        \\while (__i < __dim) : (__i += 1) {{
-        \\    __sum += __a[__i] * __b[__i];
-        \\}}
-        \\break :{s} __sum;
-    , .{label});
-    try self.emitInlineBlockEnd();
-}
-
-/// batch_cosine_sim(query, vectors, dim) - batch cosine similarity
-/// Uses tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K
-fn batchCosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("&[_]f32{}");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("batchcos");
-    try self.emit("const __query = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __vectors = ");
-    try self.genExpr(args[1]);
-    try self.emit("; const __dim = ");
-    if (args.len >= 3) {
-        try self.genExpr(args[2]);
-    } else {
-        try self.emit("__query.len");
-    }
-    // Use runtime tiered dispatch (SIMD for small, GPU for large)
-    try self.emitFmt(
-        \\; const __num_vectors = __vectors.len / __dim;
-        \\break :{s} runtime.metal.batchCosineSim(__global_allocator, __query, __vectors, __num_vectors, __dim) catch &[_]f32{{}};
-    , .{label});
-    try self.emitInlineBlockEnd();
-}
-
-/// batch_l2_distance(query, vectors, dim) - batch L2 distance
-/// Uses tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K
-fn batchL2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("&[_]f32{}");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("batchl2");
-    try self.emit("const __query = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __vectors = ");
-    try self.genExpr(args[1]);
-    try self.emit("; const __dim = ");
-    if (args.len >= 3) {
-        try self.genExpr(args[2]);
-    } else {
-        try self.emit("__query.len");
-    }
-    // Use runtime tiered dispatch (SIMD for small, GPU for large)
-    try self.emitFmt(
-        \\; const __num_vectors = __vectors.len / __dim;
-        \\break :{s} runtime.metal.batchL2Distance(__global_allocator, __query, __vectors, __num_vectors, __dim) catch &[_]f32{{}};
-    , .{label});
-    try self.emitInlineBlockEnd();
-}
-
-/// batch_dot_product(query, vectors, dim) - batch dot product
-/// Uses tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K
-fn batchDotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 2) {
-        try self.emit("&[_]f32{}");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("batchdot");
-    try self.emit("const __query = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __vectors = ");
-    try self.genExpr(args[1]);
-    try self.emit("; const __dim = ");
-    if (args.len >= 3) {
-        try self.genExpr(args[2]);
-    } else {
-        try self.emit("__query.len");
-    }
-    // Use runtime tiered dispatch (SIMD for small, GPU for large)
-    try self.emitFmt(
-        \\; const __num_vectors = __vectors.len / __dim;
-        \\break :{s} runtime.metal.batchDotProduct(__global_allocator, __query, __vectors, __num_vectors, __dim) catch &[_]f32{{}};
-    , .{label});
-    try self.emitInlineBlockEnd();
-}
-
-/// batch_normalize(vectors, dim) - L2 normalize all vectors in batch
-fn batchNormalize(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 1) {
-        try self.emit("&[_]f32{}");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("batchnorm");
-    try self.emit("const __vectors = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __dim = ");
-    if (args.len >= 2) {
-        try self.genExpr(args[1]);
-    } else {
-        try self.emit("384"); // Default embedding dim
-    }
-    try self.emitFmt(
-        \\; const __num_vectors = __vectors.len / __dim;
-        \\var __results = __global_allocator.alloc(f32, __vectors.len) catch break :{s} &[_]f32{{}};
-        \\
-        \\var __vi: usize = 0;
-        \\while (__vi < __num_vectors) : (__vi += 1) {{
-        \\    const __offset = __vi * __dim;
-        \\    var __norm: f32 = 0.0;
-        \\    var __j: usize = 0;
-        \\    while (__j < __dim) : (__j += 1) {{
-        \\        __norm += __vectors[__offset + __j] * __vectors[__offset + __j];
-        \\    }}
-        \\    __norm = @sqrt(__norm);
-        \\    if (__norm > 0.0) {{
-        \\        __j = 0;
-        \\        while (__j < __dim) : (__j += 1) {{
-        \\            __results[__offset + __j] = __vectors[__offset + __j] / __norm;
-        \\        }}
-        \\    }}
-        \\}}
-        \\break :{s} __results;
-    , .{ label, label });
-    try self.emitInlineBlockEnd();
-}
-
-/// sum_vectors(vectors, dim) - sum all vectors element-wise
-fn sumVectors(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 1) {
-        try self.emit("&[_]f32{}");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("sumvec");
-    try self.emit("const __vectors = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __dim = ");
-    if (args.len >= 2) {
-        try self.genExpr(args[1]);
-    } else {
-        try self.emit("384");
-    }
-    try self.emitFmt(
-        \\; const __num_vectors = __vectors.len / __dim;
-        \\var __result = __global_allocator.alloc(f32, __dim) catch break :{s} &[_]f32{{}};
-        \\@memset(__result, 0.0);
-        \\
-        \\var __vi: usize = 0;
-        \\while (__vi < __num_vectors) : (__vi += 1) {{
-        \\    var __j: usize = 0;
-        \\    while (__j < __dim) : (__j += 1) {{
-        \\        __result[__j] += __vectors[__vi * __dim + __j];
-        \\    }}
-        \\}}
-        \\break :{s} __result;
-    , .{ label, label });
-    try self.emitInlineBlockEnd();
-}
-
-/// mean_vectors(vectors, dim) - mean of all vectors element-wise
-fn meanVectors(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
-    if (args.len < 1) {
-        try self.emit("&[_]f32{}");
-        return;
-    }
-
-    const label = try self.emitInlineBlockStart("meanvec");
-    try self.emit("const __vectors = ");
-    try self.genExpr(args[0]);
-    try self.emit("; const __dim = ");
-    if (args.len >= 2) {
-        try self.genExpr(args[1]);
-    } else {
-        try self.emit("384");
-    }
-    try self.emitFmt(
-        \\; const __num_vectors = __vectors.len / __dim;
-        \\var __result = __global_allocator.alloc(f32, __dim) catch break :{s} &[_]f32{{}};
-        \\@memset(__result, 0.0);
-        \\
-        \\var __vi: usize = 0;
-        \\while (__vi < __num_vectors) : (__vi += 1) {{
-        \\    var __j: usize = 0;
-        \\    while (__j < __dim) : (__j += 1) {{
-        \\        __result[__j] += __vectors[__vi * __dim + __j];
-        \\    }}
-        \\}}
-        \\if (__num_vectors > 0) {{
-        \\    const __scale = 1.0 / @as(f32, @floatFromInt(__num_vectors));
-        \\    var __k: usize = 0;
-        \\    while (__k < __dim) : (__k += 1) {{
-        \\        __result[__k] *= __scale;
-        \\    }}
-        \\}}
-        \\break :{s} __result;
-    , .{ label, label });
-    try self.emitInlineBlockEnd();
 }
 
 /// read_lance(path) - read Lance file/dataset
