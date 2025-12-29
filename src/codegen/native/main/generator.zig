@@ -1894,14 +1894,9 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     // to avoid unreachable code errors in Zig
     if (self.control_flow_terminated) return;
 
-    // CRITICAL: Flush builder before each statement to ensure proper boundaries
-    // This prevents statement interleaving (e.g., semicolons appearing after next statement's indent)
-    if (self.builder) |b| {
-        const pending = try b.getBodyDupe();
-        if (pending.len > 0) {
-            try self.output.appendSlice(self.allocator, pending);
-        }
-    }
+    // NOTE: Do NOT flush builder here. Each module that uses getBodyDupe()
+    // must save/restore builder state to avoid capturing unrelated content.
+    // Flushing here captures partial content from previous code paths.
 
     switch (node) {
         .assign => |assign| try statements.genAssign(self, assign),

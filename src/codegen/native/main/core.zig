@@ -292,6 +292,7 @@ pub const CodegenError = error{
     UnsupportedModule,
     UnsupportedSyntax,
     MissingBuiltinModule,
+    FormattingError,
 } || native_types.InferError;
 
 /// Tracks a function with decorators for later application
@@ -2680,16 +2681,23 @@ pub const NativeCodegen = struct {
     // instead of defining local emitConst/emitFmtConst functions.
     // ============================================================
 
-    /// Write to builder. Call flushBuilder() when done accumulating.
+    /// Write to output, flushing any pending builder content first.
+    /// This ensures proper ordering: builder content -> emit content.
     pub fn emit(self: *NativeCodegen, val: []const u8) CodegenError!void {
-        const b = try self.getBuilder();
-        try b.write(val);
+        // Flush any pending builder content first to maintain order
+        try self.flushBuilder();
+        // Then write directly to output
+        try self.output.appendSlice(self.allocator, val);
     }
 
-    /// Write formatted to builder. Call flushBuilder() when done accumulating.
+    /// Write formatted to output, flushing builder first.
     pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
-        const b = try self.getBuilder();
-        try b.writeFmt(fmt, args);
+        // Flush any pending builder content first
+        try self.flushBuilder();
+        // Then write formatted directly to output
+        var buf: [8192]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, fmt, args) catch return error.FormattingError;
+        try self.output.appendSlice(self.allocator, formatted);
     }
 
     /// Flush builder output to the main output buffer.
@@ -3136,7 +3144,7 @@ pub const NativeCodegen = struct {
         // Restore builder state
         if (builder_save) |saved| {
             if (self.builder) |b| {
-                try b.write(saved);
+                try b.emitRaw(saved);
             }
         }
 
@@ -3178,7 +3186,7 @@ pub const NativeCodegen = struct {
         // Restore builder state
         if (builder_save) |saved| {
             if (self.builder) |b| {
-                try b.write(saved);
+                try b.emitRaw(saved);
             }
         }
 
@@ -3224,7 +3232,7 @@ pub const NativeCodegen = struct {
         // Restore builder state
         if (builder_save) |saved| {
             if (self.builder) |b| {
-                try b.write(saved);
+                try b.emitRaw(saved);
             }
         }
 
@@ -3241,7 +3249,10 @@ pub const NativeCodegen = struct {
         return code;
     }
 
-    /// Emit a ZigValue to the builder. Caller must call flushBuilder() when done.
+    /// Emit a ZigValue to the builder.
+    /// NOTE: Does NOT flush - caller must call flushBuilder() when done.
+    /// This allows builder content to accumulate for operations that mix
+    /// emitRaw() and emitZigValue() calls.
     pub fn emitZigValue(self: *NativeCodegen, value: builder_mod.ZigValue) CodegenError!void {
         const b = try self.getBuilder();
         try b.emitValue(value, builder_mod.EmitConfig.forExpression());

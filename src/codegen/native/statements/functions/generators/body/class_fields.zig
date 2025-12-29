@@ -11,23 +11,55 @@ const builder_mod = @import("codegen.builder");
 
 /// Generate struct fields from __init__ method
 pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.Node.FunctionDef) CodegenError!void {
+    // Save builder state - other code may have pending content
+    const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+        const content = try b.getBodyDupe();
+        if (content.len > 0) {
+            break :blk try self.arena.allocator().dupe(u8, content);
+        }
+        break :blk null;
+    } else null;
+
     try genClassFieldsImpl(self, class_name, init);
 
     // Add __dict__ for dynamic attributes (always enabled)
     const b = try self.getBuilder();
-    try b.write("\n");
+    try b.emitRaw("\n");
     try b.writeIndent();
-    try b.write("// Dynamic attributes dictionary\n");
+    try b.emitRaw("// Dynamic attributes dictionary\n");
     try b.writeIndent();
-    try b.write("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
+    try b.emitRaw("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
+
+    // Restore builder state
+    if (builder_save) |saved| {
+        if (self.builder) |bldr| {
+            try bldr.emitRaw(saved);
+        }
+    }
 }
 
 /// Generate struct fields from a method without adding __dict__ (for additional methods like setUp)
 /// Fields are declared with default values since they're set at runtime, not in init()
 pub fn genClassFieldsNoDict(self: *NativeCodegen, class_name: []const u8, method: ast.Node.FunctionDef) CodegenError!void {
+    // Save builder state - other code may have pending content
+    const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+        const content = try b.getBodyDupe();
+        if (content.len > 0) {
+            break :blk try self.arena.allocator().dupe(u8, content);
+        }
+        break :blk null;
+    } else null;
+
     try genClassFieldsImplWithDefaults(self, class_name, method);
+
+    // Restore builder state
+    if (builder_save) |saved| {
+        if (self.builder) |bldr| {
+            try bldr.emitRaw(saved);
+        }
+    }
 }
 
 /// Implementation of field extraction (shared by genClassFields and genClassFieldsNoDict)
@@ -206,6 +238,15 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
 /// e.g., class Foo:
 ///           candidates = set1 + set2  # This is a class attribute
 pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) CodegenError!void {
+    // Save builder state - other code may have pending content
+    const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+        const content = try b.getBodyDupe();
+        if (content.len > 0) {
+            break :blk try self.arena.allocator().dupe(u8, content);
+        }
+        break :blk null;
+    } else null;
+
     for (class_body) |stmt| {
         if (stmt == .assign) {
             const assign = stmt.assign;
@@ -245,7 +286,7 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
 
                 const b = try self.getBuilder();
                 try b.writeIndent();
-                try b.write("// Class-level attribute\n");
+                try b.emitRaw("// Class-level attribute\n");
                 try b.writeIndent();
                 const writer = b.body.writer(b.allocator);
                 try zig_keywords.writeEscapedIdent(writer, field_name);
@@ -262,6 +303,13 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
                 const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
             }
+        }
+    }
+
+    // Restore builder state
+    if (builder_save) |saved| {
+        if (self.builder) |bldr| {
+            try bldr.emitRaw(saved);
         }
     }
 }
@@ -452,6 +500,15 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
         }
     }
 
+    // Save builder state - other code may have pending content
+    const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+        const content = try b.getBodyDupe();
+        if (content.len > 0) {
+            break :blk try self.arena.allocator().dupe(u8, content);
+        }
+        break :blk null;
+    } else null;
+
     for (class_body) |stmt| {
         // Skip method definitions - only look at assignments
         if (stmt == .function_def) continue;
@@ -544,18 +601,18 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
 
                 const b = try self.getBuilder();
                 try b.writeIndent();
-                try b.write("// Class attribute: ");
-                try b.write(attr_name);
-                try b.write("\n");
+                try b.emitRaw("// Class attribute: ");
+                try b.emitRaw(attr_name);
+                try b.emitRaw("\n");
                 try b.writeIndent();
 
                 // Escape Zig keywords using @"..." syntax
                 if (zig_keywords.isZigKeyword(attr_name)) {
-                    try b.write("@\"");
-                    try b.write(attr_name);
-                    try b.write("\"");
+                    try b.emitRaw("@\"");
+                    try b.emitRaw(attr_name);
+                    try b.emitRaw("\"");
                 } else {
-                    try b.write(attr_name);
+                    try b.emitRaw(attr_name);
                 }
 
                 // For tuples of class references, use anytype
@@ -563,26 +620,33 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                 const type_tag = @as(std.meta.Tag(@TypeOf(inferred_type)), inferred_type);
                 if (type_tag == .tuple or type_tag == .unknown or type_tag == .pyvalue) {
                     // Use anytype for complex types - will be set in comptime init
-                    try b.write(": @TypeOf(.{}) = .{},\n");
+                    try b.emitRaw(": @TypeOf(.{}) = .{},\n");
                 } else {
                     const zig_type = self.nativeTypeToZigType(inferred_type) catch "i64";
                     defer self.allocator.free(zig_type);
-                    try b.write(": ");
-                    try b.write(zig_type);
-                    try b.write(" = ");
+                    try b.emitRaw(": ");
+                    try b.emitRaw(zig_type);
+                    try b.emitRaw(" = ");
                     // Generate default value based on type
                     switch (type_tag) {
-                        .int, .usize => try b.write("0"),
-                        .float => try b.write("0.0"),
-                        .bool => try b.write("false"),
-                        .string => try b.write("\"\""),
-                        else => try b.write(".{}"),
+                        .int, .usize => try b.emitRaw("0"),
+                        .float => try b.emitRaw("0.0"),
+                        .bool => try b.emitRaw("false"),
+                        .string => try b.emitRaw("\"\""),
+                        else => try b.emitRaw(".{}"),
                     }
-                    try b.write(",\n");
+                    try b.emitRaw(",\n");
                 }
                 const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
             }
+        }
+    }
+
+    // Restore builder state
+    if (builder_save) |saved| {
+        if (self.builder) |bldr| {
+            try bldr.emitRaw(saved);
         }
     }
 }
