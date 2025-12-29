@@ -1082,3 +1082,62 @@ pub export fn PyThreadState_UncheckedGet() callconv(.c) ?*cpython.PyThreadState 
 pub export fn PyUnicode_FastCopyCharacters(to: ?*cpython.PyObject, to_start: isize, from: ?*cpython.PyObject, from_start: isize, how_many: isize) callconv(.c) void {
     _PyUnicode_FastCopyCharacters(to, to_start, from, from_start, how_many);
 }
+
+// ============================================================================
+// SCIPY/PIL COMPATIBILITY (SizeT variants and PyConfig)
+// ============================================================================
+
+/// PyArg_ParseTuple_SizeT - parse tuple with size_t support
+pub export fn PyArg_ParseTuple_SizeT(args: ?*cpython.PyObject, format: [*:0]const u8, va_args: ...) callconv(.c) c_int {
+    _ = args;
+    _ = format;
+    _ = va_args;
+    // Stub - argument parsing not fully implemented
+    return 1;
+}
+
+/// PyArg_ParseTupleAndKeywords_SizeT - parse tuple and keywords with size_t
+pub export fn PyArg_ParseTupleAndKeywords_SizeT(args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject, format: [*:0]const u8, kwlist: [*]?[*:0]const u8, va_args: ...) callconv(.c) c_int {
+    _ = args;
+    _ = kwargs;
+    _ = format;
+    _ = kwlist;
+    _ = va_args;
+    // Stub - argument parsing not fully implemented
+    return 1;
+}
+
+/// PyObject_CallFunction_SizeT - call function with size_t support
+pub export fn PyObject_CallFunction_SizeT(callable: ?*cpython.PyObject, format: ?[*:0]const u8, va_args: ...) callconv(.c) ?*cpython.PyObject {
+    _ = format;
+    _ = va_args;
+    if (callable == null) return null;
+    // Simplified: call with no args
+    return cpython.PyObject_CallNoArgs(callable);
+}
+
+/// PyConfig struct for initialization
+pub const PyConfig = extern struct {
+    _config_init: c_int,
+    isolated: c_int,
+    use_environment: c_int,
+    dev_mode: c_int,
+    // Minimal fields - extend as needed
+};
+
+/// PyConfig_InitPythonConfig - initialize config with Python defaults
+pub export fn PyConfig_InitPythonConfig(config: ?*PyConfig) callconv(.c) void {
+    if (config) |c| {
+        c._config_init = 1;
+        c.isolated = 0;
+        c.use_environment = 1;
+        c.dev_mode = 0;
+    }
+}
+
+/// PyConfig_Clear - clear config
+pub export fn PyConfig_Clear(config: ?*PyConfig) callconv(.c) void {
+    if (config) |c| {
+        c._config_init = 0;
+    }
+}
