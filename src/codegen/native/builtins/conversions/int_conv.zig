@@ -40,6 +40,47 @@ fn emitToBool(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }.f);
 }
 
+/// Helper: emit (expr.method()) with guaranteed bracket matching
+fn emitMethodCallWrapped(self: *NativeCodegen, expr: ast.Node, method: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, m: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .m = method }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.e);
+            try s.emit(".");
+            try s.emit(ctx.m);
+            try s.emit("()");
+        }
+    }.f);
+}
+
+/// Helper: emit (expr.method() catch fallback) with guaranteed bracket matching
+fn emitMethodCallCatch(self: *NativeCodegen, expr: ast.Node, method: []const u8, fallback: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, m: []const u8, fb: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .m = method, .fb = fallback }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.e);
+            try s.emit(".");
+            try s.emit(ctx.m);
+            try s.emit("() catch ");
+            try s.emit(ctx.fb);
+        }
+    }.f);
+}
+
+/// Helper: emit (try expr.method()) with guaranteed bracket matching
+fn emitTryMethodCall(self: *NativeCodegen, expr: ast.Node, method: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, m: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .m = method }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("try ");
+            try s.genExpr(ctx.e);
+            try s.emit(".");
+            try s.emit(ctx.m);
+            try s.emit("()");
+        }
+    }.f);
+}
+
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
 pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -480,18 +521,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // In assertRaises context: return error union for expectError() to check
         // Otherwise: catch and return 0
         if (self.inside_try_body and !self.in_assert_raises_context) {
-            try self.emit("(try ");
-            try self.genExpr(args[0]);
-            try self.emit(".__int__())");
+            try emitTryMethodCall(self, args[0], "__int__");
         } else if (self.in_assert_raises_context) {
             // Return error union as-is - statement-level expectError() will handle it
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__int__())");
+            try emitMethodCallWrapped(self, args[0], "__int__");
         } else {
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__int__() catch 0)");
+            try emitMethodCallCatch(self, args[0], "__int__", "0");
         }
         return;
     }
@@ -499,18 +534,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // If class has __index__ but not __int__, use __index__
     if (dunder_info.has_index and args[0] == .name) {
         if (self.inside_try_body and !self.in_assert_raises_context) {
-            try self.emit("(try ");
-            try self.genExpr(args[0]);
-            try self.emit(".__index__())");
+            try emitTryMethodCall(self, args[0], "__index__");
         } else if (self.in_assert_raises_context) {
             // Return error union as-is - statement-level expectError() will handle it
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__index__())");
+            try emitMethodCallWrapped(self, args[0], "__index__");
         } else {
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__index__() catch 0)");
+            try emitMethodCallCatch(self, args[0], "__index__", "0");
         }
         return;
     }
@@ -657,17 +686,11 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // __bool__ must return bool, may raise TypeError
         if (self.in_assert_raises_context) {
             // Return error union as-is for expectError() to check
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__bool__())");
+            try emitMethodCallWrapped(self, args[0], "__bool__");
         } else if (self.inside_try_body) {
-            try self.emit("(try ");
-            try self.genExpr(args[0]);
-            try self.emit(".__bool__())");
+            try emitTryMethodCall(self, args[0], "__bool__");
         } else {
-            try self.emit("(");
-            try self.genExpr(args[0]);
-            try self.emit(".__bool__() catch false)");
+            try emitMethodCallCatch(self, args[0], "__bool__", "false");
         }
         return;
     }
