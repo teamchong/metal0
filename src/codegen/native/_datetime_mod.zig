@@ -17,9 +17,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn ic(self: *h.NativeCodegen, args: []ast.Node, idx: usize) h.CodegenError!void {
     if (args.len > idx) {
-        try self.emit("@intCast(");
-        try self.genExpr(args[idx]);
-        try self.emit(")");
+        try self.emitCallCtx("@intCast", args[idx], struct {
+            pub fn emit(s: *h.NativeCodegen, arg: ast.Node) h.CodegenError!void {
+                try s.genExpr(arg);
+            }
+        }.emit);
     } else {
         try self.emit("0");
     }

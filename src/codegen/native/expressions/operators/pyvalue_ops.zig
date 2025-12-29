@@ -122,6 +122,14 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
             if (self.anytype_params.contains(base_name)) {
                 return false; // Anytype attribute access is NOT uncertain
             }
+            // Also check for "_converted" suffix variables derived from anytype params
+            // e.g., other_converted is created from anytype param "other" during comptime type dispatch
+            if (std.mem.endsWith(u8, base_name, "_converted")) {
+                const original_name = base_name[0 .. base_name.len - "_converted".len];
+                if (self.anytype_params.contains(original_name)) {
+                    return false; // Converted anytype param attribute access is NOT uncertain
+                }
+            }
         }
 
         // For self.xxx access in class methods, check if the field has a known type
@@ -174,8 +182,11 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             if (isOperandUncertain(self, binop.left.*) or isOperandUncertain(self, binop.right.*)) {
                 return true;
             }
+            // If neither operand is uncertain, the binop result is also NOT uncertain
+            // Don't fall through to inferExpr - trust the recursive operand check
+            return false;
         }
-        // Also check if the inferred result type is pyvalue/unknown
+        // For non-PyValueMethods ops (comparison, etc.), check inferred result type
         const result_type = self.type_inferrer.inferExpr(expr) catch return false;
         if (result_type == .pyvalue or result_type == .unknown) {
             return true;
@@ -233,6 +244,14 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             const base_name = attr.value.name.id;
             if (self.anytype_params.contains(base_name)) {
                 return false; // Anytype attribute access is NOT uncertain
+            }
+            // Also check for "_converted" suffix variables derived from anytype params
+            // e.g., other_converted is created from anytype param "other" during comptime type dispatch
+            if (std.mem.endsWith(u8, base_name, "_converted")) {
+                const original_name = base_name[0 .. base_name.len - "_converted".len];
+                if (self.anytype_params.contains(original_name)) {
+                    return false; // Converted anytype param attribute access is NOT uncertain
+                }
             }
         }
 

@@ -586,9 +586,12 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
             }
             // Check if it's a Python exception type
             if (expressions.isPythonExceptionType(n.id)) {
-                try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
-                try self.emit(n.id);
-                try self.emit(")");
+                try self.emitCallCtx("@intFromEnum", n.id, struct {
+                    pub fn emit(s: *NativeCodegen, id: []const u8) CodegenError!void {
+                        try s.emit("runtime.ExceptionTypeId.");
+                        try s.emit(id);
+                    }
+                }.emit);
                 return;
             }
             // Check if it's a builtin type/function
