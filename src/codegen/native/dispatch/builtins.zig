@@ -6,6 +6,26 @@ const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 const expr_emitter = @import("../expr_emitter.zig");
 
+/// Helper: emit try runtime.dynamic_import(__global_allocator, expr) with guaranteed bracket matching
+fn emitDynamicImport(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emit("try ");
+    try self.emitCallCtx("runtime.dynamic_import", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.PyValue.from(expr) with guaranteed bracket matching
+fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.PyValue.from", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
 const builtins = @import("../builtins.zig");
 const builtins_mod = @import("../builtins_mod.zig");
 const io_mod = @import("../io.zig");
@@ -220,9 +240,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             try self.emit("@compileError(\"__import__() requires module name argument\")");
             return true;
         }
-        try self.emit("try runtime.dynamic_import(__global_allocator, ");
-        try self.genExpr(call.args[0]);
-        try self.emit(")");
+        try emitDynamicImport(self, call.args[0]);
         return true;
     }
 
@@ -508,9 +526,7 @@ fn genDictFromKwargs(self: *NativeCodegen, kwargs: []const ast.Node.KeywordArg) 
         try self.emitIndent();
         try self.emitFmt("_map.put(\"{s}\", ", .{kwarg.name});
         if (needs_wrap) {
-            try self.emit("runtime.PyValue.from(");
-            try self.genExpr(kwarg.value);
-            try self.emit(")");
+            try emitPyValueFrom(self, kwarg.value);
         } else {
             try self.genExpr(kwarg.value);
         }
