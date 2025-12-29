@@ -31,7 +31,8 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "dot_product", dotProduct },
     .{ "dot", dotProduct },
 
-    // Batch operations
+    // Batch operations (tiered dispatch: SIMD <10K, GPU >=10K)
+    .{ "batch_dot_product", batchDotProduct },
     .{ "batch_cosine_sim", batchCosineSim },
     .{ "batch_l2_distance", batchL2Distance },
     .{ "batch_normalize", batchNormalize },
@@ -204,7 +205,7 @@ fn dotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.Co
 }
 
 /// batch_cosine_sim(query, vectors, dim) - batch cosine similarity
-/// Computes similarity between query and all vectors in batch
+/// Uses tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K
 fn batchCosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
         try self.emit("&[_]f32{}");
@@ -222,34 +223,16 @@ fn batchCosineSim(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) 
     } else {
         try self.emit("__query.len");
     }
+    // Use runtime tiered dispatch (SIMD for small, GPU for large)
     try self.emitFmt(
         \\; const __num_vectors = __vectors.len / __dim;
-        \\var __results = __global_allocator.alloc(f32, __num_vectors) catch break :{s} &[_]f32{{}};
-        \\// Pre-compute query norm
-        \\var __q_norm: f32 = 0.0;
-        \\for (__query) |__v| {{ __q_norm += __v * __v; }}
-        \\__q_norm = @sqrt(__q_norm);
-        \\
-        \\var __vi: usize = 0;
-        \\while (__vi < __num_vectors) : (__vi += 1) {{
-        \\    const __vec = __vectors[__vi * __dim ..][0..__dim];
-        \\    var __dot: f32 = 0.0;
-        \\    var __v_norm: f32 = 0.0;
-        \\    var __j: usize = 0;
-        \\    while (__j < __dim) : (__j += 1) {{
-        \\        __dot += __query[__j] * __vec[__j];
-        \\        __v_norm += __vec[__j] * __vec[__j];
-        \\    }}
-        \\    __v_norm = @sqrt(__v_norm);
-        \\    const __denom = __q_norm * __v_norm;
-        \\    __results[__vi] = if (__denom > 0.0) __dot / __denom else 0.0;
-        \\}}
-        \\break :{s} __results;
-    , .{ label, label });
+        \\break :{s} runtime.metal.batchCosineSim(__global_allocator, __query, __vectors, __num_vectors, __dim) catch &[_]f32{{}};
+    , .{label});
     try self.emitInlineBlockEnd();
 }
 
 /// batch_l2_distance(query, vectors, dim) - batch L2 distance
+/// Uses tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K
 fn batchL2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
     if (args.len < 2) {
         try self.emit("&[_]f32{}");
@@ -267,23 +250,38 @@ fn batchL2Distance(self: *h.NativeCodegen, args: []@import("analysis.ast").Node)
     } else {
         try self.emit("__query.len");
     }
+    // Use runtime tiered dispatch (SIMD for small, GPU for large)
     try self.emitFmt(
         \\; const __num_vectors = __vectors.len / __dim;
-        \\var __results = __global_allocator.alloc(f32, __num_vectors) catch break :{s} &[_]f32{{}};
-        \\
-        \\var __vi: usize = 0;
-        \\while (__vi < __num_vectors) : (__vi += 1) {{
-        \\    const __vec = __vectors[__vi * __dim ..][0..__dim];
-        \\    var __sum: f32 = 0.0;
-        \\    var __j: usize = 0;
-        \\    while (__j < __dim) : (__j += 1) {{
-        \\        const __diff = __query[__j] - __vec[__j];
-        \\        __sum += __diff * __diff;
-        \\    }}
-        \\    __results[__vi] = @sqrt(__sum);
-        \\}}
-        \\break :{s} __results;
-    , .{ label, label });
+        \\break :{s} runtime.metal.batchL2Distance(__global_allocator, __query, __vectors, __num_vectors, __dim) catch &[_]f32{{}};
+    , .{label});
+    try self.emitInlineBlockEnd();
+}
+
+/// batch_dot_product(query, vectors, dim) - batch dot product
+/// Uses tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K
+fn batchDotProduct(self: *h.NativeCodegen, args: []@import("analysis.ast").Node) h.CodegenError!void {
+    if (args.len < 2) {
+        try self.emit("&[_]f32{}");
+        return;
+    }
+
+    const label = try self.emitInlineBlockStart("batchdot");
+    try self.emit("const __query = ");
+    try self.genExpr(args[0]);
+    try self.emit("; const __vectors = ");
+    try self.genExpr(args[1]);
+    try self.emit("; const __dim = ");
+    if (args.len >= 3) {
+        try self.genExpr(args[2]);
+    } else {
+        try self.emit("__query.len");
+    }
+    // Use runtime tiered dispatch (SIMD for small, GPU for large)
+    try self.emitFmt(
+        \\; const __num_vectors = __vectors.len / __dim;
+        \\break :{s} runtime.metal.batchDotProduct(__global_allocator, __query, __vectors, __num_vectors, __dim) catch &[_]f32{{}};
+    , .{label});
     try self.emitInlineBlockEnd();
 }
 

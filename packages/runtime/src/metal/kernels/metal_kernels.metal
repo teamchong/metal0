@@ -372,3 +372,90 @@ kernel void vector_bit_xor(
     long constant = params[1];
     output[gid] = (start + (long)gid) ^ constant;
 }
+
+// ============================================================================
+// Batch Vector Similarity Operations
+// High-performance GPU kernels for vector search (10K+ vectors)
+// ============================================================================
+
+/// Batch dot product: out[i] = dot(query, vectors[i])
+/// query: [dim] float, vectors: [num_vectors * dim] float (row-major)
+kernel void batch_dot_product(
+    device const float* query [[buffer(0)]],
+    device const float* vectors [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant uint& dim [[buffer(3)]],
+    constant uint& num_vectors [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= num_vectors) return;
+
+    // Each thread computes dot product for one vector
+    float sum = 0.0f;
+    uint base = gid * dim;
+
+    // Vectorized accumulation (4 elements at a time)
+    uint i = 0;
+    for (; i + 4 <= dim; i += 4) {
+        sum += query[i] * vectors[base + i];
+        sum += query[i+1] * vectors[base + i+1];
+        sum += query[i+2] * vectors[base + i+2];
+        sum += query[i+3] * vectors[base + i+3];
+    }
+    // Handle remainder
+    for (; i < dim; i++) {
+        sum += query[i] * vectors[base + i];
+    }
+
+    output[gid] = sum;
+}
+
+/// Batch cosine similarity: out[i] = cosine_sim(query, vectors[i])
+kernel void batch_cosine_sim(
+    device const float* query [[buffer(0)]],
+    device const float* vectors [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant uint& dim [[buffer(3)]],
+    constant uint& num_vectors [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= num_vectors) return;
+
+    float dot = 0.0f;
+    float norm_q = 0.0f;
+    float norm_v = 0.0f;
+    uint base = gid * dim;
+
+    for (uint i = 0; i < dim; i++) {
+        float q = query[i];
+        float v = vectors[base + i];
+        dot += q * v;
+        norm_q += q * q;
+        norm_v += v * v;
+    }
+
+    float denom = sqrt(norm_q) * sqrt(norm_v);
+    output[gid] = (denom > 0.0f) ? (dot / denom) : 0.0f;
+}
+
+/// Batch L2 distance: out[i] = l2_distance(query, vectors[i])
+kernel void batch_l2_distance(
+    device const float* query [[buffer(0)]],
+    device const float* vectors [[buffer(1)]],
+    device float* output [[buffer(2)]],
+    constant uint& dim [[buffer(3)]],
+    constant uint& num_vectors [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= num_vectors) return;
+
+    float sum = 0.0f;
+    uint base = gid * dim;
+
+    for (uint i = 0; i < dim; i++) {
+        float diff = query[i] - vectors[base + i];
+        sum += diff * diff;
+    }
+
+    output[gid] = sqrt(sum);
+}

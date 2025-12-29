@@ -198,6 +198,27 @@ pub const vectorizedListComp = listcomp.vectorizedListComp;
 pub const vectorizedListCompToArrayList = listcomp.vectorizedListCompToArrayList;
 
 // ============================================================================
+// Batch Vector Similarity Operations
+// Tiered dispatch: SIMD for <10K vectors, Metal GPU for >=10K vectors
+// ============================================================================
+
+/// Batch vector operations module
+pub const vector_ops = @import("kernels/vector_ops.zig");
+
+/// Threshold for GPU dispatch
+pub const GPU_THRESHOLD = vector_ops.GPU_THRESHOLD;
+
+/// Batch dot product with tiered dispatch
+/// Uses SIMD for small batches, Metal GPU for large batches (>=10K)
+pub const batchDotProduct = vector_ops.batchDotProduct;
+
+/// Batch cosine similarity with tiered dispatch
+pub const batchCosineSim = vector_ops.batchCosineSim;
+
+/// Batch L2 distance with tiered dispatch
+pub const batchL2Distance = vector_ops.batchL2Distance;
+
+// ============================================================================
 // Tests
 // ============================================================================
 
