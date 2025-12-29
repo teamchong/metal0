@@ -32,6 +32,34 @@ fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
     return false;
 }
 
+// === Structured helpers for string operations ===
+
+/// Helper: emit std.mem.startsWith(u8, obj, prefix) with guaranteed bracket matching
+fn emitMemStartsWith(self: *NativeCodegen, obj: ast.Node, prefix: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, p: ast.Node };
+    try self.emitCallCtx("std.mem.startsWith", Ctx{ .o = obj, .p = prefix }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("u8, ");
+            try s.genExpr(ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.p);
+        }
+    }.f);
+}
+
+/// Helper: emit std.mem.endsWith(u8, obj, suffix) with guaranteed bracket matching
+fn emitMemEndsWith(self: *NativeCodegen, obj: ast.Node, suffix: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, s: ast.Node };
+    try self.emitCallCtx("std.mem.endsWith", Ctx{ .o = obj, .s = suffix }, struct {
+        pub fn f(ss: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try ss.emit("u8, ");
+            try ss.genExpr(ctx.o);
+            try ss.emit(", ");
+            try ss.genExpr(ctx.s);
+        }
+    }.f);
+}
+
 // Re-export validation methods
 pub const genIsdigit = validation.genIsdigit;
 pub const genIsalpha = validation.genIsalpha;
@@ -291,11 +319,7 @@ pub fn genStartswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
 
     if (args.len == 1) {
         // Simple case: s.startswith(prefix)
-        try self.emit("std.mem.startsWith(u8, ");
-        try self.genExpr(obj);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitMemStartsWith(self, obj, args[0]);
     } else {
         // s.startswith(prefix, start) or s.startswith(prefix, start, end)
         const sw_label = self.nextLabelId();
@@ -332,11 +356,7 @@ pub fn genEndswith(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 
     if (args.len == 1) {
         // Simple case: s.endswith(suffix)
-        try self.emit("std.mem.endsWith(u8, ");
-        try self.genExpr(obj);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitMemEndsWith(self, obj, args[0]);
     } else {
         // s.endswith(suffix, start) or s.endswith(suffix, start, end)
         const ew_label = self.nextLabelId();
