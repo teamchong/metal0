@@ -2,7 +2,6 @@
 ///
 /// Implements PyImport_* functions for loading Python modules and C extensions.
 /// This is the key to loading NumPy and other C extension modules.
-
 const std = @import("std");
 const builtin = @import("builtin");
 const cpython = @import("object.zig");
@@ -24,7 +23,6 @@ const PyModule_GetDict = cpython_module.PyModule_GetDict;
 /// ============================================================================
 /// MODULE REGISTRY
 /// ============================================================================
-
 /// Module registry - stores loaded modules (sys.modules equivalent)
 var module_dict: ?*cpython.PyObject = null;
 var registry_initialized = false;
@@ -69,7 +67,6 @@ fn initBuiltinModules() void {
 /// ============================================================================
 /// IMPORT FUNCTIONS
 /// ============================================================================
-
 /// Import module by name (simple version)
 ///
 /// CPython: PyObject* PyImport_ImportModule(const char *name)
@@ -433,7 +430,6 @@ pub export fn PyImport_ExtendInittab(newtab: [*]PyImport_Inittab) callconv(.c) c
 /// ============================================================================
 /// EXTENSION MODULE LOADING
 /// ============================================================================
-
 /// Cached search paths from environment discovery
 var cached_search_paths: std.ArrayList([]const u8) = .{};
 var search_paths_initialized: bool = false;
@@ -1173,14 +1169,50 @@ fn getAttrViaSubprocess(module_name: []const u8, attr_name: []const u8) ?*cpytho
     return parseSubprocessOutput(output);
 }
 
+/// Decode Python escape sequences in a string
+/// Handles: \n, \r, \t, \\, \', \"
+fn decodePythonEscapes(alloc: std.mem.Allocator, input: []const u8) ?[]u8 {
+    var result = alloc.alloc(u8, input.len) catch return null;
+    var out_pos: usize = 0;
+    var i: usize = 0;
+    while (i < input.len) : (i += 1) {
+        if (input[i] == '\\' and i + 1 < input.len) {
+            const decoded: u8 = switch (input[i + 1]) {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '\\' => '\\',
+                '\'' => '\'',
+                '"' => '"',
+                else => {
+                    // Unknown escape - keep both characters
+                    result[out_pos] = input[i];
+                    out_pos += 1;
+                    continue;
+                },
+            };
+            result[out_pos] = decoded;
+            out_pos += 1;
+            i += 1; // Skip the escape character
+        } else {
+            result[out_pos] = input[i];
+            out_pos += 1;
+        }
+    }
+    return result[0..out_pos];
+}
+
 /// Parse subprocess output and create a PyObject
-fn parseSubprocessOutput(output: []const u8) ?*cpython.PyObject {
+pub fn parseSubprocessOutput(output: []const u8) ?*cpython.PyObject {
     // String: starts and ends with ' or "
     if ((output.len >= 2 and output[0] == '\'' and output[output.len - 1] == '\'') or
         (output.len >= 2 and output[0] == '"' and output[output.len - 1] == '"'))
     {
         const str_content = output[1 .. output.len - 1];
-        const str_z = allocator.dupeZ(u8, str_content) catch return null;
+        // Decode Python escape sequences before creating the string
+        const decoded = decodePythonEscapes(allocator, str_content) orelse return null;
+        defer allocator.free(decoded);
+        const str_z = allocator.dupeZ(u8, decoded) catch return null;
         return @import("unicodeobject.zig").PyUnicode_FromString(str_z);
     }
 
@@ -1213,8 +1245,13 @@ fn parseSubprocessOutput(output: []const u8) ?*cpython.PyObject {
 }
 
 /// Check if a module is a subprocess proxy
-pub fn isProxyModule(module: *cpython.PyObject) bool {
-    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
+/// Returns false for non-module objects (safe to call on any PyObject)
+pub fn isProxyModule(obj: *cpython.PyObject) bool {
+    // SAFETY: Must check if it's actually a module before casting
+    if (cpython_module.PyModule_Check(obj) == 0) {
+        return false;
+    }
+    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(obj));
     const dict = mod_obj.md_dict orelse return false;
     return PyDict_GetItemString(dict, "__subprocess_proxy__") != null;
 }

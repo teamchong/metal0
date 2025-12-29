@@ -103,26 +103,200 @@ pub const PyUnicode_AsUTF8 = @import("include/unicodeobject.zig").PyUnicode_AsUT
 // ============================================================================
 
 const cpython = @import("include/object.zig");
+const import = @import("include/import.zig");
 
 /// Import a C extension module by name (e.g., "numpy", "pandas")
-/// Currently a stub - C extensions require native reimplementation
+/// Uses real dlopen/dlsym to load the actual .so/.dylib extension
 pub fn importModule(module_name: [*:0]const u8) ?*PyObject {
-    _ = module_name;
-    // C extensions not supported without native reimplementation
-    return null;
+    // Use the real CPython import mechanism which does dlopen
+    return import.PyImport_ImportModule(module_name);
 }
 
 /// Call a function on a C extension module
-/// Currently a stub - C extensions require native reimplementation
+/// Uses getAttr to get the function, then calls it via subprocess
 pub fn callModuleFunction(
     module_name: [*:0]const u8,
     func_name: [*:0]const u8,
     args: anytype,
 ) ?*cpython.PyObject {
-    _ = module_name;
-    _ = func_name;
-    _ = args;
-    return null;
+    // For proxy modules, we need to call via subprocess
+    return callFunctionViaSubprocess(module_name, func_name, args);
+}
+
+/// Validate that a string is a valid Python identifier (prevents injection)
+/// Valid: letters, digits, underscores; cannot start with digit
+fn isValidPythonIdentifier(name: []const u8) bool {
+    if (name.len == 0) return false;
+    // First char must be letter or underscore
+    const first = name[0];
+    if (!std.ascii.isAlphabetic(first) and first != '_') return false;
+    // Rest must be alphanumeric or underscore
+    for (name[1..]) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '_' and c != '.') return false;
+    }
+    return true;
+}
+
+/// Call a function via subprocess Python
+fn callFunctionViaSubprocess(
+    module_name: [*:0]const u8,
+    func_name: [*:0]const u8,
+    args: anytype,
+) ?*cpython.PyObject {
+    const allocator = std.heap.c_allocator;
+    const mod_str = std.mem.span(module_name);
+    const func_str = std.mem.span(func_name);
+
+    // SECURITY: Validate module and function names to prevent code injection
+    if (!isValidPythonIdentifier(mod_str)) return null;
+    if (!isValidPythonIdentifier(func_str)) return null;
+
+    // Build Python code to call function
+    var code_buf: [2048]u8 = undefined; // Increased for escaped strings
+
+    // Format args for Python (now with proper escaping)
+    var args_str_buf: [1024]u8 = undefined; // Increased for escaped content
+    const args_str = formatArgsForPython(&args_str_buf, args);
+
+    const py_code = std.fmt.bufPrint(&code_buf,
+        \\import {s}
+        \\result = {s}.{s}({s})
+        \\print(repr(result))
+    , .{ mod_str, mod_str, func_str, args_str }) catch return null;
+
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{ "python3", "-c", py_code },
+    }) catch return null;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |exit_code| if (exit_code != 0) return null,
+        else => return null,
+    }
+
+    // Parse the output
+    const output = std.mem.trimRight(u8, result.stdout, "\n\r");
+    if (output.len == 0) return null;
+
+    return import.parseSubprocessOutput(output);
+}
+
+/// Format Zig arguments as Python code
+fn formatArgsForPython(buf: []u8, args: anytype) []const u8 {
+    const ArgsType = @TypeOf(args);
+    const args_info = @typeInfo(ArgsType);
+
+    if (args_info == .@"struct" and args_info.@"struct".is_tuple) {
+        const fields = args_info.@"struct".fields;
+        if (fields.len == 0) {
+            return "";
+        }
+
+        var pos: usize = 0;
+        inline for (fields, 0..) |field, i| {
+            const value = @field(args, field.name);
+            const written = formatValueForPython(buf[pos..], value);
+            pos += written;
+            if (i < fields.len - 1) {
+                if (pos < buf.len - 2) {
+                    buf[pos] = ',';
+                    buf[pos + 1] = ' ';
+                    pos += 2;
+                }
+            }
+        }
+        return buf[0..pos];
+    }
+
+    return "";
+}
+
+/// Escape a string for safe Python embedding
+/// Handles: backslash, single quote, newline, carriage return, tab
+fn escapePythonString(buf: []u8, input: []const u8) usize {
+    var pos: usize = 0;
+    for (input) |c| {
+        const escape_seq: ?[]const u8 = switch (c) {
+            '\\' => "\\\\",
+            '\'' => "\\'",
+            '\n' => "\\n",
+            '\r' => "\\r",
+            '\t' => "\\t",
+            else => null,
+        };
+        if (escape_seq) |seq| {
+            if (pos + seq.len > buf.len) break;
+            @memcpy(buf[pos..][0..seq.len], seq);
+            pos += seq.len;
+        } else {
+            if (pos >= buf.len) break;
+            buf[pos] = c;
+            pos += 1;
+        }
+    }
+    return pos;
+}
+
+/// Format a single value for Python with proper escaping and bounds checking
+fn formatValueForPython(buf: []u8, value: anytype) usize {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+
+    switch (info) {
+        .int, .comptime_int => {
+            return (std.fmt.bufPrint(buf, "{d}", .{value}) catch return 0).len;
+        },
+        .float, .comptime_float => {
+            return (std.fmt.bufPrint(buf, "{d}", .{value}) catch return 0).len;
+        },
+        .bool => {
+            const s = if (value) "True" else "False";
+            if (s.len > buf.len) return 0;
+            @memcpy(buf[0..s.len], s);
+            return s.len;
+        },
+        .array => |arr| {
+            // Format as Python list with bounds checking
+            if (buf.len < 2) return 0; // Need at least []
+            buf[0] = '[';
+            var pos: usize = 1;
+            inline for (value, 0..) |elem, i| {
+                if (pos >= buf.len - 1) break; // Reserve space for ]
+                const written = formatValueForPython(buf[pos..], elem);
+                pos += written;
+                if (i < arr.len - 1) {
+                    if (pos + 2 < buf.len - 1) { // Reserve for ", " and ]
+                        buf[pos] = ',';
+                        buf[pos + 1] = ' ';
+                        pos += 2;
+                    }
+                }
+            }
+            if (pos < buf.len) {
+                buf[pos] = ']';
+                return pos + 1;
+            }
+            return 0;
+        },
+        .pointer => |ptr| {
+            if (ptr.size == .slice and ptr.child == u8) {
+                // String slice - wrap in quotes with proper escaping
+                if (buf.len < 2) return 0; // Need at least ''
+                buf[0] = '\'';
+                // Escape the string content
+                const escaped_len = escapePythonString(buf[1..buf.len -| 1], value);
+                if (1 + escaped_len < buf.len) {
+                    buf[1 + escaped_len] = '\'';
+                    return escaped_len + 2;
+                }
+                return 0;
+            }
+            return 0;
+        },
+        else => return 0,
+    }
 }
 
 /// Build a Python tuple from Zig arguments
@@ -208,14 +382,17 @@ pub fn callMethod(
 }
 
 /// Get an attribute from a PyObject
-/// Currently a stub - C extensions require native reimplementation
+/// Uses real PyObject_GetAttrString for C extension objects
 pub fn getAttr(
     obj: *cpython.PyObject,
     attr_name: [*:0]const u8,
 ) ?*cpython.PyObject {
-    _ = obj;
-    _ = attr_name;
-    return null;
+    // Check if this is a subprocess proxy module first
+    if (import.isProxyModule(obj)) {
+        return import.getProxyAttr(obj, attr_name);
+    }
+    // Use the real PyObject_GetAttrString from CPython C API
+    return traits.externs.PyObject_GetAttrString(obj, attr_name);
 }
 
 /// Set an attribute on a PyObject
