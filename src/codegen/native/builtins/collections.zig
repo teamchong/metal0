@@ -8,10 +8,20 @@ const producesBlockExpression = @import("../expressions.zig").producesBlockExpre
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const expressions = @import("../expressions.zig");
 const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 const CallArg = builder_mod.ZigBuilder.CallArg;
+
+/// Helper: emit runtime.PyValue.from(expr) with guaranteed bracket matching
+fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.PyValue.from", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try expressions.genExpr(s, e);
+        }
+    }.f);
+}
 
 /// String method codegen patterns for map(str.method, items)
 const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
@@ -776,16 +786,12 @@ pub fn genMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// Generate code for filter(func, iterable)
 /// CPython-aligned: runtime.builtins.filter validates args and raises TypeError if needed
 pub fn genFilter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    const expressions = @import("../expressions.zig");
-
     // Unified code path: runtime.builtins.filter(&.{args...}, allocator)
     // Runtime validates arg count and raises TypeError if != 2
     try self.emit("runtime.builtins.filter(&.{");
     for (args, 0..) |arg, i| {
         if (i > 0) try self.emit(", ");
-        try self.emit("runtime.PyValue.from(");
-        try expressions.genExpr(self, arg);
-        try self.emit(")");
+        try emitPyValueFrom(self, arg);
     }
     try self.emit("}, __global_allocator)");
 }
@@ -833,9 +839,7 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (std.mem.eql(u8, func_name, "range")) {
                 // iter(range(...)) - range returns *PyObject (PyList)
                 // Wrap in PyValue.from to match __iter__ return type
-                try self.emit("runtime.PyValue.from(");
-                try self.genExpr(args[0]);
-                try self.emit(")");
+                try emitPyValueFrom(self, args[0]);
                 return;
             }
         }
