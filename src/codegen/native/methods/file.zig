@@ -51,7 +51,11 @@ pub fn genFileWrite(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Generate code for file.close()
 pub fn genFileClose(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    try self.emit("runtime.PyFile.close("); try self.genExpr(obj); try self.emit(")");
+    try self.emitCallCtx("runtime.PyFile.close", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try s.genExpr(o);
+        }
+    }.f);
 }
 
 /// Generate code for file.readline(size=-1)

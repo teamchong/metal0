@@ -111,17 +111,8 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
         return self.isVarUncertain(name);
     }
 
-    // Check attribute access - be more aggressive for class field access
+    // Check attribute access - only treat as uncertain if type is pyvalue/unknown
     if (expr == .attribute) {
-        const attr = expr.attribute;
-        // If accessing self.something, check the inferred type
-        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
-            const attr_type = self.type_inferrer.inferExpr(expr) catch return true; // Be conservative on error
-            // For class fields, if the type is unknown/pyvalue OR if it's a primitive that could come
-            // from floor division or other operations that might produce PyValue, treat as uncertain
-            return attr_type == .pyvalue or attr_type == .unknown or attr_type == .int or attr_type == .float;
-        }
-        // For other attribute access, check the inferred type
         const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
         return attr_type == .pyvalue or attr_type == .unknown;
     }
@@ -133,15 +124,8 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     // Check if operand is a binary operation that would return PyValue
     // This handles nested operations like: (a * b) + (c * d) where inner ops use PyValue
     if (expr == .binop) {
-        const binop = expr.binop;
-        // If this binary op has a PyValue method and ANY of its leaves are uncertain,
-        // the entire binop returns PyValue
-        if (PyValueMethods.get(@tagName(binop.op)) != null) {
-            if (hasUncertainLeaf(self, expr)) {
-                return true;
-            }
-        }
-        // Also check if the inferred result type is pyvalue
+        // Check if the inferred result type is pyvalue/unknown
+        // This is the ONLY check needed - type inference already considers operand types
         const result_type = self.type_inferrer.inferExpr(expr) catch return false;
         if (result_type == .pyvalue or result_type == .unknown) {
             return true;

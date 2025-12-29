@@ -80,28 +80,81 @@ pub fn pass(comptime default: []const u8) H {
 /// Generates @builtin(@as(f64, arg)) or default
 pub fn builtin1(comptime b: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit(b ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+        if (args.len > 0) {
+            try self.emitCallCtx(b, args[0], struct {
+                pub fn emit(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                    try s.emitCallCtx("@as", arg, struct {
+                        pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                            try ss.emit("f64, ");
+                            try ss.genExpr(a);
+                        }
+                    }.inner);
+                }
+            }.emit);
+        } else try self.emit(d);
     } }.f;
 }
 
 /// Generates std.math.fn(@as(f64, arg)) or default
 pub fn stdmath1(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+        if (args.len > 0) {
+            try self.emitCallCtx("std.math." ++ fn_name, args[0], struct {
+                pub fn emit(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                    try s.emitCallCtx("@as", arg, struct {
+                        pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                            try ss.emit("f64, ");
+                            try ss.genExpr(a);
+                        }
+                    }.inner);
+                }
+            }.emit);
+        } else try self.emit(d);
     } }.f;
 }
 
 /// Generates std.math.fn(f64, @as(f64, arg)) or default
 pub fn stdmathT(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("std.math." ++ fn_name ++ "(f64, @as(f64, "); try self.genExpr(args[0]); try self.emit("))"); } else try self.emit(d);
+        if (args.len > 0) {
+            try self.emitCallCtx("std.math." ++ fn_name, args[0], struct {
+                pub fn emit(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                    try s.emit("f64, ");
+                    try s.emitCallCtx("@as", arg, struct {
+                        pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                            try ss.emit("f64, ");
+                            try ss.genExpr(a);
+                        }
+                    }.inner);
+                }
+            }.emit);
+        } else try self.emit(d);
     } }.f;
 }
 
 /// Generates std.math.fn(@as(f64, a), @as(f64, b)) or default
 pub fn stdmath2(comptime fn_name: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("std.math." ++ fn_name ++ "(@as(f64, "); try self.genExpr(args[0]); try self.emit("), @as(f64, "); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit(d);
+        if (args.len >= 2) {
+            const Args = struct { a: ast.Node, b: ast.Node };
+            try self.emitCallCtx("std.math." ++ fn_name, Args{ .a = args[0], .b = args[1] }, struct {
+                pub fn emit(s: *NativeCodegen, ctx: Args) CodegenError!void {
+                    try s.emitCallCtx("@as", ctx.a, struct {
+                        pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                            try ss.emit("f64, ");
+                            try ss.genExpr(a);
+                        }
+                    }.inner);
+                    try s.emit(", ");
+                    try s.emitCallCtx("@as", ctx.b, struct {
+                        pub fn inner2(ss: *NativeCodegen, b: ast.Node) CodegenError!void {
+                            try ss.emit("f64, ");
+                            try ss.genExpr(b);
+                        }
+                    }.inner2);
+                }
+            }.emit);
+        } else try self.emit(d);
     } }.f;
 }
 
@@ -110,7 +163,16 @@ pub fn stdmath2(comptime fn_name: []const u8, comptime d: []const u8) H {
 /// Generates binary operator: (a op b) or default
 pub fn binop(comptime op: []const u8, comptime d: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.genExpr(args[1]); try self.emit(")"); } else try self.emit(d);
+        if (args.len >= 2) {
+            const Args = struct { a: ast.Node, b: ast.Node };
+            try self.withParensCtx(Args{ .a = args[0], .b = args[1] }, struct {
+                pub fn emit(s: *NativeCodegen, ctx: Args) CodegenError!void {
+                    try s.genExpr(ctx.a);
+                    try s.emit(op);
+                    try s.genExpr(ctx.b);
+                }
+            }.emit);
+        } else try self.emit(d);
     } }.f;
 }
 
@@ -124,7 +186,20 @@ pub fn unary(comptime pre: []const u8, comptime suf: []const u8) H {
 /// Generates shift: (a op @intCast(b)) or default
 pub fn shift(comptime op: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len >= 2) { try self.emit("("); try self.genExpr(args[0]); try self.emit(op); try self.emit("@intCast("); try self.genExpr(args[1]); try self.emit("))"); } else try self.emit("@as(i64, 0)");
+        if (args.len >= 2) {
+            const Args = struct { a: ast.Node, b: ast.Node };
+            try self.withParensCtx(Args{ .a = args[0], .b = args[1] }, struct {
+                pub fn emit(s: *NativeCodegen, ctx: Args) CodegenError!void {
+                    try s.genExpr(ctx.a);
+                    try s.emit(op);
+                    try s.emitCallCtx("@intCast", ctx.b, struct {
+                        pub fn inner(ss: *NativeCodegen, b: ast.Node) CodegenError!void {
+                            try ss.genExpr(b);
+                        }
+                    }.inner);
+                }
+            }.emit);
+        } else try self.emit("@as(i64, 0)");
     } }.f;
 }
 
@@ -241,7 +316,19 @@ pub fn wrap3(comptime pre: []const u8, comptime mid1: []const u8, comptime mid2:
 /// Generates type test: ((arg & mask) == expected) for stat module
 pub fn typeTest(comptime expected: []const u8) H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-        if (args.len > 0) { try self.emit("(("); try self.genExpr(args[0]); try self.emit(" & 0o170000) == " ++ expected ++ ")"); } else try self.emit("false");
+        if (args.len > 0) {
+            try self.withParensCtx(args[0], struct {
+                pub fn emit(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                    try s.withParensCtx(arg, struct {
+                        pub fn inner(ss: *NativeCodegen, a: ast.Node) CodegenError!void {
+                            try ss.genExpr(a);
+                            try ss.emit(" & 0o170000");
+                        }
+                    }.inner);
+                    try s.emit(" == " ++ expected);
+                }
+            }.emit);
+        } else try self.emit("false");
     } }.f;
 }
 
@@ -361,7 +448,15 @@ pub fn compareDigest() H {
 pub fn memOrder() H {
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len < 2) { try self.emit("@as(i64, 0)"); return; }
-        try self.emit("std.mem.order(u8, "); try self.genExpr(args[0]); try self.emit(", "); try self.genExpr(args[1]); try self.emit(")");
+        const Args = struct { a: ast.Node, b: ast.Node };
+        try self.emitCallCtx("std.mem.order", Args{ .a = args[0], .b = args[1] }, struct {
+            pub fn emit(s: *NativeCodegen, ctx: Args) CodegenError!void {
+                try s.emit("u8, ");
+                try s.genExpr(ctx.a);
+                try s.emit(", ");
+                try s.genExpr(ctx.b);
+            }
+        }.emit);
     } }.f;
 }
 

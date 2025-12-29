@@ -29,9 +29,11 @@ fn isNoneArg(arg: ast.Node) bool {
 fn emitNbytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(nbytes_init);
     if (args.len > 0 and !isNoneArg(args[0])) {
-        try self.emit("@intCast(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("@intCast", args[0], struct {
+            pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                try s.genExpr(arg);
+            }
+        }.f);
     } else {
         try self.emit("32");
     }

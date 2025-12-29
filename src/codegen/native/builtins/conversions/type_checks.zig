@@ -10,38 +10,24 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 
-/// Helper: emit runtime.func(expr) with guaranteed bracket matching
+/// Helper: emit runtime.func(expr) - simple direct emission
 fn emitRuntimeFunc(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
-    const Ctx = struct { f: []const u8, e: ast.Node };
-    try self.emitCallCtx("runtime", Ctx{ .f = func, .e = expr }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit(".");
-            try s.emit(ctx.f);
-            try s.emitCallCtx("", ctx.e, struct {
-                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
-                    try ss.genExpr(e);
-                }
-            }.inner);
-        }
-    }.f);
+    try self.emit("runtime.");
+    try self.emit(func);
+    try self.emit("(");
+    try self.genExpr(expr);
+    try self.emit(")");
 }
 
-/// Helper: emit runtime.func(expr1, expr2) with guaranteed bracket matching
+/// Helper: emit runtime.func(expr1, expr2) - simple direct emission
 fn emitRuntimeFunc2(self: *NativeCodegen, func: []const u8, expr1: ast.Node, expr2: ast.Node) CodegenError!void {
-    const Ctx = struct { f: []const u8, e1: ast.Node, e2: ast.Node };
-    try self.emitCallCtx("runtime", Ctx{ .f = func, .e1 = expr1, .e2 = expr2 }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit(".");
-            try s.emit(ctx.f);
-            try s.emitCallCtx("", ctx, struct {
-                pub fn inner(ss: *NativeCodegen, ctx2: Ctx) CodegenError!void {
-                    try ss.genExpr(ctx2.e1);
-                    try ss.emit(", ");
-                    try ss.genExpr(ctx2.e2);
-                }
-            }.inner);
-        }
-    }.f);
+    try self.emit("runtime.");
+    try self.emit(func);
+    try self.emit("(");
+    try self.genExpr(expr1);
+    try self.emit(", ");
+    try self.genExpr(expr2);
+    try self.emit(")");
 }
 
 /// Generate code for type(obj) or type(name, bases, dict)
