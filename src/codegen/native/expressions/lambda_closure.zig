@@ -511,6 +511,63 @@ fn genExprWithCapture(self: *NativeCodegen, node: ast.Node, captured_vars: [][]c
     return genExprWithCapturePrefix(self, node, captured_vars, "self");
 }
 
+// === Structured helpers for binary operations with captures ===
+
+/// Helper: emit @mod(left, right) with capture prefix and guaranteed bracket matching
+fn emitModWithCapture(
+    s: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    cv: [][]const u8,
+    pfx: []const u8,
+) CodegenError!void {
+    const Ctx = struct { l: ast.Node, r: ast.Node, captured: [][]const u8, prefix: []const u8 };
+    try s.emitCallCtx("@mod", Ctx{ .l = left, .r = right, .captured = cv, .prefix = pfx }, struct {
+        pub fn f(ss: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExprWithCapturePrefix(ss, ctx.l, ctx.captured, ctx.prefix);
+            try ss.emit(", ");
+            try genExprWithCapturePrefix(ss, ctx.r, ctx.captured, ctx.prefix);
+        }
+    }.f);
+}
+
+/// Helper: emit std.math.pow(i64, left, right) with capture prefix and guaranteed bracket matching
+fn emitPowWithCapture(
+    s: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    cv: [][]const u8,
+    pfx: []const u8,
+) CodegenError!void {
+    const Ctx = struct { l: ast.Node, r: ast.Node, captured: [][]const u8, prefix: []const u8 };
+    try s.emitCallCtx("std.math.pow", Ctx{ .l = left, .r = right, .captured = cv, .prefix = pfx }, struct {
+        pub fn f(ss: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try ss.emit("i64, ");
+            try genExprWithCapturePrefix(ss, ctx.l, ctx.captured, ctx.prefix);
+            try ss.emit(", ");
+            try genExprWithCapturePrefix(ss, ctx.r, ctx.captured, ctx.prefix);
+        }
+    }.f);
+}
+
+/// Helper: emit @divFloor(left, right) with capture prefix and guaranteed bracket matching
+fn emitFloorDivWithCapture(
+    s: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    cv: [][]const u8,
+    pfx: []const u8,
+) CodegenError!void {
+    const Ctx = struct { l: ast.Node, r: ast.Node, captured: [][]const u8, prefix: []const u8 };
+    try s.emitCallCtx("@divFloor", Ctx{ .l = left, .r = right, .captured = cv, .prefix = pfx }, struct {
+        pub fn f(ss: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExprWithCapturePrefix(ss, ctx.l, ctx.captured, ctx.prefix);
+            try ss.emit(", ");
+            try genExprWithCapturePrefix(ss, ctx.r, ctx.captured, ctx.prefix);
+        }
+    }.f);
+}
+
 /// Generate expression with captured variable references prefixed with specified name
 fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars: [][]const u8, prefix: []const u8) CodegenError!void {
     const expressions = @import("../expressions.zig");
@@ -551,25 +608,13 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
         .binop => |b| {
             // Use @mod for modulo to handle signed integers properly
             if (b.op == .Mod) {
-                try self.emit("@mod(");
-                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try self.emit(", ");
-                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try self.emit(")");
+                try emitModWithCapture(self, b.left.*, b.right.*, captured_vars, prefix);
             } else if (b.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try self.emit("std.math.pow(i64, ");
-                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try self.emit(", ");
-                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try self.emit(")");
+                try emitPowWithCapture(self, b.left.*, b.right.*, captured_vars, prefix);
             } else if (b.op == .FloorDiv) {
                 // Floor division uses @divFloor for Python semantics
-                try self.emit("@divFloor(");
-                try genExprWithCapturePrefix(self, b.left.*, captured_vars, prefix);
-                try self.emit(", ");
-                try genExprWithCapturePrefix(self, b.right.*, captured_vars, prefix);
-                try self.emit(")");
+                try emitFloorDivWithCapture(self, b.left.*, b.right.*, captured_vars, prefix);
             } else {
                 // Standard binary ops with auto-close pattern
                 const BinOpCtx = struct {
