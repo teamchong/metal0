@@ -11,21 +11,41 @@ const CallArg = builder_mod.ZigBuilder.CallArg;
 // MIGRATED TO ZIGBUILDER
 
 // ============================================
-// Math helpers - auto-closing patterns
+// Math helpers - callback patterns for auto-closing
 // ============================================
 
-/// Emit method call suffix: .methodName(
-fn emitMethodStart(self: *NativeCodegen, method: []const u8) CodegenError!void {
-    try self.emit(".");
-    try self.emit(method);
-    try self.emit("(");
+/// Emit @builtin(args) with auto-closing using builder callback
+fn emitBuiltinCall(self: *NativeCodegen, builtin: []const u8, args: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const builtin_name = try std.fmt.allocPrint(self.arena.allocator(), "@{s}", .{builtin});
+    try b.withCall(builtin_name, struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            for (ctx.args, 0..) |arg, i| {
+                if (i > 0) try builder.write(", ");
+                const val = try ctx.self.captureExpr(arg);
+                try builder.emitValueCore(val);
+            }
+        }
+    }.f, .{ .self = self, .args = args });
+    try self.flushBuilder();
 }
 
-/// Emit @builtin call start: @builtinName(
-fn emitBuiltinStart(self: *NativeCodegen, builtin: []const u8) CodegenError!void {
-    try self.emit("@");
-    try self.emit(builtin);
-    try self.emit("(");
+/// Emit expr.method(args) with auto-closing using builder callback
+fn emitMethodCall(self: *NativeCodegen, expr: ast.Node, method: []const u8, args: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const expr_val = try self.captureExpr(expr);
+    try b.emitValueCore(expr_val);
+    try b.write(".");
+    try b.withCall(method, struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            for (ctx.args, 0..) |arg, i| {
+                if (i > 0) try builder.write(", ");
+                const val = try ctx.self.captureExpr(arg);
+                try builder.emitValueCore(val);
+            }
+        }
+    }.f, .{ .self = self, .args = args });
+    try self.flushBuilder();
 }
 
 /// Check if an expression is a type conversion call pattern: type(x), cls(x), etc.
@@ -89,26 +109,29 @@ pub fn genAbs(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: Check if argument is uncertain
     if (isExprUncertain(self, args[0])) {
         // Route to PyValue.pyAbs() for runtime type safety
-        try self.genExpr(args[0]);
-        try self.emit(".pyAbs()");
+        try emitMethodCall(self, args[0], "pyAbs", &.{});
         return;
     }
 
     // Check if arg is a bool - need to cast to int first since @abs doesn't work on bool
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
     if (type_traits.isBoolean(arg_type)) {
-        // abs(True) = 1, abs(False) = 0
-        // Just convert bool to int: @intFromBool(...)
-        try self.emit("@as(i64, @intFromBool(");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        // abs(True) = 1, abs(False) = 0 - use builder callback for safe brackets
+        const b = try self.getBuilder();
+        try b.withCall("@as", struct {
+            fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                try builder.write("i64, @intFromBool(");
+                const val = try ctx.self.captureExpr(ctx.arg);
+                try builder.emitValueCore(val);
+                try builder.write(")");
+            }
+        }.f, .{ .self = self, .arg = args[0] });
+        try self.flushBuilder();
         return;
     }
 
-    // Generate: @abs(n)
-    try emitBuiltinStart(self, "abs");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    // Generate: @abs(n) using callback pattern
+    try emitBuiltinCall(self, "abs", args);
 }
 
 /// Generate code for min(a, b, ...)
@@ -139,24 +162,31 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (any_uncertain) {
         // Route to PyValue.pyMin() chained for runtime type safety
         // min(a, b, c) => a.pyMin(b).pyMin(c)
-        try self.genExpr(args[0]);
+        const b = try self.getBuilder();
+        const first_val = try self.captureExpr(args[0]);
+        try b.emitValueCore(first_val);
         for (args[1..]) |arg| {
-            try emitMethodStart(self, "pyMin");
-            try self.genExpr(arg);
-            try self.emit(")");
+            const arg_val = try self.captureExpr(arg);
+            try b.write(".pyMin(");
+            try b.emitValueCore(arg_val);
+            try b.write(")");
         }
+        try self.flushBuilder();
         return;
     }
 
-    // Generate: @min(a, @min(b, c))
-    try emitBuiltinStart(self, "min");
-    try self.genExpr(args[0]);
-
-    for (args[1..]) |arg| {
-        try self.emit(", ");
-        try self.genExpr(arg);
-    }
-    try self.emit(")");
+    // Generate: @min(a, b, c, ...) using builder callback
+    const b = try self.getBuilder();
+    try b.withCall("@min", struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            for (ctx.args, 0..) |arg, i| {
+                if (i > 0) try builder.write(", ");
+                const val = try ctx.self.captureExpr(arg);
+                try builder.emitValueCore(val);
+            }
+        }
+    }.f, .{ .self = self, .args = args });
+    try self.flushBuilder();
 }
 
 /// Generate code for max(a, b, ...)
@@ -187,24 +217,31 @@ pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (any_uncertain) {
         // Route to PyValue.pyMax() chained for runtime type safety
         // max(a, b, c) => a.pyMax(b).pyMax(c)
-        try self.genExpr(args[0]);
+        const b = try self.getBuilder();
+        const first_val = try self.captureExpr(args[0]);
+        try b.emitValueCore(first_val);
         for (args[1..]) |arg| {
-            try emitMethodStart(self, "pyMax");
-            try self.genExpr(arg);
-            try self.emit(")");
+            const arg_val = try self.captureExpr(arg);
+            try b.write(".pyMax(");
+            try b.emitValueCore(arg_val);
+            try b.write(")");
         }
+        try self.flushBuilder();
         return;
     }
 
-    // Generate: @max(a, @max(b, c))
-    try emitBuiltinStart(self, "max");
-    try self.genExpr(args[0]);
-
-    for (args[1..]) |arg| {
-        try self.emit(", ");
-        try self.genExpr(arg);
-    }
-    try self.emit(")");
+    // Generate: @max(a, b, c, ...) using builder callback
+    const b = try self.getBuilder();
+    try b.withCall("@max", struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            for (ctx.args, 0..) |arg, i| {
+                if (i > 0) try builder.write(", ");
+                const val = try ctx.self.captureExpr(arg);
+                try builder.emitValueCore(val);
+            }
+        }
+    }.f, .{ .self = self, .args = args });
+    try self.flushBuilder();
 }
 
 /// Generate code for round(n) or round(n, ndigits)
@@ -222,13 +259,55 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // round(n, ndigits) - round to ndigits decimal places
-    // Use runtime round function to handle both int and float values
-    try self.emit("(try runtime.builtins.round(");
-    try self.genExpr(args[0]);
-    try self.emit(", .{");
-    try self.genExpr(args[1]);
-    try self.emit("}))");
+    // round(n, ndigits) - round to ndigits decimal places using builder pattern
+    const b = try self.getBuilder();
+    const num_val = try self.captureExpr(args[0]);
+    const ndigits_val = try self.captureExpr(args[1]);
+
+    // Generate: (try runtime.builtins.round(num, .{ndigits}))
+    try b.withParen(struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            try builder.write("try runtime.builtins.round(");
+            try builder.emitValueCore(ctx.num_val);
+            try builder.write(", .{");
+            try builder.emitValueCore(ctx.ndigits_val);
+            try builder.write("})");
+        }
+    }.f, .{ .num_val = num_val, .ndigits_val = ndigits_val });
+    try self.flushBuilder();
+}
+
+/// Emit value converted to f64 (for pow args) using builder pattern
+fn emitAsF64(self: *NativeCodegen, arg: ast.Node, is_int: bool) CodegenError!void {
+    const b = try self.getBuilder();
+    const is_type_call = isTypeConversionCall(arg);
+
+    if (is_type_call) {
+        // Use typeConvertFloat which handles both int and float target types
+        const func_val = try self.captureExpr(arg.call.func.*);
+        const arg_val = try self.captureExpr(arg.call.args[0]);
+        try b.withCall("runtime.builtins.typeConvertFloat", struct {
+            fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                try builder.emitValueCore(ctx.func_val);
+                try builder.write(", ");
+                try builder.emitValueCore(ctx.arg_val);
+            }
+        }.f, .{ .func_val = func_val, .arg_val = arg_val });
+    } else if (is_int) {
+        // @as(f64, @floatFromInt(value))
+        const val = try self.captureExpr(arg);
+        try b.withCall("@as", struct {
+            fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                try builder.write("f64, @floatFromInt(");
+                try builder.emitValueCore(ctx.val);
+                try builder.write(")");
+            }
+        }.f, .{ .val = val });
+    } else {
+        // runtime.builtins.numericToFloat(value)
+        const val = try self.captureExpr(arg);
+        try b.emitCallExpr("runtime.builtins.numericToFloat", &[_]CallArg{.{ .value = val }});
+    }
 }
 
 /// Generate code for pow(base, exp) or pow(base, exp, mod)
@@ -242,120 +321,81 @@ pub fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     if (args.len == 3) {
-        // pow(base, exp, mod) - modular exponentiation
+        // pow(base, exp, mod) - modular exponentiation using builder pattern
         // Result is always integer, no complex support needed
         // Generate: @rem(@as(i64, @intFromFloat(std.math.pow(f64, base, exp))), mod)
-        try self.emit("@rem(@as(i64, @intFromFloat(std.math.pow(f64, @as(f64, @floatFromInt(");
-        try self.genExpr(args[0]);
-        try self.emit(")), @as(f64, @floatFromInt(");
-        try self.genExpr(args[1]);
-        try self.emit("))))), ");
-        try self.genExpr(args[2]);
-        try self.emit(")");
-    } else {
-        // pow(base, exp) - standard power
-        // Get types to determine which codepath to use
-        const base_type = self.inferExprScoped(args[0]) catch .unknown;
-        const exp_type = self.inferExprScoped(args[1]) catch .unknown;
-        const base_is_int = type_traits.isIntegral(base_type) or type_traits.isBoolean(base_type);
-        const exp_is_int = type_traits.isIntegral(exp_type) or type_traits.isBoolean(exp_type);
+        const b = try self.getBuilder();
+        const base_val = try self.captureExpr(args[0]);
+        const exp_val = try self.captureExpr(args[1]);
+        const mod_val = try self.captureExpr(args[2]);
 
-        // Check if we need pyPowAsPyValue (returns PyValue) or can use std.math.pow (returns f64)
-        // pyPowAsPyValue is needed for:
-        // 1. Negative exponents (ZeroDivisionError for base=0)
-        // 2. Negative base with non-integer exponent (complex result)
-        // 3. Non-constant exponent (type inference returns pow_result for safety)
-        // 4. When result type inference says .pyvalue or .pow_result
-        const needs_pyvalue = blk: {
-            // Check for explicitly negative exponent
-            if (args[1] == .unaryop and args[1].unaryop.op == .USub) {
-                break :blk true;
+        try b.withCall("@rem", struct {
+            fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                try builder.write("@as(i64, @intFromFloat(std.math.pow(f64, @as(f64, @floatFromInt(");
+                try builder.emitValueCore(ctx.base_val);
+                try builder.write(")), @as(f64, @floatFromInt(");
+                try builder.emitValueCore(ctx.exp_val);
+                try builder.write("))))), ");
+                try builder.emitValueCore(ctx.mod_val);
             }
-            if (args[1] == .constant and args[1].constant.value == .int) {
-                if (args[1].constant.value.int < 0) break :blk true;
-            }
-            if (args[1] == .constant and args[1].constant.value == .float) {
-                if (args[1].constant.value.float < 0) break :blk true;
-            }
-            // Check if base is negative with non-integer exponent (could produce complex)
-            if (!exp_is_int) {
-                if (args[0] == .unaryop and args[0].unaryop.op == .USub) {
-                    // Negative base with float exp - only safe if exp is integer value
-                    if (args[1] == .constant and args[1].constant.value == .float) {
-                        const exp = args[1].constant.value.float;
-                        if (exp != @trunc(exp)) break :blk true;
-                    }
+        }.f, .{ .base_val = base_val, .exp_val = exp_val, .mod_val = mod_val });
+        try self.flushBuilder();
+        return;
+    }
+
+    // pow(base, exp) - standard power
+    // Get types to determine which codepath to use
+    const base_type = self.inferExprScoped(args[0]) catch .unknown;
+    const exp_type = self.inferExprScoped(args[1]) catch .unknown;
+    const base_is_int = type_traits.isIntegral(base_type) or type_traits.isBoolean(base_type);
+    const exp_is_int = type_traits.isIntegral(exp_type) or type_traits.isBoolean(exp_type);
+
+    // Check if we need pyPowAsPyValue (returns PyValue) or can use std.math.pow (returns f64)
+    const needs_pyvalue = blk: {
+        // Check for explicitly negative exponent
+        if (args[1] == .unaryop and args[1].unaryop.op == .USub) {
+            break :blk true;
+        }
+        if (args[1] == .constant and args[1].constant.value == .int) {
+            if (args[1].constant.value.int < 0) break :blk true;
+        }
+        if (args[1] == .constant and args[1].constant.value == .float) {
+            if (args[1].constant.value.float < 0) break :blk true;
+        }
+        // Check if base is negative with non-integer exponent (could produce complex)
+        if (!exp_is_int) {
+            if (args[0] == .unaryop and args[0].unaryop.op == .USub) {
+                if (args[1] == .constant and args[1].constant.value == .float) {
+                    const exp = args[1].constant.value.float;
+                    if (exp != @trunc(exp)) break :blk true;
                 }
             }
-            // If exponent is a variable (not constant), use pyPowAsPyValue for consistency
-            // with type inference which returns pow_result for non-constant exponents
-            // This handles cases like pow(1.0, NAN) where NAN is a float variable
-            if (args[1] != .constant and !exp_is_int) {
-                // Exponent is a variable with float type - need PyValue for type consistency
-                break :blk true;
-            }
-            break :blk false;
-        };
-
-        if (needs_pyvalue) {
-            // Use pyPowAsPyValue which returns PyValue directly
-            // This handles complex results, ZeroDivisionError, and IEEE 754 edge cases
-            try self.emit("(try runtime.builtins.pyPowAsPyValue(");
-        } else {
-            // Simple float pow - use std.math.pow directly for f64 return type
-            try self.emit("std.math.pow(f64, ");
         }
-
-        // Convert base to f64
-        // Check if base is a type conversion call (type(x) where type is an anytype param)
-        const base_is_type_call = isTypeConversionCall(args[0]);
-        if (base_is_type_call) {
-            // Use typeConvertFloat which handles both int and float target types
-            try self.emit("runtime.builtins.typeConvertFloat(");
-            try self.genExpr(args[0].call.func.*);
-            try self.emit(", ");
-            try self.genExpr(args[0].call.args[0]);
-            try self.emit(")");
-        } else if (base_is_int) {
-            try self.emit("@as(f64, @floatFromInt(");
-            try self.genExpr(args[0]);
-            try self.emit("))");
-        } else {
-            // Unknown type - use numericToFloat which handles both int and float
-            try self.emit("runtime.builtins.numericToFloat(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
+        // If exponent is a variable (not constant), use pyPowAsPyValue for consistency
+        if (args[1] != .constant and !exp_is_int) {
+            break :blk true;
         }
+        break :blk false;
+    };
 
-        try self.emit(", ");
+    const b = try self.getBuilder();
 
-        // Convert exp to f64
-        // Check if exp is a type conversion call
-        const exp_is_type_call = isTypeConversionCall(args[1]);
-        if (exp_is_type_call) {
-            // Use typeConvertFloat which handles both int and float target types
-            try self.emit("runtime.builtins.typeConvertFloat(");
-            try self.genExpr(args[1].call.func.*);
-            try self.emit(", ");
-            try self.genExpr(args[1].call.args[0]);
-            try self.emit(")");
-        } else if (exp_is_int) {
-            try self.emit("@as(f64, @floatFromInt(");
-            try self.genExpr(args[1]);
-            try self.emit("))");
-        } else {
-            // Unknown type - use numericToFloat which handles both int and float
-            try self.emit("runtime.builtins.numericToFloat(");
-            try self.genExpr(args[1]);
-            try self.emit(")");
-        }
-
-        if (needs_pyvalue) {
-            try self.emit("))");
-        } else {
-            try self.emit(")");
-        }
+    if (needs_pyvalue) {
+        // (try runtime.builtins.pyPowAsPyValue(base_as_f64, exp_as_f64))
+        try b.write("(try runtime.builtins.pyPowAsPyValue(");
+        try emitAsF64(self, args[0], base_is_int);
+        try b.write(", ");
+        try emitAsF64(self, args[1], exp_is_int);
+        try b.write("))");
+    } else {
+        // std.math.pow(f64, base_as_f64, exp_as_f64)
+        try b.write("std.math.pow(f64, ");
+        try emitAsF64(self, args[0], base_is_int);
+        try b.write(", ");
+        try emitAsF64(self, args[1], exp_is_int);
+        try b.write(")");
     }
+    try self.flushBuilder();
 }
 
 /// Generate code for chr(n)
@@ -388,18 +428,25 @@ pub fn genOrd(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // Generate: @as(i64, str[0])
-    // Assumes single-char string
-    // Need extra parens when arg is a slice subscript (generates labeled block)
-    // Uses emitParens for auto-close when needed
+    // Generate: @as(i64, str[0]) using builder pattern
+    const b = try self.getBuilder();
     const needs_parens = args[0] == .subscript and args[0].subscript.slice == .slice;
-    try self.emit("@as(i64, ");
-    if (needs_parens) {
-        try self.emitParens(args[0]);
-    } else {
-        try self.genExpr(args[0]);
-    }
-    try self.emit("[0])");
+    const val = try self.captureExpr(args[0]);
+
+    try b.withCall("@as", struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            try builder.write("i64, ");
+            if (ctx.needs_parens) {
+                try builder.write("(");
+                try builder.emitValueCore(ctx.val);
+                try builder.write(")");
+            } else {
+                try builder.emitValueCore(ctx.val);
+            }
+            try builder.write("[0]");
+        }
+    }.f, .{ .val = val, .needs_parens = needs_parens });
+    try self.flushBuilder();
 }
 
 /// Generate code for divmod(a, b)
@@ -413,29 +460,35 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Check if either argument is BigInt or unknown (could be anytype)
     const left_type = self.inferExprScoped(args[0]) catch .unknown;
     const right_type = self.inferExprScoped(args[1]) catch .unknown;
-    const alloc_name = "__global_allocator";
+
+    const b = try self.getBuilder();
+    const left_val = try self.captureExpr(args[0]);
+    const right_val = try self.captureExpr(args[1]);
 
     if (left_type == .bigint or right_type == .bigint or left_type == .unknown or right_type == .unknown) {
         // BigInt or unknown type - use runtime.bigIntDivmod
-        try self.emit("runtime.bigIntDivmod(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(", ");
-        try self.emit(alloc_name);
-        try self.emit(")");
+        try b.emitCallExpr("runtime.bigIntDivmod", &[_]CallArg{
+            .{ .value = left_val },
+            .{ .value = right_val },
+            .allocator,
+        });
     } else {
         // Generate: .{ @divFloor(a, b), @mod(a, b) }
-        try self.emit(".{ @divFloor(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit("), @mod(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(") }");
+        try b.withAnonLiteral(struct {
+            fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                try builder.write("@divFloor(");
+                try builder.emitValueCore(ctx.left_val);
+                try builder.write(", ");
+                try builder.emitValueCore(ctx.right_val);
+                try builder.write("), @mod(");
+                try builder.emitValueCore(ctx.left_val);
+                try builder.write(", ");
+                try builder.emitValueCore(ctx.right_val);
+                try builder.write(")");
+            }
+        }.f, .{ .left_val = left_val, .right_val = right_val });
     }
+    try self.flushBuilder();
 }
 
 /// Generate code for hash(obj)
@@ -449,19 +502,31 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Check the type of the argument to generate appropriate code
     const arg_type = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+    const b = try self.getBuilder();
+    const val = try self.captureExpr(args[0]);
 
     switch (arg_type) {
         .bool => {
             // For bools: 1 for True, 0 for False (fast path)
-            try self.emit("@as(i64, if (");
-            try self.genExpr(args[0]);
-            try self.emit(") 1 else 0)");
+            try b.withCall("@as", struct {
+                fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                    try builder.write("i64, if (");
+                    try builder.emitValueCore(ctx.val);
+                    try builder.write(") 1 else 0");
+                }
+            }.f, .{ .val = val });
+            try self.flushBuilder();
         },
         .string => {
             // For strings: use std.hash.Wyhash (fast path)
-            try self.emit("@as(i64, @bitCast(std.hash.Wyhash.hash(0, ");
-            try self.genExpr(args[0]);
-            try self.emit(")))");
+            try b.withCall("@as", struct {
+                fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+                    try builder.write("i64, @bitCast(std.hash.Wyhash.hash(0, ");
+                    try builder.emitValueCore(ctx.val);
+                    try builder.write("))");
+                }
+            }.f, .{ .val = val });
+            try self.flushBuilder();
         },
         else => {
             // For all other types (int, float, tuple, PyValue, unknown, etc.):
