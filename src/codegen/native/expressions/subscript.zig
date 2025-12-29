@@ -29,9 +29,15 @@ const ZigValue = builder_mod.ZigValue;
 /// Emit @as(usize, @intCast(expr))
 /// Uses auto-close pattern to guarantee matching parentheses
 fn emitAsUsize(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("@as(usize, @intCast");
-    try self.emitParens(expr);
-    try self.emit(")");
+    try self.emitCallCtx("@as", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emitCallCtx("usize, @intCast", e, struct {
+                pub fn inner(ss: *NativeCodegen, ex: ast.Node) CodegenError!void {
+                    try genExpr(ss, ex);
+                }
+            }.inner);
+        }
+    }.f);
 }
 
 /// Emit base.get(key).? for dict access

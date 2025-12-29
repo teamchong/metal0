@@ -61,21 +61,30 @@ fn emitRuntimeFloatCall(self: *NativeCodegen, func: []const u8, obj: ast.Node) C
 }
 
 /// Helper to emit simple runtime float call: runtime.{func}(floatExpr)
+/// Uses auto-close pattern for guaranteed bracket matching
 fn emitSimpleFloatCall(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
     try self.emit("runtime.");
     try self.emit(func);
-    try self.emit("(");
-    try emitFloatExpr(self, obj);
-    try self.emit(")");
+    const Ctx = struct { o: ast.Node };
+    try self.emitCallCtx("", Ctx{ .o = obj }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try emitFloatExpr(s, ctx.o);
+        }
+    }.f);
 }
 
 /// Helper to emit try runtime float call with allocator: try runtime.{func}(allocator, floatExpr)
+/// Uses auto-close pattern for guaranteed bracket matching
 fn emitTryFloatCallWithAlloc(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
     try self.emit("try runtime.");
     try self.emit(func);
-    try self.emit("(__global_allocator, ");
-    try emitFloatExpr(self, obj);
-    try self.emit(")");
+    const Ctx = struct { o: ast.Node };
+    try self.emitCallCtx("", Ctx{ .o = obj }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try emitFloatExpr(s, ctx.o);
+        }
+    }.f);
 }
 
 /// Helper to emit wrapped try runtime float call: (try runtime.{func}(allocator, floatExpr))

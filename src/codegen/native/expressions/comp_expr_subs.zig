@@ -33,25 +33,13 @@ pub fn genExprWithSubs(
         .binop => |b| {
             // Use @mod for modulo to handle signed integers properly
             if (b.op == .Mod) {
-                try self.emit("@mod(");
-                try genExprWithSubs(self, b.left.*, subs);
-                try self.emit(", ");
-                try genExprWithSubs(self, b.right.*, subs);
-                try self.emit(")");
+                try emitModWithSubs(self, b.left.*, b.right.*, subs);
             } else if (b.op == .Pow) {
                 // Zig doesn't have ** operator, use std.math.pow
-                try self.emit("std.math.pow(i64, ");
-                try genExprWithSubs(self, b.left.*, subs);
-                try self.emit(", ");
-                try genExprWithSubs(self, b.right.*, subs);
-                try self.emit(")");
+                try emitPowWithSubs(self, b.left.*, b.right.*, subs);
             } else if (b.op == .FloorDiv) {
                 // Floor division uses @divFloor for Python semantics
-                try self.emit("@divFloor(");
-                try genExprWithSubs(self, b.left.*, subs);
-                try self.emit(", ");
-                try genExprWithSubs(self, b.right.*, subs);
-                try self.emit(")");
+                try emitFloorDivWithSubs(self, b.left.*, b.right.*, subs);
             } else if (b.op == .LShift or b.op == .RShift) {
                 // Bit shifts need RHS cast to u6 (Zig requires unsigned shift amount)
                 // Uses auto-close pattern for outer parens
@@ -512,6 +500,60 @@ fn genIfExprWithSubs(
     try self.emit(" else ");
     try genExprWithSubs(self, ie.orelse_value.*, subs);
     try self.emit(")");
+}
+
+// === Structured helpers for binary operations with substitutions ===
+
+/// Helper: emit @mod(left, right) with substitutions and guaranteed bracket matching
+fn emitModWithSubs(
+    self: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+) CodegenError!void {
+    const Ctx = struct { l: ast.Node, r: ast.Node, sb: *const hashmap_helper.StringHashMap([]const u8) };
+    try self.emitCallCtx("@mod", Ctx{ .l = left, .r = right, .sb = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExprWithSubs(s, ctx.l, ctx.sb);
+            try s.emit(", ");
+            try genExprWithSubs(s, ctx.r, ctx.sb);
+        }
+    }.f);
+}
+
+/// Helper: emit std.math.pow(i64, left, right) with substitutions and guaranteed bracket matching
+fn emitPowWithSubs(
+    self: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+) CodegenError!void {
+    const Ctx = struct { l: ast.Node, r: ast.Node, sb: *const hashmap_helper.StringHashMap([]const u8) };
+    try self.emitCallCtx("std.math.pow", Ctx{ .l = left, .r = right, .sb = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("i64, ");
+            try genExprWithSubs(s, ctx.l, ctx.sb);
+            try s.emit(", ");
+            try genExprWithSubs(s, ctx.r, ctx.sb);
+        }
+    }.f);
+}
+
+/// Helper: emit @divFloor(left, right) with substitutions and guaranteed bracket matching
+fn emitFloorDivWithSubs(
+    self: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+) CodegenError!void {
+    const Ctx = struct { l: ast.Node, r: ast.Node, sb: *const hashmap_helper.StringHashMap([]const u8) };
+    try self.emitCallCtx("@divFloor", Ctx{ .l = left, .r = right, .sb = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExprWithSubs(s, ctx.l, ctx.sb);
+            try s.emit(", ");
+            try genExprWithSubs(s, ctx.r, ctx.sb);
+        }
+    }.f);
 }
 
 /// Generate comparison with substitutions
