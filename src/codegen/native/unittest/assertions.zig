@@ -75,6 +75,34 @@ const FloatMethods = std.StaticStringMap(FloatMethodInfo).initComptime(.{
     .{ "__round__", FloatMethodInfo{ .func = "Round(__global_allocator, ", .needs_alloc = true } },
 });
 
+/// Helper: emit error handling suffix for float Big variants
+/// FloorBig/CeilBig return error unions - in assertRaises context let propagate, else catch unreachable
+fn emitBigVariantSuffix(self: *NativeCodegen, info: FloatMethodInfo) CodegenError!void {
+    const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
+    if (is_big_variant) {
+        if (self.in_assert_raises_context or self.inside_try_body) {
+            try self.emit(")"); // Let error propagate for assertRaises
+        } else {
+            try self.emit(" catch unreachable)");
+        }
+    } else {
+        try self.emit(")");
+    }
+}
+
+/// Helper: emit float method call in inline block for assertRaises callable invocation
+fn emitFloatMethodBlock(self: *NativeCodegen, value_expr: ast.Node, info: FloatMethodInfo) CodegenError!void {
+    const label = try self.emitInlineBlockStart("ar_obj");
+    try self.emit("const __ar_obj = ");
+    try parent.genExpr(self, value_expr);
+    try self.emitFmt("; break :{s} (runtime.float", .{label});
+    try self.emit(info.func);
+    try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
+    try emitBigVariantSuffix(self, info);
+    try self.emit("; ");
+    try self.emitInlineBlockEnd();
+}
+
 // Float class methods (e.g., float.__getformat__) - maps Python method names to runtime function names
 const FloatClassMethods = std.StaticStringMap([]const u8).initComptime(.{
     .{ "fromhex", "runtime.floatFromHex" },
@@ -162,27 +190,7 @@ fn emitCallableInvocation(
                 return;
             } else if (attr.value.* == .call) {
                 if (FloatMethods.get(attr.attr)) |info| {
-                    const label = try self.emitInlineBlockStart("ar_obj");
-                    try self.emit("const __ar_obj = ");
-                    try parent.genExpr(self, attr.value.*);
-                    try self.emitFmt("; break :{s} (runtime.float", .{label});
-                    try self.emit(info.func);
-                    try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
-                    // FloorBig/CeilBig return error unions
-                    // In assertRaises context, let error propagate (no try/catch)
-                    // Otherwise, catch unreachable for normal assertEqual context
-                    const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
-                    if (is_big_variant) {
-                        if (self.in_assert_raises_context or self.inside_try_body) {
-                            try self.emit(")"); // Let error propagate for assertRaises
-                        } else {
-                            try self.emit(" catch unreachable)");
-                        }
-                    } else {
-                        try self.emit(")");
-                    }
-                    try self.emit("; ");
-                    try self.emitInlineBlockEnd();
+                    try emitFloatMethodBlock(self, attr.value.*, info);
                 } else {
                     const label = try self.emitInlineBlockStart("ar_obj");
                     try self.emit("const __ar_obj = ");
@@ -287,27 +295,7 @@ fn emitCallableInvocation(
 
         // Check for float methods that need runtime dispatch (as_integer_ratio, __floor__, etc.)
         if (FloatMethods.get(attr.attr)) |info| {
-            const label = try self.emitInlineBlockStart("ar_obj");
-            try self.emit("const __ar_obj = ");
-            try parent.genExpr(self, attr.value.*);
-            try self.emitFmt("; break :{s} (runtime.float", .{label});
-            try self.emit(info.func);
-            try self.emit(if (info.needs_alloc) "__ar_obj)" else "(__ar_obj)");
-            // FloorBig/CeilBig return error unions
-            // In assertRaises context, let error propagate (no try/catch)
-            // Otherwise, catch unreachable for normal assertEqual context
-            const is_big_variant = std.mem.indexOf(u8, info.func, "Big") != null;
-            if (is_big_variant) {
-                if (self.in_assert_raises_context or self.inside_try_body) {
-                    try self.emit(")"); // Let error propagate for assertRaises
-                } else {
-                    try self.emit(" catch unreachable)");
-                }
-            } else {
-                try self.emit(")");
-            }
-            try self.emit("; ");
-            try self.emitInlineBlockEnd();
+            try emitFloatMethodBlock(self, attr.value.*, info);
             return;
         }
         const label = try self.emitInlineBlockStart("ar_obj");

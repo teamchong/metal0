@@ -15,6 +15,13 @@ const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const string_traits = @import("../../../analysis/traits/string_traits.zig");
 
+/// Helper: emit @as(i64, @intFromBool(obj)) for bool to int conversion
+fn emitBoolToInt(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    try self.emit("@as(i64, @intFromBool(");
+    try self.genExpr(obj);
+    try self.emit("))");
+}
+
 /// Builtin types that support __new__ with value extraction
 const BuiltinNewTypes = std.StaticStringMap(void).initComptime(.{
     .{ "str", {} }, .{ "int", {} }, .{ "float", {} }, .{ "bool", {} },
@@ -588,9 +595,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             // int.__index__() returns self - just emit the value
             // For bool: True.__index__() -> 1, False.__index__() -> 0
             if (type_traits.isBoolean(obj_type)) {
-                try self.emit("@as(i64, @intFromBool(");
-                try self.genExpr(obj);
-                try self.emit("))");
+                try emitBoolToInt(self, obj);
             } else {
                 try self.genExpr(obj);
             }
@@ -599,9 +604,7 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         if (std.mem.eql(u8, method_name, "__int__")) {
             // int.__int__() returns self
             if (type_traits.isBoolean(obj_type)) {
-                try self.emit("@as(i64, @intFromBool(");
-                try self.genExpr(obj);
-                try self.emit("))");
+                try emitBoolToInt(self, obj);
             } else {
                 try self.genExpr(obj);
             }
