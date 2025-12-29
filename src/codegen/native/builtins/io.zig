@@ -27,13 +27,17 @@ fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 
 /// Helper to emit expression, extracting string using runtime.container_dispatch.toPathStr
 /// This handles all cases: []const u8 (passthrough), PyValue (.string field), eval() results
+/// Uses emitCallCtx for guaranteed bracket matching
 fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     // Use toPathStr for robust type extraction - works with any input type
-    try self.emit("runtime.container_dispatch.toPathStr(@TypeOf(");
-    try self.genExpr(expr);
-    try self.emit("), ");
-    try self.genExpr(expr);
-    try self.emit(")");
+    try self.emitCallCtx("runtime.container_dispatch.toPathStr", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("@TypeOf(");
+            try s.genExpr(e);
+            try s.emit("), ");
+            try s.genExpr(e);
+        }
+    }.f);
 }
 
 /// Generate code for open(filename, mode)
@@ -98,14 +102,19 @@ pub fn genInput(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitFmt("(__m{d}_input: {{ @panic(\"input() takes at most 1 argument\"); }})", .{id});
         return;
     }
-    try self.emit("runtime.builtins.input(__global_allocator, ");
-    if (args.len == 1) {
-        // Two-Flow: Extract string from PyValue if prompt is uncertain
-        try emitStringExpr(self, args[0]);
-    } else {
-        try self.emit("\"\"");
-    }
-    try self.emit(")");
+    // Use emitCallCtx for guaranteed bracket matching
+    const Ctx = struct { a: []ast.Node };
+    try self.emitCallCtx("runtime.builtins.input", Ctx{ .a = args }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            if (ctx.a.len == 1) {
+                // Two-Flow: Extract string from PyValue if prompt is uncertain
+                try emitStringExpr(s, ctx.a[0]);
+            } else {
+                try s.emit("\"\"");
+            }
+        }
+    }.f);
 }
 
 /// Generate code for breakpoint() - drop into debugger
