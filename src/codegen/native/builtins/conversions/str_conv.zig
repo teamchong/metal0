@@ -9,6 +9,24 @@ const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
 
+/// Helper: emit (try runtime.func(alloc_name, expr)) using structured withParens
+fn emitTryRuntimeCall(self: *NativeCodegen, func: []const u8, alloc_name: []const u8, expr: ast.Node) CodegenError!void {
+    const Ctx = struct { f: []const u8, a: []const u8, e: ast.Node };
+    try self.withParensCtx(Ctx{ .f = func, .a = alloc_name, .e = expr }, struct {
+        pub fn inner(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("try runtime.");
+            try s.emit(ctx.f);
+            try s.withParensCtx(ctx, struct {
+                pub fn args(s2: *NativeCodegen, ctx2: Ctx) CodegenError!void {
+                    try s2.emit(ctx2.a);
+                    try s2.emit(", ");
+                    try s2.genExpr(ctx2.e);
+                }
+            }.args);
+        }
+    }.inner);
+}
+
 /// Generate code for str(obj) or str(bytes, encoding)
 /// Converts to string representation
 pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -92,11 +110,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     } else if (container_traits.isTuple(arg_type)) {
         // For tuples: use Python-style (a, b, c) format
-        try self.emit("(try runtime.builtins.tupleRepr(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitTryRuntimeCall(self, "builtins.tupleRepr", alloc_name, args[0]);
         return;
     }
 
@@ -178,11 +192,7 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("))");
     } else {
         // For unknown types: use pyStr which handles tuples/structs with Python formatting
-        try self.emit("(try runtime.builtins.pyStr(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitTryRuntimeCall(self, "builtins.pyStr", alloc_name, args[0]);
     }
 }
 
@@ -289,11 +299,7 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Two-Flow: For unknown/PyValue types, use runtime bytearray conversion
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
         const alloc_name = "__global_allocator";
-        try self.emit("(try runtime.builtins.bytearray(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitTryRuntimeCall(self, "builtins.bytearray", alloc_name, args[0]);
         return;
     }
 
@@ -353,11 +359,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For tuples: use Python-style (a, b, c) format
     if (container_traits.isTuple(arg_type)) {
-        try self.emit("(try runtime.builtins.tupleRepr(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitTryRuntimeCall(self, "builtins.tupleRepr", alloc_name, args[0]);
         return;
     }
 
@@ -378,21 +380,13 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For integers, use pyRepr which handles anytype params correctly
     // (closures generate anytype parameters whose actual type may differ from inference)
     if (type_traits.isIntegral(arg_type)) {
-        try self.emit("(try runtime.builtins.pyRepr(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitTryRuntimeCall(self, "builtins.pyRepr", alloc_name, args[0]);
         return;
     }
 
     // For floats, use runtime.builtins.pyRepr which handles nan/inf correctly
     if (type_traits.isFloating(arg_type) and !is_float_error_union) {
-        try self.emit("(try runtime.builtins.pyRepr(");
-        try self.emit(alloc_name);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try emitTryRuntimeCall(self, "builtins.pyRepr", alloc_name, args[0]);
         return;
     }
 
@@ -411,11 +405,7 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // For unknown types: use pyRepr which handles tuples/structs with Python formatting
-    try self.emit("(try runtime.builtins.pyRepr(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
-    try self.genExpr(args[0]);
-    try self.emit("))");
+    try emitTryRuntimeCall(self, "builtins.pyRepr", alloc_name, args[0]);
 }
 
 /// Generate code for ascii(obj)
