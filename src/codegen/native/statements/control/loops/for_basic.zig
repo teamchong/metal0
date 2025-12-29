@@ -495,11 +495,17 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     } else if (iter == .name) {
         // Variable with unknown type - use container_dispatch helper to reduce monomorphization
         // Replaces inline @typeInfo/@hasField check with centralized helper
-        try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
-        try self.genExpr(iter);
-        try self.emit("), ");
-        try self.genExpr(iter);
-        try self.emit(")");
+        try self.emitCallCtx("runtime.container_dispatch.toIterSlice", iter, struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.emitCallCtx("@TypeOf", e, struct {
+                    pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                        try s2.genExpr(e2);
+                    }
+                }.g);
+                try s.emit(", ");
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         // Not a list type - iterate directly
         try self.genExpr(iter);
@@ -1744,11 +1750,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         } else if (for_stmt.iter.* == .name) {
             // Variable with unknown type - use container_dispatch helper to reduce monomorphization
             // Replaces inline @typeInfo/@hasField check with centralized helper
-            try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
-            try self.genExpr(for_stmt.iter.*);
-            try self.emit("), ");
-            try self.genExpr(for_stmt.iter.*);
-            try self.emit(")");
+            try self.emitCallCtx("runtime.container_dispatch.toIterSlice", for_stmt.iter.*, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.emitCallCtx("@TypeOf", e, struct {
+                        pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                            try s2.genExpr(e2);
+                        }
+                    }.g);
+                    try s.emit(", ");
+                    try s.genExpr(e);
+                }
+            }.f);
         } else {
             try self.genExpr(for_stmt.iter.*);
         }

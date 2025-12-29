@@ -1083,9 +1083,12 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
                 try self.emit(cls_name);
             } else if (!has_self_reference and !is_literal and initExprIsSafe(init, &safe_vars)) {
                 // Safe to use @TypeOf - no forward references, no self-references, and not a literal
-                try self.emit(": @TypeOf(");
-                try self.genExpr(init.*);
-                try self.emit(")");
+                try self.emit(": ");
+                try self.emitCallCtx("@TypeOf", init.*, struct {
+                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                        try s.genExpr(e);
+                    }
+                }.f);
             } else {
                 // Has forward refs, self-reference, or is a literal - use fallback type
                 const fallback = inferFallbackType(init, escaped.source);
