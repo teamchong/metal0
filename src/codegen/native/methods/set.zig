@@ -173,31 +173,36 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     _ = args;
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
+
+    // Generate unique temp names to avoid variable collisions
+    const copy = try self.name_gen.temp();
+    const iter = try self.name_gen.temp();
+
     // Generate a block that creates new set and copies elements
     try self.output.writer(self.allocator).print("(scopy_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __copy = @TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = @TypeOf(", .{copy});
     try emitObjExpr(self, obj);
     try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __copy.put(entry.key_ptr.*, {});\n");
+    try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, {{}});\n", .{copy});
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :scopy_{d} __copy;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :scopy_{d} {s};\n", .{ label_id, copy });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -223,16 +228,19 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     self.indent_level += 1;
 
     // For each arg, iterate and add elements
-    for (args, 0..) |arg, i| {
+    for (args) |arg| {
+        const other_set = try self.name_gen.temp();
+        const other_iter = try self.name_gen.temp();
+
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
         try self.genExpr(arg);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("var __other_{d} = __other_set_{d}.iterator();\n", .{ i, i });
+        try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ other_iter, other_set });
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
+        try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
         self.indent_level += 1;
         try self.emitIndent();
         try self.emit("try ");
@@ -265,50 +273,58 @@ pub fn genUnion(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const result = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sunion_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Create result set and copy self into it
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = @TypeOf(", .{result});
     try emitObjExpr(self, obj);
     try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("try __result.put(entry.key_ptr.*, {});\n");
+    try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, {{}});\n", .{result});
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     // Add elements from each arg
     for (args, 0..) |arg, i| {
+        const other_set = try self.name_gen.temp();
+        const other_iter = try self.name_gen.temp();
+
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
         try self.genExpr(arg);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("var __other_{d} = __other_set_{d}.iterator();\n", .{ i, i });
+        try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ other_iter, other_set });
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
+        try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
         self.indent_level += 1;
         try self.emitIndent();
-        try self.emit("try __result.put(entry.key_ptr.*, {});\n");
+        try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, {{}});\n", .{result});
         self.indent_level -= 1;
         try self.emitIndent();
         try self.emit("}\n");
+        _ = i;
     }
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :sunion_{d} __result;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :sunion_{d} {s};\n", .{ label_id, result });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -329,46 +345,52 @@ pub fn genIntersection(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const result = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+    const in_all = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sinter_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Create result set - only add elements from self that exist in all others
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = @TypeOf(", .{result});
     try emitObjExpr(self, obj);
     try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
 
     // Check if element exists in all other sets
     try self.emitIndent();
-    try self.emit("var __in_all = true;\n");
+    try self.output.writer(self.allocator).print("var {s} = true;\n", .{in_all});
 
-    for (args, 0..) |arg, i| {
+    for (args) |arg| {
+        const other_set = try self.name_gen.temp();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
         try self.genExpr(arg);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("if (!__other_set_{d}.contains(entry.key_ptr.*)) __in_all = false;\n", .{i});
+        try self.output.writer(self.allocator).print("if (!{s}.contains(entry.key_ptr.*)) {s} = false;\n", .{ other_set, in_all });
     }
 
     try self.emitIndent();
-    try self.emit("if (__in_all) try __result.put(entry.key_ptr.*, {});\n");
+    try self.output.writer(self.allocator).print("if ({s}) try {s}.put(entry.key_ptr.*, {{}});\n", .{ in_all, result });
 
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :sinter_{d} __result;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :sinter_{d} {s};\n", .{ label_id, result });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -389,46 +411,52 @@ pub fn genDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const result = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+    const in_any = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sdiff_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Create result set - only add elements from self that don't exist in any other
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = @TypeOf(", .{result});
     try emitObjExpr(self, obj);
     try self.emit(").init(__global_allocator);\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
 
     // Check if element exists in any other set
     try self.emitIndent();
-    try self.emit("var __in_any = false;\n");
+    try self.output.writer(self.allocator).print("var {s} = false;\n", .{in_any});
 
-    for (args, 0..) |arg, i| {
+    for (args) |arg| {
+        const other_set = try self.name_gen.temp();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
         try self.genExpr(arg);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("if (__other_set_{d}.contains(entry.key_ptr.*)) __in_any = true;\n", .{i});
+        try self.output.writer(self.allocator).print("if ({s}.contains(entry.key_ptr.*)) {s} = true;\n", .{ other_set, in_any });
     }
 
     try self.emitIndent();
-    try self.emit("if (!__in_any) try __result.put(entry.key_ptr.*, {});\n");
+    try self.output.writer(self.allocator).print("if (!{s}) try {s}.put(entry.key_ptr.*, {{}});\n", .{ in_any, result });
 
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :sdiff_{d} __result;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :sdiff_{d} {s};\n", .{ label_id, result });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -447,51 +475,57 @@ pub fn genSymmetricDifference(self: *NativeCodegen, obj: ast.Node, args: []ast.N
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const result = try self.name_gen.temp();
+    const other_set = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+    const other_iter = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(ssymdiff_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Create result set
     try self.emitIndent();
-    try self.emit("var __result = @TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = @TypeOf(", .{result});
     try emitObjExpr(self, obj);
     try self.emit(").init(__global_allocator);\n");
 
     // Store other set in a variable first
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
     try self.genExpr(args[0]);
     try self.emit(";\n");
 
     // Add elements from self that are NOT in other
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!__other_set.contains(entry.key_ptr.*)) try __result.put(entry.key_ptr.*, {});\n");
+    try self.output.writer(self.allocator).print("if (!{s}.contains(entry.key_ptr.*)) try {s}.put(entry.key_ptr.*, {{}});\n", .{ other_set, result });
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     // Add elements from other that are NOT in self
     try self.emitIndent();
-    try self.emit("var __other_iter = __other_set.iterator();\n");
+    try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ other_iter, other_set });
     try self.emitIndent();
-    try self.emit("while (__other_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
     self.indent_level += 1;
     try self.emitIndent();
     try self.emit("if (!");
     try emitObjExpr(self, obj);
-    try self.emit(".contains(entry.key_ptr.*)) try __result.put(entry.key_ptr.*, {});\n");
+    try self.output.writer(self.allocator).print(".contains(entry.key_ptr.*)) try {s}.put(entry.key_ptr.*, {{}});\n", .{result});
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :ssymdiff_{d} __result;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :ssymdiff_{d} {s};\n", .{ label_id, result });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -508,33 +542,38 @@ pub fn genIssubset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const is_subset = try self.name_gen.temp();
+    const other_set = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sissubset_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __is_subset = true;\n");
+    try self.output.writer(self.allocator).print("var {s} = true;\n", .{is_subset});
 
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
     try self.genExpr(args[0]);
     try self.emit(";\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (!__other_set.contains(entry.key_ptr.*)) { __is_subset = false; break; }\n");
+    try self.output.writer(self.allocator).print("if (!{s}.contains(entry.key_ptr.*)) {{ {s} = false; break; }}\n", .{ other_set, is_subset });
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :sissubset_{d} __is_subset;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :sissubset_{d} {s};\n", .{ label_id, is_subset });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -551,32 +590,37 @@ pub fn genIssuperset(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const is_superset = try self.name_gen.temp();
+    const other_set = try self.name_gen.temp();
+    const other_iter = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sissuperset_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __is_superset = true;\n");
+    try self.output.writer(self.allocator).print("var {s} = true;\n", .{is_superset});
 
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
     try self.genExpr(args[0]);
     try self.emit(";\n");
     try self.emitIndent();
-    try self.emit("var __other_iter = __other_set.iterator();\n");
+    try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ other_iter, other_set });
 
     try self.emitIndent();
-    try self.emit("while (__other_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
     self.indent_level += 1;
     try self.emitIndent();
     try self.emit("if (!");
     try emitObjExpr(self, obj);
-    try self.emit(".contains(entry.key_ptr.*)) { __is_superset = false; break; }\n");
+    try self.output.writer(self.allocator).print(".contains(entry.key_ptr.*)) {{ {s} = false; break; }}\n", .{is_superset});
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :sissuperset_{d} __is_superset;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :sissuperset_{d} {s};\n", .{ label_id, is_superset });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -593,33 +637,38 @@ pub fn genIsdisjoint(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const is_disjoint = try self.name_gen.temp();
+    const other_set = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sisdisjoint_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __is_disjoint = true;\n");
+    try self.output.writer(self.allocator).print("var {s} = true;\n", .{is_disjoint});
 
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
     try self.genExpr(args[0]);
     try self.emit(";\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (__other_set.contains(entry.key_ptr.*)) { __is_disjoint = false; break; }\n");
+    try self.output.writer(self.allocator).print("if ({s}.contains(entry.key_ptr.*)) {{ {s} = false; break; }}\n", .{ other_set, is_disjoint });
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :sisdisjoint_{d} __is_disjoint;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :sisdisjoint_{d} {s};\n", .{ label_id, is_disjoint });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -638,39 +687,45 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const to_remove = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+    const in_all = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(sinterupd_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Collect keys to remove (can't modify while iterating)
     // Use std.meta.fieldInfo to get key type from KV struct (works with const)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(", .{to_remove});
     try emitObjExpr(self, obj);
     try self.emit(").Unmanaged.KV, .key).type){};\n");
 
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("var __in_all = true;\n");
+    try self.output.writer(self.allocator).print("var {s} = true;\n", .{in_all});
 
-    for (args, 0..) |arg, i| {
+    for (args) |arg| {
+        const other_set = try self.name_gen.temp();
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
         try self.genExpr(arg);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("if (!__other_set_{d}.contains(entry.key_ptr.*)) __in_all = false;\n", .{i});
+        try self.output.writer(self.allocator).print("if (!{s}.contains(entry.key_ptr.*)) {s} = false;\n", .{ other_set, in_all });
     }
 
     try self.emitIndent();
-    try self.emit("if (!__in_all) try __to_remove.append(__global_allocator, entry.key_ptr.*);\n");
+    try self.output.writer(self.allocator).print("if (!{s}) try {s}.append(__global_allocator, entry.key_ptr.*);\n", .{ in_all, to_remove });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -678,7 +733,7 @@ pub fn genIntersectionUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.No
 
     // Remove collected keys - use runtime helper to avoid comptime explosion
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
+    try self.output.writer(self.allocator).print("for ({s}.items) |key| {{ runtime.set_ops.SetOps(@TypeOf(key)).discard(&", .{to_remove});
     try emitObjExpr(self, obj);
     try self.emit(", key); }\n");
 
@@ -706,16 +761,19 @@ pub fn genDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
     self.indent_level += 1;
 
     // For each other set, remove its elements from self
-    for (args, 0..) |arg, i| {
+    for (args) |arg| {
+        const other_set = try self.name_gen.temp();
+        const other_iter = try self.name_gen.temp();
+
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("const __other_set_{d} = ", .{i});
+        try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
         try self.genExpr(arg);
         try self.emit(";\n");
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("var __other_{d} = __other_set_{d}.iterator();\n", .{ i, i });
+        try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ other_iter, other_set });
 
         try self.emitIndent();
-        try self.output.writer(self.allocator).print("while (__other_{d}.next()) |entry| {{\n", .{i});
+        try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
         self.indent_level += 1;
         try self.emitIndent();
         // Use runtime helper to avoid comptime explosion
@@ -747,65 +805,72 @@ pub fn genSymmetricDifferenceUpdate(self: *NativeCodegen, obj: ast.Node, args: [
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const other_set = try self.name_gen.temp();
+    const to_remove = try self.name_gen.temp();
+    const to_add = try self.name_gen.temp();
+    const self_iter = try self.name_gen.temp();
+    const other_iter = try self.name_gen.temp();
+
     try self.output.writer(self.allocator).print("(ssymdiffupd_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store other set first
     try self.emitIndent();
-    try self.emit("const __other_set = ");
+    try self.output.writer(self.allocator).print("const {s} = ", .{other_set});
     try self.genExpr(args[0]);
     try self.emit(";\n");
 
     // Collect keys to remove (in both sets)
     // Use std.meta.fieldInfo to get key type from KV struct (works with const)
     try self.emitIndent();
-    try self.emit("var __to_remove = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(", .{to_remove});
     try emitObjExpr(self, obj);
     try self.emit(").Unmanaged.KV, .key).type){};\n");
 
     try self.emitIndent();
-    try self.emit("var __to_add = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(");
+    try self.output.writer(self.allocator).print("var {s} = std.ArrayListUnmanaged(std.meta.fieldInfo(@TypeOf(", .{to_add});
     try emitObjExpr(self, obj);
     try self.emit(").Unmanaged.KV, .key).type){};\n");
 
     // Find elements in self that are in other (to remove)
     try self.emitIndent();
-    try self.emit("var __self_iter = ");
+    try self.output.writer(self.allocator).print("var {s} = ", .{self_iter});
     try emitObjExpr(self, obj);
     try self.emit(".iterator();\n");
 
     try self.emitIndent();
-    try self.emit("while (__self_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{self_iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.emit("if (__other_set.contains(entry.key_ptr.*)) try __to_remove.append(__global_allocator, entry.key_ptr.*);\n");
+    try self.output.writer(self.allocator).print("if ({s}.contains(entry.key_ptr.*)) try {s}.append(__global_allocator, entry.key_ptr.*);\n", .{ other_set, to_remove });
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     // Find elements in other that are not in self (to add)
     try self.emitIndent();
-    try self.emit("var __other_iter = __other_set.iterator();\n");
+    try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ other_iter, other_set });
 
     try self.emitIndent();
-    try self.emit("while (__other_iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
     self.indent_level += 1;
     try self.emitIndent();
     try self.emit("if (!");
     try emitObjExpr(self, obj);
-    try self.emit(".contains(entry.key_ptr.*)) try __to_add.append(__global_allocator, entry.key_ptr.*);\n");
+    try self.output.writer(self.allocator).print(".contains(entry.key_ptr.*)) try {s}.append(__global_allocator, entry.key_ptr.*);\n", .{to_add});
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     // Apply changes - use runtime helper to avoid comptime explosion
     try self.emitIndent();
-    try self.emit("for (__to_remove.items) |key| { runtime.set_ops.SetOps(@TypeOf(key)).discard(&");
+    try self.output.writer(self.allocator).print("for ({s}.items) |key| {{ runtime.set_ops.SetOps(@TypeOf(key)).discard(&", .{to_remove});
     try emitObjExpr(self, obj);
     try self.emit(", key); }\n");
 
     try self.emitIndent();
-    try self.emit("for (__to_add.items) |key| { try ");
+    try self.output.writer(self.allocator).print("for ({s}.items) |key| {{ try ", .{to_add});
     try emitObjExpr(self, obj);
     try self.emit(".put(key, {}); }\n");
 

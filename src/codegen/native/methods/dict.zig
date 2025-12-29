@@ -506,37 +506,42 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const src_dict = try self.name_gen.temp();
+    const copy = try self.name_gen.temp();
+    const iter = try self.name_gen.temp();
+
     // Generate block that clones the dict
     try self.output.writer(self.allocator).print("(dcopy_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store source dict in temp var to avoid block expression issues
     try self.emitIndent();
-    try self.emit("const __src_dict = ");
+    try self.output.writer(self.allocator).print("const {s} = ", .{src_dict});
     try self.genExpr(obj);
     try self.emit(";\n");
 
     // ArrayHashMap needs .init(allocator), not {}
     try self.emitIndent();
-    try self.emit("var __copy = @TypeOf(__src_dict).init(__global_allocator);\n");
+    try self.output.writer(self.allocator).print("var {s} = @TypeOf({s}).init(__global_allocator);\n", .{ copy, src_dict });
 
     try self.emitIndent();
-    try self.emit("var __iter = __src_dict.iterator();\n");
+    try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ iter, src_dict });
 
     try self.emitIndent();
-    try self.emit("while (__iter.next()) |entry| {\n");
+    try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{iter});
     self.indent_level += 1;
 
     try self.emitIndent();
     // ArrayHashMap.put() doesn't take allocator - it uses the one stored internally
-    try self.emit("try __copy.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, entry.value_ptr.*);\n", .{copy});
 
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :dcopy_{d} __copy;\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :dcopy_{d} {s};\n", .{ label_id, copy });
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -627,33 +632,40 @@ pub fn genPopitem(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Generate unique temp names to avoid variable collisions
+    const dict_ptr = try self.name_gen.temp();
+    const iter = try self.name_gen.temp();
+    const entry = try self.name_gen.temp();
+    const key = try self.name_gen.temp();
+    const val = try self.name_gen.temp();
+
     // Generate block that pops arbitrary item
     try self.output.writer(self.allocator).print("(dpopitem_{d}: {{\n", .{label_id});
     self.indent_level += 1;
 
     // Store dict in temp var to avoid block expression issues
     try self.emitIndent();
-    try self.emit("const __dict_ptr = &");
+    try self.output.writer(self.allocator).print("const {s} = &", .{dict_ptr});
     try self.genExpr(obj);
     try self.emit(";\n");
 
     try self.emitIndent();
-    try self.emit("var __iter = __dict_ptr.iterator();\n");
+    try self.output.writer(self.allocator).print("var {s} = {s}.iterator();\n", .{ iter, dict_ptr });
 
     try self.emitIndent();
-    try self.emit("const __entry = __iter.next() orelse return error.KeyError;\n");
+    try self.output.writer(self.allocator).print("const {s} = {s}.next() orelse return error.KeyError;\n", .{ entry, iter });
 
     try self.emitIndent();
-    try self.emit("const __key = __entry.key_ptr.*;\n");
+    try self.output.writer(self.allocator).print("const {s} = {s}.key_ptr.*;\n", .{ key, entry });
 
     try self.emitIndent();
-    try self.emit("const __val = __entry.value_ptr.*;\n");
+    try self.output.writer(self.allocator).print("const {s} = {s}.value_ptr.*;\n", .{ val, entry });
 
     try self.emitIndent();
-    try self.emit("_ = __dict_ptr.fetchSwapRemove(__key);\n");
+    try self.output.writer(self.allocator).print("_ = {s}.fetchSwapRemove({s});\n", .{ dict_ptr, key });
 
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("break :dpopitem_{d} .{{ __key, __val }};\n", .{label_id});
+    try self.output.writer(self.allocator).print("break :dpopitem_{d} .{{ {s}, {s} }};\n", .{ label_id, key, val });
 
     self.indent_level -= 1;
     try self.emitIndent();
