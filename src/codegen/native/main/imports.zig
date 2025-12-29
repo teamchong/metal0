@@ -555,7 +555,16 @@ pub fn collectImports(
 
             // Check if it's an installed package first - loaded via c_interop at runtime
             // This includes C extensions (numpy) AND pure Python packages (pytest)
-            const is_installed = import_resolver.isInstalledPackage(python_module, self.allocator);
+            // Also check root module for dotted names (numpy.exceptions -> check numpy)
+            const is_installed = blk: {
+                if (import_resolver.isInstalledPackage(python_module, self.allocator)) break :blk true;
+                // Check root module for dotted paths
+                if (std.mem.indexOfScalar(u8, python_module, '.')) |dot_idx| {
+                    const root = python_module[0..dot_idx];
+                    if (import_resolver.isInstalledPackage(root, self.allocator)) break :blk true;
+                }
+                break :blk false;
+            };
             if (is_installed) {
                 std.debug.print("Info: Installed package '{s}' will be loaded at runtime via c_interop\n", .{python_module});
                 // Mark as C extension - loaded at runtime via PyImport_ImportModule

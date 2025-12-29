@@ -11,6 +11,18 @@ const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const NativeType = @import("../../../../analysis/native_types/core.zig").NativeType;
 const expr_emitter = @import("../../expr_emitter.zig");
 
+// === Structured emission helpers ===
+
+/// Helper: emit runtime.func(alloc, expr) with guaranteed bracket matching
+fn emitRuntimeAllocCall(self: *NativeCodegen, comptime func: []const u8, arg: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime." ++ func, arg, struct {
+        pub fn f(s: *NativeCodegen, a: ast.Node) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try s.genExpr(a);
+        }
+    }.f);
+}
+
 /// Get the appropriate NativeList append method for a given type
 /// This avoids anytype monomorphization by using typed append methods
 fn getAppendMethodForType(t: NativeType) []const u8 {
@@ -203,9 +215,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // TWO-FLOW: Handle uncertain types (PyValue) via runtime conversion
     if (arg_type == .pyvalue) {
-        try self.emitFmt("runtime.listFromAny({s}, ", .{alloc_name});
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeAllocCall(self, "listFromAny", args[0]);
         return;
     }
 
@@ -221,9 +231,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Fast path: string type - use runtime.listFromString
     if (string_traits.isString(arg_type)) {
-        try self.emitFmt("runtime.listFromString({s}, ", .{alloc_name});
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeAllocCall(self, "listFromString", args[0]);
         return;
     }
 
@@ -272,9 +280,7 @@ pub fn genList(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // Fallback: generic runtime conversion (compact version)
     // Only generate the full type-checking code when we truly can't infer the type
-    try self.emitFmt("runtime.listFromAny({s}, ", .{alloc_name});
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitRuntimeAllocCall(self, "listFromAny", args[0]);
 }
 
 /// Generate code for tuple(iterable)

@@ -6,6 +6,26 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
+/// Helper context for compile builtin
+const CompileCtx = struct { a: []ast.Node };
+
+/// Helper: emit compile_builtin args
+fn emitCompileArgs(s: *NativeCodegen, ctx: CompileCtx) CodegenError!void {
+    try s.emit("__global_allocator, ");
+    try s.genExpr(ctx.a[0]); // source
+    try s.emit(", ");
+    try s.genExpr(ctx.a[1]); // filename
+    try s.emit(", ");
+    try s.genExpr(ctx.a[2]); // mode
+    try s.emit(", ");
+    // flags parameter (optional, default 0)
+    if (ctx.a.len >= 4) {
+        try s.genExpr(ctx.a[3]);
+    } else {
+        try s.emit("0");
+    }
+}
+
 pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // compile(source, filename, mode, [flags, [dont_inherit, [optimize]]])
     // We require at least source, filename, and mode (first 3 args)
@@ -16,21 +36,8 @@ pub fn genCompile(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     // In assertRaises context, don't emit try - let error propagate as error union
     if (self.in_assert_raises_context) {
-        try self.emit("runtime.compile_builtin(__global_allocator, ");
+        try self.emitCallCtx("runtime.compile_builtin", CompileCtx{ .a = args }, emitCompileArgs);
     } else {
-        try self.emit("try runtime.compile_builtin(__global_allocator, ");
+        try self.emitCallCtx("try runtime.compile_builtin", CompileCtx{ .a = args }, emitCompileArgs);
     }
-    try self.genExpr(args[0]); // source
-    try self.emit(", ");
-    try self.genExpr(args[1]); // filename
-    try self.emit(", ");
-    try self.genExpr(args[2]); // mode
-    try self.emit(", ");
-    // flags parameter (optional, default 0)
-    if (args.len >= 4) {
-        try self.genExpr(args[3]);
-    } else {
-        try self.emit("0");
-    }
-    try self.emit(")");
 }

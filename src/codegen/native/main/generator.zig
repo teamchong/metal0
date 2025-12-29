@@ -270,7 +270,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Generate: var np: ?*c_interop.PyObject = null;
             // The import will be done at runtime start via c_interop.importModule()
-            try self.emitFmt("var {s}: ?*c_interop.PyObject = null;\n", .{key});
+            // For dotted names like numpy.exceptions, we need to escape: var @"numpy.exceptions": ...
+            try self.emit("var ");
+            try self.emitIdent(key);
+            try self.emit(": ?*c_interop.PyObject = null;\n");
         }
     }
 
@@ -1664,7 +1667,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 try emitted_c_ext.put(key, {});
 
                 try self.emitIndent();
-                try self.emitFmt("{s} = c_interop.importModule(\"{s}\") orelse @panic(\"Failed to import C extension module: {s}\");\n", .{ key, module_name, module_name });
+                // For dotted names like numpy.exceptions, escape the variable name
+                try self.emitIdent(key);
+                try self.emitFmt(" = c_interop.importModule(\"{s}\") orelse @panic(\"Failed to import C extension module: {s}\");\n", .{ module_name, module_name });
             }
         }
     }
