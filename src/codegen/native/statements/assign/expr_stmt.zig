@@ -166,7 +166,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                         // Capture what was written and move to builder
                         const print_output = ctx.codegen.output.items[ctx.start_pos..];
                         ctx.codegen.output.shrinkRetainingCapacity(ctx.start_pos);
-                        try b.write(print_output);
+                        try b.emitRaw(print_output);
                     }
                 }.emit,
                 StmtCtx{
@@ -316,7 +316,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             fn emit(b: *ZigBuilder, ctx: StmtCtx) !void {
                 // Add discard prefix if needed (for error-returning or value-returning expressions)
                 if (ctx.needs_discard or ctx.needs_catch) {
-                    try b.write("_ = ");
+                    try b.emitRaw("_ = ");
                 }
 
                 var output = ctx.pre_generated;
@@ -356,11 +356,11 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
                     }
                 }
 
-                try b.write(output);
+                try b.emitRaw(output);
 
                 // Add catch {} suffix for error-returning expressions
                 if (ctx.needs_catch) {
-                    try b.write(" catch {}");
+                    try b.emitRaw(" catch {}");
                 }
             }
         }.emit,

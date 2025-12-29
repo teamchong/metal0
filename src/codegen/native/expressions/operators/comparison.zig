@@ -36,7 +36,7 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
     const b = try self.getBuilder();
 
     // Always wrap comparison in parentheses to make it safe as a sub-expression
-    try b.write("(");
+    try b.emitRaw("(");
 
     // Convert left operand to ZigValue (uses captureExpr for proper builder state)
     const left_val = try self.exprToValue(compare.left.*);
@@ -44,18 +44,18 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
     // For chained comparisons (more than 1 op), wrap everything in parens
     const is_chained = compare.ops.len > 1;
     if (is_chained) {
-        try b.write("(");
+        try b.emitRaw("(");
     }
 
     for (compare.ops, 0..) |op, i| {
         // Add "and" between comparisons for chained comparisons
         if (i > 0) {
-            try b.write(" and ");
+            try b.emitRaw(" and ");
         }
 
         // For chained comparisons, wrap each individual comparison in parens
         if (is_chained) {
-            try b.write("(");
+            try b.emitRaw("(");
         }
 
         // Convert right operand to ZigValue
@@ -72,17 +72,17 @@ pub fn genCompare(self: *NativeCodegen, compare: ast.Node.Compare) CodegenError!
 
         // Close individual comparison paren for chained comparisons
         if (is_chained) {
-            try b.write(")");
+            try b.emitRaw(")");
         }
     }
 
     // Close outer paren for chained comparisons
     if (is_chained) {
-        try b.write(")");
+        try b.emitRaw(")");
     }
 
     // Close the outer parenthesis opened at the start of genCompare
-    try b.write(")");
+    try b.emitRaw(")");
 
     // Flush builder to output
     try self.flushBuilder();

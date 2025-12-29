@@ -46,19 +46,19 @@ fn emitAsUnifiedInt(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue, t: 
         try self.emitZigValue(operand);
     } else if (t == .bigint) {
         // BigInt -> UnifiedInt.fromBigInt (no allocation needed)
-        try b.write("runtime.UnifiedInt.fromBigInt(");
+        try b.emitRaw("runtime.UnifiedInt.fromBigInt(");
         try self.emitZigValue(operand);
-        try b.write(")");
+        try b.emitRaw(")");
     } else if (t == .int or t == .usize) {
         // i64/usize -> UnifiedInt.fromI64 (no allocation needed)
-        try b.write("runtime.unified_int_ops.fromI64(@as(i64, ");
+        try b.emitRaw("runtime.unified_int_ops.fromI64(@as(i64, ");
         try self.emitZigValue(operand);
-        try b.write("))");
+        try b.emitRaw("))");
     } else {
         // Unknown - try to convert as i64
-        try b.write("runtime.unified_int_ops.fromI64(@as(i64, ");
+        try b.emitRaw("runtime.unified_int_ops.fromI64(@as(i64, ");
         try self.emitZigValue(operand);
-        try b.write("))");
+        try b.emitRaw("))");
     }
 }
 
@@ -79,23 +79,23 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         // For shift/pow operations, right operand is a primitive (u32)
         if (binop.op == .LShift or binop.op == .RShift or binop.op == .Pow) {
             // Emit: runtime.unified_int_ops.func(left, @as(u32, @intCast(right)), __global_allocator)
-            try b.write("runtime.unified_int_ops.");
-            try b.write(runtime_fn);
-            try b.write("(");
+            try b.emitRaw("runtime.unified_int_ops.");
+            try b.emitRaw(runtime_fn);
+            try b.emitRaw("(");
             try emitAsUnifiedInt(self, b, left_operand, left_type);
-            try b.write(", @as(u32, @intCast(");
+            try b.emitRaw(", @as(u32, @intCast(");
             try self.emitZigValue(right_operand);
-            try b.write(")), __global_allocator)");
+            try b.emitRaw(")), __global_allocator)");
         } else {
             // Standard binary ops: both operands are UnifiedInt
             // Emit: runtime.unified_int_ops.func(left, right, __global_allocator)
-            try b.write("runtime.unified_int_ops.");
-            try b.write(runtime_fn);
-            try b.write("(");
+            try b.emitRaw("runtime.unified_int_ops.");
+            try b.emitRaw(runtime_fn);
+            try b.emitRaw("(");
             try emitAsUnifiedInt(self, b, left_operand, left_type);
-            try b.write(", ");
+            try b.emitRaw(", ");
             try emitAsUnifiedInt(self, b, right_operand, right_type);
-            try b.write(", __global_allocator)");
+            try b.emitRaw(", __global_allocator)");
         }
         try self.flushBuilder();
         return;
@@ -105,11 +105,11 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
         .Div => {
             // Python division always returns float
             // Convert UnifiedInt to f64 via toF64()
-            try b.write("(runtime.unified_int_ops.toF64(");
+            try b.emitRaw("(runtime.unified_int_ops.toF64(");
             try emitAsUnifiedInt(self, b, left_operand, left_type);
-            try b.write(") / runtime.unified_int_ops.toF64(");
+            try b.emitRaw(") / runtime.unified_int_ops.toF64(");
             try emitAsUnifiedInt(self, b, right_operand, right_type);
-            try b.write("))");
+            try b.emitRaw("))");
             try self.flushBuilder();
         },
         else => {
@@ -128,14 +128,14 @@ fn emitAsComplex(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue, t: Nat
         try self.emitZigValue(operand);
     } else if (t == .float) {
         // float -> complex with real part
-        try b.write("runtime.PyComplex.create(");
+        try b.emitRaw("runtime.PyComplex.create(");
         try self.emitZigValue(operand);
-        try b.write(", 0.0)");
+        try b.emitRaw(", 0.0)");
     } else {
         // int/bool -> complex with real part
-        try b.write("runtime.PyComplex.create(@as(f64, @floatFromInt(");
+        try b.emitRaw("runtime.PyComplex.create(@as(f64, @floatFromInt(");
         try self.emitZigValue(operand);
-        try b.write(")), 0.0)");
+        try b.emitRaw(")), 0.0)");
     }
 }
 
@@ -162,10 +162,10 @@ pub fn genComplexBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: N
 
     // Emit: left.method(right)
     try emitAsComplex(self, b, left_operand, left_type);
-    try b.write(".");
-    try b.write(method);
-    try b.write("(");
+    try b.emitRaw(".");
+    try b.emitRaw(method);
+    try b.emitRaw("(");
     try emitAsComplex(self, b, right_operand, right_type);
-    try b.write(")");
+    try b.emitRaw(")");
     try self.flushBuilder();
 }

@@ -15,7 +15,7 @@ const builder_mod = @import("codegen.builder");
 fn emitIndent(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     try b.writeIndent();
-    try b.write(val);
+    try b.emitRaw(val);
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
@@ -33,9 +33,9 @@ fn emitIndentFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) 
 fn emitIndentWithIdent(self: *NativeCodegen, prefix: []const u8, ident: []const u8, suffix: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     try b.writeIndent();
-    try b.write(prefix);
+    try b.emitRaw(prefix);
     try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), ident);
-    try b.write(suffix);
+    try b.emitRaw(suffix);
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
@@ -44,7 +44,7 @@ fn emitIndentWithIdent(self: *NativeCodegen, prefix: []const u8, ident: []const 
 fn emitIndentWithIdentFmt(self: *NativeCodegen, prefix: []const u8, ident: []const u8, comptime suffix_fmt: []const u8, suffix_args: anytype) CodegenError!void {
     const b = try self.getBuilder();
     try b.writeIndent();
-    try b.write(prefix);
+    try b.emitRaw(prefix);
     try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), ident);
     try b.writeFmt(suffix_fmt, suffix_args);
     const output = try b.getBodyDupe();
@@ -170,9 +170,9 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         try self.emitFmt(") |__loop_{s}_{d}__| {{\n", .{ item_var, enum_unique_capture_id });
     } else {
         const b = try self.getBuilder();
-        try b.write(") |");
+        try b.emitRaw(") |");
         try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
-        try b.write("| {\n");
+        try b.emitRaw("| {\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
@@ -218,9 +218,9 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
             if (elt == .name) {
                 const b = try self.getBuilder();
                 try b.writeIndent();
-                try b.write("const ");
+                try b.emitRaw("const ");
                 try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), elt.name.id);
-                try b.write(" = ");
+                try b.emitRaw(" = ");
                 try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
                 try b.writeFmt(".@\"{d}\";\n", .{i});
                 const output = try b.getBodyDupe();
@@ -321,37 +321,37 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
     {
         const b = try self.getBuilder();
         try b.writeIndent();
-        try b.write("const __zip_len = ");
+        try b.emitRaw("const __zip_len = ");
 
         // Build nested @min calls - use .items.len for lists, .len for arrays
         if (args.len == 2) {
-            try b.write("@min(__zip_iter_0");
-            if (iter_is_list[0]) try b.write(".items");
-            try b.write(".len, __zip_iter_1");
-            if (iter_is_list[1]) try b.write(".items");
-            try b.write(".len)");
+            try b.emitRaw("@min(__zip_iter_0");
+            if (iter_is_list[0]) try b.emitRaw(".items");
+            try b.emitRaw(".len, __zip_iter_1");
+            if (iter_is_list[1]) try b.emitRaw(".items");
+            try b.emitRaw(".len)");
         } else {
             // For 3+ iterables: @min(iter0.len, @min(iter1.len, @min(iter2.len, ...)))
-            try b.write("@min(__zip_iter_0");
-            if (iter_is_list[0]) try b.write(".items");
-            try b.write(".len, ");
+            try b.emitRaw("@min(__zip_iter_0");
+            if (iter_is_list[0]) try b.emitRaw(".items");
+            try b.emitRaw(".len, ");
             for (1..args.len - 1) |_| {
-                try b.write("@min(");
+                try b.emitRaw("@min(");
             }
             for (1..args.len) |i| {
                 try b.writeFmt("__zip_iter_{d}", .{i});
-                if (iter_is_list[i]) try b.write(".items");
-                try b.write(".len");
+                if (iter_is_list[i]) try b.emitRaw(".items");
+                try b.emitRaw(".len");
                 if (i < args.len - 1) {
-                    try b.write(", ");
+                    try b.emitRaw(", ");
                 }
             }
             for (1..args.len - 1) |_| {
-                try b.write(")");
+                try b.emitRaw(")");
             }
-            try b.write(")");
+            try b.emitRaw(")");
         }
-        try b.write(";\n");
+        try b.emitRaw(";\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
@@ -373,11 +373,11 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         const var_name = if (elt == .name) elt.name.id else "_";
         const b = try self.getBuilder();
         try b.writeIndent();
-        try b.write("const ");
+        try b.emitRaw("const ");
         try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), var_name);
         try b.writeFmt(" = __zip_iter_{d}", .{i});
-        if (iter_is_list[i]) try b.write(".items");
-        try b.write("[__zip_idx];\n");
+        if (iter_is_list[i]) try b.emitRaw(".items");
+        try b.emitRaw("[__zip_idx];\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
 

@@ -6,30 +6,27 @@ const h = @import("mod_helper.zig");
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const CodegenError = @import("main.zig").CodegenError;
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 /// Complex sqrt: sqrt(x) for real numbers, returns complex result if negative
 fn genSqrt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.write(".{ .re = 0.0, .im = 0.0 }");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw(".{ .re = 0.0, .im = 0.0 }");
+        try self.flushBuilder();
         return;
     }
-    try self.withInlineBlock("cmath_sqrt", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const __x = @as(f64, @floatFromInt(");
-            const output1 = try b2.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output1);
-            try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt(")); if (__x >= 0) break :{s} .{{ .re = @sqrt(__x), .im = 0.0 }}; break :{s} .{{ .re = 0.0, .im = @sqrt(-__x) }}", .{ label, label });
-                const output2 = try b3.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+    const x_val = try self.captureExpr(args[0]);
+    try b.withLabeledBlock("__cmath_sqrt", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("__x", "@as(f64, @floatFromInt(", ctx, "))");
+            try bld.emitRawLine("if (__x >= 0) break :__cmath_sqrt .{ .re = @sqrt(__x), .im = 0.0 };");
+            try scope.breakWithRaw(".{ .re = 0.0, .im = @sqrt(-__x) }");
         }
-    }.emit);
+    }.emit, x_val);
+    try self.flushBuilder();
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{

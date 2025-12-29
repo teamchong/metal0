@@ -57,6 +57,9 @@ pub const ZigType = union(enum) {
     /// runtime.DynamicClosure
     dynamic_closure,
 
+    /// Inferred type (let Zig infer from value)
+    inferred,
+
     // ============================================
     // Compound types
     // ============================================
@@ -223,6 +226,9 @@ pub const ZigType = union(enum) {
             .py_exception => try writer.writeAll("runtime.PyException"),
             .py_callable => try writer.writeAll("runtime.PyCallable"),
             .dynamic_closure => try writer.writeAll("runtime.DynamicClosure"),
+
+            // Inferred type (no type annotation emitted)
+            .inferred => {}, // Empty - caller should not emit ": type" prefix
 
             // Compound types
             .array => |a| {
@@ -417,6 +423,9 @@ pub const TypePool = struct {
         pyvalue_t: ZigType = .pyvalue,
         bigint_t: ZigType = .bigint,
         unified_int_t: ZigType = .unified_int,
+        inferred_t: ZigType = .inferred,
+        any_t: ZigType = .any,
+        pyobject_ptr_t: ZigType = .{ .struct_type = "*runtime.PyObject" },
     };
 
     const CachedSlice = struct {
@@ -491,6 +500,15 @@ pub const TypePool = struct {
     }
     pub fn u8_(self: *TypePool) *const ZigType {
         return &self.primitives.u8_t;
+    }
+    pub fn inferred_(self: *TypePool) *const ZigType {
+        return &self.primitives.inferred_t;
+    }
+    pub fn any_(self: *TypePool) *const ZigType {
+        return &self.primitives.any_t;
+    }
+    pub fn pyobject_ptr(self: *TypePool) *const ZigType {
+        return &self.primitives.pyobject_ptr_t;
     }
 
     /// Get or create a slice type (deduplicated)

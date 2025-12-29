@@ -37,13 +37,13 @@ fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, righ
     const b = try self.getBuilder();
     const left_val = try self.captureExpr(left);
     const right_val = try self.captureExpr(right);
-    try b.write("try ");
+    try b.emitRaw("try ");
     try self.emitZigValue(left_val);
-    try b.write(".");
-    try b.write(method);
-    try b.write("(__global_allocator, ");
+    try b.emitRaw(".");
+    try b.emitRaw(method);
+    try b.emitRaw("(__global_allocator, ");
     try self.emitZigValue(right_val);
-    try b.write(")");
+    try b.emitRaw(")");
     try self.flushBuilder();
 }
 
@@ -53,14 +53,14 @@ fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: a
     const left_val = try self.captureExpr(left);
     const right_val = try self.captureExpr(right);
     if (is_add) {
-        try b.write("runtime.addNum(");
+        try b.emitRaw("runtime.addNum(");
     } else {
-        try b.write("runtime.subtractNum(");
+        try b.emitRaw("runtime.subtractNum(");
     }
     try self.emitZigValue(left_val);
-    try b.write(", ");
+    try b.emitRaw(", ");
     try self.emitZigValue(right_val);
-    try b.write(")");
+    try b.emitRaw(")");
     try self.flushBuilder();
 }
 

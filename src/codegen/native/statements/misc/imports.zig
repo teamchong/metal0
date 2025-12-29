@@ -97,11 +97,11 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         if (import_path) |path| {
             const b = try self.getBuilder();
             try b.writeIndent();
-            try b.write("const ");
+            try b.emitRaw("const ");
             try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
-            try b.write(" = ");
-            try b.write(path);
-            try b.write(";\n");
+            try b.emitRaw(" = ");
+            try b.emitRaw(path);
+            try b.emitRaw(";\n");
 
             const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
@@ -116,7 +116,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         // Hoisted variables use assignment, non-hoisted use const declaration
         const was_hoisted = self.hoisted_vars.contains(alias);
         if (!was_hoisted) {
-            try b.write("const ");
+            try b.emitRaw("const ");
         }
         try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
         // Generate eval that imports and returns the module
@@ -126,9 +126,9 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         // Hoisted variables are used elsewhere (outside the block), so no discard needed
         if (!was_hoisted) {
             try b.writeIndent();
-            try b.write("_ = &");
+            try b.emitRaw("_ = &");
             try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
-            try b.write(";\n");
+            try b.emitRaw(";\n");
         }
 
         const output = try b.getBodyDupe();
@@ -200,19 +200,19 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 }
 
                 try b.writeIndent();
-                try b.write("const ");
-                try b.write(alias);
-                try b.write(" = ");
-                try b.write(path);
-                try b.write(".");
-                try b.write(name);
-                try b.write(";\n");
+                try b.emitRaw("const ");
+                try b.emitRaw(alias);
+                try b.emitRaw(" = ");
+                try b.emitRaw(path);
+                try b.emitRaw(".");
+                try b.emitRaw(name);
+                try b.emitRaw(";\n");
                 // Emit discard immediately to suppress "unused constant" error
                 // Local from-imports may not be used if they're only for type hints
                 try b.writeIndent();
-                try b.write("_ = &");
-                try b.write(alias);
-                try b.write(";\n");
+                try b.emitRaw("_ = &");
+                try b.emitRaw(alias);
+                try b.emitRaw(";\n");
             }
 
             const output = try b.getBodyDupe();

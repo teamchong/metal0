@@ -51,10 +51,10 @@ pub const PYMEM_DOMAIN_OBJ: c_uint = 2;
 /// } PyMemAllocatorEx;
 pub const PyMemAllocatorEx = extern struct {
     ctx: ?*anyopaque,
-    malloc_fn: ?*const fn (?*anyopaque, usize) callconv(.C) ?*anyopaque,
-    calloc_fn: ?*const fn (?*anyopaque, usize, usize) callconv(.C) ?*anyopaque,
-    realloc_fn: ?*const fn (?*anyopaque, ?*anyopaque, usize) callconv(.C) ?*anyopaque,
-    free_fn: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.C) void,
+    malloc_fn: ?*const fn (?*anyopaque, usize) callconv(.c) ?*anyopaque,
+    calloc_fn: ?*const fn (?*anyopaque, usize, usize) callconv(.c) ?*anyopaque,
+    realloc_fn: ?*const fn (?*anyopaque, ?*anyopaque, usize) callconv(.c) ?*anyopaque,
+    free_fn: ?*const fn (?*anyopaque, ?*anyopaque) callconv(.c) void,
 };
 
 // ============================================================================
@@ -62,7 +62,7 @@ pub const PyMemAllocatorEx = extern struct {
 // ============================================================================
 
 /// Raw malloc - direct system allocation
-fn raw_malloc(ctx: ?*anyopaque, size: usize) callconv(.C) ?*anyopaque {
+fn raw_malloc(ctx: ?*anyopaque, size: usize) callconv(.c) ?*anyopaque {
     _ = ctx;
     if (size == 0) return null;
 
@@ -71,7 +71,7 @@ fn raw_malloc(ctx: ?*anyopaque, size: usize) callconv(.C) ?*anyopaque {
 }
 
 /// Raw calloc - zeroed allocation
-fn raw_calloc(ctx: ?*anyopaque, nelem: usize, elsize: usize) callconv(.C) ?*anyopaque {
+fn raw_calloc(ctx: ?*anyopaque, nelem: usize, elsize: usize) callconv(.c) ?*anyopaque {
     _ = ctx;
     const size = nelem *| elsize;
     if (size == 0) return null;
@@ -82,7 +82,7 @@ fn raw_calloc(ctx: ?*anyopaque, nelem: usize, elsize: usize) callconv(.C) ?*anyo
 }
 
 /// Raw realloc - resize allocation
-fn raw_realloc(ctx: ?*anyopaque, ptr: ?*anyopaque, new_size: usize) callconv(.C) ?*anyopaque {
+fn raw_realloc(ctx: ?*anyopaque, ptr: ?*anyopaque, new_size: usize) callconv(.c) ?*anyopaque {
     _ = ctx;
 
     if (ptr == null) {
@@ -106,7 +106,7 @@ fn raw_realloc(ctx: ?*anyopaque, ptr: ?*anyopaque, new_size: usize) callconv(.C)
 }
 
 /// Raw free - free allocation using c_allocator
-fn raw_free(ctx: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void {
+fn raw_free(ctx: ?*anyopaque, ptr: ?*anyopaque) callconv(.c) void {
     _ = ctx;
     if (ptr) |p| {
         // Use C free directly since we allocated with c_allocator/malloc
@@ -426,9 +426,9 @@ pub export fn _PyObject_GC_Resize(op: ?*cpython.PyVarObject, nitems: isize) ?*cp
 
 // GC generation list heads (0=young, 1=old, 2=permanent)
 var gc_generation_heads: [3]PyGC_Head = [_]PyGC_Head{
-    .{ ._gc_next = null, ._gc_prev = 0 },
-    .{ ._gc_next = null, ._gc_prev = 0 },
-    .{ ._gc_next = null, ._gc_prev = 0 },
+    .{ ._gc_next = 0, ._gc_prev = 0 },
+    .{ ._gc_next = 0, ._gc_prev = 0 },
+    .{ ._gc_next = 0, ._gc_prev = 0 },
 };
 
 /// Track object in GC
@@ -446,7 +446,7 @@ pub export fn PyObject_GC_Track(op: ?*anyopaque) void {
     // Add to generation 0 (young) list
     const gen = &gc_generation_heads[0];
     gc._gc_next = gen._gc_next;
-    gen._gc_next = @ptrCast(gc);
+    gen._gc_next = @intFromPtr(gc);
 }
 
 /// Untrack object from GC
@@ -463,7 +463,7 @@ pub export fn PyObject_GC_UnTrack(op: ?*anyopaque) void {
 
     // Remove from GC list by unlinking
     // Note: This is a simple implementation; full GC would maintain proper doubly-linked list
-    gc._gc_next = null;
+    gc._gc_next = 0;
 }
 
 /// Check if object is tracked

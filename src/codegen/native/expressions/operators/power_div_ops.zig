@@ -29,13 +29,13 @@ const ZigBuilder = builder_mod.ZigBuilder;
 /// Kept for backwards compatibility during migration
 fn emitBinaryCall(self: *NativeCodegen, func_prefix: []const u8, left: ast.Node, right: ast.Node) CodegenError!void {
     const b = try self.getBuilder();
-    try b.write(func_prefix);
+    try b.emitRaw(func_prefix);
     const left_val = try self.exprToValue(left);
     try self.emitZigValue(left_val);
-    try b.write(", ");
+    try b.emitRaw(", ");
     const right_val = try self.exprToValue(right);
     try self.emitZigValue(right_val);
-    try b.write(")");
+    try b.emitRaw(")");
 }
 
 /// Emit expression with bool-to-i64 coercion if needed: @as(i64, @intFromBool(expr))
@@ -43,10 +43,10 @@ fn emitBinaryCall(self: *NativeCodegen, func_prefix: []const u8, left: ast.Node,
 fn emitExprBoolCoerced(self: *NativeCodegen, expr: ast.Node, is_bool: bool) CodegenError!void {
     const b = try self.getBuilder();
     if (is_bool) {
-        try b.write("@as(i64, @intFromBool(");
+        try b.emitRaw("@as(i64, @intFromBool(");
         const val = try self.exprToValue(expr);
         try self.emitZigValue(val);
-        try b.write("))");
+        try b.emitRaw("))");
     } else {
         const val = try self.exprToValue(expr);
         try self.emitZigValue(val);
@@ -60,15 +60,15 @@ fn emitBinaryRuntimeCall(self: *NativeCodegen, func: []const u8, left: ast.Node,
     const left_val = try self.exprToValue(left);
     const right_val = try self.exprToValue(right);
 
-    try b.write(func);
-    try b.write("(");
+    try b.emitRaw(func);
+    try b.emitRaw("(");
     if (needs_allocator) {
-        try b.write("__global_allocator, ");
+        try b.emitRaw("__global_allocator, ");
     }
     try self.emitZigValue(left_val);
-    try b.write(", ");
+    try b.emitRaw(", ");
     try self.emitZigValue(right_val);
-    try b.write(")");
+    try b.emitRaw(")");
 }
 
 /// Generate power operation using builder pattern
@@ -88,20 +88,20 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     if (is_constant_int_exp) {
         const exp = binop.right.constant.value.int;
         if (exp >= 20) {
-            try b.write("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
+            try b.emitRaw("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
             try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-            try b.write("), @as(u32, @intCast(");
+            try b.emitRaw("), @as(u32, @intCast(");
             try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-            try b.write(")), __global_allocator)");
+            try b.emitRaw(")), __global_allocator)");
             return;
         }
 
         // Case 2: Small constant positive integer exponent - use i64 fast path
-        try b.write("std.math.pow(i64, ");
+        try b.emitRaw("std.math.pow(i64, ");
         try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-        try b.write(", ");
+        try b.emitRaw(", ");
         try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-        try b.write(")");
+        try b.emitRaw(")");
         return;
     }
 
@@ -124,52 +124,52 @@ pub fn genPowOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     };
 
     if (needs_complex_support) {
-        try b.write("(try runtime.builtins.pyPow(");
+        try b.emitRaw("(try runtime.builtins.pyPow(");
         // Convert base to f64
         if (left_is_int) {
-            try b.write("@as(f64, @floatFromInt(");
+            try b.emitRaw("@as(f64, @floatFromInt(");
             try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-            try b.write("))");
+            try b.emitRaw("))");
         } else {
-            try b.write("@as(f64, ");
+            try b.emitRaw("@as(f64, ");
             const left_val = try self.exprToValue(binop.left.*);
             try self.emitZigValue(left_val);
-            try b.write(")");
+            try b.emitRaw(")");
         }
-        try b.write(", ");
+        try b.emitRaw(", ");
         // Convert exponent to f64
         if (right_is_int) {
-            try b.write("@as(f64, @floatFromInt(");
+            try b.emitRaw("@as(f64, @floatFromInt(");
             try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-            try b.write("))");
+            try b.emitRaw("))");
         } else {
-            try b.write("@as(f64, ");
+            try b.emitRaw("@as(f64, ");
             const right_val = try self.exprToValue(binop.right.*);
             try self.emitZigValue(right_val);
-            try b.write(")");
+            try b.emitRaw(")");
         }
-        try b.write("))");
+        try b.emitRaw("))");
         return;
     }
 
     // Case 3b: Float exponent that's a whole number - use std.math.pow(f64)
     if (right_is_float) {
-        try b.write("std.math.pow(f64, ");
+        try b.emitRaw("std.math.pow(f64, ");
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
-        try b.write(", ");
+        try b.emitRaw(", ");
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write(")");
+        try b.emitRaw(")");
         return;
     }
 
     // Case 4: Runtime integer exponent - use f64 for safety
-    try b.write("std.math.pow(f64, @as(f64, @floatFromInt(");
+    try b.emitRaw("std.math.pow(f64, @as(f64, @floatFromInt(");
     try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-    try b.write(")), @as(f64, @floatFromInt(");
+    try b.emitRaw(")), @as(f64, @floatFromInt(");
     try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-    try b.write(")))");
+    try b.emitRaw(")))");
 }
 
 /// Generate division operation using builder pattern
@@ -180,10 +180,10 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
     if (left_type == .path) {
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
-        try b.write(".join(");
+        try b.emitRaw(".join(");
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write(")");
+        try b.emitRaw(")");
         return;
     }
 
@@ -192,17 +192,17 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
 
     // At module level or inside defer, we can't use 'try'
     if (self.indent_level == 0 or self.inside_defer) {
-        try b.write("(@as(f64, @floatFromInt(");
+        try b.emitRaw("(@as(f64, @floatFromInt(");
         try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-        try b.write(")) / @as(f64, @floatFromInt(");
+        try b.emitRaw(")) / @as(f64, @floatFromInt(");
         try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-        try b.write(")))");
+        try b.emitRaw(")))");
     } else {
-        try b.write("try runtime.divideFloat(");
+        try b.emitRaw("try runtime.divideFloat(");
         try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-        try b.write(", ");
+        try b.emitRaw(", ");
         try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-        try b.write(")");
+        try b.emitRaw(")");
     }
 }
 
@@ -213,23 +213,23 @@ pub fn genMatMulOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nativ
     const right_val = try self.exprToValue(binop.right.*);
 
     if (type_traits.isClassInstance(left_type) or type_traits.isUnknown(left_type)) {
-        try b.write("try ");
+        try b.emitRaw("try ");
         try self.emitZigValue(left_val);
-        try b.write(".__matmul__(__global_allocator, ");
+        try b.emitRaw(".__matmul__(__global_allocator, ");
         try self.emitZigValue(right_val);
-        try b.write(")");
+        try b.emitRaw(")");
     } else if (type_traits.isClassInstance(right_type) or type_traits.isUnknown(right_type)) {
-        try b.write("try ");
+        try b.emitRaw("try ");
         try self.emitZigValue(right_val);
-        try b.write(".__rmatmul__(__global_allocator, ");
+        try b.emitRaw(".__rmatmul__(__global_allocator, ");
         try self.emitZigValue(left_val);
-        try b.write(")");
+        try b.emitRaw(")");
     } else {
-        try b.write("try ");
+        try b.emitRaw("try ");
         try self.emitZigValue(left_val);
-        try b.write(".__matmul__(__global_allocator, ");
+        try b.emitRaw(".__matmul__(__global_allocator, ");
         try self.emitZigValue(right_val);
-        try b.write(")");
+        try b.emitRaw(")");
     }
 }
 
@@ -242,22 +242,22 @@ pub fn genFloorDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Nat
             try emitBinaryRuntimeCall(self, "runtime.pyFloorDiv", binop.left.*, binop.right.*, true);
         },
         .python_floored => {
-            try b.write("@floor(");
+            try b.emitRaw("@floor(");
             const left_val = try self.exprToValue(binop.left.*);
             try self.emitZigValue(left_val);
-            try b.write(" / ");
+            try b.emitRaw(" / ");
             const right_val = try self.exprToValue(binop.right.*);
             try self.emitZigValue(right_val);
-            try b.write(")");
+            try b.emitRaw(")");
         },
         .zig_native => {
             const left_is_bool = type_traits.isBoolean(left_type);
             const right_is_bool = type_traits.isBoolean(right_type);
-            try b.write("@divFloor(");
+            try b.emitRaw("@divFloor(");
             try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-            try b.write(", ");
+            try b.emitRaw(", ");
             try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-            try b.write(")");
+            try b.emitRaw(")");
         },
     }
 }
@@ -302,11 +302,11 @@ pub fn genModOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
         .zig_native => {
             const left_is_bool = type_traits.isBoolean(left_type);
             const right_is_bool = type_traits.isBoolean(right_type);
-            try b.write("@mod(");
+            try b.emitRaw("@mod(");
             try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
-            try b.write(", ");
+            try b.emitRaw(", ");
             try emitExprBoolCoerced(self, binop.right.*, right_is_bool);
-            try b.write(")");
+            try b.emitRaw(")");
         },
     }
 }
@@ -320,13 +320,13 @@ pub fn genLargeShiftOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     const right_operand = try self.captureExpr(binop.right.*);
 
     const b = try self.getBuilder();
-    try b.write("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
+    try b.emitRaw("runtime.unified_int_ops.shl(runtime.unified_int_ops.fromI64(");
     try self.emitZigValue(left_operand);
-    try b.write("), @as(u32, @intCast(");
+    try b.emitRaw("), @as(u32, @intCast(");
     try self.emitZigValue(right_operand);
-    try b.write(")), ");
-    try b.write(alloc_name);
-    try b.write(")");
+    try b.emitRaw(")), ");
+    try b.emitRaw(alloc_name);
+    try b.emitRaw(")");
     try self.flushBuilder();
 }
 
@@ -339,7 +339,7 @@ pub fn genDictMerge(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!vo
     self.indent_level += 1;
 
     try self.emitIndent();
-    try b.write("var __merged = @TypeOf(");
+    try b.emitRaw("var __merged = @TypeOf(");
     try self.flushBuilder();
     try collection_ops.genExprWrapped(self, binop.left.*);
     const b2 = try self.getBuilder();
@@ -405,13 +405,13 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
             .BitXor => " != ",
             else => unreachable,
         };
-        try b.write("(");
+        try b.emitRaw("(");
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
-        try b.write(op_str);
+        try b.emitRaw(op_str);
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write(")");
+        try b.emitRaw(")");
         return;
     }
 
@@ -423,39 +423,39 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     const left_is_unknown = (left_type == .unknown);
     const right_is_unknown = (right_type == .unknown);
     if (binop.op == .Mult and ((left_is_int and right_is_float) or (left_is_float and right_is_int))) {
-        try b.write("(");
+        try b.emitRaw("(");
         if (left_is_int) {
-            try b.write("@as(f64, @floatFromInt(");
+            try b.emitRaw("@as(f64, @floatFromInt(");
             const left_val = try self.exprToValue(binop.left.*);
             try self.emitZigValue(left_val);
-            try b.write("))");
+            try b.emitRaw("))");
         } else {
             const left_val = try self.exprToValue(binop.left.*);
             try self.emitZigValue(left_val);
         }
-        try b.write(" * ");
+        try b.emitRaw(" * ");
         if (right_is_int) {
-            try b.write("@as(f64, @floatFromInt(");
+            try b.emitRaw("@as(f64, @floatFromInt(");
             const right_val = try self.exprToValue(binop.right.*);
             try self.emitZigValue(right_val);
-            try b.write("))");
+            try b.emitRaw("))");
         } else {
             const right_val = try self.exprToValue(binop.right.*);
             try self.emitZigValue(right_val);
         }
-        try b.write(")");
+        try b.emitRaw(")");
         return;
     }
 
     // Handle unknown type * float
     if (binop.op == .Mult and ((left_is_unknown and right_is_float) or (left_is_float and right_is_unknown))) {
-        try b.write("(runtime.toFloat(");
+        try b.emitRaw("(runtime.toFloat(");
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
-        try b.write(") * runtime.toFloat(");
+        try b.emitRaw(") * runtime.toFloat(");
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write("))");
+        try b.emitRaw("))");
         return;
     }
 
@@ -473,47 +473,47 @@ pub fn genSimpleBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     };
     const is_shift_op = binop.op == .LShift or binop.op == .RShift;
 
-    try b.write("(");
+    try b.emitRaw("(");
 
     // Emit left operand with appropriate casting
     if (left_is_bool) {
-        try b.write("@as(i64, @intFromBool(");
+        try b.emitRaw("@as(i64, @intFromBool(");
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
-        try b.write("))");
+        try b.emitRaw("))");
     } else if (left_is_usize and needs_cast) {
-        try b.write("@as(i64, @intCast(");
+        try b.emitRaw("@as(i64, @intCast(");
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
-        try b.write("))");
+        try b.emitRaw("))");
     } else {
         const left_val = try self.exprToValue(binop.left.*);
         try self.emitZigValue(left_val);
     }
 
-    try b.write(op_str);
+    try b.emitRaw(op_str);
 
     // Emit right operand with appropriate casting
     if (is_shift_op) {
         // For shift operations, the RHS must be u6 for i64
-        try b.write("@as(u6, @intCast(@mod(");
+        try b.emitRaw("@as(u6, @intCast(@mod(");
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write(", 64)))");
+        try b.emitRaw(", 64)))");
     } else if (right_is_bool) {
-        try b.write("@as(i64, @intFromBool(");
+        try b.emitRaw("@as(i64, @intFromBool(");
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write("))");
+        try b.emitRaw("))");
     } else if (right_is_usize and needs_cast) {
-        try b.write("@as(i64, @intCast(");
+        try b.emitRaw("@as(i64, @intCast(");
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
-        try b.write("))");
+        try b.emitRaw("))");
     } else {
         const right_val = try self.exprToValue(binop.right.*);
         try self.emitZigValue(right_val);
     }
 
-    try b.write(")");
+    try b.emitRaw(")");
 }

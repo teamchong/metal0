@@ -25,14 +25,14 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try b.writeIndent();
     if (is_simple_bool) {
         // Direct negation for bool expressions
-        try b.write("if (!(");
+        try b.emitRaw("if (!(");
         try b.emitValue(cond_expr, .{});
-        try b.write(")) {\n");
+        try b.emitRaw(")) {\n");
     } else {
         // Use runtime.toBool for proper Python truthiness (lists, strings, etc.)
-        try b.write("if (!runtime.toBool(");
+        try b.emitRaw("if (!runtime.toBool(");
         try b.emitValue(cond_expr, .{});
-        try b.write(")) {\n");
+        try b.emitRaw(")) {\n");
     }
 
     b.indent();
@@ -41,32 +41,32 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try b.writeIndent();
     if (assert_node.msg) |msg| {
         // assert x, "message"
-        try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", ");
+        try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", ");
         // Generate message expression - if it's a string literal, emit directly
         if (msg.* == .constant and msg.constant.value == .string) {
-            try b.write("\"");
-            try b.write(msg.constant.value.string);
-            try b.write("\"");
+            try b.emitRaw("\"");
+            try b.emitRaw(msg.constant.value.string);
+            try b.emitRaw("\"");
         } else {
             // For non-string messages, convert to string representation
-            try b.write("\"assertion failed\"");
+            try b.emitRaw("\"assertion failed\"");
         }
-        try b.write(", @src().line);\n");
+        try b.emitRaw(", @src().line);\n");
         try b.writeIndent();
-        try b.write("std.debug.panic(\"AssertionError: {any}\", .{");
+        try b.emitRaw("std.debug.panic(\"AssertionError: {any}\", .{");
         const msg_expr = try self.captureExpr(msg.*);
         try b.emitValue(msg_expr, .{});
-        try b.write("});\n");
+        try b.emitRaw("});\n");
     } else {
         // assert x
-        try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", \"assertion failed\", @src().line);\n");
+        try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", \"assertion failed\", @src().line);\n");
         try b.writeIndent();
-        try b.write("std.debug.panic(\"AssertionError\", .{});\n");
+        try b.emitRaw("std.debug.panic(\"AssertionError\", .{});\n");
     }
 
     b.dedent();
     try b.writeIndent();
-    try b.write("}\n");
+    try b.emitRaw("}\n");
 
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);

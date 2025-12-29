@@ -3,6 +3,7 @@
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "PREFIXES", h.c("runtime.NativeList.init()") },
@@ -20,21 +21,23 @@ const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
 fn genGetuserbase(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const label = try self.emitInlineBlockStart("gub");
     const b = try self.getBuilder();
-    try b.write("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
-    try b.writeFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local\", .{{home}}) catch \"\"; ", .{label});
-    const output = try b.getBodyDupe();
-    try self.output.appendSlice(self.allocator, output);
-    try self.emitInlineBlockEnd();
+    try b.withLabeledBlock("__gub", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, _: void) !void {
+            try bld.emitConstRaw("home", "if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\")");
+            try scope.breakWithRaw("std.fmt.allocPrint(__global_allocator, \"{s}/.local\", .{home}) catch \"\"");
+        }
+    }.emit, {});
+    try self.flushBuilder();
 }
 
 fn genGetusersitepackages(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const label = try self.emitInlineBlockStart("gusp");
     const b = try self.getBuilder();
-    try b.write("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
-    try b.writeFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local/lib/python3/site-packages\", .{{home}}) catch \"\"; ", .{label});
-    const output = try b.getBodyDupe();
-    try self.output.appendSlice(self.allocator, output);
-    try self.emitInlineBlockEnd();
+    try b.withLabeledBlock("__gusp", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, _: void) !void {
+            try bld.emitConstRaw("home", "if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\")");
+            try scope.breakWithRaw("std.fmt.allocPrint(__global_allocator, \"{s}/.local/lib/python3/site-packages\", .{home}) catch \"\"");
+        }
+    }.emit, {});
+    try self.flushBuilder();
 }

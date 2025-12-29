@@ -70,9 +70,9 @@ pub fn emitComptimeAssignment(
     if (is_first_assignment) {
         // Use var for mutable variables, const for immutable
         if (is_mutable) {
-            try b.write("var ");
+            try b.emitRaw("var ");
         } else {
-            try b.write("const ");
+            try b.emitRaw("const ");
         }
     }
 
@@ -81,16 +81,16 @@ pub fn emitComptimeAssignment(
 
     if (is_first_assignment) {
         // Emit type annotation
-        try b.write(": ");
+        try b.emitRaw(": ");
         switch (value) {
-            .int => try b.write("i64"),
-            .float => try b.write("f64"),
-            .bool => try b.write("bool"),
-            .string, .owned_string => try b.write("[]const u8"),
-            .bytes, .owned_bytes => try b.write("runtime.builtins.PyBytes"),
+            .int => try b.emitRaw("i64"),
+            .float => try b.emitRaw("f64"),
+            .bool => try b.emitRaw("bool"),
+            .string, .owned_string => try b.emitRaw("[]const u8"),
+            .bytes, .owned_bytes => try b.emitRaw("runtime.builtins.PyBytes"),
             .list, .owned_list => |items| {
                 if (items.len == 0) {
-                    try b.write("[0]i64"); // Empty list default type
+                    try b.emitRaw("[0]i64"); // Empty list default type
                 } else {
                     // Check if any element exceeds i32 range - if so, use UnifiedInt
                     var has_large_int = false;
@@ -120,7 +120,7 @@ pub fn emitComptimeAssignment(
         }
     }
 
-    try b.write(" = ");
+    try b.emitRaw(" = ");
 
     // Emit value
     const writer = b.body.writer(b.allocator);
@@ -136,9 +136,9 @@ pub fn emitComptimeAssignment(
         .float => |v| {
             // Handle special values first to avoid printing just "inf" or "nan"
             if (std.math.isInf(v)) {
-                try b.write(if (v < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+                try b.emitRaw(if (v < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
             } else if (std.math.isNan(v)) {
-                try b.write("std.math.nan(f64)");
+                try b.emitRaw("std.math.nan(f64)");
             } else if (@mod(v, 1.0) == 0.0) {
                 // Use Python-style float formatting (always show .0 for whole numbers)
                 try b.writeFmt("{d:.1}", .{v});
@@ -148,7 +148,7 @@ pub fn emitComptimeAssignment(
         },
         .bool => |v| {
             const bool_str = if (v) "true" else "false";
-            try b.write(bool_str);
+            try b.emitRaw(bool_str);
         },
         .string, .owned_string => |v| {
             // Use shared Python string escape handling from constants module
@@ -163,14 +163,14 @@ pub fn emitComptimeAssignment(
         },
         .bytes, .owned_bytes => |v| {
             // Use runtime.builtins.bytesLiteral for Python bytes type
-            try b.write("runtime.builtins.bytesLiteral(\"");
+            try b.emitRaw("runtime.builtins.bytesLiteral(\"");
             for (v) |c| {
                 switch (c) {
-                    '\n' => try b.write("\\n"),
-                    '\r' => try b.write("\\r"),
-                    '\t' => try b.write("\\t"),
-                    '\\' => try b.write("\\\\"),
-                    '"' => try b.write("\\\""),
+                    '\n' => try b.emitRaw("\\n"),
+                    '\r' => try b.emitRaw("\\r"),
+                    '\t' => try b.emitRaw("\\t"),
+                    '\\' => try b.emitRaw("\\\\"),
+                    '"' => try b.emitRaw("\\\""),
                     else => {
                         // For bytes, emit hex for non-printable chars
                         if (c < 0x20 or c >= 0x7f) {
@@ -181,7 +181,7 @@ pub fn emitComptimeAssignment(
                     },
                 }
             }
-            try b.write("\")");
+            try b.emitRaw("\")");
         },
         .list, .owned_list => |items| {
             // Check if list elements should be wrapped as UnifiedInt
@@ -213,11 +213,11 @@ pub fn emitComptimeAssignment(
             };
 
             if (items.len == 0) {
-                try b.write(".{}");
+                try b.emitRaw(".{}");
             } else {
-                try b.write(".{ ");
+                try b.emitRaw(".{ ");
                 for (items, 0..) |item, i| {
-                    if (i > 0) try b.write(", ");
+                    if (i > 0) try b.emitRaw(", ");
 
                     switch (item) {
                         .int => |v| {
@@ -237,22 +237,22 @@ pub fn emitComptimeAssignment(
                         },
                         .bool => |v| {
                             const bool_str = if (v) "true" else "false";
-                            try b.write(bool_str);
+                            try b.emitRaw(bool_str);
                         },
                         .string, .owned_string => |v| try b.writeFmt("\"{s}\"", .{v}),
                         .bytes, .owned_bytes => |v| try b.writeFmt("runtime.builtins.bytesLiteral(\"{s}\")", .{v}),
                         .list, .owned_list => {
                             // Nested lists not fully supported yet
-                            try b.write(".{}");
+                            try b.emitRaw(".{}");
                         },
                     }
                 }
-                try b.write(" }");
+                try b.emitRaw(" }");
             }
         },
     }
 
-    try b.write(";\n");
+    try b.emitRaw(";\n");
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }

@@ -12,6 +12,9 @@ const cpython = @import("../include/object.zig");
 
 const allocator = std.heap.c_allocator;
 
+// Reference PyBaseObject_Type from typeslots.zig (where it's exported)
+const PyBaseObject_Type = @extern(*cpython.PyTypeObject, .{ .name = "PyBaseObject_Type" });
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -56,7 +59,7 @@ pub const PyHeapTypeObject = extern struct {
 // ============================================================================
 
 /// Dealloc for type objects
-fn type_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
+fn type_dealloc(self_obj: ?*cpython.PyObject) callconv(.c) void {
     if (self_obj == null) return;
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(self_obj.?));
 
@@ -82,7 +85,7 @@ fn type_dealloc(self_obj: ?*cpython.PyObject) callconv(.C) void {
 }
 
 /// Repr for type objects
-fn type_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn type_repr(self_obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self_obj == null) return null;
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(self_obj.?));
 
@@ -95,7 +98,7 @@ fn type_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
 }
 
 /// Call for type objects (instantiation)
-fn type_call(type_obj_raw: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn type_call(type_obj_raw: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(type_obj_raw));
 
     // Call tp_new to create instance
@@ -119,7 +122,7 @@ fn type_call(type_obj_raw: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?
 }
 
 /// Getattro for type objects
-fn type_getattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn type_getattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(type_obj_raw));
     const pydict = @import("dictobject.zig");
 
@@ -145,7 +148,7 @@ fn type_getattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject) callc
 }
 
 /// Setattro for type objects
-fn type_setattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.C) c_int {
+fn type_setattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject, value: ?*cpython.PyObject) callconv(.c) c_int {
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(type_obj_raw));
     const pydict = @import("dictobject.zig");
 
@@ -174,7 +177,7 @@ fn type_setattro(type_obj_raw: *cpython.PyObject, name: *cpython.PyObject, value
 }
 
 /// Traverse for type objects (GC)
-fn type_traverse(self_obj: ?*cpython.PyObject, visit: cpython.visitproc, arg: ?*anyopaque) callconv(.C) c_int {
+fn type_traverse(self_obj: ?*cpython.PyObject, visit: cpython.visitproc, arg: ?*anyopaque) callconv(.c) c_int {
     if (self_obj == null) return 0;
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(self_obj.?));
 
@@ -201,7 +204,7 @@ fn type_traverse(self_obj: ?*cpython.PyObject, visit: cpython.visitproc, arg: ?*
 }
 
 /// Clear for type objects (GC)
-fn type_clear(self_obj: ?*cpython.PyObject) callconv(.C) c_int {
+fn type_clear(self_obj: ?*cpython.PyObject) callconv(.c) c_int {
     if (self_obj == null) return 0;
     const type_obj: *cpython.PyTypeObject = @ptrCast(@alignCast(self_obj.?));
 
@@ -214,7 +217,7 @@ fn type_clear(self_obj: ?*cpython.PyObject) callconv(.C) c_int {
 }
 
 /// Init for type objects (type(...) call with 3 args)
-fn type_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) c_int {
+fn type_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) c_int {
     _ = self_obj;
     _ = args;
     _ = kwargs;
@@ -222,7 +225,7 @@ fn type_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpy
 }
 
 /// New for type objects
-fn type_new(metatype: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn type_new(metatype: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = metatype;
     _ = args;
     _ = kwargs;
@@ -231,7 +234,7 @@ fn type_new(metatype: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: 
     // For creating new class types at runtime
 
     // Allocate heap type
-    const mem = allocator.alignedAlloc(u8, @alignOf(PyHeapTypeObject), @sizeOf(PyHeapTypeObject)) catch return null;
+    const mem = allocator.alloc(u8, @sizeOf(PyHeapTypeObject)) catch return null;
     @memset(mem, 0);
     const heap_type: *PyHeapTypeObject = @ptrCast(@alignCast(mem.ptr));
 
@@ -304,7 +307,7 @@ pub export var PyType_Type: cpython.PyTypeObject = .{
 // ============================================================================
 
 /// Repr for object
-fn object_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn object_repr(self_obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self_obj == null) return null;
 
     const type_name = self_obj.?.ob_type.tp_name orelse "object";
@@ -316,7 +319,7 @@ fn object_repr(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
 }
 
 /// Str for object (defaults to repr)
-fn object_str(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn object_str(self_obj: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     if (self_obj == null) return null;
 
     if (self_obj.?.ob_type.tp_repr) |repr_fn| {
@@ -327,7 +330,7 @@ fn object_str(self_obj: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
 }
 
 /// Hash for object (default: id-based hash)
-fn object_hash(self_obj: ?*cpython.PyObject) callconv(.C) isize {
+fn object_hash(self_obj: ?*cpython.PyObject) callconv(.c) isize {
     if (self_obj == null) return -1;
 
     // Default hash is based on memory address
@@ -338,7 +341,7 @@ fn object_hash(self_obj: ?*cpython.PyObject) callconv(.C) isize {
 }
 
 /// Richcompare for object (identity comparison only)
-fn object_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op: c_int) callconv(.C) ?*cpython.PyObject {
+fn object_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op: c_int) callconv(.c) ?*cpython.PyObject {
     const pybool = @import("boolobject.zig");
     const object_mod = @import("object.zig");
 
@@ -350,14 +353,14 @@ fn object_richcompare(self_obj: *cpython.PyObject, other: *cpython.PyObject, op:
     const same = (self_obj == other);
 
     if (op == object_mod.Py_EQ) {
-        return if (same) pybool.Py_True else pybool.Py_False;
+        return if (same) pybool.Py_True() else pybool.Py_False();
     } else {
-        return if (same) pybool.Py_False else pybool.Py_True;
+        return if (same) pybool.Py_False() else pybool.Py_True();
     }
 }
 
 /// Init for object
-fn object_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) c_int {
+fn object_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) c_int {
     _ = self_obj;
     _ = args;
     _ = kwargs;
@@ -366,13 +369,13 @@ fn object_init(self_obj: *cpython.PyObject, args: *cpython.PyObject, kwargs: ?*c
 }
 
 /// New for object
-fn object_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.C) ?*cpython.PyObject {
+fn object_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) callconv(.c) ?*cpython.PyObject {
     _ = args;
     _ = kwargs;
     if (type_obj == null) return null;
 
     const basicsize: usize = @intCast(type_obj.?.tp_basicsize);
-    const mem = allocator.alignedAlloc(u8, @alignOf(cpython.PyObject), basicsize) catch return null;
+    const mem = allocator.alloc(u8, basicsize) catch return null;
     @memset(mem, 0);
 
     const obj: *cpython.PyObject = @ptrCast(@alignCast(mem.ptr));
@@ -382,8 +385,8 @@ fn object_new(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs
     return obj;
 }
 
-/// PyBaseObject_Type - the base type for all objects
-pub export var PyBaseObject_Type: cpython.PyTypeObject = .{
+/// PyBaseObject_Type - reference to the base type (exported in typeslots.zig)
+const PyBaseObject_Type_local: cpython.PyTypeObject = .{
     .ob_base = .{
         .ob_base = .{ .ob_refcnt = 1, .ob_type = &PyType_Type },
         .ob_size = 0,
@@ -442,21 +445,21 @@ pub export var PyBaseObject_Type: cpython.PyTypeObject = .{
 // PUBLIC API - Exported with C linkage
 // ============================================================================
 
-/// Check if object is a type
-pub export fn PyType_Check(op: ?*cpython.PyObject) c_int {
+/// Check if object is a type (internal - use typeslots.zig export)
+fn PyType_Check_impl(op: ?*cpython.PyObject) c_int {
     if (op == null) return 0;
     // Check if type is PyType_Type or subclass
     return if (op.?.ob_type == &PyType_Type) 1 else 0;
 }
 
-/// Check if object is exactly a type (not subclass)
-pub export fn PyType_CheckExact(op: ?*cpython.PyObject) c_int {
+/// Check if object is exactly a type (not subclass, internal)
+fn PyType_CheckExact_impl(op: ?*cpython.PyObject) c_int {
     if (op == null) return 0;
     return if (op.?.ob_type == &PyType_Type) 1 else 0;
 }
 
-/// Make a type ready (inherit slots, finalize MRO, etc.)
-pub export fn PyType_Ready(type_obj: ?*cpython.PyTypeObject) c_int {
+/// Make a type ready (inherit slots, finalize MRO, etc.) - internal impl
+pub fn PyType_Ready(type_obj: ?*cpython.PyTypeObject) c_int {
     if (type_obj == null) return -1;
 
     // Already ready?
@@ -521,14 +524,14 @@ fn inherit_slots(type_obj: *cpython.PyTypeObject, base: *cpython.PyTypeObject) v
     if (type_obj.tp_as_async == null) type_obj.tp_as_async = base.tp_as_async;
 }
 
-/// Get attribute from type
-pub export fn PyType_GetAttro(type_obj: ?*cpython.PyObject, name: ?*cpython.PyObject) ?*cpython.PyObject {
+/// Get attribute from type (internal)
+fn PyType_GetAttro_impl(type_obj: ?*cpython.PyObject, name: ?*cpython.PyObject) ?*cpython.PyObject {
     if (type_obj == null or name == null) return null;
     return type_getattro(type_obj.?, name.?);
 }
 
-/// Check if type is a subtype of another
-pub export fn PyType_IsSubtype(a: ?*cpython.PyTypeObject, b: ?*cpython.PyTypeObject) c_int {
+/// Check if type is a subtype of another (internal)
+fn PyType_IsSubtype_impl(a: ?*cpython.PyTypeObject, b: ?*cpython.PyTypeObject) c_int {
     if (a == null or b == null) return 0;
     if (a == b) return 1;
 
@@ -557,8 +560,8 @@ pub export fn PyType_IsSubtype(a: ?*cpython.PyTypeObject, b: ?*cpython.PyTypeObj
     return 0;
 }
 
-/// Get name of type
-pub export fn PyType_GetName(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject {
+/// Get name of type (internal)
+fn PyType_GetName_impl(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject {
     if (type_obj == null) return null;
 
     if ((type_obj.?.tp_flags & cpython.Py_TPFLAGS_HEAPTYPE) != 0) {
@@ -577,8 +580,8 @@ pub export fn PyType_GetName(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObjec
     return null;
 }
 
-/// Get qualified name of type
-pub export fn PyType_GetQualName(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject {
+/// Get qualified name of type (internal)
+fn PyType_GetQualName_impl(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject {
     if (type_obj == null) return null;
 
     if ((type_obj.?.tp_flags & cpython.Py_TPFLAGS_HEAPTYPE) != 0) {
@@ -589,11 +592,11 @@ pub export fn PyType_GetQualName(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyO
         }
     }
 
-    return PyType_GetName(type_obj);
+    return PyType_GetName_impl(type_obj);
 }
 
-/// Get module of type
-pub export fn PyType_GetModule(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject {
+/// Get module of type (internal)
+fn PyType_GetModule_impl(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObject {
     if (type_obj == null) return null;
 
     if ((type_obj.?.tp_flags & cpython.Py_TPFLAGS_HEAPTYPE) != 0) {
@@ -607,9 +610,9 @@ pub export fn PyType_GetModule(type_obj: ?*cpython.PyTypeObject) ?*cpython.PyObj
     return null;
 }
 
-/// Get the module state from a type
-pub export fn PyType_GetModuleState(type_obj: ?*cpython.PyTypeObject) ?*anyopaque {
-    const module = PyType_GetModule(type_obj);
+/// Get the module state from a type (internal)
+fn PyType_GetModuleState_impl(type_obj: ?*cpython.PyTypeObject) ?*anyopaque {
+    const module = PyType_GetModule_impl(type_obj);
     if (module == null) return null;
 
     // Get state from module using PyModule_GetState
@@ -619,18 +622,18 @@ pub export fn PyType_GetModuleState(type_obj: ?*cpython.PyTypeObject) ?*anyopaqu
     return state;
 }
 
-/// Create type from spec
-pub export fn PyType_FromSpec(spec: ?*const cpython.PyType_Spec) ?*cpython.PyObject {
-    return PyType_FromSpecWithBases(spec, null);
+/// Create type from spec (internal)
+fn PyType_FromSpec_impl(spec: ?*const cpython.PyType_Spec) ?*cpython.PyObject {
+    return PyType_FromSpecWithBases_impl(spec, null);
 }
 
-/// Create type from spec with bases
-pub export fn PyType_FromSpecWithBases(spec: ?*const cpython.PyType_Spec, bases: ?*cpython.PyObject) ?*cpython.PyObject {
+/// Create type from spec with bases (internal)
+fn PyType_FromSpecWithBases_impl(spec: ?*const cpython.PyType_Spec, bases: ?*cpython.PyObject) ?*cpython.PyObject {
     if (spec == null) return null;
     _ = bases;
 
     // Allocate heap type
-    const mem = allocator.alignedAlloc(u8, @alignOf(PyHeapTypeObject), @sizeOf(PyHeapTypeObject)) catch return null;
+    const mem = allocator.alloc(u8, @sizeOf(PyHeapTypeObject)) catch return null;
     @memset(mem, 0);
     const heap_type: *PyHeapTypeObject = @ptrCast(@alignCast(mem.ptr));
 
@@ -684,8 +687,8 @@ fn apply_type_slot(type_obj: *cpython.PyTypeObject, slot: cpython.PyType_Slot) v
     }
 }
 
-/// Get slot from type
-pub export fn PyType_GetSlot(type_obj: ?*cpython.PyTypeObject, slot: c_int) ?*anyopaque {
+/// Get slot from type (internal)
+fn PyType_GetSlot_impl(type_obj: ?*cpython.PyTypeObject, slot: c_int) ?*anyopaque {
     if (type_obj == null) return null;
 
     return switch (slot) {
@@ -707,8 +710,8 @@ pub export fn PyType_GetSlot(type_obj: ?*cpython.PyTypeObject, slot: c_int) ?*an
     };
 }
 
-/// Modify a type (add/update attributes)
-pub export fn PyType_Modified(type_obj: ?*cpython.PyTypeObject) void {
+/// Modify a type (add/update attributes) - internal
+fn PyType_Modified_impl(type_obj: ?*cpython.PyTypeObject) void {
     if (type_obj == null) return;
 
     // Invalidate attribute cache
@@ -730,15 +733,15 @@ pub export fn PyType_Modified(type_obj: ?*cpython.PyTypeObject) void {
                 if (subtype_obj != null and subtype_obj != &@import("noneobject.zig")._Py_NoneStruct) {
                     const subtype: *cpython.PyTypeObject = @ptrCast(@alignCast(subtype_obj.?));
                     // Recursively invalidate subtype
-                    PyType_Modified(subtype);
+                    PyType_Modified_impl(subtype);
                 }
             }
         }
     }
 }
 
-/// Generic alloc for types
-pub export fn PyType_GenericAlloc(type_obj: ?*cpython.PyTypeObject, nitems: isize) ?*cpython.PyObject {
+/// Generic alloc for types (internal)
+fn PyType_GenericAlloc_impl(type_obj: ?*cpython.PyTypeObject, nitems: isize) ?*cpython.PyObject {
     if (type_obj == null) return null;
 
     const basicsize: usize = @intCast(type_obj.?.tp_basicsize);
@@ -760,9 +763,9 @@ pub export fn PyType_GenericAlloc(type_obj: ?*cpython.PyTypeObject, nitems: isiz
     return py_obj;
 }
 
-/// Generic new for types
-pub export fn PyType_GenericNew(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) ?*cpython.PyObject {
+/// Generic new for types (internal)
+fn PyType_GenericNew_impl(type_obj: ?*cpython.PyTypeObject, args: ?*cpython.PyObject, kwargs: ?*cpython.PyObject) ?*cpython.PyObject {
     _ = args;
     _ = kwargs;
-    return PyType_GenericAlloc(type_obj, 0);
+    return PyType_GenericAlloc_impl(type_obj, 0);
 }

@@ -682,9 +682,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         const arg_val = try self.captureExpr(arg);
                         try b.writeIndent();
                         // Use _ = &var to avoid "pointless discard of local constant" error
-                        try b.write("_ = &");
+                        try b.emitRaw("_ = &");
                         try b.emitValue(arg_val, .{});
-                        try b.write(";\n");
+                        try b.emitRaw(";\n");
                     }
                 }
             }
@@ -696,9 +696,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         const kw_val = try self.captureExpr(kw.value);
                         try b.writeIndent();
                         // Use _ = &var to avoid "pointless discard of local constant" error
-                        try b.write("_ = &");
+                        try b.emitRaw("_ = &");
                         try b.emitValue(kw_val, .{});
-                        try b.write(";\n");
+                        try b.emitRaw(";\n");
                     }
                 }
             }
@@ -720,26 +720,26 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 if (needs_decl) {
                     try b.writeIndent();
                     // Use var for context manager variables (captureException needs mutable self)
-                    try b.write("var ");
-                    try b.write(var_name);
-                    try b.write(" = runtime.unittest.ContextManager.init();\n");
+                    try b.emitRaw("var ");
+                    try b.emitRaw(var_name);
+                    try b.emitRaw(" = runtime.unittest.ContextManager.init();\n");
                     // Always discard pointer to suppress unused warning
                     // Using pointer avoids "pointless discard" when variable IS used later
                     try b.writeIndent();
-                    try b.write("_ = &");
-                    try b.write(var_name);
-                    try b.write(";\n");
+                    try b.emitRaw("_ = &");
+                    try b.emitRaw(var_name);
+                    try b.emitRaw(";\n");
                     try self.declareVar(var_name);
                 } else if (is_hoisted) {
                     // Variable was hoisted by scope analyzer - still need to assign value
                     // Check if hoisted as PyValue type - need to wrap with PyValue.from()
                     const is_pyvalue_hoisted = self.pyvalue_hoisted_vars.contains(var_name);
                     try b.writeIndent();
-                    try b.write(var_name);
+                    try b.emitRaw(var_name);
                     if (is_pyvalue_hoisted) {
-                        try b.write(" = runtime.PyValue.from(runtime.unittest.ContextManager.init());\n");
+                        try b.emitRaw(" = runtime.PyValue.from(runtime.unittest.ContextManager.init());\n");
                     } else {
-                        try b.write(" = runtime.unittest.ContextManager.init();\n");
+                        try b.emitRaw(" = runtime.unittest.ContextManager.init();\n");
                     }
                 }
             }
@@ -764,7 +764,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         // Emit dummy ContextManager for assertRaises/assertRaisesRegex
                         try b.writeIndent();
                         if (needs_decl) {
-                            try b.write("var ");
+                            try b.emitRaw("var ");
                         }
                         // Capture escaped identifier
                         const start_pos = self.output.items.len;
@@ -772,17 +772,17 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         const escaped_var = self.output.items[start_pos..];
                         const escaped_copy = try self.arena.allocator().dupe(u8, escaped_var);
                         self.output.shrinkRetainingCapacity(start_pos);
-                        try b.write(escaped_copy);
-                        try b.write(" = runtime.unittest.ContextManager.init();\n");
+                        try b.emitRaw(escaped_copy);
+                        try b.emitRaw(" = runtime.unittest.ContextManager.init();\n");
                         try b.writeIndent();
-                        try b.write("_ = &");
-                        try b.write(escaped_copy);
-                        try b.write(";\n");
+                        try b.emitRaw("_ = &");
+                        try b.emitRaw(escaped_copy);
+                        try b.emitRaw(";\n");
                     } else {
                         // Emit actual context manager (e.g., support.Stopwatch())
                         try b.writeIndent();
                         if (needs_decl) {
-                            try b.write("var ");
+                            try b.emitRaw("var ");
                         }
                         // Capture escaped identifier
                         const start_pos = self.output.items.len;
@@ -790,15 +790,15 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         const escaped_var = self.output.items[start_pos..];
                         const escaped_copy = try self.arena.allocator().dupe(u8, escaped_var);
                         self.output.shrinkRetainingCapacity(start_pos);
-                        try b.write(escaped_copy);
-                        try b.write(" = ");
+                        try b.emitRaw(escaped_copy);
+                        try b.emitRaw(" = ");
                         const cm_val = try self.captureExpr(cm_expr);
                         try b.emitValue(cm_val, .{});
-                        try b.write(";\n");
+                        try b.emitRaw(";\n");
                         try b.writeIndent();
-                        try b.write("defer ");
-                        try b.write(escaped_copy);
-                        try b.write(".close();\n");
+                        try b.emitRaw("defer ");
+                        try b.emitRaw(escaped_copy);
+                        try b.emitRaw(".close();\n");
                     }
                     if (needs_decl) {
                         try self.declareVar(var_name);
@@ -861,15 +861,15 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // The expression is assigned to __ar_val, then if it's an error union or error set, catch it
                 if (stmt == .expr_stmt) {
                     try b.writeIndent();
-                    try b.write("{\n");
+                    try b.emitRaw("{\n");
                     b.indent();
                     try b.writeIndent();
-                    try b.write("const __ar_val = ");
+                    try b.emitRaw("const __ar_val = ");
                     const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
                     // Use .ignore error mode so error unions are passed directly to expectError
                     // without try unwrapping them first
                     try b.emitValue(expr_val, .{ .error_mode = .ignore });
-                    try b.write(";\n");
+                    try b.emitRaw(";\n");
                     try b.writeIndent();
                     // Use unittest.expectError() which handles both error and non-error types
                     // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
@@ -881,7 +881,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     }
                     b.dedent();
                     try b.writeIndent();
-                    try b.write("}\n");
+                    try b.emitRaw("}\n");
                 } else if (stmt == .with_stmt) {
                     // Nested with statement (e.g., `with assertRaises(), assertWarns(): ...`)
                     // Multiple with items are parsed as nested with_stmt
@@ -897,14 +897,14 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                             if (nested_stmt == .expr_stmt) {
                                 // Wrap expression in error-catching code
                                 try b.writeIndent();
-                                try b.write("{\n");
+                                try b.emitRaw("{\n");
                                 b.indent();
                                 try b.writeIndent();
-                                try b.write("const __ar_val = ");
+                                try b.emitRaw("const __ar_val = ");
                                 const expr_val = try self.captureExpr(nested_stmt.expr_stmt.value.*);
                                 // Use .ignore error mode so error unions are passed directly to expectError
                                 try b.emitValue(expr_val, .{ .error_mode = .ignore });
-                                try b.write(";\n");
+                                try b.emitRaw(";\n");
                                 try b.writeIndent();
                                 // If error raised, capture exception info and break
                                 if (cm_var_name) |cm_name| {
@@ -914,7 +914,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                                 }
                                 b.dedent();
                                 try b.writeIndent();
-                                try b.write("}\n");
+                                try b.emitRaw("}\n");
                             } else if (nested_stmt == .with_stmt) {
                                 // Another level of nesting - process recursively
                                 // For now, just generate the with statement normally
@@ -924,7 +924,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                                 try genWith(self, nested_stmt.with_stmt);
                             } else {
                                 const stmt_code = try self.captureStmt(nested_stmt);
-                                try b.write(stmt_code);
+                                try b.emitRaw(stmt_code);
                             }
                         }
                     } else {
@@ -935,7 +935,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     }
                 } else {
                     const stmt_code = try self.captureStmt(stmt);
-                    try b.write(stmt_code);
+                    try b.emitRaw(stmt_code);
                 }
             }
 
@@ -944,11 +944,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // If body completed normally without raising, test fails
                 if (!self.control_flow_terminated) {
                     try b.writeIndent();
-                    try b.write("return error.ExpectedExceptionNotRaised;\n");
+                    try b.emitRaw("return error.ExpectedExceptionNotRaised;\n");
                 }
                 b.dedent();
                 try b.writeIndent();
-                try b.write("};\n");
+                try b.emitRaw("};\n");
             } else {
                 // No expression/raise statements - body has non-error statements
                 // This is a test case that expects error from non-expr stmt (if condition, etc)
@@ -967,7 +967,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // For assertWarns, assertLogs, subTest - just generate body normally
             for (with_node.body) |stmt| {
                 const stmt_code = try self.captureStmt(stmt);
-                try b.write(stmt_code);
+                try b.emitRaw(stmt_code);
             }
         }
 
@@ -1032,7 +1032,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
             // Open a block for defer scope - the defer will close the file at end of body
             try b.writeIndent();
-            try b.write("{\n");
+            try b.emitRaw("{\n");
             self.indent();
 
             // Capture the context manager expression
@@ -1043,14 +1043,14 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             try b.writeIndent();
             if (context_type == .file) {
                 // File context manager - assign directly, it returns self from __enter__
-                try b.write(var_name);
-                try b.write(" = ");
+                try b.emitRaw(var_name);
+                try b.emitRaw(" = ");
                 try b.emitValue(ctx_expr_val, .{});
-                try b.write(";\n");
+                try b.emitRaw(";\n");
                 try b.writeIndent();
-                try b.write("defer runtime.PyFile.close(");
-                try b.write(var_name);
-                try b.write(");\n");
+                try b.emitRaw("defer runtime.PyFile.close(");
+                try b.emitRaw(var_name);
+                try b.emitRaw(");\n");
             } else {
                 // General context manager - store CM, call __enter__(), defer __exit__()
                 // Use var since __enter__/__exit__ may take *@This() (mutable self)
@@ -1058,13 +1058,13 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 const cm_name = try b.freshName("with_cm");
                 try b.writeFmt("var {s} = ", .{cm_name});
                 try b.emitValue(ctx_expr_val, .{});
-                try b.write(";\n");
+                try b.emitRaw(";\n");
                 // Defer __exit__ before calling __enter__ (Python semantics)
                 try b.writeIndent();
                 try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_name});
                 // Call __enter__() and assign result to target variable
                 try b.writeIndent();
-                try b.write(var_name);
+                try b.emitRaw(var_name);
                 try b.writeFmt(" = try {s}.__enter__(__global_allocator);\n", .{cm_name});
             }
         } else if (target.* == .tuple or target.* == .list) {
@@ -1074,7 +1074,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
             // Open a block for defer scope first
             try b.writeIndent();
-            try b.write("{\n");
+            try b.emitRaw("{\n");
             self.indent();
 
             // Store the context manager itself (for cleanup)
@@ -1091,7 +1091,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try b.writeFmt("var {s} = ", .{cm_name});
             }
             try b.emitValue(ctx_expr_tuple, .{});
-            try b.write(";\n");
+            try b.emitRaw(";\n");
 
             // Add defer for cleanup (calls __exit__ / close on the context manager)
             try b.writeIndent();
@@ -1119,9 +1119,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
                     try b.writeIndent();
                     if (!is_declared and !is_hoisted) {
-                        try b.write("const ");
+                        try b.emitRaw("const ");
                     }
-                    try b.write(elt_name);
+                    try b.emitRaw(elt_name);
                     try b.writeFmt(" = {s}[{d}];\n", .{ val_name, i });
 
                     if (!is_declared and !is_hoisted) {
@@ -1136,7 +1136,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const ctx_expr_other = try self.captureExpr(with_node.context_expr.*);
 
             try b.writeIndent();
-            try b.write("{\n");
+            try b.emitRaw("{\n");
             self.indent();
             try b.writeIndent();
             if (context_type == .file) {
@@ -1145,7 +1145,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try b.writeFmt("var {s} = ", .{ctx_name});
             }
             try b.emitValue(ctx_expr_other, .{});
-            try b.write(";\n");
+            try b.emitRaw(";\n");
             try b.writeIndent();
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
@@ -1164,7 +1164,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
         // Open a block for defer scope
         try b.writeIndent();
-        try b.write("{\n");
+        try b.emitRaw("{\n");
         self.indent();
 
         // Check if context_expr is a tuple of context managers (Python 3.10+ syntax)
@@ -1197,7 +1197,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     try b.writeFmt("var {s} = ", .{ctx_name});
                 }
                 try b.emitValue(cm_val, .{});
-                try b.write(";\n");
+                try b.emitRaw(";\n");
 
                 // Emit defer for cleanup
                 try b.writeIndent();
@@ -1226,7 +1226,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try b.writeFmt("var {s} = ", .{ctx_name});
             }
             try b.emitValue(ctx_val, .{});
-            try b.write(";\n");
+            try b.emitRaw(";\n");
             try b.writeIndent();
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
@@ -1251,18 +1251,18 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // if (!...) return error.AssertionFailed;
                 // Wrapping would cause double-semicolon syntax error
                 const stmt_code = try self.captureStmt(stmt);
-                try b.write(stmt_code);
+                try b.emitRaw(stmt_code);
             } else {
                 // Wrap non-assertion expressions for error catching
                 try b.writeIndent();
-                try b.write("{ const __ar_expr = ");
+                try b.emitRaw("{ const __ar_expr = ");
                 const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
                 try b.emitValue(expr_val, .{});
-                try b.write("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
+                try b.emitRaw("; if (@typeInfo(@TypeOf(__ar_expr)) == .error_union) { _ = __ar_expr catch {}; } }\n");
             }
         } else {
             const stmt_code = try self.captureStmt(stmt);
-            try b.write(stmt_code);
+            try b.emitRaw(stmt_code);
         }
     }
 
@@ -1281,7 +1281,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     // When there's no variable, we also opened a block
     b.dedent();
     try b.writeIndent();
-    try b.write("}\n");
+    try b.emitRaw("}\n");
 
     // Final flush at end
     const final_output = try b.getBodyDupe();

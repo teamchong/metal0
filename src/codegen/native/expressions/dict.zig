@@ -62,11 +62,11 @@ fn emitPyValueHashMapInit(self: *NativeCodegen, value_type: []const u8) CodegenE
 }
 
 /// Emit try alloc.dupe(u8, str) for string duplication
-/// MIGRATED TO BUILDER: uses emitMethodCallExpr with try wrapper
+/// MIGRATED TO BUILDER: uses emitRaw for prefix + emitMethodCallExpr
 fn emitAllocDupe(self: *NativeCodegen, alloc_name: []const u8, str: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     const receiver = ZigValue.raw(alloc_name);
-    try b.write("try ");
+    try b.emitRaw("try ");
     try b.emitMethodCallExpr(receiver, "dupe", &.{
         .{ .raw = "u8" },
         .{ .raw = str },

@@ -90,7 +90,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     if (self.inside_defer and !self.inside_finally_block) {
         const b = try self.getBuilder();
         try b.writeIndent();
-        try b.write("// return inside defer - skipped (cleanup continues)\n");
+        try b.emitRaw("// return inside defer - skipped (cleanup continues)\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
@@ -118,9 +118,9 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         if (ret.value) |value| {
             const val = try self.captureExpr(value.*);
             try b.writeIndent();
-            try b.write("const __return_value = ");
+            try b.emitRaw("const __return_value = ");
             try b.emitValue(val, .{});
-            try b.write(";\n");
+            try b.emitRaw(";\n");
         }
 
         const output1 = try b.getBodyDupe();
@@ -152,7 +152,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         if (value.* == .name and std.mem.eql(u8, value.name.id, "NotImplemented")) {
             if (self.current_function_name) |fn_name| {
                 if (ComparisonMagicMethods.has(fn_name)) {
-                    try b.write("return runtime.PyValue{ .not_implemented = {} };\n");
+                    try b.emitRaw("return runtime.PyValue{ .not_implemented = {} };\n");
                     const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                     return;
@@ -169,9 +169,9 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
                 if (needs_wrapping) {
                     // Capture the expression value first, then emit to builder
                     const val = try self.captureExpr(value.*);
-                    try b.write("return runtime.PyValue{ .bool = ");
+                    try b.emitRaw("return runtime.PyValue{ .bool = ");
                     try b.emitValue(val, .{});
-                    try b.write(" };\n");
+                    try b.emitRaw(" };\n");
                     const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                     return;
@@ -194,25 +194,25 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         // Check for tail-recursive call
         if (isTailRecursiveCall(self, value.*)) |call| {
             // Emit: return @call(.always_tail, func_name, .{args})
-            try b.write("return @call(.always_tail, ");
-            try b.write(call.func.name.id);
-            try b.write(", .{");
+            try b.emitRaw("return @call(.always_tail, ");
+            try b.emitRaw(call.func.name.id);
+            try b.emitRaw(", .{");
 
             // Generate arguments
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try b.write(", ");
+                if (i > 0) try b.emitRaw(", ");
                 const arg_val = try self.captureExpr(arg);
                 try b.emitValue(arg_val, .{});
             }
 
-            try b.write("});\n");
+            try b.emitRaw("});\n");
             const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
             return;
         }
 
         // Normal return - check if inside a magic method that needs conversion
-        try b.write("return ");
+        try b.emitRaw("return ");
 
         // Check if returning self from a method (with either *@This() or *const @This())
         // When method signature returns !@This() and we return self,
@@ -233,12 +233,12 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
 
         // Magic method conversion ALWAYS takes precedence (e.g., __bool__ must validate return type)
         if (conversion) |conv| {
-            try b.write(conv.prefix);
+            try b.emitRaw(conv.prefix);
             if (needs_self_deref) {
                 const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
                 const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
                 if (current_class_is_nested) {
-                    try b.write(self_name);
+                    try b.emitRaw(self_name);
                 } else {
                     try b.writeFmt("{s}.*", .{self_name});
                 }
@@ -246,7 +246,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
                 const val = try self.captureExpr(value.*);
                 try b.emitValue(val, .{});
             }
-            try b.write(conv.suffix);
+            try b.emitRaw(conv.suffix);
         } else if (needs_self_deref) {
             // For nested classes, return the pointer directly
             // since init() returns *@This() and methods returning self also return *@This()
@@ -255,7 +255,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
             if (current_class_is_nested) {
                 // Nested class: return pointer directly
-                try b.write(self_name);
+                try b.emitRaw(self_name);
             } else {
                 // Top-level class: dereference to get value
                 try b.writeFmt("{s}.*", .{self_name});
@@ -283,17 +283,17 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
 
             const val = try self.captureExpr(value.*);
             if (should_wrap) {
-                try b.write("runtime.PyValue.from(");
+                try b.emitRaw("runtime.PyValue.from(");
                 try b.emitValue(val, .{});
-                try b.write(")");
+                try b.emitRaw(")");
             } else {
                 try b.emitValue(val, .{});
             }
         }
     } else {
-        try b.write("return ");
+        try b.emitRaw("return ");
     }
-    try b.write(";\n");
+    try b.emitRaw(";\n");
 
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);

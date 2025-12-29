@@ -29,30 +29,30 @@ fn emitBigIntFromInt(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) Co
 
 /// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, @intCast(value)))
 fn emitBigIntFromIntCast(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
-    try b.write("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
+    try b.emitRaw("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, @intCast(");
     try self.emitZigValue(operand);
-    try b.write(")))");
+    try b.emitRaw(")))");
 }
 
 /// Emit runtime.bigint_ops.fromInt(allocator, @as(i64, value))
 fn emitBigIntFromI64Cast(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
-    try b.write("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
+    try b.emitRaw("runtime.bigint_ops.fromInt(__global_allocator, @as(i64, ");
     try self.emitZigValue(operand);
-    try b.write("))");
+    try b.emitRaw("))");
 }
 
 /// Emit shift operand: @as(usize, @intCast(value))
 fn emitShiftOperand(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
-    try b.write("@as(usize, @intCast(");
+    try b.emitRaw("@as(usize, @intCast(");
     try self.emitZigValue(operand);
-    try b.write("))");
+    try b.emitRaw("))");
 }
 
 /// Emit pow exponent: @as(u32, @intCast(value))
 fn emitPowExponent(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) CodegenError!void {
-    try b.write("@as(u32, @intCast(");
+    try b.emitRaw("@as(u32, @intCast(");
     try self.emitZigValue(operand);
-    try b.write("))");
+    try b.emitRaw("))");
 }
 
 /// BigInt method names for standard binary operations (left.method(&right, allocator))
@@ -91,29 +91,29 @@ pub fn emitBigIntLeftOperand(s: *NativeCodegen, ltype: NativeType, left: *const 
 
     if (ltype == .bigint) {
         // Already BigInt - wrap in parens to ensure catch precedence is correct
-        try b.write("(");
+        try b.emitRaw("(");
         try s.emitZigValue(left_val);
-        try b.write(")");
+        try b.emitRaw(")");
     } else if (ltype == .int) {
         if (ltype.int.needsBigInt()) {
-            try b.write("(runtime.BigInt.fromInt128(");
-            try b.write(aname);
-            try b.write(", ");
+            try b.emitRaw("(runtime.BigInt.fromInt128(");
+            try b.emitRaw(aname);
+            try b.emitRaw(", ");
             try s.emitZigValue(left_val);
-            try b.write(") catch @panic(\"OOM\"))");
+            try b.emitRaw(") catch @panic(\"OOM\"))");
         } else {
-            try b.write("(runtime.BigInt.fromInt(");
-            try b.write(aname);
-            try b.write(", ");
+            try b.emitRaw("(runtime.BigInt.fromInt(");
+            try b.emitRaw(aname);
+            try b.emitRaw(", ");
             try s.emitZigValue(left_val);
-            try b.write(") catch @panic(\"OOM\"))");
+            try b.emitRaw(") catch @panic(\"OOM\"))");
         }
     } else {
-        try b.write("(runtime.BigInt.fromInt(");
-        try b.write(aname);
-        try b.write(", @as(i64, (");
+        try b.emitRaw("(runtime.BigInt.fromInt(");
+        try b.emitRaw(aname);
+        try b.emitRaw(", @as(i64, (");
         try s.emitZigValue(left_val);
-        try b.write("))) catch @panic(\"OOM\"))");
+        try b.emitRaw("))) catch @panic(\"OOM\"))");
     }
 }
 
@@ -124,29 +124,29 @@ pub fn emitBigIntRightOperand(s: *NativeCodegen, rtype: NativeType, right: *cons
     const right_val = try s.exprToValue(right.*);
 
     if (rtype == .bigint) {
-        try b.write("&(");
+        try b.emitRaw("&(");
         try s.emitZigValue(right_val);
-        try b.write(")");
+        try b.emitRaw(")");
     } else if (rtype == .int) {
         if (rtype.int.needsBigInt()) {
-            try b.write("&(runtime.BigInt.fromInt128(");
-            try b.write(aname);
-            try b.write(", ");
+            try b.emitRaw("&(runtime.BigInt.fromInt128(");
+            try b.emitRaw(aname);
+            try b.emitRaw(", ");
             try s.emitZigValue(right_val);
-            try b.write(") catch @panic(\"OOM\"))");
+            try b.emitRaw(") catch @panic(\"OOM\"))");
         } else {
-            try b.write("&(runtime.BigInt.fromInt(");
-            try b.write(aname);
-            try b.write(", ");
+            try b.emitRaw("&(runtime.BigInt.fromInt(");
+            try b.emitRaw(aname);
+            try b.emitRaw(", ");
             try s.emitZigValue(right_val);
-            try b.write(") catch @panic(\"OOM\"))");
+            try b.emitRaw(") catch @panic(\"OOM\"))");
         }
     } else {
-        try b.write("&(runtime.BigInt.fromInt(");
-        try b.write(aname);
-        try b.write(", @as(i64, (");
+        try b.emitRaw("&(runtime.BigInt.fromInt(");
+        try b.emitRaw(aname);
+        try b.emitRaw(", @as(i64, (");
         try s.emitZigValue(right_val);
-        try b.write("))) catch @panic(\"OOM\"))");
+        try b.emitRaw("))) catch @panic(\"OOM\"))");
     }
 }
 
@@ -168,12 +168,12 @@ pub const BigIntBinOpCtx = struct {
     pub fn emit(ctx: @This(), _: *NativeCodegen) CodegenError!void {
         const b = try ctx.cg.getBuilder();
         try emitBigIntLeftOperand(ctx.cg, ctx.left_type, ctx.left, ctx.alloc_name);
-        try b.write(".");
-        try b.write(ctx.method);
-        try b.write("(");
+        try b.emitRaw(".");
+        try b.emitRaw(ctx.method);
+        try b.emitRaw("(");
         try emitBigIntRightOperand(ctx.cg, ctx.right_type, ctx.right, ctx.alloc_name);
-        try b.write(", ");
-        try b.write(ctx.alloc_name);
+        try b.emitRaw(", ");
+        try b.emitRaw(ctx.alloc_name);
     }
 };
 
@@ -248,12 +248,12 @@ pub const BigIntShiftCtx = struct {
         const b = try ctx.cg.getBuilder();
         const right_val = try ctx.cg.exprToValue(ctx.right.*);
         try emitBigIntLeftOperand(ctx.cg, ctx.left_type, ctx.left, ctx.alloc_name);
-        try b.write(".");
-        try b.write(ctx.method);
-        try b.write("(@as(usize, @intCast(");
+        try b.emitRaw(".");
+        try b.emitRaw(ctx.method);
+        try b.emitRaw("(@as(usize, @intCast(");
         try ctx.cg.emitZigValue(right_val);
-        try b.write(")), ");
-        try b.write(ctx.alloc_name);
+        try b.emitRaw(")), ");
+        try b.emitRaw(ctx.alloc_name);
     }
 };
 
@@ -270,10 +270,10 @@ pub const BigIntPowCtx = struct {
         const b = try ctx.cg.getBuilder();
         const right_val = try ctx.cg.exprToValue(ctx.right.*);
         try emitBigIntLeftOperand(ctx.cg, ctx.left_type, ctx.left, ctx.alloc_name);
-        try b.write(".pow(@as(u32, @intCast(");
+        try b.emitRaw(".pow(@as(u32, @intCast(");
         try ctx.cg.emitZigValue(right_val);
-        try b.write(")), ");
-        try b.write(ctx.alloc_name);
+        try b.emitRaw(")), ");
+        try b.emitRaw(ctx.alloc_name);
     }
 };
 
@@ -293,27 +293,27 @@ pub const LargeExpPowCtx = struct {
         const right_val = try ctx.cg.exprToValue(ctx.binop.right.*);
 
         // Use unified_int_ops.pow(left, exp, allocator) -> UnifiedInt
-        try b.write("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
+        try b.emitRaw("runtime.unified_int_ops.pow(runtime.unified_int_ops.fromI64(");
         // Left operand with bool conversion
         if (ctx.left_is_bool) {
-            try b.write("@as(i64, @intFromBool(");
+            try b.emitRaw("@as(i64, @intFromBool(");
             try ctx.cg.emitZigValue(left_val);
-            try b.write("))");
+            try b.emitRaw("))");
         } else {
             try ctx.cg.emitZigValue(left_val);
         }
-        try b.write("), @as(u32, @intCast(");
+        try b.emitRaw("), @as(u32, @intCast(");
         // Right operand with bool conversion
         if (ctx.right_is_bool) {
-            try b.write("@as(i64, @intFromBool(");
+            try b.emitRaw("@as(i64, @intFromBool(");
             try ctx.cg.emitZigValue(right_val);
-            try b.write("))");
+            try b.emitRaw("))");
         } else {
             try ctx.cg.emitZigValue(right_val);
         }
-        try b.write(")), ");
-        try b.write(ctx.alloc_name);
-        try b.write(")");
+        try b.emitRaw(")), ");
+        try b.emitRaw(ctx.alloc_name);
+        try b.emitRaw(")");
     }
 };
 
@@ -340,13 +340,13 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     };
 
     // Emit: runtime.bigint_ops.xxx(left, right, allocator)
-    try b.write("runtime.bigint_ops.");
-    try b.write(runtime_fn);
-    try b.write("(");
+    try b.emitRaw("runtime.bigint_ops.");
+    try b.emitRaw(runtime_fn);
+    try b.emitRaw("(");
 
     // Emit left operand (convert to BigInt if needed)
     try emitBigIntOperandValue(self, b, left_type, left_operand);
-    try b.write(", ");
+    try b.emitRaw(", ");
 
     // For shift/pow operations, right operand is a primitive (usize/u32)
     if (binop.op == .LShift or binop.op == .RShift) {
@@ -358,7 +358,7 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
         try emitBigIntOperandValue(self, b, right_type, right_operand);
     }
 
-    try b.write(", __global_allocator)");
+    try b.emitRaw(", __global_allocator)");
     try self.flushBuilder();
 }
 
@@ -375,26 +375,26 @@ pub fn emitBigIntOperand(self: *NativeCodegen, op_type: NativeType, node: *const
     } else if (op_type == .int) {
         if (op_type.int.needsBigInt()) {
             // Large int (i128) - use fromInt with cast
-            try b.write("runtime.bigint_ops.fromInt(");
-            try b.write(alloc_name);
-            try b.write(", @as(i64, @intCast(");
+            try b.emitRaw("runtime.bigint_ops.fromInt(");
+            try b.emitRaw(alloc_name);
+            try b.emitRaw(", @as(i64, @intCast(");
             try self.emitZigValue(node_val);
-            try b.write(")))");
+            try b.emitRaw(")))");
         } else {
             // Normal i64
-            try b.write("runtime.bigint_ops.fromInt(");
-            try b.write(alloc_name);
-            try b.write(", ");
+            try b.emitRaw("runtime.bigint_ops.fromInt(");
+            try b.emitRaw(alloc_name);
+            try b.emitRaw(", ");
             try self.emitZigValue(node_val);
-            try b.write(")");
+            try b.emitRaw(")");
         }
     } else {
         // Unknown type - try to convert as i64
-        try b.write("runtime.bigint_ops.fromInt(");
-        try b.write(alloc_name);
-        try b.write(", @as(i64, ");
+        try b.emitRaw("runtime.bigint_ops.fromInt(");
+        try b.emitRaw(alloc_name);
+        try b.emitRaw(", @as(i64, ");
         try self.emitZigValue(node_val);
-        try b.write("))");
+        try b.emitRaw("))");
     }
 }
 

@@ -214,6 +214,9 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 }
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+
 /// Generate code for collections.namedtuple(typename, field_names)
 /// Returns a struct type that can be instantiated
 pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -227,16 +230,20 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     // Extract field names from second argument (should be a list/tuple)
     const b = try self.getBuilder();
-    try b.write("struct { ");
+
+    // Build the struct definition
+    var struct_def: std.ArrayList(u8) = .{};
+    try struct_def.appendSlice(self.allocator, "struct { ");
+
     // Try to get field names statically if possible
     if (args[1] == .list) {
         for (args[1].list.elts, 0..) |elt, i| {
-            if (i > 0) try b.write(", ");
+            if (i > 0) try struct_def.appendSlice(self.allocator, ", ");
             if (elt == .constant and elt.constant.value == .string) {
                 const field_name = elt.constant.value.string;
-                try b.writeFmt("{s}: @TypeOf(undefined)", .{field_name});
+                try struct_def.writer(self.allocator).print("{s}: @TypeOf(undefined)", .{field_name});
             } else {
-                try b.writeFmt("@\"{d}\": @TypeOf(undefined)", .{i});
+                try struct_def.writer(self.allocator).print("@\"{d}\": @TypeOf(undefined)", .{i});
             }
         }
     } else if (args[1] == .constant and args[1].constant.value == .string) {
@@ -246,14 +253,15 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         var i: usize = 0;
         while (iter.next()) |field| {
             if (field.len == 0) continue;
-            if (i > 0) try b.write(", ");
-            try b.writeFmt("{s}: @TypeOf(undefined)", .{field});
+            if (i > 0) try struct_def.appendSlice(self.allocator, ", ");
+            try struct_def.writer(self.allocator).print("{s}: @TypeOf(undefined)", .{field});
             i += 1;
         }
     }
-    try b.write(" }");
-    const output = try b.getBodyDupe();
-    try self.output.appendSlice(self.allocator, output);
+    try struct_def.appendSlice(self.allocator, " }");
+
+    try b.emitRaw(struct_def.items);
+    try self.flushBuilder();
 }
 
 /// Generate code for collections.ChainMap(*maps)

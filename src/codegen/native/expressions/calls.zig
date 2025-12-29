@@ -76,9 +76,9 @@ fn buildInitCall(self: *NativeCodegen, class_name: []const u8, args: []const ast
 /// Emit a PyValue.from(inner_value) expression using the builder
 /// Use this when you already have a builder and want to emit inline
 fn emitPyValueFromValue(b: *builder_mod.ZigBuilder, inner_value: ZigValue) !void {
-    try b.write("runtime.PyValue.from(");
+    try b.emitRaw("runtime.PyValue.from(");
     try b.emitValueCore(inner_value);
-    try b.write(")");
+    try b.emitRaw(")");
 }
 
 // NOTE: Legacy helpers emitRuntimeCallStart/emitInitCallStart have been removed.
@@ -96,6 +96,24 @@ fn emitPyValueFrom(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             try genExpr(s, ctx.e);
         }
     }.f);
+}
+
+/// Emit @as(i64, expr) wrapper for integer literals
+/// Helper guarantees matching parentheses by always emitting both open and close
+fn emitAsI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    const genExpr = @import("../expressions.zig").genExpr;
+    try self.emit("@as(i64, ");
+    try genExpr(self, expr);
+    try self.emit(")");
+}
+
+/// Emit runtime.toFloat(expr) for type conversion
+/// Helper guarantees matching parentheses by always emitting both open and close
+fn emitToFloat(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    const genExpr = @import("../expressions.zig").genExpr;
+    try self.emit("runtime.toFloat(");
+    try genExpr(self, expr);
+    try self.emit(")");
 }
 
 // Import trait functions for type checking
@@ -457,14 +475,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     const arg1 = if (call.args.len > 1) try self.exprToValue(call.args[1]) else ZigValue.raw("\"big\"");
 
                     if (is_bool_type) {
-                        try b.write("(");
+                        try b.emitRaw("(");
                     }
                     try b.emitCallExpr("runtime.intFromBytes", &.{
                         .{ .value = arg0 },
                         .{ .value = arg1 },
                     });
                     if (is_bool_type) {
-                        try b.write(" != 0)");
+                        try b.emitRaw(" != 0)");
                     }
                     try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
@@ -791,9 +809,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                                 try self.emitVMFallback(.{ .call = call });
                                 return;
                             } else {
-                                try self.emit("runtime.PyValue.from(");
-                                try genExpr(self, arg);
-                                try self.emit(")");
+                                try emitPyValueFrom(self, arg);
                             }
                         }
                         try self.emit("}");
@@ -932,9 +948,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     };
 
                     if (need_pyvalue_wrap) {
-                        try self.emit("runtime.PyValue.from(");
-                        try genExpr(self, arg);
-                        try self.emit(")");
+                        try emitPyValueFrom(self, arg);
                     } else {
                         try genExpr(self, arg);
                     }
@@ -996,23 +1010,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // MIGRATED TO BUILDER: uses exprToValue + emitZigValue
             const b = try self.getBuilder();
             const escaped_name = try zig_keywords.escapeIfKeyword(self.arena.allocator(), func_name);
-            try b.write("(try ");
-            try b.write(escaped_name);
-            try b.write(".call(");
+            try b.emitRaw("(try ");
+            try b.emitRaw(escaped_name);
+            try b.emitRaw(".call(");
 
             for (call.args, 0..) |arg, i| {
-                if (i > 0) try b.write(", ");
+                if (i > 0) try b.emitRaw(", ");
                 const arg_value = try self.exprToValue(arg);
                 try b.emitValueCore(arg_value);
             }
 
             for (call.keyword_args, 0..) |kwarg, i| {
-                if (i > 0 or call.args.len > 0) try b.write(", ");
+                if (i > 0 or call.args.len > 0) try b.emitRaw(", ");
                 const arg_value = try self.exprToValue(kwarg.value);
                 try b.emitValueCore(arg_value);
             }
 
-            try b.write("))");
+            try b.emitRaw("))");
             try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
@@ -1045,9 +1059,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (i > 0) try self.emit(", ");
                 // Check if arg is an integer constant that needs wrapping
                 if (isIntegerConstant(arg)) {
-                    try self.emit("@as(i64, ");
-                    try genExpr(self, arg);
-                    try self.emit(")");
+                    try emitAsI64(self, arg);
                 } else {
                     try genExpr(self, arg);
                 }
@@ -1056,9 +1068,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             for (call.keyword_args, 0..) |kwarg, i| {
                 if (i > 0 or call.args.len > 0) try self.emit(", ");
                 if (isIntegerConstant(kwarg.value)) {
-                    try self.emit("@as(i64, ");
-                    try genExpr(self, kwarg.value);
-                    try self.emit(")");
+                    try emitAsI64(self, kwarg.value);
                 } else {
                     try genExpr(self, kwarg.value);
                 }
@@ -1115,9 +1125,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
 
             if (use_try) {
-                try b.write("(try ");
+                try b.emitRaw("(try ");
                 try b.emitMethodCallExpr(receiver, "call", call_args.items);
-                try b.write(")");
+                try b.emitRaw(")");
             } else {
                 try b.emitMethodCallExpr(receiver, "call", call_args.items);
             }
@@ -1173,14 +1183,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // This is a labeled block construct - keep as special case
                 const starred_value = call.args[0].starred.value.*;
                 const sv = try self.exprToValue(starred_value);
-                try b.write("__starred_blk: { const __starred_t = ");
+                try b.emitRaw("__starred_blk: { const __starred_t = ");
                 try b.emitValueCore(sv);
-                try b.write("; break :__starred_blk ");
+                try b.emitRaw("; break :__starred_blk ");
                 try b.emitCallExpr(init_func, &.{
                     .{ .raw = "__starred_t.@\"0\"" },
                     .{ .raw = "__starred_t.@\"1\"" },
                 });
-                try b.write("; }");
+                try b.emitRaw("; }");
             } else {
                 // Normal case: R.init(arg1, arg2, ...)
                 var init_args: std.ArrayList(CallArg) = .{};
@@ -1251,9 +1261,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try array_literal.appendSlice(alloc, "}");
 
             const array_arg = ZigValue.raw(array_literal.items);
-            try b.write("(try ");
+            try b.emitRaw("(try ");
             try b.emitMethodCallExpr(receiver, "call", &.{.{ .value = array_arg }});
-            try b.write(")");
+            try b.emitRaw(")");
             // Copy final result to avoid aliasing
             const result = try alloc.dupe(u8, b.getBodyAndClear());
             try self.emitZigValue(ZigValue.raw(result));
@@ -1889,9 +1899,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try self.emit(", .{}) catch 0.0)");
                         } else {
                             // Unknown type - use runtime conversion that handles both
-                            try self.emit("runtime.toFloat(");
-                            try genExpr(self, arg);
-                            try self.emit(")");
+                            try emitToFloat(self, arg);
                         }
                     } else if (inherits_tuple_or_list and i == 0) {
                         // For tuple/list subclass, first arg is __base_value__ which needs PyValue

@@ -23,7 +23,7 @@ pub fn emitStringConcatDefer(self: *NativeCodegen, var_name: []const u8, is_firs
         try b.writeIndent();
         try b.writeFmt("defer {s}.free(", .{alloc_name});
         try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
-        try b.write(");\n");
+        try b.emitRaw(");\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
@@ -34,7 +34,7 @@ pub fn emitArrayListDefer(self: *NativeCodegen, var_name: []const u8) CodegenErr
     const alloc_name = getAllocName(self);
     const b = try self.getBuilder();
     try b.writeIndent();
-    try b.write("defer ");
+    try b.emitRaw("defer ");
     try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
     try b.writeFmt(".deinit({s});\n", .{alloc_name});
     const output = try b.getBodyDupe();
@@ -46,7 +46,7 @@ pub fn emitListCompDefer(self: *NativeCodegen, var_name: []const u8) CodegenErro
     const alloc_name = getAllocName(self);
     const b = try self.getBuilder();
     try b.writeIndent();
-    try b.write("defer ");
+    try b.emitRaw("defer ");
     try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
     try b.writeFmt(".deinit({s});\n", .{alloc_name});
     const output = try b.getBodyDupe();
@@ -81,9 +81,9 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         // Simple defer for non-dict literals
         const b = try self.getBuilder();
         try b.writeIndent();
-        try b.write("defer ");
+        try b.emitRaw("defer ");
         try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
-        try b.write(".deinit();\n");
+        try b.emitRaw(".deinit();\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
@@ -134,29 +134,29 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
     const writer = b.body.writer(b.allocator);
     if (needs_cleanup) {
         try b.writeIndent();
-        try b.write("defer {\n");
+        try b.emitRaw("defer {\n");
         self.indent();
         try b.writeIndent();
-        try b.write("for (");
+        try b.emitRaw("for (");
         try zig_keywords.writeLocalVarName(writer, var_name);
-        try b.write(".values()) |value| {\n");
+        try b.emitRaw(".values()) |value| {\n");
         self.indent();
         try b.writeIndent();
         try b.writeFmt("{s}.free(value);\n", .{alloc_name});
         self.dedent();
         try b.writeIndent();
-        try b.write("}\n");
+        try b.emitRaw("}\n");
         try b.writeIndent();
         try zig_keywords.writeLocalVarName(writer, var_name);
-        try b.write(".deinit();\n");
+        try b.emitRaw(".deinit();\n");
         self.dedent();
         try b.writeIndent();
-        try b.write("}\n");
+        try b.emitRaw("}\n");
     } else {
         try b.writeIndent();
-        try b.write("defer ");
+        try b.emitRaw("defer ");
         try zig_keywords.writeLocalVarName(writer, var_name);
-        try b.write(".deinit();\n");
+        try b.emitRaw(".deinit();\n");
     }
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
@@ -169,7 +169,7 @@ pub fn emitAllocatedStringDefer(self: *NativeCodegen, var_name: []const u8) Code
     try b.writeIndent();
     try b.writeFmt("defer {s}.free(", .{alloc_name});
     try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
-    try b.write(");\n");
+    try b.emitRaw(");\n");
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }

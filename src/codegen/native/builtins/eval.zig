@@ -100,11 +100,11 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     for (source) |c| {
         switch (c) {
-            '"' => try b.write("\\\""),
-            '\\' => try b.write("\\\\"),
-            '\n' => try b.write("\\n"),
-            '\r' => try b.write("\\r"),
-            '\t' => try b.write("\\t"),
+            '"' => try b.emitRaw("\\\""),
+            '\\' => try b.emitRaw("\\\\"),
+            '\n' => try b.emitRaw("\\n"),
+            '\r' => try b.emitRaw("\\r"),
+            '\t' => try b.emitRaw("\\t"),
             else => try b.body.append(b.allocator, c),
         }
     }

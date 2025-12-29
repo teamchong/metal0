@@ -87,38 +87,36 @@ pub fn genTimedelta(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(")");
 }
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 /// dt.weekday() - return day of week (0=Monday, 6=Sunday)
 pub fn genWeekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("@as(i64, 0)"); return; }
-    try self.withInlineBlock("wd", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("_ = ");
-            try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} @as(i64, 0); ", .{label});
-                const output = try b.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output);
-            }
+    const dt_val = try self.captureExpr(args[0]);
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__wd", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitDiscard(ctx);
+            try scope.breakWithRaw("@as(i64, 0)");
         }
-    }.emit);
+    }.emit, dt_val);
+    try self.flushBuilder();
 }
 
 /// dt.isoweekday() - return ISO day of week (1=Monday, 7=Sunday)
 pub fn genIsoweekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("@as(i64, 1)"); return; }
-    try self.withInlineBlock("iwd", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("_ = ");
-            try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; break :{s} @as(i64, 1); ", .{label});
-                const output = try b.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output);
-            }
+    const dt_val = try self.captureExpr(args[0]);
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__iwd", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitDiscard(ctx);
+            try scope.breakWithRaw("@as(i64, 1)");
         }
-    }.emit);
+    }.emit, dt_val);
+    try self.flushBuilder();
 }
 
 /// dt.replace(...) - return copy with replaced fields
@@ -241,18 +239,15 @@ pub fn genDatetimeCombine(self: *NativeCodegen, args: []ast.Node) CodegenError!v
 /// datetime.date.fromtimestamp(ts)
 pub fn genDateFromTimestamp(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
-    try self.withInlineBlock("dt", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            try c.emit("const _dt = runtime.datetime.Datetime.fromTimestamp(@intCast(");
-            try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt(")); break :{s} runtime.datetime.Date{{ .year = _dt.year, .month = _dt.month, .day = _dt.day }}; ", .{label});
-                const output = try b.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output);
-            }
+    const ts_val = try self.captureExpr(args[0]);
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__dt", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("_dt", "runtime.datetime.Datetime.fromTimestamp(@intCast(", ctx, "))");
+            try scope.breakWithRaw("runtime.datetime.Date{ .year = _dt.year, .month = _dt.month, .day = _dt.day }");
         }
-    }.emit);
+    }.emit, ts_val);
+    try self.flushBuilder();
 }
 
 /// datetime.date.fromisoformat(string)

@@ -16,27 +16,23 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genInputSource(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.write(".{ .system_id = @as(?[]const u8, null), .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw(".{ .system_id = @as(?[]const u8, null), .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }");
+        try self.flushBuilder();
         return;
     }
-    try self.withInlineBlock("is", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const system_id = ");
-            const output1 = try b2.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output1);
-            try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; break :{s} .{{ .system_id = system_id, .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }}", .{label});
-                const output2 = try b3.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+    const sys_id_val = try self.captureExpr(args[0]);
+    try b.withLabeledBlock("__is", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("system_id", "", ctx, "");
+            try scope.breakWithRaw(".{ .system_id = system_id, .public_id = @as(?[]const u8, null), .encoding = @as(?[]const u8, null), .byte_stream = @as(?*anyopaque, null), .character_stream = @as(?*anyopaque, null) }");
         }
-    }.emit);
+    }.emit, sys_id_val);
+    try self.flushBuilder();
 }

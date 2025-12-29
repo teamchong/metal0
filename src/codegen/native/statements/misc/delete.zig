@@ -32,7 +32,7 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                         const container_val = try self.captureExpr(sub.value.*);
                         const idx_val = try self.captureExpr(idx.*);
 
-                        try b.write("_ = ");
+                        try b.emitRaw("_ = ");
                         try b.emitValue(container_val, .{});
 
                         if (is_list) {
@@ -46,15 +46,15 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                             try b.writeFmt(".items.len; break :__del_blk_{d} if (__idx_{d} < 0) @as(usize, @intCast(@as(i64, @intCast(__len_{d})) + __idx_{d})) else @as(usize, @intCast(__idx_{d})); }});\n", .{ id, id, id, id, id });
                         } else {
                             // For dicts, use fetchSwapRemove (returns removed value or null)
-                            try b.write(".fetchSwapRemove(");
+                            try b.emitRaw(".fetchSwapRemove(");
                             try b.emitValue(idx_val, .{});
-                            try b.write(");\n");
+                            try b.emitRaw(");\n");
                         }
                     },
                     .slice => |slice| {
                         // del list[a:b] - delete elements from a to b
                         // Use replaceRange with empty slice to remove elements
-                        try b.write("{\n");
+                        try b.emitRaw("{\n");
                         b.indent();
 
                         // Capture list expression
@@ -62,7 +62,7 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
 
                         // Get list reference - handle ArrayList aliases
                         try b.writeIndent();
-                        try b.write("const __list = ");
+                        try b.emitRaw("const __list = ");
                         if (sub.value.* == .name) {
                             const var_name = sub.value.name.id;
                             if (self.isArrayListAlias(var_name)) {
@@ -70,68 +70,68 @@ pub fn genDel(self: *NativeCodegen, del_node: ast.Node.Del) CodegenError!void {
                                 try b.emitValue(list_val, .{});
                             } else {
                                 // Regular ArrayList, take address
-                                try b.write("&");
+                                try b.emitRaw("&");
                                 try b.emitValue(list_val, .{});
                             }
                         } else {
-                            try b.write("&");
+                            try b.emitRaw("&");
                             try b.emitValue(list_val, .{});
                         }
-                        try b.write(";\n");
+                        try b.emitRaw(";\n");
 
                         // Calculate start index
                         try b.writeIndent();
                         if (slice.lower) |lower| {
                             const lower_val = try self.captureExpr(lower.*);
-                            try b.write("const __start: usize = @intCast(");
+                            try b.emitRaw("const __start: usize = @intCast(");
                             try b.emitValue(lower_val, .{});
-                            try b.write(");\n");
+                            try b.emitRaw(");\n");
                         } else {
-                            try b.write("const __start: usize = 0;\n");
+                            try b.emitRaw("const __start: usize = 0;\n");
                         }
 
                         // Calculate end index
                         try b.writeIndent();
                         if (slice.upper) |upper| {
                             const upper_val = try self.captureExpr(upper.*);
-                            try b.write("const __end: usize = @intCast(");
+                            try b.emitRaw("const __end: usize = @intCast(");
                             try b.emitValue(upper_val, .{});
-                            try b.write(");\n");
+                            try b.emitRaw(");\n");
                         } else {
-                            try b.write("const __end: usize = __list.items.len;\n");
+                            try b.emitRaw("const __end: usize = __list.items.len;\n");
                         }
 
                         // Replace slice with empty slice to delete elements
                         // replaceRange(allocator, start, length, replacement)
                         try b.writeIndent();
-                        try b.write("const __empty: [0]@TypeOf(__list.items[0]) = .{};\n");
+                        try b.emitRaw("const __empty: [0]@TypeOf(__list.items[0]) = .{};\n");
                         try b.writeIndent();
-                        try b.write("__list.replaceRange(__global_allocator, __start, __end - __start, &__empty) catch unreachable;\n");
+                        try b.emitRaw("__list.replaceRange(__global_allocator, __start, __end - __start, &__empty) catch unreachable;\n");
 
                         b.dedent();
                         try b.writeIndent();
-                        try b.write("}\n");
+                        try b.emitRaw("}\n");
                     },
                 }
             },
             .attribute => |attr| {
                 // del obj.attr - no-op in compiled code (would need dynamic attr deletion)
                 const attr_val = try self.captureExpr(attr.value.*);
-                try b.write("// del ");
+                try b.emitRaw("// del ");
                 try b.emitValue(attr_val, .{});
-                try b.write(".");
-                try b.write(attr.attr);
-                try b.write(" (no-op in AOT)\n");
+                try b.emitRaw(".");
+                try b.emitRaw(attr.attr);
+                try b.emitRaw(" (no-op in AOT)\n");
             },
             .name => {
                 // del var - just a memory hint in Python, no-op in compiled code
-                try b.write("// del ");
-                try b.write(target.name.id);
-                try b.write(" (no-op in AOT)\n");
+                try b.emitRaw("// del ");
+                try b.emitRaw(target.name.id);
+                try b.emitRaw(" (no-op in AOT)\n");
             },
             else => {
                 // Unsupported target type
-                try b.write("// del statement (no-op in AOT)\n");
+                try b.emitRaw("// del statement (no-op in AOT)\n");
             },
         }
     }

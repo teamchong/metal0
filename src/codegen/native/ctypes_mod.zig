@@ -89,15 +89,24 @@ pub const Funcs = std.StaticStringMap(H).initComptime(.{
 
 // === Complex handlers ===
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genCDLL(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
-    {
-        const b = try self.getBuilder();
-        try b.write("(runtime.ctypes.CDLL.init(__global_allocator, ");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+    const b = try self.getBuilder();
+    if (args.len > 0) {
+        const path_val = try self.captureExpr(args[0]);
+        try b.withLabeledBlock("__cdll", struct {
+            fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+                try bld.emitConstWithValue("__path", "", ctx, "");
+                try scope.breakWithRaw("(runtime.ctypes.CDLL.init(__global_allocator, __path) catch unreachable)");
+            }
+        }.emit, path_val);
+    } else {
+        try b.emitRaw("(runtime.ctypes.CDLL.init(__global_allocator, \"\") catch unreachable)");
     }
-    if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
-    try self.emit(") catch unreachable)");
+    try self.flushBuilder();
 }
 
 fn genCBool(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {

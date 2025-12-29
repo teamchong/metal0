@@ -44,7 +44,7 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     if (all_bool and !has_vm_fallback) {
         const op_str = if (boolop.op == .And) " and " else " or ";
         for (boolop.values, 0..) |value, i| {
-            if (i > 0) try b.write(op_str);
+            if (i > 0) try b.emitRaw(op_str);
             const operand = try self.captureExpr(value);
             try self.emitZigValue(operand);
         }
@@ -93,17 +93,17 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
             const b_operand = try self.captureExpr(b_val);
 
             // Emit: runtime.toBool(try runtime.pyOr/pyAnd(__global_allocator, a, b))
-            try b.write("runtime.toBool(");
+            try b.emitRaw("runtime.toBool(");
             if (boolop.op == .Or) {
-                try b.write("try runtime.pyOr(");
+                try b.emitRaw("try runtime.pyOr(");
             } else {
-                try b.write("try runtime.pyAnd(");
+                try b.emitRaw("try runtime.pyAnd(");
             }
-            try b.write("__global_allocator, ");
+            try b.emitRaw("__global_allocator, ");
             try self.emitZigValue(a_operand);
-            try b.write(", ");
+            try b.emitRaw(", ");
             try self.emitZigValue(b_operand);
-            try b.write("))");
+            try b.emitRaw("))");
             try self.flushBuilder();
             return;
         }
@@ -146,12 +146,12 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
     // For more than 2 values, use simple approach (may not be fully correct but handles common cases)
     const op_str = if (boolop.op == .And) " and " else " or ";
     for (boolop.values, 0..) |value, i| {
-        if (i > 0) try b.write(op_str);
+        if (i > 0) try b.emitRaw(op_str);
         const operand = try self.captureExpr(value);
         // Emit: runtime.toBool(operand)
-        try b.write("runtime.toBool(");
+        try b.emitRaw("runtime.toBool(");
         try self.emitZigValue(operand);
-        try b.write(")");
+        try b.emitRaw(")");
     }
     try self.flushBuilder();
 }

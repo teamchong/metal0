@@ -19,7 +19,7 @@ const container_traits = @import("../../../analysis/traits/container_traits.zig"
 fn emitIndent(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     try b.writeIndent();
-    try b.write(val);
+    try b.emitRaw(val);
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }

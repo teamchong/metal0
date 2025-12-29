@@ -40,9 +40,9 @@ fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
 
     // PyValue: use .isTruthy() method (must check first as PyValue can hold any type)
     if (operand_type == .pyvalue) {
-        try b.write("!");
+        try b.emitRaw("!");
         try self.emitZigValue(operand);
-        try b.write(".isTruthy()");
+        try b.emitRaw(".isTruthy()");
         try self.flushBuilder();
         return;
     }
@@ -52,9 +52,9 @@ fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     if (unaryop.operand.* == .name) {
         const var_name = unaryop.operand.name.id;
         if (self.pyvalue_vars.contains(var_name)) {
-            try b.write("!");
+            try b.emitRaw("!");
             try self.emitZigValue(operand);
-            try b.write(".isTruthy()");
+            try b.emitRaw(".isTruthy()");
             try self.flushBuilder();
             return;
         }
@@ -62,35 +62,35 @@ fn genNotOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
 
     if (string_traits.isString(operand_type)) {
         // String: not "abc" -> len == 0
-        try b.write("(");
+        try b.emitRaw("(");
         try self.emitZigValue(operand);
-        try b.write(").len == 0");
+        try b.emitRaw(").len == 0");
     } else if (container_traits.isList(operand_type)) {
         // List: not lst -> !runtime.toBool(lst)
-        try b.write("!runtime.toBool(");
+        try b.emitRaw("!runtime.toBool(");
         try self.emitZigValue(operand);
-        try b.write(")");
+        try b.emitRaw(")");
     } else if (container_traits.isTuple(operand_type)) {
         // Tuple: not tup -> len == 0
-        try b.write("(@typeInfo(@TypeOf(");
+        try b.emitRaw("(@typeInfo(@TypeOf(");
         try self.emitZigValue(operand);
-        try b.write(")).@\"struct\".fields.len == 0)");
+        try b.emitRaw(")).@\"struct\".fields.len == 0)");
     } else if (shared.isEmptyTuple(unaryop.operand.*)) {
         // Empty tuple literal: not () -> true
-        try b.write("true");
+        try b.emitRaw("true");
     } else if (unaryop.operand.* == .tuple) {
         // Non-empty tuple literal: not (1,2) -> false
-        try b.write("false");
+        try b.emitRaw("false");
     } else if (type_traits.isBoolean(operand_type) or type_traits.isIntegral(operand_type) or type_traits.isFloating(operand_type)) {
         // Primitives: not x -> !(x)
-        try b.write("!(");
+        try b.emitRaw("!(");
         try self.emitZigValue(operand);
-        try b.write(")");
+        try b.emitRaw(")");
     } else {
         // Fallback: runtime.toBool
-        try b.write("!runtime.toBool(");
+        try b.emitRaw("!runtime.toBool(");
         try self.emitZigValue(operand);
-        try b.write(")");
+        try b.emitRaw(")");
     }
     try self.flushBuilder();
 }
@@ -103,9 +103,9 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     // PyValue: use .neg() method
     if (operand_type == .pyvalue) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("(");
+        try b.emitRaw("(");
         try self.emitZigValue(operand);
-        try b.write(").neg()");
+        try b.emitRaw(").neg()");
         try self.flushBuilder();
         return;
     }
@@ -113,9 +113,9 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     // Boolean: -True/-False -> -@intFromBool
     if (type_traits.isBoolean(operand_type)) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("-@as(i64, @intFromBool(");
+        try b.emitRaw("-@as(i64, @intFromBool(");
         try self.emitZigValue(operand);
-        try b.write("))");
+        try b.emitRaw("))");
         try self.flushBuilder();
         return;
     }
@@ -123,9 +123,9 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     // Complex: use .neg() method
     if (operand_type == .complex) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("(");
+        try b.emitRaw("(");
         try self.emitZigValue(operand);
-        try b.write(").neg()");
+        try b.emitRaw(").neg()");
         try self.flushBuilder();
         return;
     }
@@ -133,9 +133,9 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     // UnifiedInt: use runtime helper
     if (operand_type == .unified_int) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("runtime.unified_int_ops.neg(");
+        try b.emitRaw("runtime.unified_int_ops.neg(");
         try self.emitZigValue(operand);
-        try b.write(", __global_allocator)");
+        try b.emitRaw(", __global_allocator)");
         try self.flushBuilder();
         return;
     }
@@ -143,9 +143,9 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     // BigInt: use runtime helper
     if (operand_type == .bigint) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("runtime.bigint_ops.neg(");
+        try b.emitRaw("runtime.bigint_ops.neg(");
         try self.emitZigValue(operand);
-        try b.write(", __global_allocator)");
+        try b.emitRaw(", __global_allocator)");
         try self.flushBuilder();
         return;
     }
@@ -164,9 +164,9 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
 
     // Default: simple negation
     const operand = try self.captureExpr(unaryop.operand.*);
-    try b.write("-(");
+    try b.emitRaw("-(");
     try self.emitZigValue(operand);
-    try b.write(")");
+    try b.emitRaw(")");
     try self.flushBuilder();
 }
 
@@ -179,9 +179,9 @@ fn genPosOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     if (type_traits.isBoolean(operand_type)) {
         // Boolean: +True -> 1, +False -> 0
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("@as(i64, @intFromBool(");
+        try b.emitRaw("@as(i64, @intFromBool(");
         try self.emitZigValue(operand);
-        try b.write("))");
+        try b.emitRaw("))");
         try self.flushBuilder();
     } else {
         // Others: just emit the operand
@@ -205,9 +205,9 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
 
     if (is_pyvalue) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("(");
+        try b.emitRaw("(");
         try self.emitZigValue(operand);
-        try b.write(").pyInvert()");
+        try b.emitRaw(").pyInvert()");
         try self.flushBuilder();
         return;
     }
@@ -232,9 +232,9 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
     if (is_bool) {
         // Boolean: ~True -> ~1 = -2
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("~@as(i64, @intFromBool(");
+        try b.emitRaw("~@as(i64, @intFromBool(");
         try self.emitZigValue(operand);
-        try b.write("))");
+        try b.emitRaw("))");
         try self.flushBuilder();
         return;
     }
@@ -242,9 +242,9 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
     // UnifiedInt: use runtime helper
     if (operand_type == .unified_int) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.write("runtime.unified_int_ops.bitNot(");
+        try b.emitRaw("runtime.unified_int_ops.bitNot(");
         try self.emitZigValue(operand);
-        try b.write(", __global_allocator)");
+        try b.emitRaw(", __global_allocator)");
         try self.flushBuilder();
         return;
     }
@@ -263,8 +263,8 @@ fn genInvertOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!voi
 
     // Default: simple bitwise invert with i64 cast
     const operand = try self.captureExpr(unaryop.operand.*);
-    try b.write("~@as(i64, ");
+    try b.emitRaw("~@as(i64, ");
     try self.emitZigValue(operand);
-    try b.write(")");
+    try b.emitRaw(")");
     try self.flushBuilder();
 }

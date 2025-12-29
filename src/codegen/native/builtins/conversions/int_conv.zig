@@ -9,6 +9,9 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
+const CallArg = builder_mod.ZigBuilder.CallArg;
 
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
@@ -502,6 +505,27 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit(")).asI64())");
 }
 
+/// Helper to emit runtime.builtins.{hex,oct,bin}(allocator, arg) with builder pattern
+fn emitIntToBaseCall(cg: *NativeCodegen, builtin_name: []const u8, arg: ast.Node, extract_from_pyvalue: bool) CodegenError!void {
+    const b = try cg.getBuilder();
+    const func_name = std.fmt.allocPrint(cg.arena.allocator(), "runtime.builtins.{s}", .{builtin_name}) catch return error.OutOfMemory;
+    try b.withCall(func_name, struct {
+        fn f(builder: *builder_mod.ZigBuilder, ctx: anytype) !void {
+            try builder.write("__global_allocator, ");
+            if (ctx.extract_from_pyvalue) {
+                try builder.write("(");
+                const val = try ctx.cg.captureExpr(ctx.arg);
+                try builder.emitValueCore(val);
+                try builder.write(").asInt()");
+            } else {
+                const val = try ctx.cg.captureExpr(ctx.arg);
+                try builder.emitValueCore(val);
+            }
+        }
+    }.f, .{ .cg = cg, .arg = arg, .extract_from_pyvalue = extract_from_pyvalue });
+    try cg.flushBuilder();
+}
+
 /// Generate code for hex(x) - convert int to hex string prefixed with "0x"
 /// Two-Flow: Extract int from PyValue for uncertain types
 pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -511,16 +535,8 @@ pub fn genHex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
-    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        // Extract int from PyValue using asInt()
-        try self.emit("runtime.builtins.hex(__global_allocator, (");
-        try self.genExpr(args[0]);
-        try self.emit(").asInt())");
-    } else {
-        try self.emit("runtime.builtins.hex(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
-    }
+    const is_pyvalue = type_traits.isUnknown(arg_type) or arg_type == .pyvalue;
+    try emitIntToBaseCall(self, "hex", args[0], is_pyvalue);
 }
 
 /// Generate code for oct(x) - convert int to octal string prefixed with "0o"
@@ -532,16 +548,8 @@ pub fn genOct(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
-    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        // Extract int from PyValue using asInt()
-        try self.emit("runtime.builtins.oct(__global_allocator, (");
-        try self.genExpr(args[0]);
-        try self.emit(").asInt())");
-    } else {
-        try self.emit("runtime.builtins.oct(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
-    }
+    const is_pyvalue = type_traits.isUnknown(arg_type) or arg_type == .pyvalue;
+    try emitIntToBaseCall(self, "oct", args[0], is_pyvalue);
 }
 
 /// Generate code for bin(x) - convert int to binary string prefixed with "0b"
@@ -553,16 +561,8 @@ pub fn genBin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
     // Two-Flow: Check if argument is uncertain (PyValue)
     const arg_type = self.inferExprScoped(args[0]) catch .unknown;
-    if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        // Extract int from PyValue using asInt()
-        try self.emit("runtime.builtins.bin(__global_allocator, (");
-        try self.genExpr(args[0]);
-        try self.emit(").asInt())");
-    } else {
-        try self.emit("runtime.builtins.bin(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
-    }
+    const is_pyvalue = type_traits.isUnknown(arg_type) or arg_type == .pyvalue;
+    try emitIntToBaseCall(self, "bin", args[0], is_pyvalue);
 }
 
 /// Generate code for bool(obj)

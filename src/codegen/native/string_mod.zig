@@ -13,31 +13,30 @@ pub const genPunctuation = h.c("\"!\\\"#$%&'()*+,-./:;<=>?@[\\\\]^_`{|}~\"");
 
 const tmpl = "struct { template: []const u8, pub fn substitute(__self: @This(), _: anytype) []const u8 { return __self.template; } pub fn safe_substitute(__self: @This(), _: anytype) []const u8 { return __self.template; } }";
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 /// Generate string.capwords(s) - capitalize first letter of each word
 /// Emits: capwords_{id}: { const _s = arg; var _result: std.ArrayList(u8) = .{}; ... break :capwords_{id} _result.items; }
 pub fn genCapwords(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.write("\"\"");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw("\"\"");
+        try self.flushBuilder();
         return;
     }
-    try self.withInlineBlock("capwords", args, struct {
-        fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const _s = ");
-            const output1 = try b2.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output1);
-            try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; var _result: std.ArrayList(u8) = .{{}}; var _cap_next = true; for (_s) |ch| {{ if (ch == ' ') {{ _result.append(__global_allocator, ' ') catch continue; _cap_next = true; }} else if (_cap_next and ch >= 'a' and ch <= 'z') {{ _result.append(__global_allocator, ch - 32) catch continue; _cap_next = false; }} else {{ _result.append(__global_allocator, ch) catch continue; _cap_next = false; }} }} break :{s} _result.items", .{label});
-                const output2 = try b3.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+    const s_val = try self.captureExpr(args[0]);
+    try b.withLabeledBlock("__capwords", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("_s", "", ctx, "");
+            try bld.emitVarRaw("_result", "std.ArrayList(u8)", ".{}");
+            try bld.emitVarRaw("_cap_next", null, "true");
+            try bld.emitRawLine("for (_s) |ch| { if (ch == ' ') { _result.append(__global_allocator, ' ') catch continue; _cap_next = true; } else if (_cap_next and ch >= 'a' and ch <= 'z') { _result.append(__global_allocator, ch - 32) catch continue; _cap_next = false; } else { _result.append(__global_allocator, ch) catch continue; _cap_next = false; } }");
+            try scope.breakWithRaw("_result.items");
         }
-    }.emit);
+    }.emit, s_val);
+    try self.flushBuilder();
 }
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{

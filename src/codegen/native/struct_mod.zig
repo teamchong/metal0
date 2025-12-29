@@ -12,10 +12,12 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn getFormatStr(arg: ast.Node) ?[]const u8 {
-    return if (arg == .constant and arg.constant.value == .string) blk: {
-        const s = arg.constant.value.string;
-        break :blk if (s.len >= 2) s[1 .. s.len - 1] else s;
-    } else null;
+    // NOTE: Parser already strips quotes from string literals
+    // So we get the raw format string directly, e.g. "<f" not "\"<f\""
+    return if (arg == .constant and arg.constant.value == .string)
+        arg.constant.value.string
+    else
+        null;
 }
 
 fn getPackType(c: u8) []const u8 {

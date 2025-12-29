@@ -10,31 +10,29 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "ZipImportError", genZipImportError },
 });
 
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genZipimporter(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
         // With argument: .{ .archive = __v, .prefix = "" }
-        try b.write(".{ .archive = ");
-        const output1 = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output1);
-        try self.genExpr(args[0]);
-        {
-            const b2 = try self.getBuilder();
-            try b2.write(", .prefix = \"\" }");
-            const output2 = try b2.getBodyDupe();
-            try self.output.appendSlice(self.allocator, output2);
-        }
+        const archive_val = try self.captureExpr(args[0]);
+        try b.withLabeledBlock("__zip", struct {
+            fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+                try bld.emitConstWithValue("__archive", "", ctx, "");
+                try scope.breakWithRaw(".{ .archive = __archive, .prefix = \"\" }");
+            }
+        }.emit, archive_val);
     } else {
         // Without argument: default struct
-        try b.write(".{ .archive = \"\", .prefix = \"\" }");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw(".{ .archive = \"\", .prefix = \"\" }");
     }
+    try self.flushBuilder();
 }
 
 fn genZipImportError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.write("error.ZipImportError");
-    const output = try b.getBodyDupe();
-    try self.output.appendSlice(self.allocator, output);
+    try b.emitRaw("error.ZipImportError");
+    try self.flushBuilder();
 }

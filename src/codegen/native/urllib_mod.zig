@@ -27,34 +27,28 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "parse_qsl", h.wrapBlk("pqsl", parseQslBody, "_result.items", "&.{}") },
 });
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genUrljoin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     if (args.len < 2) {
-        try b.write("\"\"");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw("\"\"");
+        try self.flushBuilder();
         return;
     }
-    try self.withInlineBlock("join", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const _base = ");
-            const output1 = try b2.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output1);
-            try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.write("; const _url = ");
-                const output2 = try b3.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output2);
-            }
-            try c.genExpr(a[1]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; if (std.mem.indexOf(u8, _url, \"://\") != null) break :{s} _url; if (_url.len > 0 and _url[0] == '/') {{ if (std.mem.indexOf(u8, _base, \"://\")) |i| {{ if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| {{ var r: std.ArrayList(u8) = .{{}}; r.appendSlice(__global_allocator, _base[0..j]) catch unreachable; r.appendSlice(__global_allocator, _url) catch unreachable; break :{s} r.items; }} }} }} break :{s} _url", .{ label, label, label });
-                const output3 = try b3.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output3);
-            }
+    const base_val = try self.captureExpr(args[0]);
+    const url_val = try self.captureExpr(args[1]);
+    const Context = struct { base: ZigValue, url: ZigValue };
+    try b.withLabeledBlock("__join", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: Context) !void {
+            try bld.emitConstWithValue("_base", "", ctx.base, "");
+            try bld.emitConstWithValue("_url", "", ctx.url, "");
+            try bld.emitRawLine("if (std.mem.indexOf(u8, _url, \"://\") != null) break :__join _url;");
+            try bld.emitRawLine("if (_url.len > 0 and _url[0] == '/') { if (std.mem.indexOf(u8, _base, \"://\")) |i| { if (std.mem.indexOfScalarPos(u8, _base, i + 3, '/')) |j| { var r: std.ArrayList(u8) = .{}; r.appendSlice(__global_allocator, _base[0..j]) catch unreachable; r.appendSlice(__global_allocator, _url) catch unreachable; break :__join r.items; } } }");
+            try scope.breakWithRaw("_url");
         }
-    }.emit);
+    }.emit, Context{ .base = base_val, .url = url_val });
+    try self.flushBuilder();
 }

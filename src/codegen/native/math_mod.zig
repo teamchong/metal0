@@ -142,11 +142,13 @@ fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genCopysign(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        try self.emit("runtime.math.copysign(");
+        // Wrap arguments with @as(f64, ...) to prevent comptime evaluation
+        // when args are comptime_int/float (e.g., copysign(1, inf) would fail)
+        try self.emit("runtime.math.copysign(@as(f64, ");
         try self.genExpr(args[0]);
-        try self.emit(", ");
+        try self.emit("), @as(f64, ");
         try self.genExpr(args[1]);
-        try self.emit(")");
+        try self.emit("))");
     } else {
         try self.emit("@as(f64, 0.0)");
     }

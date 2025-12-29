@@ -31,106 +31,106 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     const zig_type = getZigType(typecode);
     const b = try self.getBuilder();
 
-    try b.write("struct { typecode: u8 = '");
-    try b.write(&[_]u8{typecode});
-    try b.write("', items: std.ArrayListUnmanaged(");
-    try b.write(zig_type);
-    try b.write(") = .{}, ");
+    try b.emitRaw("struct { typecode: u8 = '");
+    try b.emitRaw(&[_]u8{typecode});
+    try b.emitRaw("', items: std.ArrayListUnmanaged(");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") = .{}, ");
 
     // append method - accepts optional allocator for compatibility with list.append dispatch
-    try b.write("pub fn append(__self: *@This(), _: std.mem.Allocator, x: ");
-    try b.write(zig_type);
-    try b.write(") !void { try __self.items.append(__global_allocator, x); } ");
+    try b.emitRaw("pub fn append(__self: *@This(), _: std.mem.Allocator, x: ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") !void { try __self.items.append(__global_allocator, x); } ");
 
     // extend method
-    try b.write("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch @panic(\"array extend OOM\"); } ");
+    try b.emitRaw("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch @panic(\"array extend OOM\"); } ");
 
     // insert method
-    try b.write("pub fn insert(__self: *@This(), i: usize, x: ");
-    try b.write(zig_type);
-    try b.write(") void { __self.items.insert(__global_allocator, i, x) catch @panic(\"array insert OOM\"); } ");
+    try b.emitRaw("pub fn insert(__self: *@This(), i: usize, x: ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") void { __self.items.insert(__global_allocator, i, x) catch @panic(\"array insert OOM\"); } ");
 
     // remove method
-    try b.write("pub fn remove(__self: *@This(), x: ");
-    try b.write(zig_type);
-    try b.write(") void { for (__self.items.items, 0..) |v, i| { if (v == x) { _ = __self.items.orderedRemove(i); return; } } } ");
+    try b.emitRaw("pub fn remove(__self: *@This(), x: ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") void { for (__self.items.items, 0..) |v, i| { if (v == x) { _ = __self.items.orderedRemove(i); return; } } } ");
 
     // pop method
-    try b.write("pub fn pop(__self: *@This()) ");
-    try b.write(zig_type);
-    try b.write(" { return __self.items.pop(); } ");
+    try b.emitRaw("pub fn pop(__self: *@This()) ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(" { return __self.items.pop(); } ");
 
     // index method
-    try b.write("pub fn index(__self: *@This(), x: ");
-    try b.write(zig_type);
-    try b.write(") ?usize { for (__self.items.items, 0..) |v, i| { if (v == x) return i; } return null; } ");
+    try b.emitRaw("pub fn index(__self: *@This(), x: ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") ?usize { for (__self.items.items, 0..) |v, i| { if (v == x) return i; } return null; } ");
 
     // count method
-    try b.write("pub fn count(__self: *@This(), x: ");
-    try b.write(zig_type);
-    try b.write(") usize { var c: usize = 0; for (__self.items.items) |v| { if (v == x) c += 1; } return c; } ");
+    try b.emitRaw("pub fn count(__self: *@This(), x: ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") usize { var c: usize = 0; for (__self.items.items) |v| { if (v == x) c += 1; } return c; } ");
 
     // reverse method
-    try b.write("pub fn reverse(__self: *@This()) void { std.mem.reverse(");
-    try b.write(zig_type);
-    try b.write(", __self.items.items); } ");
+    try b.emitRaw("pub fn reverse(__self: *@This()) void { std.mem.reverse(");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(", __self.items.items); } ");
 
     // tobytes method
-    try b.write("pub fn tobytes(__self: *@This()) []const u8 { return std.mem.sliceAsBytes(__self.items.items); } ");
+    try b.emitRaw("pub fn tobytes(__self: *@This()) []const u8 { return std.mem.sliceAsBytes(__self.items.items); } ");
 
     // tolist method
-    try b.write("pub fn tolist(__self: *@This()) []");
-    try b.write(zig_type);
-    try b.write(" { return __self.items.items; } ");
+    try b.emitRaw("pub fn tolist(__self: *@This()) []");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(" { return __self.items.items; } ");
 
     // frombytes method - critical for 'B' arrays
-    try b.write("pub fn frombytes(__self: *@This(), s: []const u8) void { ");
+    try b.emitRaw("pub fn frombytes(__self: *@This(), s: []const u8) void { ");
     if (typecode == 'B' or typecode == 'b') {
         // For byte arrays, copy directly (use __byte to avoid shadowing outer 'b' param)
-        try b.write("for (s) |__byte| __self.items.append(__global_allocator, ");
+        try b.emitRaw("for (s) |__byte| __self.items.append(__global_allocator, ");
         if (typecode == 'b') {
-            try b.write("@as(i8, @bitCast(__byte))");
+            try b.emitRaw("@as(i8, @bitCast(__byte))");
         } else {
-            try b.write("__byte");
+            try b.emitRaw("__byte");
         }
-        try b.write(") catch @panic(\"array frombytes OOM\"); } ");
+        try b.emitRaw(") catch @panic(\"array frombytes OOM\"); } ");
     } else {
         // For other types, reinterpret bytes
-        try b.write("const typed_slice = std.mem.bytesAsSlice(");
-        try b.write(zig_type);
-        try b.write(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch @panic(\"array frombytes OOM\"); } ");
+        try b.emitRaw("const typed_slice = std.mem.bytesAsSlice(");
+        try b.emitRaw(zig_type);
+        try b.emitRaw(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch @panic(\"array frombytes OOM\"); } ");
     }
 
     // fromlist method
-    try b.write("pub fn fromlist(__self: *@This(), list: []");
-    try b.write(zig_type);
-    try b.write(") void { for (list) |x| __self.append(__global_allocator, x) catch @panic(\"array fromlist OOM\"); } ");
+    try b.emitRaw("pub fn fromlist(__self: *@This(), list: []");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") void { for (list) |x| __self.append(__global_allocator, x) catch @panic(\"array fromlist OOM\"); } ");
 
     // buffer_info method
-    try b.write("pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } ");
+    try b.emitRaw("pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } ");
 
     // byteswap method
-    try b.write("pub fn byteswap(__self: *@This()) void { _ = __self; } ");
+    try b.emitRaw("pub fn byteswap(__self: *@This()) void { _ = __self; } ");
 
     // __len__ method
-    try b.write("pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } ");
+    try b.emitRaw("pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } ");
 
     // __getitem__ method
-    try b.write("pub fn __getitem__(__self: *@This(), i: usize) ");
-    try b.write(zig_type);
-    try b.write(" { return __self.items.items[i]; } ");
+    try b.emitRaw("pub fn __getitem__(__self: *@This(), i: usize) ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(" { return __self.items.items[i]; } ");
 
     // __setitem__ method
-    try b.write("pub fn __setitem__(__self: *@This(), i: usize, v: ");
-    try b.write(zig_type);
-    try b.write(") void { __self.items.items[i] = v; } ");
+    try b.emitRaw("pub fn __setitem__(__self: *@This(), i: usize, v: ");
+    try b.emitRaw(zig_type);
+    try b.emitRaw(") void { __self.items.items[i] = v; } ");
 
     // itemsize method
-    try b.write("pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(");
-    try b.write(zig_type);
-    try b.write("); } ");
+    try b.emitRaw("pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(");
+    try b.emitRaw(zig_type);
+    try b.emitRaw("); } ");
 
-    try b.write("}{}");
+    try b.emitRaw("}{}");
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }

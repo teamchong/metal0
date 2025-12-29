@@ -29,31 +29,31 @@ fn genRaiseMessage(self: *NativeCodegen, b: anytype, arg: ast.Node) CodegenError
     if (arg == .constant and arg.constant.value == .string) {
         // String literal - emit with proper escaping
         const raw = arg.constant.value.string;
-        try b.write("\"");
+        try b.emitRaw("\"");
         // Escape inner double quotes and backslashes for Zig string literal
         for (raw) |c| {
             if (c == '"') {
-                try b.write("\\\"");
+                try b.emitRaw("\\\"");
             } else if (c == '\\') {
-                try b.write("\\\\");
+                try b.emitRaw("\\\\");
             } else if (c == '\n') {
-                try b.write("\\n");
+                try b.emitRaw("\\n");
             } else if (c == '\r') {
-                try b.write("\\r");
+                try b.emitRaw("\\r");
             } else if (c == '\t') {
-                try b.write("\\t");
+                try b.emitRaw("\\t");
             } else {
                 var buf: [1]u8 = .{c};
-                try b.write(&buf);
+                try b.emitRaw(&buf);
             }
         }
-        try b.write("\"");
+        try b.emitRaw("\"");
     } else {
         // Expression - convert to string at runtime
         const val = try self.captureExpr(arg);
-        try b.write("(try runtime.builtins.pyStr(__global_allocator, ");
+        try b.emitRaw("(try runtime.builtins.pyStr(__global_allocator, ");
         try b.emitValue(val, .{});
-        try b.write("))");
+        try b.emitRaw("))");
     }
 }
 
@@ -89,11 +89,11 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 const call = exc.call;
                 if (call.args.len > 0) {
                     try b.writeIndent();
-                    try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"");
-                    try b.write(exc_name);
-                    try b.write("\", ");
+                    try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                    try b.emitRaw(exc_name);
+                    try b.emitRaw("\", ");
                     try genRaiseMessage(self, b, call.args[0]);
-                    try b.write(", @src().line);\n");
+                    try b.emitRaw(", @src().line);\n");
                 }
             }
             // Break out of finally block with the error
@@ -122,11 +122,11 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 const call = exc.call;
                 if (call.args.len > 0) {
                     try b.writeIndent();
-                    try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"");
-                    try b.write(exc_name);
-                    try b.write("\", ");
+                    try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                    try b.emitRaw(exc_name);
+                    try b.emitRaw("\", ");
                     try genRaiseMessage(self, b, call.args[0]);
-                    try b.write(", @src().line);\n");
+                    try b.emitRaw(", @src().line);\n");
                 }
             }
             // Store exception to pending variable (finally will propagate it)
@@ -149,7 +149,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
     if (self.inside_defer) {
         const b = try self.getBuilder();
         try b.writeIndent();
-        try b.write("// raise inside defer - cannot propagate\n");
+        try b.emitRaw("// raise inside defer - cannot propagate\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
@@ -176,31 +176,31 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                     if (call.args.len > 0) {
                         // Store exception info for assertRaises context manager
                         try b.writeIndent();
-                        try b.write("runtime.exceptions.setException(\"");
-                        try b.write(exc_name);
-                        try b.write("\", ");
+                        try b.emitRaw("runtime.exceptions.setException(\"");
+                        try b.emitRaw(exc_name);
+                        try b.emitRaw("\", ");
                         try genRaiseMessage(self, b, call.args[0]);
-                        try b.write(");\n");
+                        try b.emitRaw(");\n");
                         // Print Python-style error for display
                         try b.writeIndent();
-                        try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"");
-                        try b.write(exc_name);
-                        try b.write("\", ");
+                        try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                        try b.emitRaw(exc_name);
+                        try b.emitRaw("\", ");
                         // Generate the message argument
                         try genRaiseMessage(self, b, call.args[0]);
-                        try b.write(", @src().line);\n");
+                        try b.emitRaw(", @src().line);\n");
                     } else {
                         // Store exception info even without message
                         try b.writeIndent();
-                        try b.write("runtime.exceptions.setException(\"");
-                        try b.write(exc_name);
-                        try b.write("\", \"\");\n");
+                        try b.emitRaw("runtime.exceptions.setException(\"");
+                        try b.emitRaw(exc_name);
+                        try b.emitRaw("\", \"\");\n");
                     }
                     // Generate: return error.ValueError
                     try b.writeIndent();
-                    try b.write("return error.");
-                    try b.write(exc_name);
-                    try b.write(";\n");
+                    try b.emitRaw("return error.");
+                    try b.emitRaw(exc_name);
+                    try b.emitRaw(";\n");
                     const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                     self.control_flow_terminated = true;
@@ -214,19 +214,19 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             if (ExceptionTypes.has(exc_name)) {
                 // Store exception info for assertRaises context manager
                 try b.writeIndent();
-                try b.write("runtime.exceptions.setException(\"");
-                try b.write(exc_name);
-                try b.write("\", \"\");\n");
+                try b.emitRaw("runtime.exceptions.setException(\"");
+                try b.emitRaw(exc_name);
+                try b.emitRaw("\", \"\");\n");
                 // Print Python-style error without message
                 try b.writeIndent();
-                try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"");
-                try b.write(exc_name);
-                try b.write("\", \"\", @src().line);\n");
+                try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"");
+                try b.emitRaw(exc_name);
+                try b.emitRaw("\", \"\", @src().line);\n");
                 // Generate: return error.TypeError
                 try b.writeIndent();
-                try b.write("return error.");
-                try b.write(exc_name);
-                try b.write(";\n");
+                try b.emitRaw("return error.");
+                try b.emitRaw(exc_name);
+                try b.emitRaw(";\n");
                 const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
                 self.control_flow_terminated = true;
@@ -235,17 +235,17 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         }
         // Fallback for other raise expressions - use generic error
         try b.writeIndent();
-        try b.write("runtime.exceptions.setException(\"Exception\", \"\");\n");
+        try b.emitRaw("runtime.exceptions.setException(\"Exception\", \"\");\n");
         try b.writeIndent();
-        try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
+        try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
         try b.writeIndent();
-        try b.write("return error.Exception;\n");
+        try b.emitRaw("return error.Exception;\n");
     } else {
         // bare raise - use generic error (re-raise preserves existing exception info)
         try b.writeIndent();
-        try b.write("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
+        try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
         try b.writeIndent();
-        try b.write("return error.Exception;\n");
+        try b.emitRaw("return error.Exception;\n");
     }
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);

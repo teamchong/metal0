@@ -21,34 +21,55 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
-fn genUuid4(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.withInlineBlock("uuid4", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, _: []ast.Node) !void {
-            const b = try c.getBuilder();
-            try b.writeFmt("var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _rand = _prng.random(); var _bytes: [16]u8 = undefined; _rand.bytes(&_bytes); _bytes[6] = (_bytes[6] & 0x0f) | 0x40; _bytes[8] = (_bytes[8] & 0x3f) | 0x80; var _buf: [36]u8 = undefined; _ = std.fmt.bufPrint(&_buf, {s}{s} catch break :{s} \"\"; break :{s} &_buf", .{ UuidFmt, UuidBytesArgs, label, label });
-            const output = try b.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output);
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
+fn genUuid4(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__uuid4", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, _: void) !void {
+            try bld.emitVarRaw("_prng", null, "std.Random.DefaultPrng.init(@intCast(std.time.timestamp()))");
+            try bld.emitConstRaw("_rand", "_prng.random()");
+            try bld.emitVarRaw("_bytes", "[16]u8", "undefined");
+            try bld.emitRawLine("_rand.bytes(&_bytes);");
+            try bld.emitRawLine("_bytes[6] = (_bytes[6] & 0x0f) | 0x40;");
+            try bld.emitRawLine("_bytes[8] = (_bytes[8] & 0x3f) | 0x80;");
+            try bld.emitVarRaw("_buf", "[36]u8", "undefined");
+            try bld.emitRawLine("_ = std.fmt.bufPrint(&_buf, " ++ UuidFmt ++ UuidBytesArgs ++ " catch break :__uuid4 \"\";");
+            try scope.breakWithRaw("&_buf");
         }
-    }.emit);
+    }.emit, {});
+    try self.flushBuilder();
 }
 
-fn genUuid1(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.withInlineBlock("uuid1", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, _: []ast.Node) !void {
-            const b = try c.getBuilder();
-            try b.writeFmt("const _ts = std.time.nanoTimestamp(); var _prng = std.Random.DefaultPrng.init(@intCast(_ts)); const _rand = _prng.random(); var _bytes: [16]u8 = undefined; const _time_bytes = std.mem.asBytes(&_ts); @memcpy(_bytes[0..8], _time_bytes[0..8]); _rand.bytes(_bytes[8..16]); _bytes[6] = (_bytes[6] & 0x0f) | 0x10; _bytes[8] = (_bytes[8] & 0x3f) | 0x80; var _buf: [36]u8 = undefined; _ = std.fmt.bufPrint(&_buf, {s}{s} catch break :{s} \"\"; break :{s} &_buf", .{ UuidFmt, UuidBytesArgs, label, label });
-            const output = try b.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output);
+fn genUuid1(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__uuid1", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, _: void) !void {
+            try bld.emitConstRaw("_ts", "std.time.nanoTimestamp()");
+            try bld.emitVarRaw("_prng", null, "std.Random.DefaultPrng.init(@intCast(_ts))");
+            try bld.emitConstRaw("_rand", "_prng.random()");
+            try bld.emitVarRaw("_bytes", "[16]u8", "undefined");
+            try bld.emitConstRaw("_time_bytes", "std.mem.asBytes(&_ts)");
+            try bld.emitRawLine("@memcpy(_bytes[0..8], _time_bytes[0..8]);");
+            try bld.emitRawLine("_rand.bytes(_bytes[8..16]);");
+            try bld.emitRawLine("_bytes[6] = (_bytes[6] & 0x0f) | 0x10;");
+            try bld.emitRawLine("_bytes[8] = (_bytes[8] & 0x3f) | 0x80;");
+            try bld.emitVarRaw("_buf", "[36]u8", "undefined");
+            try bld.emitRawLine("_ = std.fmt.bufPrint(&_buf, " ++ UuidFmt ++ UuidBytesArgs ++ " catch break :__uuid1 \"\";");
+            try scope.breakWithRaw("&_buf");
         }
-    }.emit);
+    }.emit, {});
+    try self.flushBuilder();
 }
 
 fn genGetnode(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const label = try self.emitInlineBlockStart("gn");
     const b = try self.getBuilder();
-    try b.write("var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp()));");
-    try b.writeFmt("break :{s} @as(i64, @intCast(_prng.random().int(u48))); ", .{label});
-    const output = try b.getBodyDupe();
-    try self.output.appendSlice(self.allocator, output);
-    try self.emitInlineBlockEnd();
+    try b.withLabeledBlock("__gn", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, _: void) !void {
+            try bld.emitVarRaw("_prng", null, "std.Random.DefaultPrng.init(@intCast(std.time.timestamp()))");
+            try scope.breakWithRaw("@as(i64, @intCast(_prng.random().int(u48)))");
+        }
+    }.emit, {});
+    try self.flushBuilder();
 }

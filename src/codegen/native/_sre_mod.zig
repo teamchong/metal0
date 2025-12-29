@@ -27,23 +27,21 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "expand", genExpand },
 });
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
-        try self.withInlineBlock("sre", args, struct {
-            fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
-                const b = try c.getBuilder();
-                try b.write("const __v = ");
-                const output1 = try b.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output1);
-                try c.genExpr(a[0]);
-                {
-                    const b2 = try c.getBuilder();
-                    try b2.writeFmt("; break :{s} .{{ .pattern = __v, .flags = 0, .groups = 0 }}", .{label});
-                    const output2 = try b2.getBodyDupe();
-                    try c.output.appendSlice(c.allocator, output2);
-                }
+        const pattern_val = try self.captureExpr(args[0]);
+        const b = try self.getBuilder();
+        try b.withLabeledBlock("__sre", struct {
+            fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+                try bld.emitConstWithValue("__v", "", ctx, "");
+                try scope.breakWithRaw(".{ .pattern = __v, .flags = 0, .groups = 0 }");
             }
-        }.emit);
+        }.emit, pattern_val);
+        try self.flushBuilder();
     } else {
         try self.emit(".{ .pattern = \"\", .flags = 0, .groups = 0 }");
     }
@@ -99,19 +97,15 @@ fn genSub(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 
 fn genSubn(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 1) {
-        {
-            const b = try self.getBuilder();
-            try b.write(".{ ");
-            const output = try b.getBodyDupe();
-            try self.output.appendSlice(self.allocator, output);
-        }
-        try self.genExpr(args[1]);
-        {
-            const b = try self.getBuilder();
-            try b.write(", @as(i64, 0) }");
-            const output = try b.getBodyDupe();
-            try self.output.appendSlice(self.allocator, output);
-        }
+        const repl_val = try self.captureExpr(args[1]);
+        const b = try self.getBuilder();
+        try b.withLabeledBlock("__subn", struct {
+            fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+                try bld.emitConstWithValue("__repl", "", ctx, "");
+                try scope.breakWithRaw(".{ __repl, @as(i64, 0) }");
+            }
+        }.emit, repl_val);
+        try self.flushBuilder();
     } else {
         try self.emit(".{ \"\", @as(i64, 0) }");
     }

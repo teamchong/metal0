@@ -133,26 +133,25 @@ fn genInetAton(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }.emit);
 }
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genInetNtoa(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.emit("\"0.0.0.0\"");
         return;
     }
-    try self.withInlineBlock("ntoa", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            {
-                const b = try c.getBuilder();
-                try b.write("const _packed = ");
-                const output = try b.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output);
-            }
-            try c.genExpr(a[0]);
-            {
-                const b = try c.getBuilder();
-                try b.writeFmt("; if (_packed.len < 4) break :{s} \"0.0.0.0\"; var _buf: [16]u8 = undefined; const _len = std.fmt.bufPrint(&_buf, \"{{d}}.{{d}}.{{d}}.{{d}}\", .{{ _packed[0], _packed[1], _packed[2], _packed[3] }}) catch break :{s} \"0.0.0.0\"; break :{s} __global_allocator.dupe(u8, _len) catch \"0.0.0.0\"", .{ label, label, label });
-                const output = try b.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output);
-            }
+    const packed_val = try self.captureExpr(args[0]);
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__ntoa", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("_packed", "", ctx, "");
+            try bld.emitRawLine("if (_packed.len < 4) break :__ntoa \"0.0.0.0\";");
+            try bld.emitVarRaw("_buf", "[16]u8", "undefined");
+            try bld.emitConstRaw("_len", "std.fmt.bufPrint(&_buf, \"{d}.{d}.{d}.{d}\", .{ _packed[0], _packed[1], _packed[2], _packed[3] }) catch break :__ntoa \"0.0.0.0\"");
+            try scope.breakWithRaw("__global_allocator.dupe(u8, _len) catch \"0.0.0.0\"");
         }
-    }.emit);
+    }.emit, packed_val);
+    try self.flushBuilder();
 }

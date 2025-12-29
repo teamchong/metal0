@@ -56,7 +56,7 @@ pub fn genWhile(self: *NativeCodegen, while_stmt: ast.Node.While) CodegenError!v
     if (while_stmt.orelse_body) |else_body| {
         for (else_body) |stmt| {
             const stmt_code = try self.captureStmt(stmt);
-            try b.write(stmt_code);
+            try b.emitRaw(stmt_code);
         }
     }
 

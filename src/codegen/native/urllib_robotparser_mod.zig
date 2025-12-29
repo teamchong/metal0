@@ -9,24 +9,23 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "RobotFileParser", genRobotFileParser },
 });
 
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genRobotFileParser(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
         // With argument: .{ .url = __v, .last_checked = @as(i64, 0) }
-        try b.write(".{ .url = ");
-        const output1 = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output1);
-        try self.genExpr(args[0]);
-        {
-            const b2 = try self.getBuilder();
-            try b2.write(", .last_checked = @as(i64, 0) }");
-            const output2 = try b2.getBodyDupe();
-            try self.output.appendSlice(self.allocator, output2);
-        }
+        const url_val = try self.captureExpr(args[0]);
+        try b.withLabeledBlock("__rfp", struct {
+            fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+                try bld.emitConstWithValue("__url", "", ctx, "");
+                try scope.breakWithRaw(".{ .url = __url, .last_checked = @as(i64, 0) }");
+            }
+        }.emit, url_val);
     } else {
         // Without argument: default struct
-        try b.write(".{ .url = \"\", .last_checked = @as(i64, 0) }");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw(".{ .url = \"\", .last_checked = @as(i64, 0) }");
     }
+    try self.flushBuilder();
 }

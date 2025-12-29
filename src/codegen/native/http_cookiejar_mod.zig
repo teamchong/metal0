@@ -18,27 +18,23 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genFileCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     if (args.len == 0) {
-        try b.write(".{ .filename = @as(?[]const u8, null), .delayload = false }");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw(".{ .filename = @as(?[]const u8, null), .delayload = false }");
+        try self.flushBuilder();
         return;
     }
-    try self.withInlineBlock("fcj", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b2 = try c.getBuilder();
-            try b2.write("const filename = ");
-            const output1 = try b2.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output1);
-            try c.genExpr(a[0]);
-            {
-                const b3 = try c.getBuilder();
-                try b3.writeFmt("; break :{s} .{{ .filename = filename, .delayload = false }}", .{label});
-                const output2 = try b3.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+    const filename_val = try self.captureExpr(args[0]);
+    try b.withLabeledBlock("__fcj", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("filename", "", ctx, "");
+            try scope.breakWithRaw(".{ .filename = filename, .delayload = false }");
         }
-    }.emit);
+    }.emit, filename_val);
+    try self.flushBuilder();
 }

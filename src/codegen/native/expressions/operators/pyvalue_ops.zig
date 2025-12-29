@@ -131,35 +131,35 @@ pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
     // PyValue.from() is a no-op for existing PyValues, so it's safe to wrap unconditionally
 
     // Emit: (runtime.PyValue.from(...)).method(runtime.PyValue.from(...))
-    try b.write("(runtime.PyValue.from(");
+    try b.emitRaw("(runtime.PyValue.from(");
     // Handle comptime literal casting for left operand
     if (isComptimeLiteral(binop.left.*)) {
         if (isComptimeFloat(binop.left.*)) {
-            try b.write("@as(f64, ");
+            try b.emitRaw("@as(f64, ");
         } else {
-            try b.write("@as(i64, ");
+            try b.emitRaw("@as(i64, ");
         }
         try self.emitZigValue(left_operand);
-        try b.write(")");
+        try b.emitRaw(")");
     } else {
         try self.emitZigValue(left_operand);
     }
-    try b.write(")).");
-    try b.write(method_name);
-    try b.write("(runtime.PyValue.from(");
+    try b.emitRaw(")).");
+    try b.emitRaw(method_name);
+    try b.emitRaw("(runtime.PyValue.from(");
     // Handle comptime literal casting for right operand
     if (isComptimeLiteral(binop.right.*)) {
         if (isComptimeFloat(binop.right.*)) {
-            try b.write("@as(f64, ");
+            try b.emitRaw("@as(f64, ");
         } else {
-            try b.write("@as(i64, ");
+            try b.emitRaw("@as(i64, ");
         }
         try self.emitZigValue(right_operand);
-        try b.write(")");
+        try b.emitRaw(")");
     } else {
         try self.emitZigValue(right_operand);
     }
-    try b.write("))");
+    try b.emitRaw("))");
 
     try self.flushBuilder();
 }

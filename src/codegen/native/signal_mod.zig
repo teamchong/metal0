@@ -32,27 +32,25 @@ const ast = @import("analysis.ast");
 const NativeCodegen = h.NativeCodegen;
 const CodegenError = h.CodegenError;
 
+const builder_mod = @import("codegen.builder");
+const ZigBuilder = builder_mod.ZigBuilder;
+const ZigValue = builder_mod.ZigValue;
+
 fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const b = try self.getBuilder();
-        try b.write("{}");
-        const output = try b.getBodyDupe();
-        try self.output.appendSlice(self.allocator, output);
+        try b.emitRaw("{}");
+        try self.flushBuilder();
         return;
     }
-    try self.withInlineBlock("rs", args, struct {
-        fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
-            const b = try c.getBuilder();
-            try b.write("const sig = @as(u6, @intCast(");
-            const output1 = try b.getBodyDupe();
-            try c.output.appendSlice(c.allocator, output1);
-            try c.genExpr(a[0]);
-            {
-                const b2 = try c.getBuilder();
-                try b2.writeFmt(")); _ = std.posix.raise(sig); break :{s} {{}}", .{label});
-                const output2 = try b2.getBodyDupe();
-                try c.output.appendSlice(c.allocator, output2);
-            }
+    const sig_val = try self.captureExpr(args[0]);
+    const b = try self.getBuilder();
+    try b.withLabeledBlock("__rs", struct {
+        fn emit(bld: *ZigBuilder, scope: *ZigBuilder.LabeledBlockScope, ctx: ZigValue) !void {
+            try bld.emitConstWithValue("sig", "@as(u6, @intCast(", ctx, "))");
+            try bld.emitRawLine("_ = std.posix.raise(sig);");
+            try scope.breakWithRaw("{}");
         }
-    }.emit);
+    }.emit, sig_val);
+    try self.flushBuilder();
 }
