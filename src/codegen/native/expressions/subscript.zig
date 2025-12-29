@@ -58,9 +58,7 @@ fn emitArrayListIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
     const Ctx = struct { i: ast.Node };
     try self.withBracketsCtx(Ctx{ .i = index }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit("@as(usize, @intCast");
-            try s.emitParens(ctx.i);
-            try s.emit(")");
+            try emitAsUsize(s, ctx.i);
         }
     }.f);
 }
@@ -71,9 +69,7 @@ fn emitArrayIndex(self: *NativeCodegen, index: ast.Node) CodegenError!void {
     const Ctx = struct { i: ast.Node };
     try self.withBracketsCtx(Ctx{ .i = index }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit("@as(usize, @intCast");
-            try s.emitParens(ctx.i);
-            try s.emit(")");
+            try emitAsUsize(s, ctx.i);
         }
     }.f);
 }
