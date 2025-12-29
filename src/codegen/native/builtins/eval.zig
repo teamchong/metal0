@@ -208,22 +208,40 @@ pub fn genExec(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
         // exec(source, globals, [locals])
         // Generate: try runtime.execWithScope(__global_allocator, source, globals, locals)
-        try self.emit("try runtime.execWithScope(__global_allocator, ");
-        try genEvalSource(self, args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]); // globals
-        try self.emit(", ");
-        if (args.len >= 3) {
-            try self.genExpr(args[2]); // locals
-        } else {
-            try self.emit("null"); // no locals, use globals as locals
-        }
-        try self.emit(")");
+        try emitExecWithScope(self, args);
     } else {
         // exec(source) - no scope args
         // Generate: try runtime.exec(__global_allocator, source_code)
-        try self.emit("try runtime.exec(__global_allocator, ");
-        try genEvalSource(self, args[0]);
-        try self.emit(")");
+        try emitExecSimple(self, args[0]);
     }
+}
+
+/// Helper: emit try runtime.exec(__global_allocator, source)
+fn emitExecSimple(self: *NativeCodegen, source: ast.Node) CodegenError!void {
+    const Ctx = struct { s: ast.Node };
+    try self.emitCallCtx("try runtime.exec", Ctx{ .s = source }, struct {
+        pub fn f(ss: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try ss.emit("__global_allocator, ");
+            try genEvalSource(ss, ctx.s);
+        }
+    }.f);
+}
+
+/// Helper: emit try runtime.execWithScope(__global_allocator, source, globals, locals)
+fn emitExecWithScope(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    const Ctx = struct { a: []ast.Node };
+    try self.emitCallCtx("try runtime.execWithScope", Ctx{ .a = args }, struct {
+        pub fn f(ss: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try ss.emit("__global_allocator, ");
+            try genEvalSource(ss, ctx.a[0]);
+            try ss.emit(", ");
+            try ss.genExpr(ctx.a[1]); // globals
+            try ss.emit(", ");
+            if (ctx.a.len >= 3) {
+                try ss.genExpr(ctx.a[2]); // locals
+            } else {
+                try ss.emit("null"); // no locals, use globals as locals
+            }
+        }
+    }.f);
 }
