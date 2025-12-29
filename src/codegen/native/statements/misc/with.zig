@@ -609,9 +609,12 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
 
         if (!has_self_reference and var_hoisting.initExprIsSafe(init_expr, &safe_vars)) {
             // Safe to use @TypeOf - no forward references and no self-references
-            try self.emit(": @TypeOf(");
-            try self.genExpr(init_expr.*);
-            try self.emit(")");
+            try self.emit(": ");
+            try self.emitCallCtx("@TypeOf", init_expr.*, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                }
+            }.f);
         } else {
             // Has forward refs or self-reference - use fallback type
             const fallback = var_hoisting.inferFallbackType(init_expr, .for_loop);

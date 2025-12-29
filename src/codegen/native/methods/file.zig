@@ -45,7 +45,14 @@ pub fn genFileRead(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 /// Generate code for file.write(content)
 pub fn genFileWrite(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("@compileError(\"write() requires 1 argument\")"); return; }
-    try self.emit("try runtime.PyFile.write("); try self.genExpr(obj); try self.emit(", "); try self.genExpr(args[0]); try self.emit(")");
+    const Ctx = struct { o: ast.Node, a: ast.Node };
+    try self.emitCallCtx("try runtime.PyFile.write", Ctx{ .o = obj, .a = args[0] }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.a);
+        }
+    }.f);
 }
 
 /// Generate code for file.close()

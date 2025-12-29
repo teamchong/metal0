@@ -112,9 +112,11 @@ pub fn genIsspace(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     _ = args;
 
     // Use runtime function that handles Unicode properly
-    try self.emit("runtime.isStringAllWhitespace(");
-    try emitStringExpr(self, obj);
-    try self.emit(")");
+    try self.emitCallCtx("runtime.isStringAllWhitespace", obj, struct {
+        pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+            try emitStringExpr(s, o);
+        }
+    }.f);
 }
 
 /// Generate code for text.islower()

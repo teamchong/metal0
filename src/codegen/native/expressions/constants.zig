@@ -27,17 +27,20 @@ fn emitBytesLiteral(self: *NativeCodegen, content: []const u8) CodegenError!void
 
 /// Emit PyComplex.create(real, imag)
 fn emitComplexCreate(self: *NativeCodegen, real: f64, imag: f64) CodegenError!void {
-    try self.emit("runtime.PyComplex.create(");
-    try self.output.writer(self.allocator).print("{d}", .{real});
-    try self.emit(", ");
-    if (std.math.isInf(imag)) {
-        try self.emit(if (imag < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
-    } else if (std.math.isNan(imag)) {
-        try self.emit("std.math.nan(f64)");
-    } else {
-        try self.output.writer(self.allocator).print("{d}", .{imag});
-    }
-    try self.emit(")");
+    const Ctx = struct { r: f64, i: f64 };
+    try self.emitCallCtx("runtime.PyComplex.create", Ctx{ .r = real, .i = imag }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.output.writer(s.allocator).print("{d}", .{ctx.r});
+            try s.emit(", ");
+            if (std.math.isInf(ctx.i)) {
+                try s.emit(if (ctx.i < 0) "-std.math.inf(f64)" else "std.math.inf(f64)");
+            } else if (std.math.isNan(ctx.i)) {
+                try s.emit("std.math.nan(f64)");
+            } else {
+                try s.output.writer(s.allocator).print("{d}", .{ctx.i});
+            }
+        }
+    }.f);
 }
 
 /// String context for unified escape handling

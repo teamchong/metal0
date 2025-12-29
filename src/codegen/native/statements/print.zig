@@ -487,9 +487,11 @@ fn genPrintSimple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     for (args, 0..) |arg, i| {
         const arg_type = try self.type_inferrer.inferExpr(arg);
         if (type_traits.isBoolean(arg_type)) {
-            try self.emit("runtime.formatAny(");
-            try self.genExpr(arg);
-            try self.emit(")");
+            try self.emitCallCtx("runtime.formatAny", arg, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                }
+            }.f);
         } else {
             // For unknown types (module constants), use directly
             // String literals will coerce to []const u8 with {s}

@@ -65,16 +65,22 @@ fn isAllUppercase(s: []const u8) bool {
 
 /// Emit @as(i64, operand) for integer constant wrapping
 fn emitAsI64(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("@as(i64, ");
-    try self.emitZigValue(operand);
-    try self.emit(")");
+    try self.emitCallCtx("@as", operand, struct {
+        pub fn f(s: *NativeCodegen, op: ZigValue) CodegenError!void {
+            try s.emit("i64, ");
+            try s.emitZigValue(op);
+        }
+    }.f);
 }
 
 /// Emit @as(f64, operand) for float constant wrapping
 fn emitAsF64(self: *NativeCodegen, operand: ZigValue) CodegenError!void {
-    try self.emit("@as(f64, ");
-    try self.emitZigValue(operand);
-    try self.emit(")");
+    try self.emitCallCtx("@as", operand, struct {
+        pub fn f(s: *NativeCodegen, op: ZigValue) CodegenError!void {
+            try s.emit("f64, ");
+            try s.emitZigValue(op);
+        }
+    }.f);
 }
 
 // Trait imports for type checking
