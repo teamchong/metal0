@@ -479,6 +479,15 @@ pub fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
                 break :blk std.fmt.allocPrint(allocator, "[<{d} items>]", .{size});
             },
             .ptr => "<PyObject>",
+            // VM-specific types (SINGLE SOURCE OF TRUTH - must match valueRepr and PyValue.format)
+            .dict => |d| std.fmt.allocPrint(allocator, "{{<{d} items>}}", .{d.count()}),
+            .code => |c| std.fmt.allocPrint(allocator, "<code object '{s}'>", .{c.name}),
+            .function => |f| std.fmt.allocPrint(allocator, "<function '{s}'>", .{f.code.name}),
+            .builtin_fn => "<built-in function>",
+            .iterator => "<iterator>",
+            .range => |r| std.fmt.allocPrint(allocator, "range({d}, {d}, {d})", .{ r.start, r.stop, r.step }),
+            .exception => |e| std.fmt.allocPrint(allocator, "{s}('{s}')", .{ e.exc_type, e.message }),
+            .generator => "<generator object>",
         };
     }
 

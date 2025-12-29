@@ -21,35 +21,8 @@ pub fn pyToInt(value: anytype) PythonError!i64 {
         if (value.toInt()) |i| {
             return i;
         } else {
-            // Set exception message like Python: "'str' object cannot be interpreted as an integer"
-            // Use pre-computed messages for each type since Zig can't concat runtime strings
-            const msg = switch (value) {
-                .string => "'str' object cannot be interpreted as an integer",
-                .bytes => "'bytes' object cannot be interpreted as an integer",
-                .float => "'float' object cannot be interpreted as an integer",
-                .bool => "'bool' object cannot be interpreted as an integer",
-                .none => "'NoneType' object cannot be interpreted as an integer",
-                .list => "'list' object cannot be interpreted as an integer",
-                .pylist => "'list' object cannot be interpreted as an integer",
-                .tuple => "'tuple' object cannot be interpreted as an integer",
-                .complex => "'complex' object cannot be interpreted as an integer",
-                .type_obj => "'type' object cannot be interpreted as an integer",
-                .ptr => "'object' object cannot be interpreted as an integer",
-                .object => "'object' object cannot be interpreted as an integer",
-                .not_implemented => "'NotImplementedType' object cannot be interpreted as an integer",
-                .int => "'int' object cannot be interpreted as an integer", // shouldn't happen
-                .bigint => "'int' object cannot be interpreted as an integer", // shouldn't happen - bigint should convert
-                // VM-specific types
-                .dict => "'dict' object cannot be interpreted as an integer",
-                .code => "'code' object cannot be interpreted as an integer",
-                .function => "'function' object cannot be interpreted as an integer",
-                .builtin_fn => "'builtin_function' object cannot be interpreted as an integer",
-                .iterator => "'iterator' object cannot be interpreted as an integer",
-                .range => "'range' object cannot be interpreted as an integer",
-                .exception => "'Exception' object cannot be interpreted as an integer",
-                .generator => "'generator' object cannot be interpreted as an integer",
-            };
-            setException("TypeError", msg);
+            // Use centralized error message from PyValue (SINGLE SOURCE OF TRUTH)
+            setException("TypeError", value.intErrorMessage());
             return PythonError.TypeError;
         }
     } else if (T == i64 or T == i32 or T == i16 or T == i8 or T == u64 or T == u32 or T == u16 or T == u8 or T == usize or T == isize or T == comptime_int) {
