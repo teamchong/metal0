@@ -262,13 +262,21 @@ pub fn isValidZigIdent(name: []const u8) bool {
 }
 
 /// Write escaped identifier to writer
+/// Check if identifier contains characters that require quoting (dots, dashes, etc.)
+fn containsSpecialChars(name: []const u8) bool {
+    for (name) |c| {
+        if (c == '.' or c == '-' or c == ' ') return true;
+    }
+    return false;
+}
+
 /// This avoids allocation by writing directly
 pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");
-    } else if (isZigKeyword(name) or containsNonAscii(name)) {
-        // Unicode identifiers and keywords need @"name" syntax
+    } else if (isZigKeyword(name) or containsNonAscii(name) or containsSpecialChars(name)) {
+        // Unicode identifiers, keywords, and special chars need @"name" syntax
         try writer.print("@\"{s}\"", .{name});
     } else {
         try writer.writeAll(name);
@@ -281,8 +289,8 @@ pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");
-    } else if (isZigKeyword(name) or containsNonAscii(name)) {
-        // Unicode identifiers and keywords need @"name" syntax
+    } else if (isZigKeyword(name) or containsNonAscii(name) or containsSpecialChars(name)) {
+        // Unicode identifiers, keywords, and special chars need @"name" syntax
         try writer.print("@\"{s}\"", .{name});
     } else if (wouldShadowMethod(name) or wouldShadowModule(name)) {
         // Rename to avoid shadowing method names in struct scope or module-level imports

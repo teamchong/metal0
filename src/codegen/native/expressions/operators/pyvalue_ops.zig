@@ -35,14 +35,30 @@ pub const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
 /// TWO-FLOW TYPE SYSTEM: Check type and confidence together.
 ///
 /// Decision logic:
-/// 1. If type is explicitly PyValue or unknown → use PyValue (uncertain)
-/// 2. If type is concrete (int/float/etc.) AND confidence is explicitly tracked as uncertain → use PyValue
-/// 3. If type is concrete AND confidence is NOT tracked or is certain → use native ops
+/// 1. If operand is a binary op that would use PyValue methods → uncertain (result is PyValue)
+/// 2. If type is explicitly PyValue or unknown → use PyValue (uncertain)
+/// 3. If type is concrete (int/float/etc.) AND confidence is explicitly tracked as uncertain → use PyValue
+/// 4. If type is concrete AND confidence is NOT tracked or is certain → use native ops
 ///
 /// NOTE: The confidence map defaults to `.uncertain` for untracked variables, so we need
 /// to distinguish between "explicitly uncertain" and "not tracked". We check if confidence
 /// is in the map before trusting the uncertain default.
 pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    // Check if operand is a binary operation that would return PyValue
+    // This handles nested operations like: (a * b) + (c * d) where inner ops use PyValue
+    if (expr == .binop) {
+        const binop = expr.binop;
+        // If this binary op has a PyValue method, recursively check its operands
+        // If either operand of the nested binop is uncertain, the nested binop returns PyValue
+        if (PyValueMethods.get(@tagName(binop.op)) != null) {
+            const left_uncertain = isOperandUncertain(self, binop.left.*);
+            const right_uncertain = isOperandUncertain(self, binop.right.*);
+            if (left_uncertain or right_uncertain) {
+                return true;
+            }
+        }
+    }
+
     // Check if this is a variable with uncertain confidence
     if (expr == .name) {
         const name = expr.name.id;

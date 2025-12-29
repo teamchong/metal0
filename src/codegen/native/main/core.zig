@@ -3671,8 +3671,18 @@ pub const NativeCodegen = struct {
     }
 
     /// Check if a module is a C extension (numpy, pandas, etc.)
+    /// Also returns true for submodules of C extensions (e.g., numpy.exceptions when numpy is C ext)
     pub fn isCExtensionModule(self: *NativeCodegen, module_name: []const u8) bool {
-        return self.c_extension_modules.contains(module_name);
+        // Direct match
+        if (self.c_extension_modules.contains(module_name)) return true;
+
+        // Check root module for dotted names (numpy.exceptions -> check numpy)
+        if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
+            const root = module_name[0..dot_idx];
+            return self.c_extension_modules.contains(root);
+        }
+
+        return false;
     }
 
     /// Mark a module as C extension (loaded via PyImport_ImportModule at runtime)

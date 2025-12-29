@@ -95,9 +95,11 @@ pub fn genTimedelta(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
     // Simple case: timedelta(days)
-    try self.emit("runtime.datetime.Timedelta.fromDays(");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    try self.emitCallCtx("runtime.datetime.Timedelta.fromDays", args[0], struct {
+        pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+            try s.genExpr(arg);
+        }
+    }.f);
 }
 
 const builder_mod = @import("codegen.builder");
@@ -298,11 +300,15 @@ pub fn genTimeFromIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError
 /// dt.strftime(format)
 pub fn genStrftime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) { try self.emit("\"\""); return; }
-    try self.emit("try runtime.datetime.strftime(__global_allocator, ");
-    try self.genExpr(args[0]); // datetime object
-    try self.emit(", ");
-    try self.genExpr(args[1]); // format string
-    try self.emit(")");
+    const StrftimeCtx = struct { dt: ast.Node, fmt: ast.Node };
+    try self.emitCallCtx("try runtime.datetime.strftime", StrftimeCtx{ .dt = args[0], .fmt = args[1] }, struct {
+        pub fn f(s: *NativeCodegen, ctx: StrftimeCtx) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try s.genExpr(ctx.dt);
+            try s.emit(", ");
+            try s.genExpr(ctx.fmt);
+        }
+    }.f);
 }
 
 /// dt.isoformat(sep='T')
@@ -387,11 +393,15 @@ pub fn genCtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 /// dt.strftime(format) - method handler
 fn genMethodStrftime(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("\"\""); return; }
-    try self.emit("try runtime.datetime.strftime(__global_allocator, ");
-    try self.genExpr(obj);
-    try self.emit(", ");
-    try self.genExpr(args[0]); // format string
-    try self.emit(")");
+    const StrftimeCtx = struct { dt: ast.Node, fmt: ast.Node };
+    try self.emitCallCtx("try runtime.datetime.strftime", StrftimeCtx{ .dt = obj, .fmt = args[0] }, struct {
+        pub fn f(s: *NativeCodegen, ctx: StrftimeCtx) CodegenError!void {
+            try s.emit("__global_allocator, ");
+            try s.genExpr(ctx.dt);
+            try s.emit(", ");
+            try s.genExpr(ctx.fmt);
+        }
+    }.f);
 }
 
 /// dt.isoformat() - method handler

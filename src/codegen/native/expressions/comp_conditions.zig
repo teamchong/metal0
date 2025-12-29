@@ -17,6 +17,52 @@ const operator_traits = @import("../../../analysis/traits/operator_traits.zig");
 const comp_utils = @import("comp_utils.zig");
 const comp_expr_subs = @import("comp_expr_subs.zig");
 
+// === Structured emission helpers ===
+
+/// Helper context for truthiness calls with substitutions
+const TruthySubsCtx = struct {
+    cond: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+};
+
+/// Helper: emit runtime.pyTruthy(genExprWithSubs(cond))
+fn emitPyTruthyWithSubs(self: *NativeCodegen, cond: ast.Node, subs: *const hashmap_helper.StringHashMap([]const u8)) CodegenError!void {
+    try self.emitCallCtx("runtime.pyTruthy", TruthySubsCtx{ .cond = cond, .subs = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: TruthySubsCtx) CodegenError!void {
+            try comp_expr_subs.genExprWithSubs(s, ctx.cond, ctx.subs);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.toBool(genExprWithSubs(cond))
+fn emitToBoolWithSubs(self: *NativeCodegen, cond: ast.Node, subs: *const hashmap_helper.StringHashMap([]const u8)) CodegenError!void {
+    try self.emitCallCtx("runtime.toBool", TruthySubsCtx{ .cond = cond, .subs = subs }, struct {
+        pub fn f(s: *NativeCodegen, ctx: TruthySubsCtx) CodegenError!void {
+            try comp_expr_subs.genExprWithSubs(s, ctx.cond, ctx.subs);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.pyTruthy(genExpr(cond))
+fn emitPyTruthy(self: *NativeCodegen, cond: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyTruthy", cond, struct {
+        pub fn f(s: *NativeCodegen, c: ast.Node) CodegenError!void {
+            const genExpr = @import("../expressions.zig").genExpr;
+            try genExpr(s, c);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.toBool(genExpr(cond))
+fn emitToBool(self: *NativeCodegen, cond: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.toBool", cond, struct {
+        pub fn f(s: *NativeCodegen, c: ast.Node) CodegenError!void {
+            const genExpr = @import("../expressions.zig").genExpr;
+            try genExpr(s, c);
+        }
+    }.f);
+}
+
 /// Emit a for-loop target variable name (raw identifier, no closure transformation)
 /// For-loop targets create new local bindings, not references to captured variables
 /// Checks for shadowing against imported modules and uses unique names if needed
@@ -76,9 +122,7 @@ pub fn genComprehensionCondition(
         try comp_expr_subs.genExprWithSubs(self, if_cond, subs);
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try self.emit("runtime.pyTruthy(");
-        try comp_expr_subs.genExprWithSubs(self, if_cond, subs);
-        try self.emit(")");
+        try emitPyTruthyWithSubs(self, if_cond, subs);
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
@@ -114,9 +158,7 @@ pub fn genComprehensionCondition(
                 },
             }
         } else {
-            try self.emit("runtime.toBool(");
-            try comp_expr_subs.genExprWithSubs(self, if_cond, subs);
-            try self.emit(")");
+            try emitToBoolWithSubs(self, if_cond, subs);
         }
     }
 }
@@ -151,9 +193,7 @@ pub fn genComprehensionConditionNoSubs(
         try genExpr(self, if_cond);
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try self.emit("runtime.pyTruthy(");
-        try genExpr(self, if_cond);
-        try self.emit(")");
+        try emitPyTruthy(self, if_cond);
     } else {
         // Other types (int, float, string, list, etc.) - use runtime.toBool
         // This handles Python truthiness semantics (0 is false, "" is false, [] is false, etc.)
@@ -165,9 +205,7 @@ pub fn genComprehensionConditionNoSubs(
             try genExpr(self, if_cond.binop.right.*);
             try self.emit("))");
         } else {
-            try self.emit("runtime.toBool(");
-            try genExpr(self, if_cond);
-            try self.emit(")");
+            try emitToBool(self, if_cond);
         }
     }
 }

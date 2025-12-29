@@ -284,12 +284,14 @@ fn generateCLibraryCall(
                 try self.emit(pp.pointer_path);
             },
             .custom => |code| {
-                // Custom conversion code
+                // Custom conversion code - use emitCallCtx for bracket matching
                 try self.emit(code);
-                try self.emit("(");
-                const expressions = @import("expressions.zig");
-                try expressions.genExpr(self, py_arg);
-                try self.emit(")");
+                try self.emitCallCtx("", py_arg, struct {
+                    pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                        const expressions = @import("expressions.zig");
+                        try expressions.genExpr(s, arg);
+                    }
+                }.f);
             },
             else => {
                 // Unsupported conversion - fall back to direct
