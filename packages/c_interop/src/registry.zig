@@ -112,6 +112,42 @@ pub fn importModule(module_name: [*:0]const u8) ?*PyObject {
     return import.PyImport_ImportModule(module_name);
 }
 
+/// Import attribute from module using Python's from-import semantics
+/// Handles namespace packages, re-exports, and lazy imports properly
+///
+/// For "from numpy.testing import assert_", this:
+/// 1. Creates fromlist = ["assert_"]
+/// 2. Calls PyImport_ImportModuleLevel("numpy.testing", fromlist=fromlist)
+/// 3. Gets "assert_" attribute from the returned module
+pub fn fromImport(module_name: [*:0]const u8, attr_name: [*:0]const u8) ?*PyObject {
+    // Create fromlist = [attr_name]
+    const fromlist = traits.externs.PyList_New(1) orelse return null;
+    const attr_str = traits.externs.PyUnicode_FromString(attr_name) orelse {
+        traits.externs.Py_DECREF(fromlist);
+        return null;
+    };
+    // PyList_SetItem steals reference to attr_str, so no need to DECREF it
+    _ = traits.externs.PyList_SetItem(fromlist, 0, attr_str);
+
+    // Import with fromlist - this triggers proper __init__.py loading
+    const module = import.PyImport_ImportModuleLevel(
+        module_name,
+        null,
+        null,
+        fromlist,
+        0,
+    ) orelse {
+        traits.externs.Py_DECREF(fromlist);
+        return null;
+    };
+    traits.externs.Py_DECREF(fromlist);
+
+    // Now get the attribute from the loaded module
+    const result = traits.externs.PyObject_GetAttrString(module, attr_name);
+    traits.externs.Py_DECREF(module);
+    return result;
+}
+
 /// Call a function on a C extension module
 /// Uses getAttr to get the function, then calls it via subprocess
 pub fn callModuleFunction(

@@ -123,7 +123,6 @@ pub export fn PyImport_ImportModuleLevel(
     level: c_int,
 ) callconv(.c) ?*cpython.PyObject {
     _ = locals;
-    _ = fromlist;
 
     const name_str = std.mem.span(name);
 
@@ -168,7 +167,36 @@ pub export fn PyImport_ImportModuleLevel(
     }
 
     // Absolute import
-    return PyImport_ImportModule(name);
+    const module = PyImport_ImportModule(name) orelse return null;
+
+    // If fromlist is provided, ensure those attributes are accessible
+    // This triggers proper __init__.py loading for namespace packages
+    if (fromlist) |fl| {
+        const pylist = @import("../objects/listobject.zig");
+
+        const len = pylist.PyList_Size(fl);
+        var i: isize = 0;
+        while (i < len) : (i += 1) {
+            const item = pylist.PyList_GetItem(fl, i) orelse continue;
+            const item_str = PyUnicode_AsUTF8(item) orelse continue;
+
+            // Check if attribute exists on the module
+            if (traits.externs.PyObject_GetAttrString(module, item_str) == null) {
+                // Attribute not found - try to import as submodule: module.attr
+                // This handles cases like "from numpy.testing import assert_"
+                // where assert_ is in a submodule that needs to be imported first
+                var buf: [512]u8 = undefined;
+                const submod_name = std.fmt.bufPrintZ(&buf, "{s}.{s}", .{
+                    name_str,
+                    std.mem.span(item_str),
+                }) catch continue;
+                _ = PyImport_ImportModule(submod_name.ptr);
+                // Ignore result - the submodule import populates the namespace
+            }
+        }
+    }
+
+    return module;
 }
 
 /// Import using __import__ protocol

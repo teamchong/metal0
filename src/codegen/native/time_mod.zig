@@ -65,9 +65,11 @@ fn genGmtime(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const label_id = em.reserveLabelId();
     try self.emitFmt("gmtime_{d}: {{ const _ts: i64 = ", .{label_id});
     if (args.len > 0) {
-        try self.emit("@intFromFloat(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("@intFromFloat", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         try self.emit("@intCast(std.time.timestamp())");
     }

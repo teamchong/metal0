@@ -25,8 +25,10 @@ fn genNew(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
         }.emit);
     } else {
-        try self.emit("try hashlib.new(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("try hashlib.new", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     }
 }

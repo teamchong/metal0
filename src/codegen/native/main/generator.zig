@@ -1674,7 +1674,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
 
         // Initialize from-imports from C extension modules
-        // e.g., assert_ = c_interop.getAttr(@"numpy.testing".?, "assert_") orelse @panic(...);
+        // e.g., assert_ = c_interop.fromImport("numpy.testing", "assert_") orelse @panic(...);
         if (self.c_extension_from_imports.count() > 0) {
             try self.emit("\n");
             try self.emitIndent();
@@ -1684,9 +1684,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 const info = self.c_extension_from_imports.get(symbol_name).?;
                 try self.emitIndent();
                 try self.emitIdent(symbol_name);
-                try self.emit(" = c_interop.getAttr(");
-                try self.emitIdent(info.module);
-                try self.emitFmt(".?, \"{s}\") orelse @panic(\"Failed to get attribute '{s}' from C extension module '{s}'\");\n", .{ info.attr, info.attr, info.module });
+                try self.emitFmt(" = c_interop.fromImport(\"{s}\", \"{s}\") orelse @panic(\"Failed to import '{s}' from '{s}'\");\n", .{ info.module, info.attr, info.attr, info.module });
             }
         }
     }

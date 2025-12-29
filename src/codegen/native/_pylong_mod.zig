@@ -44,9 +44,11 @@ fn genIntFromString(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.genExpr(args[0]);
     try self.emitFmt("; const __base_{d}: u8 = ", .{id});
     if (args.len > 1) {
-        try self.emit("@intCast(");
-        try self.genExpr(args[1]);
-        try self.emit(")");
+        try self.emitCallCtx("@intCast", args[1], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         try self.emit("10");
     }
@@ -63,9 +65,11 @@ fn genDecStrToIntInner(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.genExpr(args[0]);
     try self.emitFmt("; const __guard_{d}: u8 = ", .{id});
     if (args.len > 1) {
-        try self.emit("@intCast(");
-        try self.genExpr(args[1]);
-        try self.emit(")");
+        try self.emitCallCtx("@intCast", args[1], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         try self.emit("8");
     }

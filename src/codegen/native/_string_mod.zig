@@ -15,9 +15,12 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genFormatterFieldNameSplit(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("runtime._string.formatterFieldNameSplit(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try self.emitCallCtx("runtime._string.formatterFieldNameSplit", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.emit("__global_allocator, ");
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
         try self.emit("runtime._string.FieldNameSplitResult{ .first = \"\", .rest = &[_]runtime._string.FieldAccessor{} }");
     }
@@ -25,9 +28,16 @@ fn genFormatterFieldNameSplit(self: *NativeCodegen, args: []ast.Node) CodegenErr
 
 fn genFormatterParser(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try self.emit("(runtime._string.formatterParser(__global_allocator, ");
-        try self.genExpr(args[0]);
-        try self.emit("))");
+        try self.withParensCtx(args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.emitCallCtx("runtime._string.formatterParser", e, struct {
+                    pub fn g(s2: *NativeCodegen, e2: ast.Node) CodegenError!void {
+                        try s2.emit("__global_allocator, ");
+                        try s2.genExpr(e2);
+                    }
+                }.g);
+            }
+        }.f);
     } else {
         try self.emit("&[_]runtime._string.FormatterResult{}");
     }

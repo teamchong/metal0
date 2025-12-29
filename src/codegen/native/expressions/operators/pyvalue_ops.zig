@@ -185,8 +185,13 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             if (isOperandUncertain(self, binop.left.*) or isOperandUncertain(self, binop.right.*)) {
                 return true;
             }
-            // If neither operand is uncertain, the binop result is also NOT uncertain
-            // Don't fall through to inferExpr - trust the recursive operand check
+            // Even if operands aren't uncertain, check the inferred result type
+            // This catches cases where type inference marks the result as uncertain
+            // due to context the recursive check doesn't see
+            const result_type = self.type_inferrer.inferExpr(expr) catch return false;
+            if (result_type == .pyvalue or result_type == .unknown) {
+                return true;
+            }
             return false;
         }
         // For non-PyValueMethods ops (comparison, etc.), check inferred result type

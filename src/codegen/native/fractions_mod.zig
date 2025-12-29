@@ -20,14 +20,20 @@ fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.Fraction");
         return;
     } else if (args.len == 1) {
-        try self.emit("runtime.Fraction.init(");
-        try self.genExpr(args[0]);
-        try self.emit(", 1)");
+        try self.emitCallCtx("runtime.Fraction.init", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.genExpr(e);
+                try s.emit(", 1");
+            }
+        }.f);
     } else if (args.len >= 2) {
-        try self.emit("runtime.Fraction.init(");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(")");
+        const Ctx = struct { a0: ast.Node, a1: ast.Node };
+        try self.emitCallCtx("runtime.Fraction.init", Ctx{ .a0 = args[0], .a1 = args[1] }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.genExpr(ctx.a0);
+                try s.emit(", ");
+                try s.genExpr(ctx.a1);
+            }
+        }.f);
     }
 }
