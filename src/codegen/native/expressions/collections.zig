@@ -17,6 +17,7 @@ const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
+const CallArg = builder_mod.ZigBuilder.CallArg;
 
 // MIGRATED TO ZIGBUILDER
 
@@ -24,22 +25,50 @@ const ZigValue = builder_mod.ZigValue;
 // Collection operation helpers - auto-closing patterns
 // ============================================
 
-/// Emit runtime.builtins.PyCallable.fromAny(@TypeOf(expr), expr)
+/// Emit runtime.builtins.PyCallable.fromAny(@TypeOf(expr), expr) using builder
 fn emitPyCallableFromAny(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-    try genExpr(self, expr);
-    try self.emit("), ");
-    try genExpr(self, expr);
-    try self.emit(")");
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    // Capture expression to get raw string
+    const expr_val = try self.captureExpr(expr);
+    try b.emitValueCore(expr_val);
+    const expr_raw = try alloc.dupe(u8, b.getBodyAndClear());
+    // Build @TypeOf(expr) expression
+    const typeof_expr = try std.fmt.allocPrint(alloc, "@TypeOf({s})", .{expr_raw});
+    try b.emitCallExpr("runtime.builtins.PyCallable.fromAny", &[_]CallArg{
+        .{ .raw = typeof_expr },
+        .{ .raw = expr_raw },
+    });
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
 }
 
 /// Emit runtime.builtins.PyCallable.fromAny(@TypeOf(name.init), name.init) for class constructors
 fn emitPyCallableFromInit(self: *NativeCodegen, class_name: []const u8) CodegenError!void {
-    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-    try self.emit(class_name);
-    try self.emit(".init), ");
-    try self.emit(class_name);
-    try self.emit(".init)");
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    // Build class_name.init expression
+    const init_expr = try std.fmt.allocPrint(alloc, "{s}.init", .{class_name});
+    const typeof_expr = try std.fmt.allocPrint(alloc, "@TypeOf({s})", .{init_expr});
+    try b.emitCallExpr("runtime.builtins.PyCallable.fromAny", &[_]CallArg{
+        .{ .raw = typeof_expr },
+        .{ .raw = init_expr },
+    });
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.builtins.PyCallable.fromAny(@TypeOf(fn_name), fn_name) for raw function names
+fn emitPyCallableFromRaw(self: *NativeCodegen, fn_name: []const u8) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const typeof_expr = try std.fmt.allocPrint(alloc, "@TypeOf({s})", .{fn_name});
+    try b.emitCallExpr("runtime.builtins.PyCallable.fromAny", &[_]CallArg{
+        .{ .raw = typeof_expr },
+        .{ .raw = fn_name },
+    });
+    const result = try alloc.dupe(u8, b.getBodyAndClear());
+    try self.emitZigValue(ZigValue.raw(result));
 }
 
 /// Emit @as(f64, @floatFromInt(operand)) for int-to-float conversion
@@ -124,12 +153,8 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: NativeTyp
             // Check if this is a builtin type name that needs wrapping
             if (elem == .name) {
                 if (BuiltinTypeNames.get(elem.name.id)) |builtin_fn| {
-                    // Use PyCallable.fromAny with the runtime builtin function
-                    try self.emit("runtime.builtins.PyCallable.fromAny(@TypeOf(");
-                    try self.emit(builtin_fn);
-                    try self.emit("), ");
-                    try self.emit(builtin_fn);
-                    try self.emit(")");
+                    // Use PyCallable.fromAny with the runtime builtin function (builder pattern)
+                    try emitPyCallableFromRaw(self, builtin_fn);
                     return;
                 }
             }

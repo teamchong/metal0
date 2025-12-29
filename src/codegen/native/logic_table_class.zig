@@ -248,8 +248,8 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
         }
     }
 
-    // The function returns a plain value (not error union), so just return directly
-    try self.emit(");\n");
+    // Methods return error unions (!f64), catch to convert to plain value
+    try self.emit(") catch 0.0;\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
