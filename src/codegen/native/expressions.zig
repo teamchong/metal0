@@ -10,6 +10,26 @@ const type_traits = @import("../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../analysis/traits/container_traits.zig");
 
+/// Helper: emit runtime.pyTruthy(expr) with guaranteed bracket matching
+fn emitPyTruthy(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.pyTruthy", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try genExpr(s, e);
+        }
+    }.f);
+}
+
+/// Helper: emit (expr)suffix with guaranteed bracket matching
+fn emitParensSuffix(self: *NativeCodegen, expr: ast.Node, suffix: []const u8) CodegenError!void {
+    const Ctx = struct { e: ast.Node, suf: []const u8 };
+    try self.withParensCtx(Ctx{ .e = expr, .suf = suffix }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try genExpr(s, ctx.e);
+        }
+    }.f);
+    try self.emit(suffix);
+}
+
 /// Python type/constant names to Zig code
 /// IMPORTANT: These are TYPE references, not constructor calls.
 /// Constructor calls like `complex(1, 2)` are handled by genCall -> builtins.genComplex
@@ -202,9 +222,12 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             } else if (isPythonExceptionType(name_to_use)) {
                 // Python exception types - emit as integer enum value for storage in lists/tuples
                 // E.g., ValueError -> @intFromEnum(runtime.ExceptionTypeId.ValueError)
-                try self.emit("@intFromEnum(runtime.ExceptionTypeId.");
-                try self.emit(name_to_use);
-                try self.emit(")");
+                try self.emitCallCtx("@intFromEnum", name_to_use, struct {
+                    pub fn f(s: *NativeCodegen, name: []const u8) CodegenError!void {
+                        try s.emit("runtime.ExceptionTypeId.");
+                        try s.emit(name);
+                    }
+                }.f);
             } else if (isBuiltinFunction(name_to_use) and !self.func_local_vars.contains(name_to_use)) {
                 // Builtin functions as first-class values: len, callable, etc.
                 // For structs with .call() method (like pow), emit function pointer: &runtime.builtins.pow.call
@@ -416,43 +439,29 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try genExpr(self, ie.condition.*);
     } else if (type_traits.isUnknown(cond_type) or cond_type == .pyvalue) {
         // Two-Flow: Unknown/PyValue type - use runtime truthiness check
-        try self.emit("runtime.pyTruthy(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(")");
+        try emitPyTruthy(self, ie.condition.*);
     } else if (cond_type == .optional) {
         // Optional type - check for non-null
         try genExpr(self, ie.condition.*);
         try self.emit(" != null");
     } else if (type_traits.isIntegral(cond_type)) {
         // Integer type - Python truthiness: non-zero is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(") != 0");
+        try emitParensSuffix(self, ie.condition.*, " != 0");
     } else if (type_traits.isFloating(cond_type)) {
         // Float type - Python truthiness: non-zero is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(") != 0.0");
+        try emitParensSuffix(self, ie.condition.*, " != 0.0");
     } else if (string_traits.isString(cond_type)) {
         // String type - Python truthiness: non-empty is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(").len != 0");
+        try emitParensSuffix(self, ie.condition.*, ".len != 0");
     } else if (container_traits.isList(cond_type)) {
         // List type - Python truthiness: non-empty is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(").items.len != 0");
+        try emitParensSuffix(self, ie.condition.*, ".items.len != 0");
     } else if (container_traits.isDict(cond_type)) {
         // Dict type - Python truthiness: non-empty is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(").count() != 0");
+        try emitParensSuffix(self, ie.condition.*, ".count() != 0");
     } else if (container_traits.isSet(cond_type)) {
         // Set type - Python truthiness: non-empty is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(").count() != 0");
+        try emitParensSuffix(self, ie.condition.*, ".count() != 0");
     } else if (container_traits.isTuple(cond_type)) {
         // Tuple type - Python truthiness: non-empty is true
         try self.emit("@typeInfo(@TypeOf(");
@@ -460,9 +469,7 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try self.emit(")).@\"struct\".fields.len != 0");
     } else if (string_traits.isBytes(cond_type)) {
         // Bytes type - Python truthiness: non-empty is true
-        try self.emit("(");
-        try genExpr(self, ie.condition.*);
-        try self.emit(").len != 0");
+        try emitParensSuffix(self, ie.condition.*, ".len != 0");
     } else {
         // Boolean or other type - use directly
         try genExpr(self, ie.condition.*);
