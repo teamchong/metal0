@@ -465,19 +465,15 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
 
         if (is_slice) {
             // Slice already returns []T - wrap in parens and iterate directly
-            try self.emit("(");
-            try self.genExpr(iter);
-            try self.emit(")");
+            try self.emitParens(iter);
         } else if (is_method_call) {
             // Method call returns ArrayList - wrap in parens for .items
-            try self.emit("(");
-            try self.genExpr(iter);
-            try self.emit(").items");
+            try self.emitParens(iter);
+            try self.emit(".items");
         } else if (iter == .list) {
             // Inline list literal
-            try self.emit("(");
-            try self.genExpr(iter);
-            try self.emit(").items");
+            try self.emitParens(iter);
+            try self.emit(".items");
         } else if (producesBlockExpression(iter)) {
             // Block expression (reversed(), etc.) - wrap in temp variable for .items access
             // Can't do `blk: {...}.items` directly in for loop operand
@@ -1710,19 +1706,16 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.genExpr(for_stmt.iter.*);
     } else if (container_traits.isList(iter_type) and for_stmt.iter.* == .list) {
         // Inline ArrayList literal - wrap in parens for .items access
-        try self.emit("(");
-        try self.genExpr(for_stmt.iter.*);
-        try self.emit(").items");
+        try self.emitParens(for_stmt.iter.*);
+        try self.emit(".items");
     } else if (container_traits.isList(iter_type) and for_stmt.iter.* == .call and for_stmt.iter.call.func.* == .attribute) {
         // Method call that returns ArrayList - wrap in parens for .items access
-        try self.emit("(");
-        try self.genExpr(for_stmt.iter.*);
-        try self.emit(").items");
+        try self.emitParens(for_stmt.iter.*);
+        try self.emit(".items");
     } else if ((container_traits.isList(iter_type) or iter_type == .deque) and for_stmt.iter.* == .call) {
         // Function call that returns ArrayList (like chain(a, b)) - wrap in parens for .items access
-        try self.emit("(");
-        try self.genExpr(for_stmt.iter.*);
-        try self.emit(").items");
+        try self.emitParens(for_stmt.iter.*);
+        try self.emit(".items");
     } else {
         // ArrayList (list or deque types) need .items for iteration
         // Block expressions (listcomp, etc.) need to be wrapped in a temp variable
@@ -1736,9 +1729,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
             if (is_slice) {
                 // Slice already returns []T - wrap in parens and iterate directly
-                try self.emit("(");
-                try self.genExpr(for_stmt.iter.*);
-                try self.emit(")");
+                try self.emitParens(for_stmt.iter.*);
             } else if (producesBlockExpression(for_stmt.iter.*)) {
                 // Wrap block expression: blk: { const __iter = <expr>; break :blk __iter.items; }
                 const label = try self.emitInlineBlockStart("iter");
@@ -2118,9 +2109,8 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.emit(" < ");
     if (stop_is_pyvalue) {
         // Extract integer from PyValue for loop comparison
-        try self.emit("(");
-        try self.genExpr(stop_expr);
-        try self.emit(").asInt()");
+        try self.emitParens(stop_expr);
+        try self.emit(".asInt()");
     } else {
         try self.genExpr(stop_expr);
     }

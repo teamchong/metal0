@@ -113,6 +113,20 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
 
     // Check attribute access - only treat as uncertain if type is pyvalue/unknown
     if (expr == .attribute) {
+        const attr = expr.attribute;
+        // For self.xxx access in class methods, check if the field has a known type
+        // from the class field registry. If so, use the field type, not inference.
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            if (self.current_class_name) |class_name| {
+                if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                    if (class_info.fields.get(attr.attr)) |field_type| {
+                        // Field has a known type - only uncertain if pyvalue/unknown
+                        return field_type == .pyvalue or field_type == .unknown;
+                    }
+                }
+            }
+        }
+        // For other attribute access, use type inference
         const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
         return attr_type == .pyvalue or attr_type == .unknown;
     }
@@ -124,8 +138,16 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
     // Check if operand is a binary operation that would return PyValue
     // This handles nested operations like: (a * b) + (c * d) where inner ops use PyValue
     if (expr == .binop) {
-        // Check if the inferred result type is pyvalue/unknown
-        // This is the ONLY check needed - type inference already considers operand types
+        const binop = expr.binop;
+        // If this binop has a PyValue method (Add, Sub, Mul, etc.), check if EITHER
+        // operand is uncertain. If so, the codegen will use PyValue ops, returning PyValue.
+        if (PyValueMethods.get(@tagName(binop.op)) != null) {
+            // Recursively check operands - if either would trigger PyValue ops, result is PyValue
+            if (isOperandUncertain(self, binop.left.*) or isOperandUncertain(self, binop.right.*)) {
+                return true;
+            }
+        }
+        // Also check if the inferred result type is pyvalue/unknown
         const result_type = self.type_inferrer.inferExpr(expr) catch return false;
         if (result_type == .pyvalue or result_type == .unknown) {
             return true;
