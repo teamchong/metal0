@@ -2579,8 +2579,28 @@ pub const ZigBuilder = struct {
     ///
     /// However, if multiple emitConst() calls happen in quick succession, the
     /// buffer may be reused before appendSlice() completes, causing corruption.
+    ///
+    /// DEPRECATED: Use getBodyDupe() instead which returns safely duplicated memory.
+    /// This function is kept for backwards compatibility but callers MUST
+    /// immediately copy the result before any other builder operations.
     pub fn getBodyAndClear(self: *ZigBuilder) []const u8 {
         const result = self.body.items;
+        self.body.clearRetainingCapacity();
+        return result;
+    }
+
+    /// Get body content as duplicated string and clear buffer (SAFE VERSION)
+    ///
+    /// This is the safe alternative to getBodyAndClear(). It duplicates the
+    /// buffer contents before clearing, preventing aliasing bugs when the
+    /// builder is reused before the caller finishes using the result.
+    ///
+    /// Use this when:
+    /// - Building nested expressions where getBodyAndClear() is called multiple times
+    /// - The result will be stored and used after more builder operations
+    /// - You're not sure if the result will be used immediately
+    pub fn getBodyDupe(self: *ZigBuilder) ![]const u8 {
+        const result = try self.allocator.dupe(u8, self.body.items);
         self.body.clearRetainingCapacity();
         return result;
     }

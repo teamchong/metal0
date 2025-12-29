@@ -9,6 +9,9 @@ const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const expr_emitter = @import("../expr_emitter.zig");
+const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
+const CallArg = builder_mod.ZigBuilder.CallArg;
 
 /// String method codegen patterns for map(str.method, items)
 const StrMethodPatterns = std.StaticStringMap([]const u8).initComptime(.{
@@ -800,9 +803,7 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For strings, create a stateful StringIterator
     if (string_traits.isString(arg_type)) {
-        try self.emit("runtime.builtins.strIterator(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeStrIterator(self, args[0]);
         return;
     }
 
@@ -816,16 +817,10 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         if (is_arraylist) {
             // ArrayList variable: use .items to get slice
-            try self.emit("runtime.iterators.iter(i64, ");
-            try self.genExpr(args[0]);
-            try self.emit(".items)");
+            try emitRuntimeIteratorsIter(self, args[0], false);
         } else {
             // Use container_dispatch helper to reduce monomorphization
-            try self.emit("runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(");
-            try self.genExpr(args[0]);
-            try self.emit("), ");
-            try self.genExpr(args[0]);
-            try self.emit("))");
+            try emitRuntimeIteratorsIter(self, args[0], true);
         }
         return;
     }
@@ -848,11 +843,7 @@ pub fn genIter(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // For unknown types, use container_dispatch helper to reduce monomorphization
     // Replaces inline @typeInfo/@hasField checks with centralized helper
-    try self.emit("runtime.container_dispatch.toIterSlice(@TypeOf(");
-    try self.genExpr(args[0]);
-    try self.emit("), ");
-    try self.genExpr(args[0]);
-    try self.emit(")");
+    try emitContainerDispatchToIterSlice(self, args[0]);
 }
 
 /// Generate code for next(iterator, [default])
@@ -886,9 +877,7 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For StringIterator and other stateful iterators, pass pointer for mutation
     // The runtime.builtins.next() returns an error union, wrap with try/catch
     // Use catch to convert StopIteration/TypeError to panic (matches Python semantics)
-    try self.emit("(runtime.builtins.next(&");
-    try self.genExpr(args[0]);
-    try self.emit(") catch |err| switch (err) { error.StopIteration => @panic(\"StopIteration\"), error.TypeError => @panic(\"TypeError: object is not an iterator\") })");
+    try emitRuntimeBuiltinsNext(self, args[0]);
 }
 
 // Built-in functions implementation status:
@@ -899,3 +888,91 @@ pub fn genNext(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 // Future improvements:
 // - Add enumerate/zip support in for-loop codegen (statements.zig)
 // - Consider comptime function pointer support for map/filter
+
+// ============================================
+// Builder-based helper functions (auto-close)
+// ============================================
+
+/// Emit runtime.builtins.strIterator(arg) using builder pattern
+fn emitRuntimeStrIterator(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.captureExpr(arg);
+    try b.emitCallExpr("runtime.builtins.strIterator", &[_]CallArg{
+        .{ .value = arg_val },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.iterators.iter(T, items.items) or with container dispatch
+fn emitRuntimeIteratorsIter(self: *NativeCodegen, arg: ast.Node, use_container_dispatch: bool) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const arg_val = try self.captureExpr(arg);
+
+    if (use_container_dispatch) {
+        // Use container_dispatch helper: runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(arg), arg))
+        try b.emitValueCore(arg_val);
+        const arg_raw = try b.getBodyDupe();
+
+        const type_of_expr = try std.fmt.allocPrint(alloc, "@TypeOf({s})", .{arg_raw});
+        const inner_call = try std.fmt.allocPrint(alloc, "runtime.container_dispatch.toIterSlice({s}, {s})", .{ type_of_expr, arg_raw });
+
+        try b.emitCallExpr("runtime.iterators.iter", &[_]CallArg{
+            .{ .raw = "i64" },
+            .{ .raw = inner_call },
+        });
+    } else {
+        // Simple case: runtime.iterators.iter(i64, arg.items)
+        try b.emitValueCore(arg_val);
+        const arg_raw = try b.getBodyDupe();
+        const items_expr = try std.fmt.allocPrint(alloc, "{s}.items", .{arg_raw});
+
+        try b.emitCallExpr("runtime.iterators.iter", &[_]CallArg{
+            .{ .raw = "i64" },
+            .{ .raw = items_expr },
+        });
+    }
+
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.builtins.next(&arg) with error handling
+fn emitRuntimeBuiltinsNext(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const arg_val = try self.captureExpr(arg);
+
+    // Build: (runtime.builtins.next(&arg) catch |err| switch (err) { ... })
+    try b.emitValueCore(arg_val);
+    const arg_raw = try b.getBodyDupe();
+    const addr_expr = try std.fmt.allocPrint(alloc, "&{s}", .{arg_raw});
+
+    try b.emitCallExpr("runtime.builtins.next", &[_]CallArg{
+        .{ .raw = addr_expr },
+    });
+    const call_result = try b.getBodyDupe();
+
+    // Wrap with catch for error handling
+    const wrapped = try std.fmt.allocPrint(alloc, "({s} catch |err| switch (err) {{ error.StopIteration => @panic(\"StopIteration\"), error.TypeError => @panic(\"TypeError: object is not an iterator\") }})", .{call_result});
+    try self.emitZigValue(ZigValue.raw(wrapped));
+}
+
+/// Emit runtime.container_dispatch.toIterSlice(@TypeOf(arg), arg)
+fn emitContainerDispatchToIterSlice(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const alloc = self.arena.allocator();
+    const arg_val = try self.captureExpr(arg);
+
+    try b.emitValueCore(arg_val);
+    const arg_raw = try b.getBodyDupe();
+    const type_of_expr = try std.fmt.allocPrint(alloc, "@TypeOf({s})", .{arg_raw});
+
+    try b.emitCallExpr("runtime.container_dispatch.toIterSlice", &[_]CallArg{
+        .{ .raw = type_of_expr },
+        .{ .raw = arg_raw },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}

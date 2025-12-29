@@ -5,6 +5,8 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const builder_mod = @import("codegen.builder");
+const ZigValue = builder_mod.ZigValue;
+const CallArg = builder_mod.ZigBuilder.CallArg;
 
 // MIGRATED TO ZIGBUILDER
 
@@ -121,9 +123,7 @@ pub fn genMin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 1) {
         // Single argument - iterable case: min([1, 2, 3]) or min(some_sequence)
         // Use runtime function that handles any iterable
-        try self.emit("runtime.builtins.minIterable(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeMinIterable(self, args[0]);
         return;
     }
 
@@ -171,9 +171,7 @@ pub fn genMax(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 1) {
         // Single argument - iterable case: max([1, 2, 3]) or max(some_sequence)
         // Use runtime function that handles any iterable
-        try self.emit("runtime.builtins.maxIterable(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimeMaxIterable(self, args[0]);
         return;
     }
 
@@ -220,9 +218,7 @@ pub fn genRound(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // round(n) or round(n, None) - round to nearest integer
     if (args.len == 1 or (args.len == 2 and isNoneArg(args[1]))) {
         // Use runtime.builtins.pyRound to handle both int and float
-        try self.emit("runtime.builtins.pyRound(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitRuntimePyRound(self, args[0]);
         return;
     }
 
@@ -381,9 +377,7 @@ pub fn genChr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Full Unicode support via runtime (handles UTF-8 encoding)
-    try self.emit("(try runtime.builtins.chr(__global_allocator, ");
-    try self.genExpr(args[0]);
-    try self.emit("))");
+    try emitRuntimeChr(self, args[0]);
 }
 
 /// Generate code for ord(c)
@@ -472,9 +466,67 @@ pub fn genHash(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         else => {
             // For all other types (int, float, tuple, PyValue, unknown, etc.):
             // use runtime.pyHash which handles all types including tuples and PyValue
-            try self.emit("runtime.pyHash(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitRuntimePyHash(self, args[0]);
         },
     }
+}
+
+// ============================================
+// Builder-based helper functions (auto-close)
+// ============================================
+
+/// Emit runtime.builtins.minIterable(arg) using builder pattern
+fn emitRuntimeMinIterable(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.captureExpr(arg);
+    try b.emitCallExpr("runtime.builtins.minIterable", &[_]CallArg{
+        .{ .value = arg_val },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.builtins.maxIterable(arg) using builder pattern
+fn emitRuntimeMaxIterable(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.captureExpr(arg);
+    try b.emitCallExpr("runtime.builtins.maxIterable", &[_]CallArg{
+        .{ .value = arg_val },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.builtins.pyRound(arg) using builder pattern
+fn emitRuntimePyRound(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.captureExpr(arg);
+    try b.emitCallExpr("runtime.builtins.pyRound", &[_]CallArg{
+        .{ .value = arg_val },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit (try runtime.builtins.chr(__global_allocator, arg)) using builder pattern
+fn emitRuntimeChr(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.captureExpr(arg);
+    try b.emitTryCallExpr("runtime.builtins.chr", &[_]CallArg{
+        .allocator,
+        .{ .value = arg_val },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
+}
+
+/// Emit runtime.pyHash(arg) using builder pattern
+fn emitRuntimePyHash(self: *NativeCodegen, arg: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.captureExpr(arg);
+    try b.emitCallExpr("runtime.pyHash", &[_]CallArg{
+        .{ .value = arg_val },
+    });
+    const result = try b.getBodyDupe();
+    try self.emitZigValue(ZigValue.raw(result));
 }

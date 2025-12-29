@@ -48,7 +48,7 @@ fn buildRuntimeCall(self: *NativeCodegen, func_name: []const u8, args: []const C
     const b = try self.getBuilder();
     const full_name = try std.fmt.allocPrint(self.arena.allocator(), "runtime.{s}", .{func_name});
     try b.emitCallExpr(full_name, args);
-    return ZigValue.raw(b.getBodyAndClear());
+    return ZigValue.raw(try b.getBodyDupe());
 }
 
 /// Build class init call using builder: ClassName.init(__global_allocator, args...)
@@ -70,7 +70,7 @@ fn buildInitCall(self: *NativeCodegen, class_name: []const u8, args: []const ast
 
     // Auto-closing call emission
     try b.emitCallExpr(func_name, call_args.items);
-    return ZigValue.raw(b.getBodyAndClear());
+    return ZigValue.raw(try b.getBodyDupe());
 }
 
 /// Emit a PyValue.from(inner_value) expression using the builder
@@ -235,7 +235,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     .{ .value = arg_value },
                     .allocator,
                 });
-                try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                 return;
             }
             // For pickle.loads: const loads = pickle.loads expects (data, allocator)
@@ -466,7 +466,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     if (is_bool_type) {
                         try b.write(" != 0)");
                     }
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 }
 
@@ -484,7 +484,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
 
                     try b.emitCallExpr("runtime.intToBytes", call_args.items);
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 }
             }
@@ -1013,7 +1013,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             }
 
             try b.write("))");
-            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
 
@@ -1121,7 +1121,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             } else {
                 try b.emitMethodCallExpr(receiver, "call", call_args.items);
             }
-            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
 
@@ -1143,14 +1143,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try init_args.append(alloc, .{ .value = arg_value });
             }
             try b.emitTryCallExpr(init_func, init_args.items);
-            const inner_call = b.getBodyAndClear();
+            const inner_call = try b.getBodyDupe();
 
             // Build outer call: try runtime.PyValue.fromAlloc(allocator, inner_result)
             try b.emitTryCallExpr("runtime.PyValue.fromAlloc", &.{
                 .allocator,
                 .{ .raw = inner_call },
             });
-            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
 
@@ -1190,7 +1190,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
                 try b.emitCallExpr(init_func, init_args.items);
             }
-            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
 
@@ -1344,7 +1344,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
             // Emit the value to get its raw string representation
             try b.emitValueCore(sv);
-            const sv_raw = b.getBodyAndClear();
+            const sv_raw = try b.getBodyDupe();
 
             // Build args: [sv.items[0], sv.items[1]]
             const arg0 = try std.fmt.allocPrint(alloc, "{s}.items[0]", .{sv_raw});
@@ -1354,7 +1354,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 .{ .raw = arg0 },
                 .{ .raw = arg1 },
             });
-            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
 
@@ -1385,7 +1385,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             } else {
                 try b.emitCallExpr(escaped_name, call_args.items);
             }
-            try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
 
@@ -1415,7 +1415,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
 
                     try b.emitCallExpr(func_ptr, call_args.items);
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 }
             }
@@ -1447,7 +1447,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
 
                     try b.emitMethodCallExpr(receiver, "__call__", call_args.items);
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 }
             }
@@ -1704,7 +1704,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (call.args.len == 0 and call.keyword_args.len == 0) {
                     const init_func = try std.fmt.allocPrint(alloc, "{s}.init", .{full_name});
                     try b.emitTryCallExpr(init_func, &.{.allocator});
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 } else if (call.args.len == 1 and call.keyword_args.len == 0) {
                     const init_func = try std.fmt.allocPrint(alloc, "{s}.initWithArg", .{full_name});
@@ -1713,7 +1713,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         .allocator,
                         .{ .value = arg_value },
                     });
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 } else {
                     // Multiple args - build PyValue array inline
@@ -1739,7 +1739,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         .allocator,
                         .{ .raw = array_buf.items },
                     });
-                    try self.emitZigValue(ZigValue.raw(b.getBodyAndClear()));
+                    try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
                     return;
                 }
             } else {
