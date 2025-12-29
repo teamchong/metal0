@@ -103,11 +103,14 @@ fn genHmacDigest(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
 
 fn genCompareDigest(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
-        try self.emit("std.mem.eql(u8, ");
-        try self.genExpr(args[0]);
-        try self.emit(", ");
-        try self.genExpr(args[1]);
-        try self.emit(")");
+        const Ctx = struct { a0: ast.Node, a1: ast.Node };
+        try self.emitCallCtx("std.mem.eql(u8, ", Ctx{ .a0 = args[0], .a1 = args[1] }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.genExpr(ctx.a0);
+                try s.emit(", ");
+                try s.genExpr(ctx.a1);
+            }
+        }.f);
     } else {
         try self.emit("false");
     }

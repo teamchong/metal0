@@ -197,15 +197,16 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 /// Generate code for asyncio.Queue(maxsize)
 /// Maps to: runtime.asyncio.Queue backed by channel
 pub fn genAsyncioQueue(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("try runtime.asyncio.Queue(runtime.PyValue).init(__global_allocator, ");
-
     if (args.len > 0) {
-        try self.genExpr(args[0]);
+        try self.emitCallCtx("try runtime.asyncio.Queue(runtime.PyValue).init", args[0], struct {
+            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                try s.emit("__global_allocator, ");
+                try s.genExpr(e);
+            }
+        }.f);
     } else {
-        try self.emit("0");
+        try self.emit("try runtime.asyncio.Queue(runtime.PyValue).init(__global_allocator, 0)");
     }
-
-    try self.emit(")");
 }
 
 /// Generate code for await expression
