@@ -897,9 +897,11 @@ pub fn genInitMethod(
                         string_traits.isString(field_type);
 
                     if (is_anytype_param and !is_primitive_field) {
-                        try self.emit("runtime.PyValue.from(");
-                        try self.genExpr(assign.value.*);
-                        try self.emit(")");
+                        try self.emitCallCtx("runtime.PyValue.from", assign.value.*, struct {
+                            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                                try s.genExpr(e);
+                            }
+                        }.f);
                     } else {
                         try self.genExpr(assign.value.*);
                     }
@@ -1521,9 +1523,11 @@ pub fn genInitMethodWithBuiltinBase(
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field.name);
                 try self.emit(" = ");
                 if (field.is_anytype) {
-                    try self.emit("runtime.PyValue.from(");
-                    try self.genExpr(field.value.*);
-                    try self.emit(")");
+                    try self.emitCallCtx("runtime.PyValue.from", field.value.*, struct {
+                        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                            try s.genExpr(e);
+                        }
+                    }.f);
                 } else {
                     try self.genExpr(field.value.*);
                 }
@@ -1921,9 +1925,11 @@ pub fn genInitMethodFromNew(
                         string_traits.isString(field_type);
 
                     if (is_anytype_param and !is_primitive_field) {
-                        try self.emit("runtime.PyValue.from(");
-                        try self.genExpr(assign.value.*);
-                        try self.emit(")");
+                        try self.emitCallCtx("runtime.PyValue.from", assign.value.*, struct {
+                            pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                                try s.genExpr(e);
+                            }
+                        }.f);
                     } else {
                         try self.genExpr(assign.value.*);
                     }
