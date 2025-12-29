@@ -12,6 +12,16 @@ const expr_emitter = @import("expr_emitter.zig");
 const type_checks = @import("builtins/conversions/type_checks.zig");
 const dynamic_attrs = @import("builtins/dynamic_attrs.zig");
 
+/// Helper: emit @as(?i64, expr) with guaranteed bracket matching
+fn emitAsOptionalI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("@as", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.emit("?i64, ");
+            try expressions.genExpr(s, e);
+        }
+    }.f);
+}
+
 // Comptime generators
 fn genFmt(comptime prefix: []const u8, comptime fmt: []const u8, comptime default: []const u8) h.H {
     return struct {
@@ -97,29 +107,23 @@ pub fn genSlice(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // slice(stop) or slice(start, stop) or slice(start, stop, step)
     try self.emit(".{ .start = ");
     if (args.len >= 2) {
-        try self.emit("@as(?i64, ");
-        try expressions.genExpr(self, args[0]);
-        try self.emit(")");
+        try emitAsOptionalI64(self, args[0]);
     } else {
         try self.emit("@as(?i64, null)");
     }
     try self.emit(", .stop = ");
     if (args.len >= 1) {
-        try self.emit("@as(?i64, ");
         if (args.len == 1) {
-            try expressions.genExpr(self, args[0]);
+            try emitAsOptionalI64(self, args[0]);
         } else {
-            try expressions.genExpr(self, args[1]);
+            try emitAsOptionalI64(self, args[1]);
         }
-        try self.emit(")");
     } else {
         try self.emit("@as(?i64, null)");
     }
     try self.emit(", .step = ");
     if (args.len >= 3) {
-        try self.emit("@as(?i64, ");
-        try expressions.genExpr(self, args[2]);
-        try self.emit(")");
+        try emitAsOptionalI64(self, args[2]);
     } else {
         try self.emit("@as(?i64, null)");
     }
