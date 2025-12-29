@@ -13,6 +13,33 @@ const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 const CallArg = builder_mod.ZigBuilder.CallArg;
 
+/// Helper: emit runtime.builtinLen(expr) with guaranteed bracket matching
+fn emitBuiltinLen(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.builtinLen", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.PyDict.len(expr) with guaranteed bracket matching
+fn emitPyDictLen(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.PyDict.len", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.toBool(expr) with guaranteed bracket matching
+fn emitToBool(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.toBool", expr, struct {
+        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+            try s.genExpr(e);
+        }
+    }.f);
+}
+
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
 pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -133,18 +160,14 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (needs_wrap) {
             try self.emit("runtime.builtinLen(__obj)");
         } else {
-            try self.emit("runtime.builtinLen(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitBuiltinLen(self, args[0]);
         }
     } else if (is_kwarg_param) {
         // **kwargs is a *runtime.PyObject (PyDict), use runtime.PyDict.len()
         if (needs_wrap) {
             try self.emit("runtime.PyDict.len(__obj)");
         } else {
-            try self.emit("runtime.PyDict.len(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitPyDictLen(self, args[0]);
         }
     } else if (is_arraylist or is_deque) {
         // ArrayList and deque both use .items.len
@@ -197,9 +220,7 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (needs_wrap) {
             try self.emit("runtime.builtinLen(__obj)");
         } else {
-            try self.emit("runtime.builtinLen(");
-            try self.genExpr(args[0]);
-            try self.emit(")");
+            try emitBuiltinLen(self, args[0]);
         }
     }
 
@@ -608,9 +629,7 @@ pub fn genBool(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     if (is_simple) {
         // Use runtime.toBool for simple types - no error propagation needed
-        try self.emit("runtime.toBool(");
-        try self.genExpr(args[0]);
-        try self.emit(")");
+        try emitToBool(self, args[0]);
         return;
     }
 
