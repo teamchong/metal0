@@ -7,6 +7,42 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
+/// Helper: emit runtime.hasattr_builtin(obj, name) with guaranteed bracket matching
+fn emitHasattrBuiltin(self: *NativeCodegen, obj: ast.Node, name: ast.Node) CodegenError!void {
+    const Ctx = struct { o: ast.Node, n: ast.Node };
+    try self.emitCallCtx("runtime.hasattr_builtin", Ctx{ .o = obj, .n = name }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.o);
+            try s.emit(", ");
+            try s.genExpr(ctx.n);
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.vars_builtin(arg) with guaranteed bracket matching
+fn emitVarsBuiltin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.vars_builtin", args, struct {
+        pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            if (a.len > 0) {
+                try s.genExpr(a[0]);
+            }
+        }
+    }.f);
+}
+
+/// Helper: emit runtime.dir_builtin(arg_or_null) with guaranteed bracket matching
+fn emitDirBuiltin(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    try self.emitCallCtx("runtime.dir_builtin", args, struct {
+        pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            if (a.len > 0) {
+                try s.genExpr(a[0]);
+            } else {
+                try s.emit("null");
+            }
+        }
+    }.f);
+}
+
 pub fn genGetattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 2) {
         try self.emit("return error.TypeError");
@@ -63,19 +99,11 @@ pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("return error.TypeError");
         return;
     }
-    try self.emit("runtime.hasattr_builtin(");
-    try self.genExpr(args[0]);
-    try self.emit(", ");
-    try self.genExpr(args[1]);
-    try self.emit(")");
+    try emitHasattrBuiltin(self, args[0], args[1]);
 }
 
 pub fn genVars(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.vars_builtin(");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    }
-    try self.emit(")");
+    try emitVarsBuiltin(self, args);
 }
 
 pub fn genGlobals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -89,11 +117,5 @@ pub fn genLocals(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 }
 
 pub fn genDir(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    try self.emit("runtime.dir_builtin(");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("null");
-    }
-    try self.emit(")");
+    try emitDirBuiltin(self, args);
 }
