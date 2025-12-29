@@ -330,6 +330,12 @@ pub const FinallyContext = struct {
     is_defer_based: bool, // True if using defer approach (skip inline duplication)
 };
 
+/// From-import from C extension module (e.g., from numpy.testing import assert_)
+pub const CExtFromImport = struct {
+    module: []const u8, // Module name (e.g., "numpy.testing")
+    attr: []const u8, // Attribute name (e.g., "assert_")
+};
+
 pub const NativeCodegen = struct {
     allocator: std.mem.Allocator,
     arena: *std.heap.ArenaAllocator, // Arena for internal string allocations (deinit frees all at once)
@@ -886,6 +892,10 @@ pub const NativeCodegen = struct {
     // These are loaded at runtime via PyImport_ImportModule
     c_extension_modules: FnvStringMap,
 
+    // Track from-imports from C extension modules (need runtime initialization)
+    // Maps symbol name -> {module, attr} (e.g., "assert_" -> {"numpy.testing", "assert_"})
+    c_extension_from_imports: hashmap_helper.StringHashMap(CExtFromImport),
+
     // Track local variable types within current function/method scope
     // Maps variable name -> NativeType (e.g., "result" -> .string)
     // Cleared when entering a new function scope, used to avoid type shadowing issues
@@ -1163,6 +1173,7 @@ pub const NativeCodegen = struct {
             .skipped_functions = FnvVoidMap.init(aa),
             .codegen_only_modules = FnvVoidMap.init(aa),
             .c_extension_modules = FnvStringMap.init(aa),
+            .c_extension_from_imports = hashmap_helper.StringHashMap(CExtFromImport).init(aa),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(aa),
             .local_from_imports = FnvStringMap.init(aa),
             .loop_capture_vars = FnvVoidMap.init(aa),

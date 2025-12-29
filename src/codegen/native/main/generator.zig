@@ -1672,6 +1672,23 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 try self.emitFmt(" = c_interop.importModule(\"{s}\") orelse @panic(\"Failed to import C extension module: {s}\");\n", .{ module_name, module_name });
             }
         }
+
+        // Initialize from-imports from C extension modules
+        // e.g., assert_ = c_interop.getAttr(@"numpy.testing".?, "assert_") orelse @panic(...);
+        if (self.c_extension_from_imports.count() > 0) {
+            try self.emit("\n");
+            try self.emitIndent();
+            try self.emit("// Initialize from-imports from C extension modules\n");
+
+            for (self.c_extension_from_imports.keys()) |symbol_name| {
+                const info = self.c_extension_from_imports.get(symbol_name).?;
+                try self.emitIndent();
+                try self.emitIdent(symbol_name);
+                try self.emit(" = c_interop.getAttr(");
+                try self.emitIdent(info.module);
+                try self.emitFmt(".?, \"{s}\") orelse @panic(\"Failed to get attribute '{s}' from C extension module '{s}'\");\n", .{ info.attr, info.attr, info.module });
+            }
+        }
     }
 
     // PHASE 7: Generate statements (skip class/function defs and imports - already handled)

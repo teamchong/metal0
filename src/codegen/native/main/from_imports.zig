@@ -626,6 +626,31 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 continue;
             }
 
+            // Check if this is a C extension module (or submodule of one)
+            // e.g., from numpy.testing import assert_ -> c_interop.getAttr(numpy.testing, "assert_")
+            // These must be vars initialized in main() since they require runtime module loading
+            if (self.isCExtensionModule(from_imp.module)) {
+                for (from_imp.names, 0..) |name, i| {
+                    if (std.mem.eql(u8, name, "*")) continue;
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (generated_symbols.contains(symbol_name)) continue;
+                    // Generate: var symbol_name: ?*c_interop.PyObject = null;
+                    // The actual initialization happens in main() after the module is loaded
+                    try self.emit("var ");
+                    try self.emitIdent(symbol_name);
+                    try self.emit(": ?*c_interop.PyObject = null;\n");
+                    try generated_symbols.put(symbol_name, {});
+                    // Track for local variable shadowing prevention
+                    try self.module_level_from_imports.put(symbol_name, {});
+                    // Track for main() initialization
+                    try self.c_extension_from_imports.put(symbol_name, .{ .module = from_imp.module, .attr = name });
+                }
+                continue;
+            }
+
             // Module not in registry - generate null placeholders for optional imports
             // This handles try/except ImportError patterns like: from numpy import ndarray as numpy_array
             for (from_imp.names, 0..) |name, i| {

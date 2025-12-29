@@ -572,6 +572,12 @@ fn analyzeStmtForTraits(stmt: ast.Node, ctx: *AnalyzerContext) !void {
             }
             ctx.op_count += 1;
         },
+        // Imports inside function bodies will be codegen'd as try runtime.eval(...)
+        // for external modules not in the registry. Be conservative and mark as can_error.
+        .import_stmt, .import_from => {
+            ctx.can_error = true;
+            ctx.op_count += 1;
+        },
         else => {
             ctx.op_count += 1;
         },
