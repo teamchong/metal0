@@ -33,13 +33,13 @@ fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
             fn emit(c: *h.NativeCodegen, label: []const u8, a: []ast.Node) !void {
                 const b = try c.getBuilder();
                 try b.write("const __v = ");
-                const output1 = b.getBodyAndClear();
+                const output1 = try b.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output1);
                 try c.genExpr(a[0]);
                 {
                     const b2 = try c.getBuilder();
                     try b2.writeFmt("; break :{s} .{{ .pattern = __v, .flags = 0, .groups = 0 }}", .{label});
-                    const output2 = b2.getBodyAndClear();
+                    const output2 = try b2.getBodyDupe();
                     try c.output.appendSlice(c.allocator, output2);
                 }
             }
@@ -102,14 +102,14 @@ fn genSubn(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
         {
             const b = try self.getBuilder();
             try b.write(".{ ");
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
         }
         try self.genExpr(args[1]);
         {
             const b = try self.getBuilder();
             try b.write(", @as(i64, 0) }");
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
         }
     } else {

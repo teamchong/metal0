@@ -9,7 +9,7 @@ const ast = @import("analysis.ast");
 fn emitValue(self: *h.NativeCodegen, val: builder_mod.ZigValue) h.CodegenError!void {
     const b = try self.getBuilder();
     try b.emitValue(val, builder_mod.EmitConfig.forExpression());
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

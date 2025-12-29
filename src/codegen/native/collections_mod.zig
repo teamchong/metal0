@@ -252,7 +252,7 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
     try b.write(" }");
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

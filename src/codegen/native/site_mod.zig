@@ -24,7 +24,7 @@ fn genGetuserbase(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     try b.write("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
     try b.writeFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local\", .{{home}}) catch \"\"; ", .{label});
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
     try self.emitInlineBlockEnd();
 }
@@ -34,7 +34,7 @@ fn genGetusersitepackages(self: *NativeCodegen, _: []ast.Node) CodegenError!void
     const b = try self.getBuilder();
     try b.write("const home = if (comptime @import(\"builtin\").os.tag == .windows) \"C:\\\\Users\\\\Public\" else (std.posix.getenv(\"HOME\") orelse \"\");");
     try b.writeFmt("break :{s} std.fmt.allocPrint(__global_allocator, \"{{s}}/.local/lib/python3/site-packages\", .{{home}}) catch \"\"; ", .{label});
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
     try self.emitInlineBlockEnd();
 }

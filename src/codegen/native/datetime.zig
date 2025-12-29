@@ -97,7 +97,7 @@ pub fn genWeekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             {
                 const b = try c.getBuilder();
                 try b.writeFmt("; break :{s} @as(i64, 0); ", .{label});
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output);
             }
         }
@@ -114,7 +114,7 @@ pub fn genIsoweekday(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             {
                 const b = try c.getBuilder();
                 try b.writeFmt("; break :{s} @as(i64, 1); ", .{label});
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output);
             }
         }
@@ -248,7 +248,7 @@ pub fn genDateFromTimestamp(self: *NativeCodegen, args: []ast.Node) CodegenError
             {
                 const b = try c.getBuilder();
                 try b.writeFmt(")); break :{s} runtime.datetime.Date{{ .year = _dt.year, .month = _dt.month, .day = _dt.day }}; ", .{label});
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output);
             }
         }

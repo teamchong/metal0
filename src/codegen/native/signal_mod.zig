@@ -36,7 +36,7 @@ fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         const b = try self.getBuilder();
         try b.write("{}");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -44,13 +44,13 @@ fn genRaiseSignal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             const b = try c.getBuilder();
             try b.write("const sig = @as(u6, @intCast(");
-            const output1 = b.getBodyAndClear();
+            const output1 = try b.getBodyDupe();
             try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
             {
                 const b2 = try c.getBuilder();
                 try b2.writeFmt(")); _ = std.posix.raise(sig); break :{s} {{}}", .{label});
-                const output2 = b2.getBodyAndClear();
+                const output2 = try b2.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output2);
             }
         }

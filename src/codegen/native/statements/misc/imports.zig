@@ -53,7 +53,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.writeFmt("const {s} = runtime.builtins;\n", .{alias});
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -103,7 +103,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             try b.write(path);
             try b.write(";\n");
 
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
         }
     } else {
@@ -131,7 +131,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             try b.write(";\n");
         }
 
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 }
@@ -215,7 +215,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 try b.write(";\n");
             }
 
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
         } else {
             // Module uses inline codegen (e.g., random) - track symbols for dispatch

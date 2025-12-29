@@ -155,7 +155,7 @@ pub fn emitComptimeAssignment(
             // This properly interprets Python escape sequences like \n -> newline
             const constants = @import("../expressions/constants.zig");
             // Flush builder buffer first, then emit string, then reopen builder
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
             try self.emit("\"");
             try constants.emitZigStringContent(self, v, constants.StringContext.default);
@@ -253,7 +253,7 @@ pub fn emitComptimeAssignment(
     }
 
     try b.write(";\n");
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

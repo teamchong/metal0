@@ -22,7 +22,7 @@ fn genFileCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     if (args.len == 0) {
         try b.write(".{ .filename = @as(?[]const u8, null), .delayload = false }");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -30,13 +30,13 @@ fn genFileCookieJar(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         fn emit(c: *NativeCodegen, label: []const u8, a: []ast.Node) !void {
             const b2 = try c.getBuilder();
             try b2.write("const filename = ");
-            const output1 = b2.getBodyAndClear();
+            const output1 = try b2.getBodyDupe();
             try c.output.appendSlice(c.allocator, output1);
             try c.genExpr(a[0]);
             {
                 const b3 = try c.getBuilder();
                 try b3.writeFmt("; break :{s} .{{ .filename = filename, .delayload = false }}", .{label});
-                const output2 = b3.getBodyAndClear();
+                const output2 = try b3.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output2);
             }
         }

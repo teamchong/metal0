@@ -108,7 +108,7 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
             else => try b.body.append(b.allocator, c),
         }
     }
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

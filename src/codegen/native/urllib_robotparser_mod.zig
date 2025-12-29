@@ -14,19 +14,19 @@ fn genRobotFileParser(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!v
     if (args.len > 0) {
         // With argument: .{ .url = __v, .last_checked = @as(i64, 0) }
         try b.write(".{ .url = ");
-        const output1 = b.getBodyAndClear();
+        const output1 = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output1);
         try self.genExpr(args[0]);
         {
             const b2 = try self.getBuilder();
             try b2.write(", .last_checked = @as(i64, 0) }");
-            const output2 = b2.getBodyAndClear();
+            const output2 = try b2.getBodyDupe();
             try self.output.appendSlice(self.allocator, output2);
         }
     } else {
         // Without argument: default struct
         try b.write(".{ .url = \"\", .last_checked = @as(i64, 0) }");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 }

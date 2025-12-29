@@ -91,7 +91,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.write("// return inside defer - skipped (cleanup continues)\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -104,7 +104,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         // Store the return value and break out of finally block
         // The return will be handled after the finally block
         try b.writeFmt("break :__finally_blk_{d} null; // return from finally\n", .{self.current_finally_id});
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -123,7 +123,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             try b.write(";\n");
         }
 
-        const output1 = b.getBodyAndClear();
+        const output1 = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output1);
 
         // Execute all active finally blocks (innermost to outermost)
@@ -153,7 +153,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             if (self.current_function_name) |fn_name| {
                 if (ComparisonMagicMethods.has(fn_name)) {
                     try b.write("return runtime.PyValue{ .not_implemented = {} };\n");
-                    const output = b.getBodyAndClear();
+                    const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                     return;
                 }
@@ -172,7 +172,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
                     try b.write("return runtime.PyValue{ .bool = ");
                     try b.emitValue(val, .{});
                     try b.write(" };\n");
-                    const output = b.getBodyAndClear();
+                    const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                     return;
                 }
@@ -185,7 +185,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             if (self.pending_closure_types.get(name)) |type_name| {
                 // Return an instance of the pre-generated closure type
                 try b.writeFmt("return {s}{{}};\n", .{type_name});
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
                 return;
             }
@@ -206,7 +206,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             }
 
             try b.write("});\n");
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
             return;
         }
@@ -295,6 +295,6 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     }
     try b.write(";\n");
 
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }

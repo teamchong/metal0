@@ -20,7 +20,7 @@ fn emitIndent(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.write(val);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -29,7 +29,7 @@ fn emitIndentFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) 
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

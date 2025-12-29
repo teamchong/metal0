@@ -16,7 +16,7 @@ fn emitIndent(self: *NativeCodegen, val: []const u8) CodegenError!void {
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.write(val);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -25,7 +25,7 @@ fn emitIndentFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) 
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.writeFmt(fmt, args);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -36,7 +36,7 @@ fn emitIndentWithIdent(self: *NativeCodegen, prefix: []const u8, ident: []const 
     try b.write(prefix);
     try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), ident);
     try b.write(suffix);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -47,7 +47,7 @@ fn emitIndentWithIdentFmt(self: *NativeCodegen, prefix: []const u8, ident: []con
     try b.write(prefix);
     try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), ident);
     try b.writeFmt(suffix_fmt, suffix_args);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -173,7 +173,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         try b.write(") |");
         try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
         try b.write("| {\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 
@@ -223,7 +223,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
                 try b.write(" = ");
                 try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
                 try b.writeFmt(".@\"{d}\";\n", .{i});
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
                 // Only suppress unused warning if variable is NOT used in body
                 if (!param_analyzer.isNameUsedInBody(body, elt.name.id)) {
@@ -352,7 +352,7 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
             try b.write(")");
         }
         try b.write(";\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 
@@ -378,7 +378,7 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         try b.writeFmt(" = __zip_iter_{d}", .{i});
         if (iter_is_list[i]) try b.write(".items");
         try b.write("[__zip_idx];\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
 
         // Add variable to symbol table so nested scopes can detect shadowing

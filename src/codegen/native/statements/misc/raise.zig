@@ -71,7 +71,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.writeFmt("break :__ar_blk_{d} {{}}; // Exception caught by assertRaises\n", .{self.current_assert_raises_block_id});
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         self.control_flow_terminated = true;
         return;
@@ -104,7 +104,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.writeFmt("break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
         }
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         self.control_flow_terminated = true;
         return;
@@ -137,7 +137,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.writeFmt("__pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
         }
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         // Don't set control_flow_terminated - code after raise should still be unreachable
         // but finally block must execute, and the exception will be propagated after finally
@@ -150,7 +150,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.write("// raise inside defer - cannot propagate\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -201,7 +201,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                     try b.write("return error.");
                     try b.write(exc_name);
                     try b.write(";\n");
-                    const output = b.getBodyAndClear();
+                    const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                     self.control_flow_terminated = true;
                     return;
@@ -227,7 +227,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 try b.write("return error.");
                 try b.write(exc_name);
                 try b.write(";\n");
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
                 self.control_flow_terminated = true;
                 return;
@@ -247,7 +247,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try b.writeIndent();
         try b.write("return error.Exception;\n");
     }
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
     self.control_flow_terminated = true;
 }

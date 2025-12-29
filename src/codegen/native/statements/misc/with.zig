@@ -919,7 +919,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                                 // Another level of nesting - process recursively
                                 // For now, just generate the with statement normally
                                 // TODO: Handle deeper nesting if needed
-                                const pending = b.getBodyAndClear();
+                                const pending = try b.getBodyDupe();
                                 try self.output.appendSlice(self.allocator, pending);
                                 try genWith(self, nested_stmt.with_stmt);
                             } else {
@@ -929,7 +929,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                         }
                     } else {
                         // Non-unittest nested with - generate it normally
-                        const pending = b.getBodyAndClear();
+                        const pending = try b.getBodyDupe();
                         try self.output.appendSlice(self.allocator, pending);
                         try genWith(self, nested_with);
                     }
@@ -972,7 +972,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         }
 
         // Flush builder output before early return
-        const builder_output = b.getBodyAndClear();
+        const builder_output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, builder_output);
         return;
     }
@@ -1284,6 +1284,6 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
     try b.write("}\n");
 
     // Final flush at end
-    const final_output = b.getBodyAndClear();
+    const final_output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, final_output);
 }

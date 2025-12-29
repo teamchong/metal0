@@ -143,14 +143,14 @@ fn genInetNtoa(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             {
                 const b = try c.getBuilder();
                 try b.write("const _packed = ");
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output);
             }
             try c.genExpr(a[0]);
             {
                 const b = try c.getBuilder();
                 try b.writeFmt("; if (_packed.len < 4) break :{s} \"0.0.0.0\"; var _buf: [16]u8 = undefined; const _len = std.fmt.bufPrint(&_buf, \"{{d}}.{{d}}.{{d}}.{{d}}\", .{{ _packed[0], _packed[1], _packed[2], _packed[3] }}) catch break :{s} \"0.0.0.0\"; break :{s} __global_allocator.dupe(u8, _len) catch \"0.0.0.0\"", .{ label, label, label });
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try c.output.appendSlice(c.allocator, output);
             }
         }

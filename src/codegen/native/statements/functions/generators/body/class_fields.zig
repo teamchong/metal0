@@ -20,7 +20,7 @@ pub fn genClassFields(self: *NativeCodegen, class_name: []const u8, init: ast.No
     try b.write("// Dynamic attributes dictionary\n");
     try b.writeIndent();
     try b.write("__dict__: hashmap_helper.StringHashMap(runtime.PyValue),\n");
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -194,7 +194,7 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     } else {
                         try b.writeFmt(": {s},\n", .{field_type_str});
                     }
-                    const output = b.getBodyAndClear();
+                    const output = try b.getBodyDupe();
                     try self.output.appendSlice(self.allocator, output);
                 }
             }
@@ -259,7 +259,7 @@ pub fn genClassLevelFields(self: *NativeCodegen, class_body: []const ast.Node) C
                     else => ".{}",
                 };
                 try b.writeFmt(": {s} = {s},\n", .{ field_type_str, default_val });
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
             }
         }
@@ -580,7 +580,7 @@ pub fn genClassAttributeFields(self: *NativeCodegen, class_body: []const ast.Nod
                     }
                     try b.write(",\n");
                 }
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
             }
         }

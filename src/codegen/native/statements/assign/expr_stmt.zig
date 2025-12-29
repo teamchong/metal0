@@ -179,7 +179,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             );
 
             // Flush builder to output
-            const output = builder.getBodyAndClear();
+            const output = try builder.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
             return;
         }
@@ -194,7 +194,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
     // Flush builder to output if there's pending content
     if (self.builder) |b| {
-        const builder_content = b.getBodyAndClear();
+        const builder_content = try b.getBodyDupe();
         if (builder_content.len > 0) {
             try self.output.appendSlice(self.allocator, builder_content);
         }
@@ -376,7 +376,7 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     );
 
     // Flush builder to output - now has: indent + expr + semicolon atomically
-    const output = builder.getBodyAndClear();
+    const output = try builder.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

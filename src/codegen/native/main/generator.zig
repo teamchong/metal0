@@ -1894,7 +1894,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
     // CRITICAL: Flush builder before each statement to ensure proper boundaries
     // This prevents statement interleaving (e.g., semicolons appearing after next statement's indent)
     if (self.builder) |b| {
-        const pending = b.getBodyAndClear();
+        const pending = try b.getBodyDupe();
         if (pending.len > 0) {
             try self.output.appendSlice(self.allocator, pending);
         }

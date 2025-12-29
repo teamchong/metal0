@@ -24,7 +24,7 @@ pub fn emitStringConcatDefer(self: *NativeCodegen, var_name: []const u8, is_firs
         try b.writeFmt("defer {s}.free(", .{alloc_name});
         try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
         try b.write(");\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 }
@@ -37,7 +37,7 @@ pub fn emitArrayListDefer(self: *NativeCodegen, var_name: []const u8) CodegenErr
     try b.write("defer ");
     try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
     try b.writeFmt(".deinit({s});\n", .{alloc_name});
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -49,7 +49,7 @@ pub fn emitListCompDefer(self: *NativeCodegen, var_name: []const u8) CodegenErro
     try b.write("defer ");
     try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
     try b.writeFmt(".deinit({s});\n", .{alloc_name});
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -84,7 +84,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         try b.write("defer ");
         try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
         try b.write(".deinit();\n");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
         return;
     }
@@ -158,7 +158,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         try zig_keywords.writeLocalVarName(writer, var_name);
         try b.write(".deinit();\n");
     }
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -170,7 +170,7 @@ pub fn emitAllocatedStringDefer(self: *NativeCodegen, var_name: []const u8) Code
     try b.writeFmt("defer {s}.free(", .{alloc_name});
     try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
     try b.write(");\n");
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

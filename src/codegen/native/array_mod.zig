@@ -131,7 +131,7 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     try b.write("); } ");
 
     try b.write("}{}");
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

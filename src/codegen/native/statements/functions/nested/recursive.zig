@@ -30,7 +30,7 @@ pub fn genRecursiveClosure(
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.writeFmt("const {s} = struct {{\n", .{func.name});
-    const output1 = b.getBodyAndClear();
+    const output1 = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output1);
     self.indent();
 
@@ -46,7 +46,7 @@ pub fn genRecursiveClosure(
             break :blk var_name;
         };
         try b2.writeFmt("var __c_{s}: @TypeOf({s}) = undefined;\n", .{ var_name, outer_var_name });
-        const output2 = b2.getBodyAndClear();
+        const output2 = try b2.getBodyDupe();
         try self.output.appendSlice(self.allocator, output2);
     }
 
@@ -65,7 +65,7 @@ pub fn genRecursiveClosure(
         }
     }
     try b3.write(") void {\n");
-    const output3 = b3.getBodyAndClear();
+    const output3 = try b3.getBodyDupe();
     try self.output.appendSlice(self.allocator, output3);
     self.indent();
 
@@ -181,7 +181,7 @@ pub fn genRecursiveClosure(
             const b4 = try self.getBuilder();
             try b4.writeIndent();
             try b4.writeFmt("var __v_{s}_{d} = __p_{s}_{d};\n", .{ arg.name, saved_id, arg.name, saved_id });
-            const output4 = b4.getBodyAndClear();
+            const output4 = try b4.getBodyDupe();
             try self.output.appendSlice(self.allocator, output4);
         }
     }
@@ -229,14 +229,14 @@ pub fn genRecursiveClosure(
     const b5 = try self.getBuilder();
     try b5.writeIndent();
     try b5.write("}\n");
-    const output5 = b5.getBodyAndClear();
+    const output5 = try b5.getBodyDupe();
     try self.output.appendSlice(self.allocator, output5);
 
     self.dedent();
     const b6 = try self.getBuilder();
     try b6.writeIndent();
     try b6.write("};\n");
-    const output6 = b6.getBodyAndClear();
+    const output6 = try b6.getBodyDupe();
     try self.output.appendSlice(self.allocator, output6);
 
     // Initialize the capture variables (use __c_ prefix)
@@ -251,7 +251,7 @@ pub fn genRecursiveClosure(
             try b7.write(var_name);
         }
         try b7.write(";\n");
-        const output7 = b7.getBodyAndClear();
+        const output7 = try b7.getBodyDupe();
         try self.output.appendSlice(self.allocator, output7);
     }
 

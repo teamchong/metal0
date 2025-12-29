@@ -113,7 +113,7 @@ fn escapeZigString(self: *NativeCodegen, source: []const u8) CodegenError!void {
             else => try b.body.append(b.allocator, c),
         }
     }
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 
@@ -2682,7 +2682,7 @@ pub const NativeCodegen = struct {
     pub fn emit(self: *NativeCodegen, val: []const u8) CodegenError!void {
         const b = try self.getBuilder();
         try b.write(val);
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 
@@ -2691,7 +2691,7 @@ pub const NativeCodegen = struct {
     pub fn emitFmt(self: *NativeCodegen, comptime fmt: []const u8, args: anytype) CodegenError!void {
         const b = try self.getBuilder();
         try b.writeFmt(fmt, args);
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
 
@@ -2700,7 +2700,7 @@ pub const NativeCodegen = struct {
     /// This is the bridge between ZigBuilder and the main output buffer.
     pub fn flushBuilder(self: *NativeCodegen) CodegenError!void {
         if (self.builder) |b| {
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             if (output.len > 0) {
                 try self.output.appendSlice(self.allocator, output);
             }
@@ -3039,7 +3039,7 @@ pub const NativeCodegen = struct {
         // Save builder state - nested code may use builder and flush
         // Copy to arena to avoid aliasing issues when restoring
         const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
-            const content = b.getBodyAndClear();
+            const content = try b.getBodyDupe();
             if (content.len > 0) {
                 break :blk try self.arena.allocator().dupe(u8, content);
             }
@@ -3082,7 +3082,7 @@ pub const NativeCodegen = struct {
 
         // Save builder state - nested code may use builder and flush
         const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
-            const content = b.getBodyAndClear();
+            const content = try b.getBodyDupe();
             if (content.len > 0) {
                 break :blk try self.arena.allocator().dupe(u8, content);
             }
@@ -3128,7 +3128,7 @@ pub const NativeCodegen = struct {
         // Save builder state - nested code may use builder and flush
         // Copy to arena to avoid aliasing issues when restoring
         const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
-            const content = b.getBodyAndClear();
+            const content = try b.getBodyDupe();
             if (content.len > 0) {
                 break :blk try self.arena.allocator().dupe(u8, content);
             }
@@ -3221,7 +3221,7 @@ pub const NativeCodegen = struct {
                 // For complex values, use a temporary buffer to avoid conflicts
                 // with nested operations that may modify the builder
                 const builder_save: ?[]const u8 = blk: {
-                    const content = b.getBodyAndClear();
+                    const content = try b.getBodyDupe();
                     if (content.len > 0) {
                         break :blk try self.arena.allocator().dupe(u8, content);
                     }
@@ -3232,7 +3232,7 @@ pub const NativeCodegen = struct {
                 try b.emitValue(value, builder_mod.EmitConfig.forExpression());
 
                 // Copy result to arena (must copy before writing to builder to avoid alias)
-                const emitted = try self.arena.allocator().dupe(u8, b.getBodyAndClear());
+                const emitted = try self.arena.allocator().dupe(u8, try b.getBodyDupe());
 
                 // Restore builder state first, then emit to output
                 if (builder_save) |saved| {

@@ -44,7 +44,7 @@ pub fn genNestedFunctionDef(
         // No captures and not recursive - use ZeroClosure comptime pattern
         const b = try self.getBuilder();
         try b.writeIndent();
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
 
         try zero_capture.genZeroCaptureClosure(self, func);

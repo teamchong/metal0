@@ -22,7 +22,7 @@ pub fn genStmtWithCaptureStruct(
                 try genExprWithCaptureStructBuilder(self, b, val.*, captured_vars, capture_param_name);
             }
             try b.write(";\n");
-            const output = b.getBodyAndClear();
+            const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
         },
         .function_def => |func| {
@@ -49,7 +49,7 @@ pub fn genStmtWithCaptureStruct(
                 try b.write(" = ");
                 try genExprWithCaptureStructBuilder(self, b, assign.value.*, captured_vars, capture_param_name);
                 try b.write(";\n");
-                const output = b.getBodyAndClear();
+                const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
             } else if (assign.targets.len == 1 and (assign.targets[0] == .tuple or assign.targets[0] == .list)) {
                 // Tuple/list unpacking - use regular assignment generation
@@ -76,7 +76,7 @@ pub fn genExprWithCaptureStruct(
 ) CodegenError!void {
     const b = try self.getBuilder();
     try genExprWithCaptureStructBuilder(self, b, node, captured_vars, capture_param_name);
-    const output = b.getBodyAndClear();
+    const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
 }
 

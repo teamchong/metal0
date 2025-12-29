@@ -93,7 +93,7 @@ fn genCDLL(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
     {
         const b = try self.getBuilder();
         try b.write("(runtime.ctypes.CDLL.init(__global_allocator, ");
-        const output = b.getBodyAndClear();
+        const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
     }
     if (args.len > 0) try self.genExpr(args[0]) else try self.emit("\"\"");
