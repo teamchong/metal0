@@ -38,26 +38,35 @@ fn emitFloatExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 
 /// Helper to emit runtime float call: (try runtime.{func}(allocator, floatExpr))
 /// Handles error handling variations based on context
+/// Uses withParensCtx for guaranteed bracket matching
 fn emitRuntimeFloatCall(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
-    if (self.in_assert_raises_context) {
-        try self.emit("(runtime.");
-        try self.emit(func);
-        try self.emit("(__global_allocator, ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
-    } else if (self.inside_try_body) {
-        try self.emit("(try runtime.");
-        try self.emit(func);
-        try self.emit("(__global_allocator, ");
-        try emitFloatExpr(self, obj);
-        try self.emit("))");
-    } else {
-        try self.emit("(runtime.");
-        try self.emit(func);
-        try self.emit("(__global_allocator, ");
-        try emitFloatExpr(self, obj);
-        try self.emit(") catch unreachable)");
-    }
+    const Ctx = struct { f: []const u8, o: ast.Node, assert_raises: bool, try_body: bool };
+    try self.withParensCtx(Ctx{
+        .f = func,
+        .o = obj,
+        .assert_raises = self.in_assert_raises_context,
+        .try_body = self.inside_try_body,
+    }, struct {
+        pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            if (ctx.assert_raises) {
+                try s.emit("runtime.");
+            } else if (ctx.try_body) {
+                try s.emit("try runtime.");
+            } else {
+                try s.emit("runtime.");
+            }
+            try s.emit(ctx.f);
+            try s.emitCallCtx("", ctx.o, struct {
+                pub fn inner(s2: *NativeCodegen, o: ast.Node) CodegenError!void {
+                    try s2.emit("__global_allocator, ");
+                    try emitFloatExpr(s2, o);
+                }
+            }.inner);
+            if (!ctx.assert_raises and !ctx.try_body) {
+                try s.emit(" catch unreachable");
+            }
+        }
+    }.emit);
 }
 
 /// Helper to emit simple runtime float call: runtime.{func}(floatExpr)
@@ -88,12 +97,21 @@ fn emitTryFloatCallWithAlloc(self: *NativeCodegen, func: []const u8, obj: ast.No
 }
 
 /// Helper to emit wrapped try runtime float call: (try runtime.{func}(allocator, floatExpr))
+/// Uses withParensCtx for guaranteed bracket matching
 fn emitParenTryFloatCallWithAlloc(self: *NativeCodegen, func: []const u8, obj: ast.Node) CodegenError!void {
-    try self.emit("(try runtime.");
-    try self.emit(func);
-    try self.emit("(__global_allocator, ");
-    try emitFloatExpr(self, obj);
-    try self.emit("))");
+    const Ctx = struct { f: []const u8, o: ast.Node };
+    try self.withParensCtx(Ctx{ .f = func, .o = obj }, struct {
+        pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("try runtime.");
+            try s.emit(ctx.f);
+            try s.emitCallCtx("", ctx.o, struct {
+                pub fn inner(s2: *NativeCodegen, o: ast.Node) CodegenError!void {
+                    try s2.emit("__global_allocator, ");
+                    try emitFloatExpr(s2, o);
+                }
+            }.inner);
+        }
+    }.emit);
 }
 
 /// Generate float.is_integer() - returns true if float has integral value

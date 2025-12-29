@@ -2523,9 +2523,28 @@ pub const NativeCodegen = struct {
                         }
                     }
 
-                    // Class instance attributes are uncertain unless type-annotated
+                    // Class instance attributes - check field type in registry
+                    // Only uncertain if field type is actually pyvalue/unknown
                     if (type_traits.isClassInstance(obj_type)) {
-                        break :blk .uncertain;
+                        const class_name = obj_type.class_instance;
+                        std.debug.print("DEBUG exprToValue attr: {s}.{s} (class {s})\n", .{ if (a.value.* == .name) a.value.name.id else "?", a.attr, class_name });
+                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                            std.debug.print("DEBUG: Found class info for {s}\n", .{class_name});
+                            if (class_info.fields.get(a.attr)) |field_type| {
+                                std.debug.print("DEBUG: Found field {s} type {any}\n", .{ a.attr, field_type });
+                                // Field has a known type - only uncertain if pyvalue/unknown
+                                if (field_type == .pyvalue or field_type == .unknown) {
+                                    break :blk .uncertain;
+                                }
+                                // Known primitive field type - mark as certain
+                                break :blk .certain;
+                            }
+                            std.debug.print("DEBUG: Field {s} NOT found in fields\n", .{a.attr});
+                        } else {
+                            std.debug.print("DEBUG: Class {s} NOT found in class_fields\n", .{class_name});
+                        }
+                        // Field not found - assume certain to avoid PyValue overhead
+                        break :blk .certain;
                     }
 
                     // Unknown type -> uncertain

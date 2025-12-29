@@ -2212,9 +2212,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     try self.emit("\", ");
 
                     // Wrap the value in PyValue (handles int, str, float, etc.)
-                    try self.emit("try runtime.PyValue.fromAlloc(__global_allocator, ");
-                    try genExpr(self, kwarg.value);
-                    try self.emit("));\n");
+                    try self.emitCallCtx("try runtime.PyValue.fromAlloc", kwarg.value, struct {
+                        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                            try s.emit("__global_allocator, ");
+                            try genExpr(s, e);
+                        }
+                    }.f);
+                    try self.emit(");\n");
                 }
 
                 try self.emitIndent();
