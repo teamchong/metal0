@@ -74,6 +74,7 @@ zig-out/
 .AppleDouble
 .LSOverride
 ._*
+Thumbs.db
 
 # =============================================================================
 # Project specific
@@ -83,6 +84,7 @@ zig-out/
 .metal0/
 .claude/
 _prototype/
+CLAUDE.md
 
 # Build output
 /build/
@@ -116,6 +118,10 @@ benchmarks/**/*.exe
 benchmarks/**/*.bin
 benchmarks/**/go/parse
 benchmarks/**/go/stringify
+benchmarks/*.lance/
+benchmarks/*.parquet
+benchmarks/benchmark_e2e.lance/
+benchmarks/benchmark_e2e.parquet
 
 # Rust build artifacts (anywhere)
 **/target/
@@ -162,3 +168,25 @@ repro_*.zig
 *.zcs
 *.d.ts
 *.rmeta
+
+# =============================================================================
+# LanceQL specific
+# =============================================================================
+
+# Test fixture metadata (not the fixtures themselves)
+tests/fixtures/*.expected.json
+tests/fixtures/lance-repo
+
+# npm
+node_modules/
+
+# Large model files
+*.gguf
+
+# Data files
+data/
+*.dylib
+*.wasm
+!zig-out/bin/*.wasm
+!dist/*.wasm
+!examples/wasm/*.wasm

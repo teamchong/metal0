@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Zig CLIP WASM Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+        #output { white-space: pre-wrap; line-height: 1.5; max-height: 400px; overflow-y: auto; }
+        input { padding: 8px; width: 300px; margin: 5px 0; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .info { color: #60a5fa; }
+    </style>
+</head>
+<body>
+    <h1>Zig CLIP Text Encoder (WASM)</h1>
+
+    <div>
+        <input type="text" id="textInput" placeholder="Enter text to encode..." value="a photo of a cat">
+        <button onclick="encodeText()">Encode</button>
+        <button onclick="loadModel()">Load Model (290MB)</button>
+    </div>
+    <div style="margin-top: 10px;">
+        <input type="text" id="textInput2" placeholder="Compare with..." value="a photo of a dog">
+        <button onclick="compareTexts()">Compare Similarity</button>
+    </div>
+
+    <div id="output"></div>
+
+    <script>
+        let wasmExports = null;
+        let modelLoaded = false;
+
+        function log(msg, type = '') {
+            const output = document.getElementById('output');
+            const cls = type ? ` class="${type}"` : '';
+            output.innerHTML += `<span${cls}>${msg}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('output').innerHTML = '';
+        }
+
+        async function init() {
+            try {
+                log('Loading WASM module...', 'info');
+                const response = await fetch('clip.wasm');
+                const bytes = await response.arrayBuffer();
+                const { instance } = await WebAssembly.instantiate(bytes, {});
+                wasmExports = instance.exports;
+                log(`WASM loaded! (${(bytes.byteLength / 1024).toFixed(1)}KB)`, 'success');
+
+                // Test basic function
+                const sum = wasmExports.clip_test_add(3, 4);
+                log(`Test: 3 + 4 = ${sum}`);
+
+                // Initialize CLIP
+                const initResult = wasmExports.clip_init();
+                log(`CLIP init: ${initResult === 0 ? 'OK' : 'Failed (' + initResult + ')'}`, initResult === 0 ? 'success' : 'error');
+
+                log('');
+                log('Ready! Click "Load Model" to download CLIP weights.', 'info');
+
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+
+        async function loadModel() {
+            if (!wasmExports) {
+                log('WASM not loaded yet', 'error');
+                return;
+            }
+
+            try {
+                log('');
+                log('Downloading CLIP model (~290MB)...', 'info');
+
+                const response = await fetch('clip-vit-b32.gguf');
+                if (!response.ok) {
+                    throw new Error('Model file not found. Place clip-vit-b32.gguf in the same directory.');
+                }
+
+                const total = parseInt(response.headers.get('content-length') || '0');
+
+                // Read as ArrayBuffer
+                const startTime = Date.now();
+                const modelData = await response.arrayBuffer();
+                const downloadTime = ((Date.now() - startTime) / 1000).toFixed(1);
+                log(`Downloaded ${(modelData.byteLength / 1024 / 1024).toFixed(1)}MB in ${downloadTime}s`, 'success');
+
+                // Allocate buffer in WASM
+                log('Allocating WASM memory...', 'info');
+                const bufPtr = wasmExports.clip_alloc_model_buffer(modelData.byteLength);
+                if (bufPtr === 0) {
+                    throw new Error('Failed to allocate WASM memory');
+                }
+
+                // Copy model data to WASM memory
+                log('Copying model to WASM memory...', 'info');
+                const wasmMem = new Uint8Array(wasmExports.memory.buffer);
+                wasmMem.set(new Uint8Array(modelData), bufPtr);
+
+                // Parse and load model
+                log('Parsing GGUF and loading weights...', 'info');
+                const loadStart = Date.now();
+                const loadResult = wasmExports.clip_load_model(modelData.byteLength);
+                const loadTime = ((Date.now() - loadStart) / 1000).toFixed(1);
+
+                const loadErrors = {
+                    '-1': 'No model buffer',
+                    '-2': 'GGUF parse failed',
+                    '-3': 'Vocab extraction failed',
+                    '-4': 'Vocab load failed',
+                    '-5': 'Tokenizer not init',
+                    '-6': 'Weight load failed',
+                    '-7': 'Encoder not init'
+                };
+
+                if (loadResult === 0) {
+                    modelLoaded = true;
+                    log(`Model loaded in ${loadTime}s!`, 'success');
+                    log('Ready to encode text.', 'info');
+                } else {
+                    const msg = loadErrors[loadResult.toString()] || `Unknown error ${loadResult}`;
+                    log(`Failed to load model: ${msg}`, 'error');
+                }
+
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+
+        async function encodeText() {
+            if (!wasmExports) {
+                log('WASM not loaded yet', 'error');
+                return;
+            }
+
+            const text = document.getElementById('textInput').value;
+            if (!text) {
+                log('Please enter text to encode', 'error');
+                return;
+            }
+
+            try {
+                log('');
+                log(`Encoding: "${text}"`, 'info');
+
+                // Write text to buffer
+                const textBuf = wasmExports.clip_get_text_buffer();
+                const textBytes = new TextEncoder().encode(text);
+                const memory = new Uint8Array(wasmExports.memory.buffer);
+                memory.set(textBytes, textBuf);
+
+                // Encode
+                const encodeResult = wasmExports.clip_encode_text(textBytes.length);
+
+                const errorMessages = {
+                    '-1': 'Encoder not initialized',
+                    '-2': 'Tokenizer not initialized',
+                    '-3': 'Tokenization failed',
+                    '-4': 'Forward pass failed',
+                    '-10': 'Model not loaded - click Load Model first'
+                };
+
+                if (encodeResult === 0) {
+                    // Read embedding
+                    const outputBuf = wasmExports.clip_get_output_buffer();
+                    const outputDim = wasmExports.clip_get_output_dim();
+                    const embedding = new Float32Array(wasmExports.memory.buffer, outputBuf, outputDim);
+
+                    // Compute norm
+                    let norm = 0;
+                    for (const v of embedding) norm += v * v;
+                    norm = Math.sqrt(norm);
+
+                    log(`Embedding (${outputDim}D):`);
+                    log(`  First 8: [${Array.from(embedding.slice(0, 8)).map(v => v.toFixed(4)).join(', ')}]`);
+                    log(`  L2 norm: ${norm.toFixed(4)}`, 'success');
+                } else {
+                    const msg = errorMessages[encodeResult.toString()] || `Error ${encodeResult}`;
+                    log(`Encode failed: ${msg}`, 'error');
+                }
+
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+
+        async function compareTexts() {
+            if (!wasmExports) {
+                log('WASM not loaded', 'error');
+                return;
+            }
+            if (!modelLoaded) {
+                log('Load model first', 'error');
+                return;
+            }
+
+            const text1 = document.getElementById('textInput').value;
+            const text2 = document.getElementById('textInput2').value;
+            if (!text1 || !text2) {
+                log('Enter both texts', 'error');
+                return;
+            }
+
+            try {
+                log('');
+                log(`Comparing: "${text1}" vs "${text2}"`, 'info');
+
+                const memory = new Uint8Array(wasmExports.memory.buffer);
+                const textBuf = wasmExports.clip_get_text_buffer();
+                const outputBuf = wasmExports.clip_get_output_buffer();
+                const outputDim = wasmExports.clip_get_output_dim();
+
+                // Encode text 1
+                memory.set(new TextEncoder().encode(text1), textBuf);
+                if (wasmExports.clip_encode_text(text1.length) !== 0) {
+                    log('Failed to encode text 1', 'error');
+                    return;
+                }
+                const emb1 = new Float32Array(wasmExports.memory.buffer, outputBuf, outputDim).slice();
+
+                // Encode text 2
+                memory.set(new TextEncoder().encode(text2), textBuf);
+                if (wasmExports.clip_encode_text(text2.length) !== 0) {
+                    log('Failed to encode text 2', 'error');
+                    return;
+                }
+                const emb2 = new Float32Array(wasmExports.memory.buffer, outputBuf, outputDim);
+
+                // Cosine similarity (embeddings are L2 normalized)
+                let dot = 0;
+                for (let i = 0; i < outputDim; i++) {
+                    dot += emb1[i] * emb2[i];
+                }
+
+                log(`Cosine similarity: ${dot.toFixed(4)}`, 'success');
+
+            } catch (e) {
+                log(`Error: ${e.message}`, 'error');
+                console.error(e);
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
