@@ -199,9 +199,11 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                     continue;
                 }
 
+                // Escape Zig keywords like c_int, c_char, etc.
+                const escaped_alias = try zig_keywords.escapeIfKeyword(self.allocator, alias);
                 try b.writeIndent();
                 try b.emitRaw("const ");
-                try b.emitRaw(alias);
+                try b.emitRaw(escaped_alias);
                 try b.emitRaw(" = ");
                 try b.emitRaw(path);
                 try b.emitRaw(".");
@@ -211,7 +213,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 // Local from-imports may not be used if they're only for type hints
                 try b.writeIndent();
                 try b.emitRaw("_ = &");
-                try b.emitRaw(alias);
+                try b.emitRaw(escaped_alias);
                 try b.emitRaw(";\n");
             }
 

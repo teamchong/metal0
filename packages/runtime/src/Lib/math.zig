@@ -260,9 +260,9 @@ pub fn copysign(x: anytype, y: anytype) f64 {
     const xf: f64 = if (X == f64)
         x
     else if (@hasDecl(X, "toFloat"))
-        x.toFloat()
+        x.toFloat() orelse 0.0
     else if (@typeInfo(X) == .@"union" and @hasField(X, "float_val"))
-        x.toFloat()
+        x.toFloat() orelse 0.0
     else
         @as(f64, x);
 
@@ -270,9 +270,9 @@ pub fn copysign(x: anytype, y: anytype) f64 {
     const yf: f64 = if (Y == f64)
         y
     else if (@hasDecl(Y, "toFloat"))
-        y.toFloat()
+        y.toFloat() orelse 0.0
     else if (@typeInfo(Y) == .@"union" and @hasField(Y, "float_val"))
-        y.toFloat()
+        y.toFloat() orelse 0.0
     else
         @as(f64, y);
 
