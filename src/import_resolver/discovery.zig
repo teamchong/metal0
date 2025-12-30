@@ -36,6 +36,25 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
         paths.append(allocator, local_venv) catch allocator.free(local_venv);
     }
 
+    // Check for GitHub Actions Python installation (pythonLocation env var)
+    // actions/setup-python sets this to /opt/hostedtoolcache/Python/3.X.Y/x64
+    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("pythonLocation")) |python_loc| {
+        var gha_version: u8 = 8;
+        while (gha_version <= 13) : (gha_version += 1) {
+            const gha_path = std.fmt.allocPrint(
+                allocator,
+                "{s}/lib/python3.{d}/site-packages",
+                .{ python_loc, gha_version },
+            ) catch continue;
+            // Only add if directory exists
+            std.fs.cwd().access(gha_path, .{}) catch {
+                allocator.free(gha_path);
+                continue;
+            };
+            paths.append(allocator, gha_path) catch allocator.free(gha_path);
+        }
+    }
+
     switch (builtin.os.tag) {
         .linux, .freebsd, .openbsd, .netbsd => {
             // Linux/BSD paths

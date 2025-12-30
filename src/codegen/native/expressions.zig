@@ -437,10 +437,18 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     // If condition involves runtime values (function calls, runtime vars), branches must be concrete types
     const is_runtime_condition = isRuntimeCondition(ie.condition.*);
 
-    // Check if both branches are integer constants - need to cast to i64 for runtime conditions
+    // Check if branches are integer constants - need to cast to i64 for runtime conditions
     const body_is_int = ie.body.* == .constant and ie.body.constant.value == .int;
     const orelse_is_int = ie.orelse_value.* == .constant and ie.orelse_value.constant.value == .int;
-    const needs_int_cast = is_runtime_condition and body_is_int and orelse_is_int;
+    // Need int cast when: both branches are int constants, OR one is int constant and other is runtime variable
+    // This handles patterns like: `10 if base is None else base` where 10 must be cast to match base's type
+    const orelse_is_var = ie.orelse_value.* == .name;
+    const body_is_var = ie.body.* == .name;
+    const needs_int_cast = is_runtime_condition and (
+        (body_is_int and orelse_is_int) or // Both constants
+        (body_is_int and orelse_is_var) or // Constant body, variable orelse
+        (body_is_var and orelse_is_int) // Variable body, constant orelse
+    );
 
     // Check if one branch is None - need to wrap other in @as(?T, ...) for type unification
     // Pattern: `10 if base is None else base` needs both branches to be ?i64
@@ -517,9 +525,11 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try genExpr(self, ie.body.*);
         try self.emit(")");
     } else {
-        if (needs_int_cast) try self.emit("@as(i64, ");
+        // Only cast int constants, not variables (variables already have concrete type)
+        const cast_body = needs_int_cast and body_is_int;
+        if (cast_body) try self.emit("@as(i64, ");
         try genExpr(self, ie.body.*);
-        if (needs_int_cast) try self.emit(")");
+        if (cast_body) try self.emit(")");
     }
 
     try self.emit(" else ");
@@ -536,9 +546,11 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try genExpr(self, ie.orelse_value.*);
         try self.emit(")");
     } else {
-        if (needs_int_cast) try self.emit("@as(i64, ");
+        // Only cast int constants, not variables (variables already have concrete type)
+        const cast_orelse = needs_int_cast and orelse_is_int;
+        if (cast_orelse) try self.emit("@as(i64, ");
         try genExpr(self, ie.orelse_value.*);
-        if (needs_int_cast) try self.emit(")");
+        if (cast_orelse) try self.emit(")");
     }
 
     try self.emit(")");
