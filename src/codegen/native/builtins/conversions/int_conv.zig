@@ -9,6 +9,10 @@ const type_traits = @import("../../../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
 const expr_emitter = @import("../../expr_emitter.zig");
+const emit_helpers = @import("emit_helpers.zig");
+const emitMethodCallWrapped = emit_helpers.emitMethodCallWrapped;
+const emitMethodCallCatch = emit_helpers.emitMethodCallCatch;
+const emitTryMethodCall = emit_helpers.emitTryMethodCall;
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 const CallArg = builder_mod.ZigBuilder.CallArg;
@@ -40,46 +44,7 @@ fn emitToBool(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }.f);
 }
 
-/// Helper: emit (expr.method()) with guaranteed bracket matching
-fn emitMethodCallWrapped(self: *NativeCodegen, expr: ast.Node, method: []const u8) CodegenError!void {
-    const Ctx = struct { e: ast.Node, m: []const u8 };
-    try self.withParensCtx(Ctx{ .e = expr, .m = method }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.genExpr(ctx.e);
-            try s.emit(".");
-            try s.emit(ctx.m);
-            try s.emit("()");
-        }
-    }.f);
-}
-
-/// Helper: emit (expr.method() catch fallback) with guaranteed bracket matching
-fn emitMethodCallCatch(self: *NativeCodegen, expr: ast.Node, method: []const u8, fallback: []const u8) CodegenError!void {
-    const Ctx = struct { e: ast.Node, m: []const u8, fb: []const u8 };
-    try self.withParensCtx(Ctx{ .e = expr, .m = method, .fb = fallback }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.genExpr(ctx.e);
-            try s.emit(".");
-            try s.emit(ctx.m);
-            try s.emit("() catch ");
-            try s.emit(ctx.fb);
-        }
-    }.f);
-}
-
-/// Helper: emit (try expr.method()) with guaranteed bracket matching
-fn emitTryMethodCall(self: *NativeCodegen, expr: ast.Node, method: []const u8) CodegenError!void {
-    const Ctx = struct { e: ast.Node, m: []const u8 };
-    try self.withParensCtx(Ctx{ .e = expr, .m = method }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit("try ");
-            try s.genExpr(ctx.e);
-            try s.emit(".");
-            try s.emit(ctx.m);
-            try s.emit("()");
-        }
-    }.f);
-}
+// emitMethodCallWrapped, emitMethodCallCatch, emitTryMethodCall imported from emit_helpers.zig (DRY)
 
 /// Generate code for len(obj)
 /// Works with: strings, lists, dicts, tuples
