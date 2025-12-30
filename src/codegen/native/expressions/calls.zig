@@ -2332,19 +2332,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
     }
 
-    try self.emit("(");
-
-    for (call.args, 0..) |arg, i| {
-        if (i > 0) try self.emit(", ");
-        try genExpr(self, arg);
-    }
-
-    for (call.keyword_args, 0..) |kwarg, i| {
-        if (i > 0 or call.args.len > 0) try self.emit(", ");
-        try genExpr(self, kwarg.value);
-    }
-
-    try self.emit(")");
+    const CallArgsCtx = struct { args: []ast.Node, kwargs: []ast.Node.KeywordArg };
+    try self.withParensCtx(CallArgsCtx{ .args = call.args, .kwargs = call.keyword_args }, struct {
+        fn emit(s: *NativeCodegen, ctx: CallArgsCtx) CodegenError!void {
+            for (ctx.args, 0..) |arg, i| {
+                if (i > 0) try s.emit(", ");
+                try genExpr(s, arg);
+            }
+            for (ctx.kwargs, 0..) |kwarg, i| {
+                if (i > 0 or ctx.args.len > 0) try s.emit(", ");
+                try genExpr(s, kwarg.value);
+            }
+        }
+    }.emit);
 }
 
 /// Infer Zig type from AST expression (for generic class instantiation)
