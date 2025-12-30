@@ -3809,15 +3809,43 @@ pub const NativeCodegen = struct {
         try self.skipped_functions.put(name_copy, {});
     }
 
+    /// Known pure Python subpackages of C extension modules
+    /// These should NOT be treated as C extensions even though their root module is
+    const pure_python_subpackages = std.StaticStringMap(void).initComptime(.{
+        // numpy pure Python subpackages
+        .{ "numpy.testing", {} },
+        .{ "numpy.distutils", {} },
+        .{ "numpy.f2py", {} },
+        .{ "numpy.doc", {} },
+        .{ "numpy.lib", {} },
+        .{ "numpy.typing", {} },
+        .{ "numpy.ma", {} },
+        .{ "numpy.polynomial", {} },
+        .{ "numpy.matrixlib", {} },
+        // pandas pure Python subpackages
+        .{ "pandas.testing", {} },
+        .{ "pandas.io", {} },
+        // scipy pure Python subpackages
+        .{ "scipy.testing", {} },
+    });
+
     /// Check if a module is a C extension (numpy, pandas, etc.)
     /// Also returns true for submodules of C extensions (e.g., numpy.exceptions when numpy is C ext)
+    /// BUT returns false for known pure Python subpackages (e.g., numpy.testing)
     pub fn isCExtensionModule(self: *NativeCodegen, module_name: []const u8) bool {
+        // Check if it's a known pure Python subpackage - these are NOT C extensions
+        if (pure_python_subpackages.has(module_name)) return false;
+
         // Direct match
         if (self.c_extension_modules.contains(module_name)) return true;
 
         // Check root module for dotted names (numpy.exceptions -> check numpy)
         if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
             const root = module_name[0..dot_idx];
+            // Double check - if full path starts with a known pure Python subpackage, skip
+            for (pure_python_subpackages.keys()) |pkg| {
+                if (std.mem.startsWith(u8, module_name, pkg)) return false;
+            }
             return self.c_extension_modules.contains(root);
         }
 

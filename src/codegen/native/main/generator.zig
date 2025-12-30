@@ -268,9 +268,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (emitted_c_ext.contains(key)) continue;
             try emitted_c_ext.put(key, {});
 
-            // Skip dotted module names (e.g., numpy.testing) - only declare root modules
-            // Submodules like numpy.testing are accessed via fromImport()
-            if (std.mem.indexOfScalar(u8, module_name, '.') != null) continue;
+            // Skip dotted module names ONLY if there's no alias
+            // e.g., "import numpy.testing" (key=numpy.testing, module_name=numpy.testing) -> skip
+            // But "import numpy.exceptions as ex" (key=ex, module_name=numpy.exceptions) -> declare var ex
+            // Submodules without alias are accessed via fromImport()
+            if (std.mem.indexOfScalar(u8, module_name, '.') != null and std.mem.eql(u8, key, module_name)) continue;
 
             // Generate: var np: ?*c_interop.PyObject = null;
             // The import will be done at runtime start via c_interop.importModule()
@@ -1670,9 +1672,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 if (emitted_c_ext.contains(key)) continue;
                 try emitted_c_ext.put(key, {});
 
-                // Skip dotted module names (e.g., numpy.testing) - only import root modules
-                // Submodules like numpy.testing are accessed via fromImport()
-                if (std.mem.indexOfScalar(u8, module_name, '.') != null) continue;
+                // Skip dotted module names ONLY if there's no alias
+                // e.g., "import numpy.testing" (key=numpy.testing, module_name=numpy.testing) -> skip
+                // But "import numpy.exceptions as ex" (key=ex, module_name=numpy.exceptions) -> import
+                // Submodules without alias are accessed via fromImport()
+                if (std.mem.indexOfScalar(u8, module_name, '.') != null and std.mem.eql(u8, key, module_name)) continue;
 
                 try self.emitIndent();
                 // For dotted names like numpy.exceptions, escape the variable name
