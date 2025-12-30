@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quick CLIP Test</title>
+</head>
+<body>
+    <h1>Quick CLIP WASM Test</h1>
+    <div id="log"></div>
+    <script>
+        const log = (msg) => {
+            console.log(msg);
+            document.getElementById('log').innerHTML += msg + '<br>';
+        };
+
+        async function test() {
+            try {
+                log('Loading WASM...');
+                const response = await fetch('clip.wasm');
+                const { instance } = await WebAssembly.instantiate(await response.arrayBuffer());
+                const wasm = instance.exports;
+                log('WASM loaded');
+
+                log('Initializing...');
+                const initResult = wasm.clip_init();
+                log('Init result: ' + initResult);
+
+                log('Loading model (this takes a while)...');
+                const modelResp = await fetch('clip-vit-b32.gguf');
+                const modelData = new Uint8Array(await modelResp.arrayBuffer());
+                log('Model size: ' + modelData.byteLength + ' bytes');
+
+                const bufPtr = wasm.clip_alloc_model_buffer(modelData.byteLength);
+                log('Buffer allocated at: ' + bufPtr);
+
+                if (!bufPtr) {
+                    log('ERROR: Failed to allocate buffer');
+                    return;
+                }
+
+                const wasmMem = new Uint8Array(wasm.memory.buffer);
+                wasmMem.set(modelData, bufPtr);
+                log('Model data copied to WASM');
+
+                const loadResult = wasm.clip_load_model(modelData.byteLength);
+                log('Load result: ' + loadResult);
+
+                if (loadResult !== 0) {
+                    log('ERROR: Model loading failed with code ' + loadResult);
+                    return;
+                }
+
+                log('Encoding text: "a photo of a cat"');
+                const text = 'a photo of a cat';
+                const textBuf = wasm.clip_get_text_buffer();
+                const textBytes = new TextEncoder().encode(text);
+                const mem = new Uint8Array(wasm.memory.buffer);
+                mem.set(textBytes, textBuf);
+
+                const encodeResult = wasm.clip_encode_text(textBytes.length);
+                log('Encode result: ' + encodeResult);
+
+                if (encodeResult !== 0) {
+                    log('ERROR: Encoding failed with code ' + encodeResult);
+                    return;
+                }
+
+                const outputBuf = wasm.clip_get_output_buffer();
+                const outputDim = wasm.clip_get_output_dim();
+                const embedding = new Float32Array(wasm.memory.buffer, outputBuf, outputDim);
+
+                log('Embedding dimension: ' + outputDim);
+                log('First 8 values: ' + Array.from(embedding.slice(0, 8)).map(v => v.toFixed(4)).join(', '));
+                log('Last 8 values: ' + Array.from(embedding.slice(-8)).map(v => v.toFixed(4)).join(', '));
+
+                // Compute L2 norm
+                let norm = 0;
+                for (let i = 0; i < embedding.length; i++) {
+                    norm += embedding[i] * embedding[i];
+                }
+                norm = Math.sqrt(norm);
+                log('L2 norm: ' + norm.toFixed(6));
+
+                log('SUCCESS! Text search should work now.');
+            } catch (err) {
+                log('ERROR: ' + err.message);
+                console.error(err);
+            }
+        }
+
+        test();
+    </script>
+</body>
+</html>

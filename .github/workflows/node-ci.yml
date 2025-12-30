@@ -1,0 +1,76 @@
+name: Node.js CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/node/**'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/node-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/node/**'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/node-ci.yml'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Build Zig shared library
+        run: zig build lib-nodejs
+
+      - name: Copy Zig library to packages/node/lib
+        run: |
+          mkdir -p packages/node/lib
+          cp zig-out/lib/liblanceql.* packages/node/lib/
+
+      - name: Install Node.js dependencies
+        working-directory: packages/node
+        run: npm install
+
+      - name: Run tests
+        working-directory: packages/node
+        run: npm test
+
+  zig-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Run Zig tests
+        run: zig build test
