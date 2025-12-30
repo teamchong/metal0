@@ -127,6 +127,13 @@ pub const hash_ops = @import("runtime/hash_ops.zig");
 /// Type operations module
 pub const type_ops = @import("runtime/type_ops.zig");
 
+/// Numbers ABC support for issubclass(x, numbers.Number) etc.
+pub const numbers_abc = @import("runtime/numbers_abc.zig");
+pub const NumbersABC = numbers_abc.NumbersABC;
+pub const isNumbersSubclass = type_ops.isNumbersSubclass;
+pub const isNumbersSubclassType = type_ops.isNumbersSubclassType;
+pub const parseNumbersABC = type_ops.parseNumbersABC;
+
 /// PyObject types module
 pub const pyobject_mod = @import("runtime/pyobject.zig");
 

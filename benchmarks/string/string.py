@@ -4,10 +4,11 @@ def benchmark():
     # 1. String comparison
     a = "test_string_alpha_one"
     b = "test_string_alpha_two"
+    c = "test_string_alpha_one"  # Same content as 'a', different variable
     matches = 0
     j = 0
     while j < n:
-        if a == a:
+        if a == c:  # Compare different variables (prevents constant folding)
             matches = matches + 1
         if a != b:
             matches = matches + 1

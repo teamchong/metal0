@@ -1,26 +1,22 @@
 #!/bin/bash
-# Flask Web Benchmark
-# Tests Flask + requests stack (without server - direct function test)
-# All Python-based runners use the SAME source code
+# HTTP Client Benchmark
+# Tests HTTP request performance across languages
+# All runners use their standard HTTP client library
 
 source "$(dirname "$0")/../common.sh"
 cd "$SCRIPT_DIR"
 
-init_benchmark_compiled "Flask + Requests Benchmark"
+init_benchmark_compiled "HTTP Client Benchmark"
 echo ""
-echo "Flask app logic + external HTTP fetch"
-echo "Tests: Flask app creation + requests + response handling"
+echo "HTTP client performance test"
+echo "Tests: 10 HTTPS GET requests to httpbin.org"
 echo ""
 
 # Python source (SAME code for metal0, Python, PyPy)
-# Tests Flask app instantiation + requests fetch (no server needed)
+# Tests requests library performance
 cat > flask_bench.py <<'EOF'
-from flask import Flask
 import requests
 
-app = Flask(__name__)
-
-# Simulate what a route handler would do
 i = 0
 success = 0
 while i < 10:
@@ -114,7 +110,7 @@ if [ "$RUST_AVAILABLE" = true ]; then
 fi
 
 print_header "Running Benchmark"
-echo "10 HTTPS requests with Flask app context"
+echo "10 HTTPS requests"
 echo ""
 
 BENCH_CMD=(hyperfine --warmup 1 --runs 5 --export-markdown results.md)
@@ -123,16 +119,16 @@ add_metal0 BENCH_CMD flask_bench_metal0
 add_rust BENCH_CMD flask_bench_rust
 add_go BENCH_CMD flask_bench_go
 
-# Check if PyPy has flask+requests
+# Check if PyPy has requests
 if [ "$PYPY_AVAILABLE" = true ]; then
-    if pypy3 -c "import flask, requests" 2>/dev/null; then
+    if pypy3 -c "import requests" 2>/dev/null; then
         add_pypy BENCH_CMD flask_bench.py
     else
-        echo -e "  ${YELLOW}⚠${NC} PyPy skipped (flask/requests not installed: pypy3 -m pip install flask requests)"
+        echo -e "  ${YELLOW}⚠${NC} PyPy skipped (requests not installed: pypy3 -m pip install requests)"
     fi
 fi
 
-add_python BENCH_CMD flask_bench.py flask requests
+add_python BENCH_CMD flask_bench.py requests
 
 "${BENCH_CMD[@]}"
 
