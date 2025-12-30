@@ -418,13 +418,14 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         if (base_is_c_ext) {
             // C extension nested attribute: np._core._multiarray_umath.__file__
             // Generate the entire chain without intermediate PyValue conversions:
-            //   runtime.PyValue.from(c_interop.getAttr(c_interop.getAttr(np.?, "_core").?, "_multiarray_umath").?)
+            //   runtime.PyValue.from(c_interop.getAttr(...) orelse @panic("..."))
             // The genCExtAttrChainRaw generates the raw chain, we wrap the final result
-            try self.emit("runtime.PyValue.from(c_interop.getAttr(");
+            // Use orelse @panic instead of .? for safer null handling with clear error message
+            try self.emit("runtime.PyValue.from((c_interop.getAttr(");
             try genCExtAttrChainRaw(self, attr.value.*);
             try self.emit(", \"");
             try self.emit(attr.attr);
-            try self.emit("\").?)");
+            try self.emitFmt("\") orelse @panic(\"Attribute '{s}' not found on C extension object\")))", .{attr.attr});
             return;
         }
         var em = self.exprEmitter();
@@ -519,9 +520,10 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         if (is_c_extension) {
             // Resolve alias to actual module name for error messages
             const actual_module = self.c_extension_modules.get(module_name) orelse module_name;
-            try self.emit("runtime.PyValue.from(c_interop.getAttr(");
+            // Use orelse @panic for both module and attribute access for safe null handling
+            try self.emit("runtime.PyValue.from(c_interop.getAttr((");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), module_name);
-            try self.emit(".?, \"");
+            try self.emitFmt(" orelse @panic(\"C extension module '{s}' not loaded\")), \"", .{actual_module});
             try self.emit(attr_name);
             try self.emitFmt("\") orelse @panic(\"Failed to get attribute '{s}' from C extension module '{s}'\"))", .{ attr_name, actual_module });
             return;

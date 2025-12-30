@@ -398,8 +398,10 @@ pub export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyO
         }
     }
 
-    // Create new module
-    var module_def = cpython.PyModuleDef{
+    // Allocate PyModuleDef on heap to avoid use-after-free
+    // PyModule_Create2 stores a pointer to this, so it must outlive the module
+    const module_def = allocator.create(cpython.PyModuleDef) catch return null;
+    module_def.* = .{
         .m_base = undefined,
         .m_name = name,
         .m_doc = null,
@@ -411,7 +413,7 @@ pub export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyO
         .m_free = null,
     };
 
-    const module = PyModule_Create2(&module_def, 0);
+    const module = PyModule_Create2(module_def, 0);
     if (module) |m| {
         // Add to sys.modules
         if (module_dict) |mod_dict| {
@@ -420,6 +422,7 @@ pub export fn PyImport_AddModule(name: [*:0]const u8) callconv(.c) ?*cpython.PyO
         return m;
     }
 
+    allocator.destroy(module_def);
     return null;
 }
 
@@ -1240,8 +1243,10 @@ fn importViaSubprocess(name: []const u8) ?*cpython.PyObject {
 fn createProxyModule(name: []const u8) ?*cpython.PyObject {
     const name_z = allocator.dupeZ(u8, name) catch return null;
 
-    // Create a module with a custom getattro that runs subprocess
-    var module_def = cpython.PyModuleDef{
+    // Allocate PyModuleDef on heap to avoid use-after-free
+    // PyModule_Create2 stores a pointer to this, so it must outlive the module
+    const module_def = allocator.create(cpython.PyModuleDef) catch return null;
+    module_def.* = .{
         .m_base = undefined,
         .m_name = name_z,
         .m_doc = null,
@@ -1253,7 +1258,10 @@ fn createProxyModule(name: []const u8) ?*cpython.PyObject {
         .m_free = null,
     };
 
-    const module = PyModule_Create2(&module_def, 0) orelse return null;
+    const module = PyModule_Create2(module_def, 0) orelse {
+        allocator.destroy(module_def);
+        return null;
+    };
 
     // Store the module name in the dict for later retrieval
     const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
@@ -1270,6 +1278,11 @@ fn createProxyModule(name: []const u8) ?*cpython.PyObject {
 /// Get an attribute from a subprocess-based proxy module
 /// This is called by c_interop.getAttr when it detects a proxy module
 pub fn getProxyAttr(module: *cpython.PyObject, attr_name: [*:0]const u8) ?*cpython.PyObject {
+    // First verify this is actually a module object
+    if (cpython_module.PyModule_Check(module) == 0) {
+        return null; // Not a module, can't get proxy attributes
+    }
+
     const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
     const dict = mod_obj.md_dict orelse return null;
 
@@ -1288,14 +1301,21 @@ pub fn getProxyAttr(module: *cpython.PyObject, attr_name: [*:0]const u8) ?*cpyth
 }
 
 /// Get an attribute value via subprocess
+/// Uses getattr() first, then falls back to importlib.import_module() for internal submodules
+/// like numpy._core._multiarray_tests that require direct import rather than attribute access
 fn getAttrViaSubprocess(module_name: []const u8, attr_name: []const u8) ?*cpython.PyObject {
-    var code_buf: [512]u8 = undefined;
+    var code_buf: [768]u8 = undefined;
     const py_code = std.fmt.bufPrint(&code_buf,
         \\import {s}
-        \\val = getattr({s}, '{s}')
-        \\# Print as repr for proper quoting
+        \\import importlib
+        \\val = getattr({s}, '{s}', None)
+        \\if val is None:
+        \\    try:
+        \\        val = importlib.import_module('{s}.{s}')
+        \\    except ImportError:
+        \\        pass
         \\print(repr(val))
-    , .{ module_name, module_name, attr_name }) catch return null;
+    , .{ module_name, module_name, attr_name, module_name, attr_name }) catch return null;
 
     const result = std.process.Child.run(.{
         .allocator = allocator,
@@ -1456,6 +1476,29 @@ pub fn isProxyModule(obj: *cpython.PyObject) bool {
     const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(obj));
     const dict = mod_obj.md_dict orelse return false;
     return PyDict_GetItemString(dict, "__subprocess_proxy__") != null;
+}
+
+/// Check if a PyObject is a subprocess proxy representation (non-callable string)
+/// This detects objects that were created from subprocess output like "<function ...>"
+/// These cannot be called directly and need special handling
+pub fn isSubprocessProxy(obj: *cpython.PyObject) bool {
+    // Use the correct unicode module that handles CPython's internal layout
+    const pyunicode = @import("../objects/unicodeobject.zig");
+    if (!pyunicode.isUnicode(obj)) {
+        return false; // Not a string, so not a proxy representation
+    }
+
+    // Get the string value using the correct function that handles CPython layout
+    const str_ptr = pyunicode.asUTF8(obj) orelse return false;
+    const str = std.mem.span(str_ptr);
+
+    // Check if it looks like a Python repr (starts with '<' and ends with '>')
+    // This catches: <function ...>, <class ...>, <method ...>, <builtin_function_or_method ...>
+    if (str.len >= 2 and str[0] == '<' and str[str.len - 1] == '>') {
+        return true;
+    }
+
+    return false;
 }
 
 /// Get platform-specific extension suffixes (kept for compatibility)

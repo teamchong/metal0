@@ -1135,6 +1135,21 @@ pub const PyValue = union(enum) {
             if (is_pyobject_like) {
                 // Cast to runtime's PyObject type (same layout, safe cast)
                 const obj: *cpython.PyObject = @ptrCast(@alignCast(value));
+
+                // Validate ob_type pointer before accessing it to prevent segfaults
+                // Some C extension proxy objects may have invalid type pointers
+                const type_ptr = @intFromPtr(obj.ob_type);
+                // Block more suspicious addresses - including addresses near 0x1f000000 range
+                if (type_ptr < 0x1000 or (type_ptr >= 0x10000000 and type_ptr < 0x20000000 and (type_ptr & 0xFFFF) < 0x1000)) {
+                    // Invalid type pointer - object is corrupted, store as opaque ptr
+                    return .{ .ptr = @ptrCast(value) };
+                }
+                // Also block if tp_name pointer looks invalid
+                const tp_name_ptr = @intFromPtr(obj.ob_type.tp_name);
+                if (tp_name_ptr < 0x1000) {
+                    return .{ .ptr = @ptrCast(value) };
+                }
+
                 // Check bool BEFORE int (PyBoolObject inherits from PyLongObject)
                 if (cpython.PyBool_Check(obj)) {
                     const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));

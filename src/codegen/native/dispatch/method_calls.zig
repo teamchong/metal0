@@ -987,13 +987,14 @@ fn handleComplexParentMethodCall(self: *NativeCodegen, call: ast.Node.Call, meth
 }
 
 /// Generate method call on C extension module object (PyObject*)
-/// Example: arr.sum() -> runtime.PyValue.from(c_interop.callMethod(arr.toPtr(), "sum", .{}).?)
+/// Example: arr.sum() -> runtime.PyValue.from(c_interop.callMethod(arr.toPtr(), "sum", .{}) orelse @panic("..."))
 fn genCExtensionMethodCall(self: *NativeCodegen, obj: ast.Node, method_name: []const u8, args: []ast.Node) CodegenError!void {
     const expressions = @import("../expressions.zig");
 
     // Use runtime.PyValue.from() for proper type conversion from *PyObject to PyValue
     // The obj might be a PyValue, so use toPtr() to get the underlying *anyopaque
-    try self.emit("runtime.PyValue.from(c_interop.callMethod(@ptrCast(");
+    // Use orelse @panic instead of .? for safer null handling with clear error message
+    try self.emit("runtime.PyValue.from((c_interop.callMethod(@ptrCast(");
     try expressions.genExpr(self, obj);
     try self.emit(".toPtr()), \"");
     try self.emit(method_name);
@@ -1005,7 +1006,7 @@ fn genCExtensionMethodCall(self: *NativeCodegen, obj: ast.Node, method_name: []c
         try expressions.genExpr(self, arg);
     }
 
-    try self.emit("}).?)");
+    try self.emitFmt("}}) orelse @panic(\"C extension method call '{s}()' returned null\")))", .{method_name});
 }
 
 /// Handle super().method() calls for inheritance
