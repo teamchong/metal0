@@ -589,21 +589,22 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
             };
             return true;
         }
-        // Fallback: For unknown types, dispatch unique string methods (no collisions with other types)
+        // Two-Flow: For PyValue/unknown types, use PyValue string methods instead of eval fallback
+        // Must check BEFORE unique string method dispatch since unknown types need PyValue methods
+        if (obj_type == .pyvalue or type_traits.isUnknown(obj_type)) {
+            if (try genPyValueStringMethod(self, obj, method_name, call.args)) {
+                return true;
+            }
+        }
+        // Fallback: For unknown types that aren't PyValue, dispatch unique string methods
         // These methods are unique to strings - no other Python type has them
         // Zig type checking will catch misuse at compile time
-        if (type_traits.isUnknown(obj_type) and isUniqueStringMethod(method_name)) {
+        if (type_traits.isUnknown(obj_type) and obj_type != .pyvalue and isUniqueStringMethod(method_name)) {
             handler(self, obj, call.args) catch |err| {
                 if (err == error.UnsupportedSyntax) return false;
                 return err;
             };
             return true;
-        }
-        // Two-Flow: For PyValue/unknown types, use PyValue string methods instead of eval fallback
-        if (obj_type == .pyvalue or type_traits.isUnknown(obj_type)) {
-            if (try genPyValueStringMethod(self, obj, method_name, call.args)) {
-                return true;
-            }
         }
         // Not a string type or uncertain - fall through to other handlers
     }

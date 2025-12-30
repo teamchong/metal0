@@ -1550,36 +1550,40 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
             if (is_async_call) {
                 // Auto-await: wrap async call with scheduler init + wait + result extraction
-                const label = try self.emitInlineBlockStart("async");
-                const num_threads = try self.name_gen.temp();
-                const thread = try self.name_gen.temp();
-                const result = try self.name_gen.temp();
-                try self.emit("\n");
-                try self.emitIndent();
-                // Initialize scheduler if needed (first async call)
-                try self.emit("    if (!runtime.scheduler_initialized) {\n");
-                try self.emitIndent();
-                try self.emitFmt("        const {s} = std.Thread.getCpuCount() catch 8;\n", .{num_threads});
-                try self.emitIndent();
-                try self.emitFmt("        runtime.scheduler = runtime.Scheduler.init(__global_allocator, {s}) catch unreachable;\n", .{num_threads});
-                try self.emitIndent();
-                try self.emit("        runtime.scheduler.?.start() catch unreachable;\n");
-                try self.emitIndent();
-                try self.emit("        runtime.scheduler_initialized = true;\n");
-                try self.emitIndent();
-                try self.emit("    }\n");
-                try self.emitIndent();
-                try self.emitFmt("    const {s} = ", .{thread});
-                try self.genExpr(assign.value.*);
-                try self.emit(";\n");
-                try self.emitIndent();
-                try self.emitFmt("    runtime.scheduler.?.wait({s});\n", .{thread});
-                try self.emitIndent();
-                try self.emitFmt("    const {s} = {s}.result orelse unreachable;\n", .{ result, thread });
-                try self.emitIndent();
-                try self.emitFmt("    break :{s} @as(*i64, @ptrCast(@alignCast({s}))).*;\n", .{ label, result });
-                try self.emitIndent();
-                try self.emitInlineBlockEnd();
+                try self.withInlineBlock("async", assign.value.*, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, value: ast.Node) CodegenError!void {
+                        const num_threads = try s.name_gen.temp();
+                        const thread = try s.name_gen.temp();
+                        const result = try s.name_gen.temp();
+                        try s.emit("\n");
+                        try s.emitIndent();
+                        // Initialize scheduler if needed (first async call)
+                        try s.emit("    if (!runtime.scheduler_initialized) {\n");
+                        try s.emitIndent();
+                        try s.emitFmt("        const {s} = std.Thread.getCpuCount() catch 8;\n", .{num_threads});
+                        try s.emitIndent();
+                        try s.emitFmt("        runtime.scheduler = runtime.Scheduler.init(__global_allocator, {s}) catch unreachable;\n", .{num_threads});
+                        try s.emitIndent();
+                        try s.emit("        runtime.scheduler.?.start() catch unreachable;\n");
+                        try s.emitIndent();
+                        try s.emit("        runtime.scheduler_initialized = true;\n");
+                        try s.emitIndent();
+                        try s.emit("    }\n");
+                        try s.emitIndent();
+                        try s.emitFmt("    const {s} = ", .{thread});
+                        try s.genExpr(value);
+                        try s.emit(";\n");
+                        try s.emitIndent();
+                        try s.emitFmt("    runtime.scheduler.?.wait({s});\n", .{thread});
+                        try s.emitIndent();
+                        try s.emitFmt("    const {s} = {s}.result orelse unreachable;\n", .{ result, thread });
+                        try s.emitIndent();
+                        try s.emit("    break :");
+                        try s.emit(label);
+                        try s.emitFmt(" @as(*i64, @ptrCast(@alignCast({s}))).*;\n", .{result});
+                        try s.emitIndent();
+                    }
+                }.emit);
                 try self.emit(");\n");
             } else {
                 // TWO-FLOW TYPE SYSTEM: Emit value normally

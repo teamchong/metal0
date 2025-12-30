@@ -1351,6 +1351,17 @@ fn decodePythonEscapes(alloc: std.mem.Allocator, input: []const u8) ?[]u8 {
 
 /// Parse subprocess output and create a PyObject
 pub fn parseSubprocessOutput(output: []const u8) ?*cpython.PyObject {
+    // Module: <module 'xxx' from '...'>
+    // When we get a module attribute, create a proxy module for it
+    if (std.mem.startsWith(u8, output, "<module '")) {
+        // Extract module name from <module 'xxx' from '...'>
+        const name_start = "<module '".len;
+        if (std.mem.indexOfScalarPos(u8, output, name_start, '\'')) |name_end| {
+            const module_name = output[name_start..name_end];
+            return createProxyModule(module_name);
+        }
+    }
+
     // String: starts and ends with ' or "
     if ((output.len >= 2 and output[0] == '\'' and output[output.len - 1] == '\'') or
         (output.len >= 2 and output[0] == '"' and output[output.len - 1] == '"'))
