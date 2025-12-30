@@ -33,14 +33,14 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "S_IROTH", h.c("@as(u32, 0o004)") },
     .{ "S_IWOTH", h.c("@as(u32, 0o002)") },
     .{ "S_IXOTH", h.c("@as(u32, 0o001)") },
-    // Type test functions (need args - keep as functions)
-    .{ "S_ISDIR", genSISDIR },
-    .{ "S_ISCHR", genSISCHR },
-    .{ "S_ISBLK", genSISBLK },
-    .{ "S_ISREG", genSISREG },
-    .{ "S_ISFIFO", genSISFIFO },
-    .{ "S_ISLNK", genSISLNK },
-    .{ "S_ISSOCK", genSISSOCK },
+    // Type test functions - using h.modeCheck() factory
+    .{ "S_ISDIR", h.modeCheck("0o040000") },
+    .{ "S_ISCHR", h.modeCheck("0o020000") },
+    .{ "S_ISBLK", h.modeCheck("0o060000") },
+    .{ "S_ISREG", h.modeCheck("0o100000") },
+    .{ "S_ISFIFO", h.modeCheck("0o010000") },
+    .{ "S_ISLNK", h.modeCheck("0o120000") },
+    .{ "S_ISSOCK", h.modeCheck("0o140000") },
     .{ "S_IMODE", genSIMODE },
     .{ "filemode", genFilemode },
     // stat_result field indices - using h.I32() factory
@@ -72,77 +72,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "FILE_ATTRIBUTE_VIRTUAL", h.c("@as(u32, 65536)") },
 });
 
-// Type test functions (need runtime args - cannot use h.c())
-fn genSISDIR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o040000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
-fn genSISCHR(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o020000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
-fn genSISBLK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o060000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
-fn genSISREG(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o100000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
-fn genSISFIFO(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o010000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
-fn genSISLNK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o120000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
-fn genSISSOCK(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
-    if (args.len > 0) {
-        try self.emit("((");
-        try self.genExpr(args[0]);
-        try self.emit(" & 0o170000) == 0o140000)");
-    } else {
-        try self.emit("false");
-    }
-}
-
+// S_IMODE and filemode need special handling (different pattern)
 fn genSIMODE(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         try self.withParensCtx(args[0], struct {

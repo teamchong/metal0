@@ -44,6 +44,22 @@ pub fn F64(comptime n: comptime_float) H { return c(std.fmt.comptimePrint("@as(f
 /// Generates a handler that emits error.Name
 pub fn err(comptime name: []const u8) H { return c("error." ++ name); }
 
+/// Generates a handler for stat mode type checks: ((arg & 0o170000) == value)
+/// Used by _stat_mod.zig for S_ISDIR, S_ISCHR, S_ISBLK, etc.
+pub fn modeCheck(comptime compare_value: []const u8) H {
+    return struct {
+        pub fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+            if (args.len > 0) {
+                try self.emit("((");
+                try self.genExpr(args[0]);
+                try self.emit(" & 0o170000) == " ++ compare_value ++ ")");
+            } else {
+                try self.emit("false");
+            }
+        }
+    }.f;
+}
+
 /// Generates a handler that discards all args and returns a default value
 /// Use this for stub functions that need to consume their arguments
 pub fn discard(comptime ret: []const u8) H {
