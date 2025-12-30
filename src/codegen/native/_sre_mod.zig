@@ -1,36 +1,42 @@
 /// Python _sre module - Internal SRE support (C accelerator for regex)
 /// MIGRATED TO ZIGBUILDER
+/// DRY: Uses h.c(), h.I32(), h.I64() factories for simple constant generators
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const ast = @import("analysis.ast");
-
-pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
-    .{ "compile", genCompile },
-    .{ "c_o_d_e_s_i_z_e", genCodesize },
-    .{ "m_a_g_i_c", genMagic },
-    .{ "getlower", genGetlower },
-    .{ "getcodesize", genGetcodesizeFunc },
-    .{ "match", genMatch },
-    .{ "fullmatch", genFullmatch },
-    .{ "search", genSearch },
-    .{ "findall", genFindall },
-    .{ "finditer", genFinditer },
-    .{ "sub", genSub },
-    .{ "subn", genSubn },
-    .{ "split", genSplit },
-    .{ "group", genGroup },
-    .{ "groups", genGroups },
-    .{ "groupdict", genGroupdict },
-    .{ "start", genStart },
-    .{ "end", genEnd },
-    .{ "span", genSpan },
-    .{ "expand", genExpand },
-});
 
 const builder_mod = @import("codegen.builder");
 const ZigBuilder = builder_mod.ZigBuilder;
 const ZigValue = builder_mod.ZigValue;
 
+pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    // Functions that need runtime args - keep as functions
+    .{ "compile", genCompile },
+    .{ "getlower", genGetlower },
+    .{ "sub", genSub },
+    .{ "subn", genSubn },
+    // Simple i32 constants - using h.I32() factory
+    .{ "c_o_d_e_s_i_z_e", h.I32(4) },
+    .{ "m_a_g_i_c", h.I32(20171005) },
+    .{ "getcodesize", h.I32(4) },
+    // Simple i64 constants - using h.I64() factory
+    .{ "start", h.I64(0) },
+    .{ "end", h.I64(0) },
+    // Simple constant returns - using h.c() factory
+    .{ "match", h.c("null") },
+    .{ "fullmatch", h.c("null") },
+    .{ "search", h.c("null") },
+    .{ "findall", h.c("&[_][]const u8{}") },
+    .{ "finditer", h.c("&[_]@TypeOf(null){}") },
+    .{ "split", h.c("&[_][]const u8{}") },
+    .{ "group", h.c("\"\"") },
+    .{ "groups", h.c(".{}") },
+    .{ "groupdict", h.c(".{}") },
+    .{ "span", h.c(".{ @as(i64, 0), @as(i64, 0) }") },
+    .{ "expand", h.c("\"\"") },
+});
+
+// Functions that need runtime args
 fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         const pattern_val = try self.captureExpr(args[0]);
@@ -47,44 +53,12 @@ fn genCompile(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
 }
 
-fn genCodesize(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("@as(i32, 4)");
-}
-
-fn genMagic(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("@as(i32, 20171005)");
-}
-
 fn genGetlower(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len > 0) {
         try self.genExpr(args[0]);
     } else {
         try self.emit("@as(i32, 0)");
     }
-}
-
-fn genGetcodesizeFunc(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("@as(i32, 4)");
-}
-
-fn genMatch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("null");
-}
-
-fn genFullmatch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("null");
-}
-
-fn genSearch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("null");
-}
-
-fn genFindall(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("&[_][]const u8{}");
-}
-
-fn genFinditer(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("&[_]@TypeOf(null){}");
 }
 
 fn genSub(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -109,36 +83,4 @@ fn genSubn(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     } else {
         try self.emit(".{ \"\", @as(i64, 0) }");
     }
-}
-
-fn genSplit(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("&[_][]const u8{}");
-}
-
-fn genGroup(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("\"\"");
-}
-
-fn genGroups(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit(".{}");
-}
-
-fn genGroupdict(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit(".{}");
-}
-
-fn genStart(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("@as(i64, 0)");
-}
-
-fn genEnd(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("@as(i64, 0)");
-}
-
-fn genSpan(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit(".{ @as(i64, 0), @as(i64, 0) }");
-}
-
-fn genExpand(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    try self.emit("\"\"");
 }
