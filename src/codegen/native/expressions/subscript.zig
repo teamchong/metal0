@@ -1103,31 +1103,33 @@ pub fn genSubscriptLHS(self: *NativeCodegen, subscript: ast.Node.Subscript) Code
         // Do NOT emit base first - include it inside the block to avoid double-emit
         const index = subscript.slice.index.*;
         const index_type = self.type_inferrer.inferExpr(index) catch .unknown;
+        const needs_as_string = index_type == .pyvalue or type_traits.isUnknown(index_type);
 
-        const label = try self.emitInlineBlockStart("sub_lhs");
-        try self.emit("{{ const __base = ");
-        // Emit the base expression (could be nested subscript or simple name)
-        if (subscript.value.* == .subscript) {
-            try genSubscriptLHS(self, subscript.value.subscript);
-        } else {
-            try genExpr(self, subscript.value.*);
-        }
-        try self.emitFmt("; break :{s} if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(", .{label});
-        if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
-            try genExpr(self, index);
-            try self.emit(".asString()");
-        } else {
-            try genExpr(self, index);
-        }
-        try self.emit(").?.* else __base.getPtr(");
-        if (index_type == .pyvalue or type_traits.isUnknown(index_type)) {
-            try genExpr(self, index);
-            try self.emit(".asString()");
-        } else {
-            try genExpr(self, index);
-        }
-        try self.emit(").?.*; }}");
-        try self.emitInlineBlockEnd();
+        const Ctx = struct { sub: ast.Node.Subscript, idx: ast.Node, needs_as_string: bool };
+        try self.withInlineBlock("sub_lhs", Ctx{ .sub = subscript, .idx = index, .needs_as_string = needs_as_string }, struct {
+            fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                try s.emit("{ const __base = ");
+                // Emit the base expression (could be nested subscript or simple name)
+                if (ctx.sub.value.* == .subscript) {
+                    try genSubscriptLHS(s, ctx.sub.value.subscript);
+                } else {
+                    try genExpr(s, ctx.sub.value.*);
+                }
+                try s.emit("; break :");
+                try s.emit(label);
+                try s.emit(" if (@TypeOf(__base) == runtime.PyValue) __base.pyDictGetPtr(");
+                try genExpr(s, ctx.idx);
+                if (ctx.needs_as_string) {
+                    try s.emit(".asString()");
+                }
+                try s.emit(").?.* else __base.getPtr(");
+                try genExpr(s, ctx.idx);
+                if (ctx.needs_as_string) {
+                    try s.emit(".asString()");
+                }
+                try s.emit(").?.*; }");
+            }
+        }.emit);
         return;
     }
 
