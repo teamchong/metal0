@@ -17,11 +17,13 @@ fn methodBlock(comptime label: []const u8, comptime body: []const u8) MH {
     return struct {
         fn f(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
             _ = args;
-            _ = try self.emitInlineBlockStart(label);
-            try self.emit("const _p = ");
-            try self.genExpr(obj);
-            try self.emitFmt("; " ++ body ++ " ", .{});
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock(label, obj, struct {
+                fn emit(s: *NativeCodegen, _: []const u8, o: ast.Node) CodegenError!void {
+                    try s.emit("const _p = ");
+                    try s.genExpr(o);
+                    try s.emit("; " ++ body);
+                }
+            }.emit);
         }
     }.f;
 }
@@ -31,27 +33,36 @@ fn boolCheck(comptime label: []const u8, comptime check: []const u8, comptime fa
     return struct {
         fn f(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
             _ = args;
-            const lbl = try self.emitInlineBlockStart(label);
-            try self.emit("const _p = ");
-            try self.genExpr(obj);
-            try self.emitFmt("; " ++ check ++ " catch break :{s} " ++ fallback ++ "; break :{s} true; ", .{ lbl, lbl });
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock(label, obj, struct {
+                fn emit(s: *NativeCodegen, lbl: []const u8, o: ast.Node) CodegenError!void {
+                    try s.emit("const _p = ");
+                    try s.genExpr(o);
+                    try s.emit("; " ++ check ++ " catch break :");
+                    try s.emit(lbl);
+                    try s.emit(" " ++ fallback ++ "; break :");
+                    try s.emit(lbl);
+                    try s.emit(" true");
+                }
+            }.emit);
         }
     }.f;
 }
 
 /// Generate method with one arg: { const _p = obj; const _arg = arg[0]; ...body... }
 fn methodWithArg(comptime label: []const u8, comptime body: []const u8) MH {
+    const Ctx = struct { o: ast.Node, a: ast.Node };
     return struct {
         fn f(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
             if (args.len < 1) return error.UnsupportedSyntax;
-            _ = try self.emitInlineBlockStart(label);
-            try self.emit("const _p = ");
-            try self.genExpr(obj);
-            try self.emit("; const _arg = ");
-            try self.genExpr(args[0]);
-            try self.emitFmt("; " ++ body ++ " ", .{});
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock(label, Ctx{ .o = obj, .a = args[0] }, struct {
+                fn emit(s: *NativeCodegen, _: []const u8, ctx: Ctx) CodegenError!void {
+                    try s.emit("const _p = ");
+                    try s.genExpr(ctx.o);
+                    try s.emit("; const _arg = ");
+                    try s.genExpr(ctx.a);
+                    try s.emit("; " ++ body);
+                }
+            }.emit);
         }
     }.f;
 }
@@ -73,11 +84,15 @@ fn voidOp(comptime label: []const u8, comptime op: []const u8) MH {
     return struct {
         fn f(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
             _ = args;
-            const lbl = try self.emitInlineBlockStart(label);
-            try self.emit("const _p = ");
-            try self.genExpr(obj);
-            try self.emitFmt("; " ++ op ++ " catch {{}}; break :{s} {{}}; ", .{lbl});
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock(label, obj, struct {
+                fn emit(s: *NativeCodegen, lbl: []const u8, o: ast.Node) CodegenError!void {
+                    try s.emit("const _p = ");
+                    try s.genExpr(o);
+                    try s.emit("; " ++ op ++ " catch {}; break :");
+                    try s.emit(lbl);
+                    try s.emit(" {}");
+                }
+            }.emit);
         }
     }.f;
 }
