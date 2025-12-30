@@ -19,6 +19,7 @@ const CodegenError = @import("main.zig").CodegenError;
 const NativeCodegen = @import("main.zig").NativeCodegen;
 const shared = @import("shared_maps.zig");
 const BinOpStrings = shared.BinOpStrings;
+const binop_dispatch = @import("helpers/binop_dispatch.zig");
 
 /// Emit binary operator string (DRY helper)
 /// NOTE: Only use for operators that have direct Zig equivalents!
@@ -922,27 +923,13 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
         },
         .binop => |bin| {
             // Handle binary operations with frame variable references
-            // Use runtime.OperatorMod for modulo - handles both int and float correctly
-            if (bin.op == .Mod) {
-                try self.emit("runtime.OperatorMod{}.call(");
+            // Use binop_dispatch for special operators (Mod, Pow, FloorDiv)
+            if (binop_dispatch.getSpecialBinOpCall(bin.op)) |call| {
+                try self.emit(call.prefix);
                 try genExprInFrame(self, bin.left.*, frame_fields);
                 try self.emit(", ");
                 try genExprInFrame(self, bin.right.*, frame_fields);
-                try self.emit(")");
-            } else if (bin.op == .Pow) {
-                // Zig doesn't have ** operator, use std.math.pow
-                try self.emit("std.math.pow(i64, ");
-                try genExprInFrame(self, bin.left.*, frame_fields);
-                try self.emit(", ");
-                try genExprInFrame(self, bin.right.*, frame_fields);
-                try self.emit(")");
-            } else if (bin.op == .FloorDiv) {
-                // Use runtime.OperatorFloordiv for proper Python floor division
-                try self.emit("runtime.OperatorFloordiv{}.call(");
-                try genExprInFrame(self, bin.left.*, frame_fields);
-                try self.emit(", ");
-                try genExprInFrame(self, bin.right.*, frame_fields);
-                try self.emit(")");
+                try self.emit(call.suffix);
             } else {
                 // For division with mixed types, cast to f64
                 const is_div = bin.op == .Div;
@@ -1336,27 +1323,13 @@ fn genFrameExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            // Use runtime.OperatorMod for proper Python modulo semantics (floored)
-            if (bin.op == .Mod) {
-                try self.emit("runtime.OperatorMod{}.call(");
+            // Use binop_dispatch for special operators (Mod, Pow, FloorDiv)
+            if (binop_dispatch.getSpecialBinOpCall(bin.op)) |call| {
+                try self.emit(call.prefix);
                 try genFrameExpr(self, bin.left.*);
                 try self.emit(", ");
                 try genFrameExpr(self, bin.right.*);
-                try self.emit(")");
-            } else if (bin.op == .Pow) {
-                // Zig doesn't have ** operator, use std.math.pow
-                try self.emit("std.math.pow(i64, ");
-                try genFrameExpr(self, bin.left.*);
-                try self.emit(", ");
-                try genFrameExpr(self, bin.right.*);
-                try self.emit(")");
-            } else if (bin.op == .FloorDiv) {
-                // Use runtime.OperatorFloordiv for proper Python floor division
-                try self.emit("runtime.OperatorFloordiv{}.call(");
-                try genFrameExpr(self, bin.left.*);
-                try self.emit(", ");
-                try genFrameExpr(self, bin.right.*);
-                try self.emit(")");
+                try self.emit(call.suffix);
             } else {
                 const BinOpCtx = struct { left: *ast.Node, right: *ast.Node, op: ast.Operator };
                 try self.withParensCtx(BinOpCtx{ .left = bin.left, .right = bin.right, .op = bin.op }, struct {
@@ -1742,26 +1715,13 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            // Use runtime.OperatorMod for proper Python modulo semantics (floored)
-            if (bin.op == .Mod) {
-                try self.emit("runtime.OperatorMod{}.call(");
+            // Use binop_dispatch for special operators (Mod, Pow, FloorDiv)
+            if (binop_dispatch.getSpecialBinOpCall(bin.op)) |call| {
+                try self.emit(call.prefix);
                 try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
                 try self.emit(", ");
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try self.emit(")");
-            } else if (bin.op == .Pow) {
-                try self.emit("std.math.pow(i64, ");
-                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-                try self.emit(", ");
-                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try self.emit(")");
-            } else if (bin.op == .FloorDiv) {
-                // Use runtime.OperatorFloordiv for proper Python floor division
-                try self.emit("runtime.OperatorFloordiv{}.call(");
-                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-                try self.emit(", ");
-                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try self.emit(")");
+                try self.emit(call.suffix);
             } else {
                 const LoopBinOpCtx = struct { left: *ast.Node, right: *ast.Node, op: ast.Operator, args: []ast.Arg, loop_var: []const u8 };
                 try self.withParensCtx(LoopBinOpCtx{ .left = bin.left, .right = bin.right, .op = bin.op, .args = args, .loop_var = loop_var }, struct {
@@ -1800,26 +1760,13 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
             else => try self.emit("0"),
         },
         .binop => |bin| {
-            // Use runtime.OperatorMod for proper Python modulo semantics (floored)
-            if (bin.op == .Mod) {
-                try self.emit("runtime.OperatorMod{}.call(");
+            // Use binop_dispatch for special operators (Mod, Pow, FloorDiv)
+            if (binop_dispatch.getSpecialBinOpCall(bin.op)) |call| {
+                try self.emit(call.prefix);
                 try genSyncExprInFrame(self, bin.left.*, args);
                 try self.emit(", ");
                 try genSyncExprInFrame(self, bin.right.*, args);
-                try self.emit(")");
-            } else if (bin.op == .Pow) {
-                try self.emit("std.math.pow(i64, ");
-                try genSyncExprInFrame(self, bin.left.*, args);
-                try self.emit(", ");
-                try genSyncExprInFrame(self, bin.right.*, args);
-                try self.emit(")");
-            } else if (bin.op == .FloorDiv) {
-                // Use runtime.OperatorFloordiv for proper Python floor division
-                try self.emit("runtime.OperatorFloordiv{}.call(");
-                try genSyncExprInFrame(self, bin.left.*, args);
-                try self.emit(", ");
-                try genSyncExprInFrame(self, bin.right.*, args);
-                try self.emit(")");
+                try self.emit(call.suffix);
             } else {
                 const SyncBinOpCtx = struct { left: *ast.Node, right: *ast.Node, op: ast.Operator, args: []ast.Arg };
                 try self.withParensCtx(SyncBinOpCtx{ .left = bin.left, .right = bin.right, .op = bin.op, .args = args }, struct {

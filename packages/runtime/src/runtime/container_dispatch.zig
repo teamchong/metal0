@@ -3,6 +3,7 @@
 /// Each helper compiles ONCE per element type, not per call site
 const std = @import("std");
 const PyValue = @import("../Objects/object.zig").PyValue;
+const equality = @import("equality.zig");
 
 /// Compare two containers for equality - handles arrays, slices, and structs with .items
 /// This is the unified comparison function for assertEqual on sequences
@@ -283,7 +284,11 @@ pub fn contains(comptime T: type, container: T, value: anytype) bool {
             if (FieldT == []const u8 and V == []const u8) {
                 if (std.mem.eql(u8, field_val, value)) return true;
             } else if (FieldT == V) {
-                // Same-type comparison
+                // Same-type comparison with NaN handling for floats
+                if (@typeInfo(V) == .float) {
+                    // NaN identity: both being NaN counts as a match
+                    if (std.math.isNan(value) and std.math.isNan(field_val)) return true;
+                }
                 if (field_val == value) return true;
             }
             // Cross-type: no match
@@ -304,8 +309,9 @@ pub fn contains(comptime T: type, container: T, value: anytype) bool {
         return container.contains(value);
     }
     // Normal path for arrays/slices
+    // Use pyContains instead of std.mem.indexOfScalar to handle NaN identity
     const slice = getSlice(T, container);
-    return std.mem.indexOfScalar(K, slice, value) != null;
+    return equality.pyContains(K, slice, value);
 }
 
 /// Check if value is NOT contained in array/slice - for 'not in' operator

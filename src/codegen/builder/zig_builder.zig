@@ -58,6 +58,69 @@ const ScopeHandle = @import("emit_context.zig").ScopeHandle;
 
 const LocalAllocator = @import("local_allocator.zig").LocalAllocator;
 
+/// Unicode name to codepoint mapping for \N{...} escape processing
+/// Duplicated from constants.zig for builder self-containment
+const UnicodeNames = std.StaticStringMap(u21).initComptime(.{
+    // Spaces
+    .{ "SPACE", 0x0020 },
+    .{ "EM SPACE", 0x2003 },
+    .{ "EN SPACE", 0x2002 },
+    .{ "FIGURE SPACE", 0x2007 },
+    .{ "NO-BREAK SPACE", 0x00A0 },
+    .{ "NARROW NO-BREAK SPACE", 0x202F },
+    .{ "THIN SPACE", 0x2009 },
+    .{ "HAIR SPACE", 0x200A },
+    .{ "ZERO WIDTH SPACE", 0x200B },
+    .{ "ZERO WIDTH NON-JOINER", 0x200C },
+    .{ "ZERO WIDTH JOINER", 0x200D },
+    .{ "LINE SEPARATOR", 0x2028 },
+    .{ "PARAGRAPH SEPARATOR", 0x2029 },
+    .{ "IDEOGRAPHIC SPACE", 0x3000 },
+    // Digits
+    .{ "FULLWIDTH DIGIT ZERO", 0xFF10 },
+    .{ "FULLWIDTH DIGIT ONE", 0xFF11 },
+    .{ "FULLWIDTH DIGIT TWO", 0xFF12 },
+    .{ "FULLWIDTH DIGIT THREE", 0xFF13 },
+    .{ "FULLWIDTH DIGIT FOUR", 0xFF14 },
+    .{ "FULLWIDTH DIGIT FIVE", 0xFF15 },
+    .{ "FULLWIDTH DIGIT SIX", 0xFF16 },
+    .{ "FULLWIDTH DIGIT SEVEN", 0xFF17 },
+    .{ "FULLWIDTH DIGIT EIGHT", 0xFF18 },
+    .{ "FULLWIDTH DIGIT NINE", 0xFF19 },
+    .{ "DIGIT ZERO", 0x0030 },
+    .{ "DIGIT ONE", 0x0031 },
+    .{ "MATHEMATICAL BOLD DIGIT ZERO", 0x1D7CE },
+    .{ "MATHEMATICAL BOLD DIGIT ONE", 0x1D7CF },
+    .{ "SUBSCRIPT ZERO", 0x2080 },
+    .{ "SUBSCRIPT ONE", 0x2081 },
+    .{ "SUPERSCRIPT ZERO", 0x2070 },
+    .{ "SUPERSCRIPT ONE", 0x00B9 },
+    // Common punctuation and symbols
+    .{ "AMPERSAND", 0x0026 },
+    .{ "OX", 0x1F402 },
+    .{ "SNAKE", 0x1F40D },
+    .{ "LEFT CURLY BRACKET", 0x007B },
+    .{ "RIGHT CURLY BRACKET", 0x007D },
+    .{ "EURO SIGN", 0x20AC },
+    .{ "COPYRIGHT SIGN", 0x00A9 },
+    .{ "SOFT HYPHEN", 0x00AD },
+    .{ "NOT SIGN", 0x00AC },
+    .{ "CEDILLA", 0x00B8 },
+    .{ "CANCEL TAG", 0xE007F },
+    .{ "KEYCAP NUMBER SIGN", 0x20E3 },
+    // Greek letters
+    .{ "GREEK CAPITAL LETTER DELTA", 0x0394 },
+    .{ "GREEK SMALL LETTER ZETA", 0x03B6 },
+    // Cyrillic
+    .{ "CYRILLIC SMALL LETTER ZHE", 0x0436 },
+    // Hiragana
+    .{ "HIRAGANA LETTER A", 0x3042 },
+    // Ethiopic
+    .{ "ETHIOPIC SYLLABLE SEE", 0x1234 },
+    // Arabic
+    .{ "ARABIC LIGATURE UIGHUR KIRGHIZ YEH WITH HAMZA ABOVE WITH ALEF MAKSURA ISOLATED FORM", 0xFBF9 },
+});
+
 /// Import NameGen for unified ID generation
 const name_gen_mod = @import("codegen.name_gen");
 pub const NameGen = name_gen_mod.NameGen;
@@ -1464,6 +1527,30 @@ pub const ZigBuilder = struct {
                             } else |_| {}
                         }
                         try self.write("\\\\U");
+                        i += 2;
+                        continue;
+                    },
+                    'N' => {
+                        // Unicode named escape: \N{NAME}
+                        if (i + 2 < s.len and s[i + 2] == '{') {
+                            // Find the closing brace
+                            var end_idx = i + 3;
+                            while (end_idx < s.len and s[end_idx] != '}') : (end_idx += 1) {}
+                            if (end_idx < s.len) {
+                                const name = s[i + 3 .. end_idx];
+                                if (UnicodeNames.get(name)) |codepoint| {
+                                    var buf: [4]u8 = undefined;
+                                    const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                                    for (buf[0..len]) |b| {
+                                        try self.writeFmt("\\x{x:0>2}", .{b});
+                                    }
+                                    i = end_idx + 1;
+                                    continue;
+                                }
+                            }
+                        }
+                        // Unknown name or invalid format - pass through escaped
+                        try self.write("\\\\N");
                         i += 2;
                         continue;
                     },

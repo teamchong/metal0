@@ -31,6 +31,16 @@ pub fn genExprWithSubs(
             }
         },
         .binop => |b| {
+            // Check for string concatenation (requires std.mem.concat instead of +)
+            if (b.op == .Add) {
+                const left_type = self.type_inferrer.inferExpr(b.left.*) catch .unknown;
+                const right_type = self.type_inferrer.inferExpr(b.right.*) catch .unknown;
+                const string_traits = @import("../../../analysis/traits/string_traits.zig");
+                if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
+                    try emitStringConcatWithSubs(self, b.left.*, b.right.*, subs);
+                    return;
+                }
+            }
             // Use @mod for modulo to handle signed integers properly
             if (b.op == .Mod) {
                 try emitModWithSubs(self, b.left.*, b.right.*, subs);
@@ -575,6 +585,20 @@ fn emitFloorDivWithSubs(
             try genExprWithSubs(s, ctx.r, ctx.sb);
         }
     }.f);
+}
+
+/// Helper: emit std.mem.concat(allocator, u8, &.{left, right}) for string concatenation
+fn emitStringConcatWithSubs(
+    self: *NativeCodegen,
+    left: ast.Node,
+    right: ast.Node,
+    subs: *const hashmap_helper.StringHashMap([]const u8),
+) CodegenError!void {
+    try self.emit("try std.mem.concat(__global_allocator, u8, &[_][]const u8{ ");
+    try genExprWithSubs(self, left, subs);
+    try self.emit(", ");
+    try genExprWithSubs(self, right, subs);
+    try self.emit(" })");
 }
 
 /// Helper context for single-arg builtin calls with substitutions

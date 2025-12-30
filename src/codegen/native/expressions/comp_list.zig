@@ -537,6 +537,16 @@ fn determineElementType(self: *NativeCodegen, listcomp: ast.Node.ListComp, lambd
         }
     } else if (listcomp.elt.* == .fstring) {
         return "[]u8";
+    } else if (listcomp.elt.* == .binop) {
+        // Check if binop produces a string (e.g., "prefix" + var)
+        const elt_type = self.type_inferrer.inferExpr(listcomp.elt.*) catch .unknown;
+        if (string_traits.isString(elt_type)) {
+            return "[]u8"; // std.mem.concat returns []u8
+        } else if (type_traits.isFloating(elt_type)) {
+            return "f64";
+        } else if (type_traits.isBoolean(elt_type)) {
+            return "bool";
+        }
     } else if (listcomp.elt.* == .if_expr) {
         const if_expr = listcomp.elt.if_expr;
         if (if_expr.body.* == .constant and if_expr.orelse_value.* == .constant) {
@@ -646,12 +656,16 @@ fn genIterLoop(
 ) CodegenError!void {
     const genExpr = @import("../expressions.zig").genExpr;
 
-    // Check if source is directly iterable
+    // Check if source is directly iterable (Zig arrays, not ArrayLists)
     const is_direct_iterable = blk: {
         if (gen.iter.* == .constant) {
             const iter_const_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
             if (string_traits.isString(iter_const_type)) break :blk true;
         }
+        // List literals become Zig array literals, which are directly iterable
+        if (gen.iter.* == .list) break :blk true;
+        // Tuple literals also become Zig array-like structures
+        if (gen.iter.* == .tuple) break :blk true;
         if (gen.iter.* == .name) {
             const var_name = gen.iter.name.id;
             if (self.isArrayVar(var_name)) break :blk true;

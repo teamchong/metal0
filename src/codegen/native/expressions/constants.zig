@@ -116,8 +116,6 @@ pub fn stripPythonQuotes(s: []const u8) []const u8 {
 /// Unified string content emitter - handles ALL Python string escapes
 /// This is the SINGLE source of truth for string escape handling
 pub fn emitZigStringContent(self: *NativeCodegen, content: []const u8, ctx: StringContext) CodegenError!void {
-    // DEBUG: trace input content
-    std.debug.print("[DEBUG emitZigStringContent] content.len={d} content='{s}'\n", .{ content.len, content });
     var i: usize = 0;
     while (i < content.len) : (i += 1) {
         const c = content[i];
