@@ -1187,7 +1187,20 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Handle imported class types: Fraction(1, 2) -> Fraction.init(1, 2)
         // These are struct types from runtime modules that need .init() instantiation
-        if (self.imported_class_types.contains(raw_func_name)) {
+        // Also handle type aliases that target known class types (e.g., F = fractions.Fraction)
+        const is_type_alias_to_imported_class = blk: {
+            if (self.type_alias_targets.get(raw_func_name)) |target| {
+                // Check if target is a known class type (Fraction, Decimal, etc.)
+                if (std.mem.eql(u8, target, "Fraction") or
+                    std.mem.eql(u8, target, "Decimal") or
+                    std.mem.eql(u8, target, "Path"))
+                {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
+        if (self.imported_class_types.contains(raw_func_name) or is_type_alias_to_imported_class) {
             // Check for starred args: R(*tuple) -> R.init(tuple[0], tuple[1])
             const has_starred = for (call.args) |arg| {
                 if (arg == .starred) break true;
@@ -1244,13 +1257,52 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
                 try b.emitRaw("; }");
             } else {
-                // Normal case: R.init(arg1, arg2, ...)
-                var init_args: std.ArrayList(CallArg) = .{};
-                for (call.args) |arg| {
-                    const arg_value = try self.exprToValue(arg);
-                    try init_args.append(alloc, .{ .value = arg_value });
+                // Check if this is a Fraction constructor (needs special arg count handling)
+                const is_fraction_type = std.mem.eql(u8, func_name, "Fraction") or
+                    std.mem.endsWith(u8, func_name, ".Fraction") or
+                    (if (self.type_alias_targets.get(func_name)) |target| std.mem.eql(u8, target, "Fraction") else false);
+
+                if (is_fraction_type) {
+                    // Fraction has different constructors based on arg count:
+                    // 0 args: Fraction() -> Fraction.init(0, 1)
+                    // 1 arg: Fraction(n) -> Fraction.fromInt(n) for int, Fraction.from_float(n) for float
+                    // 2 args: Fraction(n, d) -> Fraction.init(n, d)
+                    switch (call.args.len) {
+                        0 => {
+                            // Default: Fraction() = 0/1
+                            try b.emitCallExpr(init_func, &.{
+                                .{ .raw = "0" },
+                                .{ .raw = "1" },
+                            });
+                        },
+                        1 => {
+                            // Single arg: could be int, float, or string
+                            // Use fromInt for now (most common case), type dispatch at runtime if needed
+                            const arg_value = try self.exprToValue(call.args[0]);
+                            const from_int_func = try std.fmt.allocPrint(alloc, "{s}.fromInt", .{escaped_name});
+                            try b.emitCallExpr(from_int_func, &.{.{ .value = arg_value }});
+                        },
+                        else => {
+                            // 2+ args: use init
+                            var init_args: std.ArrayList(CallArg) = .{};
+                            for (call.args) |arg| {
+                                const arg_value = try self.exprToValue(arg);
+                                try init_args.append(alloc, .{ .value = arg_value });
+                            }
+                            try b.emitCallExpr(init_func, init_args.items);
+                        },
+                    }
+                } else {
+                    // Normal case: R.init(arg1, arg2, ...)
+                    var init_args: std.ArrayList(CallArg) = .{};
+                    for (call.args) |arg| {
+                        const arg_value = try self.exprToValue(arg);
+                        try init_args.append(alloc, .{ .value = arg_value });
+                    }
+                    // Note: Fraction.init() does NOT return error union, so no try needed
+                    // Only Fraction.fromUnifiedInt() returns !Fraction
+                    try b.emitCallExpr(init_func, init_args.items);
                 }
-                try b.emitCallExpr(init_func, init_args.items);
             }
             try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
@@ -1263,7 +1315,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // EXCEPTION: anytype parameters should NOT be treated as PyValue callables -
         // they could be types like staticmethod/classmethod which need direct call pattern
         const is_callable_anytype_param = self.anytype_params.contains(raw_func_name);
-        const is_pyvalue_callable = !is_callable_anytype_param and (self.pyvalue_vars.contains(raw_func_name) or blk: {
+        // EXCEPTION: type aliases (e.g., F = fractions.Fraction) are struct types, not PyValue callables
+        const is_type_alias_callable = self.type_alias_vars.contains(raw_func_name);
+        const is_pyvalue_callable = !is_callable_anytype_param and !is_type_alias_callable and (self.pyvalue_vars.contains(raw_func_name) or blk: {
             const func_type = self.type_inferrer.getScopedVar(raw_func_name) orelse
                 self.type_inferrer.var_types.get(raw_func_name);
             if (func_type) |ft| {
@@ -1341,7 +1395,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             std.mem.eql(u8, raw_func_name, "class_") or
             std.mem.eql(u8, raw_func_name, "typ");
 
-        if (is_callable_anytype_param and !has_starred_args) {
+        // Check if parameter is likely a comparison/operator function (from operator module)
+        // These are commonly named 'op', 'func', 'f' and should be called directly, not with .init()
+        const might_be_operator_func = std.mem.eql(u8, raw_func_name, "op") or
+            std.mem.eql(u8, raw_func_name, "func") or
+            std.mem.eql(u8, raw_func_name, "cmp") or
+            std.mem.eql(u8, raw_func_name, "fn") or
+            std.mem.eql(u8, raw_func_name, "f");
+
+        if (is_callable_anytype_param and !has_starred_args and !might_be_operator_func) {
             // If parameter might be a Python type constructor, use typeConvert
             // Python types like int/float become Zig types (i64/f64) when passed as anytype
             // type(i) should convert i to the target type using runtime.builtins.typeConvert
@@ -1585,7 +1647,26 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             const needs_try_for_nested = if (is_class_body_nested) false else (in_nested_names or (is_self_class_call and current_class_is_nested));
             const has_error_init = self.error_init_classes.contains(raw_func_name);
             // User-defined classes in class_registry have init() returning !@This() due to __dict__ allocation
-            const needs_try = needs_try_for_nested or has_error_init or in_class_registry;
+            // Type aliases for Fraction/Decimal need try because their init() returns error union
+            // Also check direct calls to Fraction/Decimal (fractions.Fraction, decimal.Decimal)
+            const is_error_returning_type_alias = blk: {
+                // Direct name check for Fraction/Decimal
+                if (std.mem.eql(u8, raw_func_name, "Fraction") or
+                    std.mem.eql(u8, raw_func_name, "Decimal") or
+                    std.mem.endsWith(u8, raw_func_name, ".Fraction") or
+                    std.mem.endsWith(u8, raw_func_name, ".Decimal"))
+                {
+                    break :blk true;
+                }
+                // Check type alias lookup
+                if (self.type_alias_targets.get(raw_func_name)) |target| {
+                    if (std.mem.eql(u8, target, "Fraction") or std.mem.eql(u8, target, "Decimal")) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+            const needs_try = needs_try_for_nested or has_error_init or in_class_registry or is_error_returning_type_alias;
 
             // Special handling for Fraction with starred args (e.g., R(*ratio) where ratio is UnifiedInt tuple)
             // Must be handled BEFORE .init() is emitted
@@ -2075,6 +2156,34 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Note: vararg loop variable calls are handled earlier in this function
         // (before is_pyvalue_callable check)
+
+        // Handle C extension from-import function calls
+        // These are from patterns like: from numpy.ctypeslib import load_library
+        // The symbol is stored as ?*c_interop.PyObject, need to call via c_interop.callFromImport
+        if (self.c_extension_from_imports.contains(raw_func_name)) {
+            // Generate: c_interop.callFromImport(func_name, .{arg1, arg2, ...})
+            const b = try self.getBuilder();
+
+            try b.emitRaw("c_interop.callFromImport(");
+            try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), raw_func_name);
+            try b.emitRaw(", .{");
+
+            // Emit args
+            for (call.args, 0..) |arg, i| {
+                if (i > 0) try b.emitRaw(", ");
+                const arg_value = try self.exprToValue(arg);
+                try b.emitValueCore(arg_value);
+            }
+            for (call.keyword_args, 0..) |kwarg, i| {
+                if (i > 0 or call.args.len > 0) try b.emitRaw(", ");
+                const kwarg_value = try self.exprToValue(kwarg.value);
+                try b.emitValueCore(kwarg_value);
+            }
+
+            try b.emitRaw("})");
+            try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
+            return;
+        }
 
         // Fallback: regular function call
         // Use raw_func_name for registry lookups (original Python name)
