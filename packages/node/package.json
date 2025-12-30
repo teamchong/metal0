@@ -1,0 +1,69 @@
+{
+  "name": "@metal0/lanceql-node",
+  "version": "0.1.2",
+  "description": "SQLite-compatible API for Lance columnar files - drop-in replacement for better-sqlite3",
+  "main": "src/index.js",
+  "types": "types/index.d.ts",
+  "gypfile": true,
+  "files": [
+    "src/",
+    "types/",
+    "lib/",
+    "prebuilds/",
+    "scripts/",
+    "binding.gyp",
+    "README.md"
+  ],
+  "scripts": {
+    "install": "node scripts/install.js",
+    "build": "node-gyp rebuild",
+    "rebuild": "node-gyp rebuild",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:legacy": "node test/basic.test.js && node test/compat.test.js",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "lance",
+    "sqlite",
+    "columnar",
+    "sql",
+    "analytics",
+    "parquet",
+    "arrow",
+    "better-sqlite3",
+    "database"
+  ],
+  "author": "LanceQL Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/teamchong/lanceql.git",
+    "directory": "packages/node"
+  },
+  "bugs": {
+    "url": "https://github.com/teamchong/lanceql/issues"
+  },
+  "homepage": "https://github.com/teamchong/lanceql#readme",
+  "dependencies": {
+    "node-addon-api": "^8.0.0",
+    "node-gyp": "^10.0.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.16",
+    "vitest": "^4.0.15"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}

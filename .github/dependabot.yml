@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Node.js dependencies for packages/node
+  - package-ecosystem: "npm"
+    directory: "/packages/node"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+      prod-dependencies:
+        dependency-type: "production"
+
+  # Node.js dependencies for packages/browser
+  - package-ecosystem: "npm"
+    directory: "/packages/browser"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
