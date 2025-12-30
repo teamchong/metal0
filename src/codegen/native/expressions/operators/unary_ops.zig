@@ -100,12 +100,14 @@ fn genNegOp(self: *NativeCodegen, unaryop: ast.Node.UnaryOp) CodegenError!void {
     const operand_type = try self.inferExprScoped(unaryop.operand.*);
     const b = try self.getBuilder();
 
-    // PyValue: use .neg() method
+    // PyValue: wrap in PyValue.from() and use .neg() method
+    // Must wrap because the actual Zig type might be UnifiedInt/BigInt which have
+    // different .neg() signatures (requiring allocator), but PyValue.neg() is uniform
     if (operand_type == .pyvalue) {
         const operand = try self.captureExpr(unaryop.operand.*);
-        try b.emitRaw("(");
+        try b.emitRaw("(runtime.PyValue.from(");
         try self.emitZigValue(operand);
-        try b.emitRaw(").neg()");
+        try b.emitRaw(")).neg()");
         try self.flushBuilder();
         return;
     }

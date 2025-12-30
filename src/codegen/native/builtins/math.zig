@@ -446,9 +446,16 @@ pub fn genDivmod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     const left_val = try self.captureExpr(args[0]);
     const right_val = try self.captureExpr(args[1]);
 
-    if (left_type == .bigint or right_type == .bigint or left_type == .unknown or right_type == .unknown) {
-        // BigInt or unknown type - use runtime.bigIntDivmod
-        try b.emitCallExpr("runtime.bigIntDivmod", &[_]CallArg{
+    // Check for UnifiedInt or BigInt - use unified_int_ops.divmod for both
+    // This avoids type mismatches when variables are declared as UnifiedInt but inferred as bigint
+    const needs_unified_divmod = left_type == .bigint or right_type == .bigint or
+        left_type == .unified_int or right_type == .unified_int or
+        left_type == .unknown or right_type == .unknown;
+
+    if (needs_unified_divmod) {
+        // BigInt/UnifiedInt/unknown type - use runtime.unified_int_ops.divmod
+        // which accepts UnifiedInt and handles conversions
+        try b.emitCallExpr("runtime.unified_int_ops.divmod", &[_]CallArg{
             .{ .value = left_val },
             .{ .value = right_val },
             .allocator,

@@ -936,37 +936,17 @@ pub const ZigBuilder = struct {
         }
 
         // ============================================
-        // BigInt operations - uses emitRuntimeBinOp
+        // UnifiedInt and BigInt operations - both use unified_int_ops
+        // UnifiedInt can handle both i64 and BigInt, so it's safer to use for all
+        // This avoids type mismatches when variables are declared as UnifiedInt
+        // but the ZigValue was tagged as .bigint
         // ============================================
-        if (lhs.isBigInt() or rhs.isBigInt()) {
-            const bigint_op: ?[]const u8 = switch (b.op) {
-                .add => "add",
-                .sub => "sub",
-                .mul => "mul",
-                .floor_div => "divFloor",
-                .mod => "mod",
-                .bit_and => "bitAnd",
-                .bit_or => "bitOr",
-                .bit_xor => "bitXor",
-                .lshift => "shl",
-                .rshift => "shr",
-                else => null,
-            };
-            if (bigint_op) |op_fn| {
-                try self.emitRuntimeBinOp(.bigint, op_fn, lhs, rhs);
-                return;
-            }
-        }
-
-        // ============================================
-        // UnifiedInt operations - uses emitRuntimeBinOp
-        // ============================================
-        if (lhs.isUnifiedInt() or rhs.isUnifiedInt()) {
+        if (lhs.isBigInt() or rhs.isBigInt() or lhs.isUnifiedInt() or rhs.isUnifiedInt()) {
             const unified_op: ?[]const u8 = switch (b.op) {
                 .add => "add",
                 .sub => "sub",
                 .mul => "mul",
-                .floor_div => "divFloor",
+                .floor_div => "floorDiv",
                 .mod => "mod",
                 .pow => "pow",
                 .bit_and => "bitAnd",

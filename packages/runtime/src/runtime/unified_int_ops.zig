@@ -99,6 +99,14 @@ pub fn mod(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) UnifiedInt
     };
 }
 
+/// Divmod: returns (quotient, remainder) for left // right and left % right
+/// Python's divmod() builtin
+pub fn divmod(left: UnifiedInt, right: UnifiedInt, allocator: Allocator) struct { UnifiedInt, UnifiedInt } {
+    const q = floorDiv(left, right, allocator);
+    const r = mod(left, right, allocator);
+    return .{ q, r };
+}
+
 /// Power: base ** exp (panics on OOM)
 pub fn pow(base: UnifiedInt, exp: u32, allocator: Allocator) UnifiedInt {
     return base.pow(exp, allocator) catch @panic("OOM");

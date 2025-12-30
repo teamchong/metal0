@@ -138,25 +138,15 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         break :blk false;
     };
 
-    // Check UnifiedInt FIRST - it's a superset that handles both i64 and BigInt
-    // UnifiedInt auto-promotes on overflow, so it should handle all integer arithmetic
+    // Check UnifiedInt and BigInt - unified_int_ops handles both UnifiedInt and BigInt types
+    // via emitAsUnifiedInt which converts BigInt to UnifiedInt if needed.
+    // This avoids type mismatches when a variable is declared as UnifiedInt but inferred as bigint.
     // BUT NOT for string formatting operations
-    if ((unified_int_ops.isUnifiedInt(bigint_left_type) or unified_int_ops.isUnifiedInt(bigint_right_type)) and !is_string_formatting) {
+    const needs_unified_ops = (unified_int_ops.isUnifiedInt(bigint_left_type) or
+        unified_int_ops.isUnifiedInt(bigint_right_type) or
+        bigint_left_type == .bigint or bigint_right_type == .bigint) and !is_string_formatting;
+    if (needs_unified_ops) {
         try unified_int_ops.genUnifiedIntBinOp(self, binop, bigint_left_type, bigint_right_type);
-        return;
-    }
-
-    // Then check BigInt - for explicit bigint types not using UnifiedInt
-    // BUT NOT for string formatting operations
-    if (bigint_ops.needsBigInt(bigint_left_type) and !is_string_formatting) {
-        try bigint_ops.genBigIntBinOp(self, binop, bigint_left_type, bigint_right_type);
-        return;
-    }
-
-    // If right operand needs BigInt (e.g., 0 - bigint), convert left to BigInt and use BigInt ops
-    // BUT NOT for string formatting operations
-    if (bigint_ops.needsBigInt(bigint_right_type) and !is_string_formatting) {
-        try bigint_ops.genBigIntBinOpRightBig(self, binop, bigint_left_type, bigint_right_type);
         return;
     }
 
