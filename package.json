@@ -1,0 +1,54 @@
+{
+  "name": "lanceql",
+  "version": "0.1.0",
+  "description": "Zig/WASM implementation of the Lance columnar file format reader with SQL and vector search support",
+  "type": "module",
+  "main": "dist/lanceql.js",
+  "module": "dist/lanceql.js",
+  "types": "dist/lanceql.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/lanceql.js",
+      "types": "./dist/lanceql.d.ts"
+    },
+    "./wasm": {
+      "import": "./dist/lanceql.wasm"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npm run build:wasm && npm run build:js",
+    "build:wasm": "zig build wasm && cp zig-out/bin/lanceql.wasm dist/",
+    "build:js": "cp examples/wasm/lanceql.js dist/",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/teamchong/lanceql.git"
+  },
+  "keywords": [
+    "lance",
+    "columnar",
+    "database",
+    "vector",
+    "embedding",
+    "wasm",
+    "webassembly",
+    "sql",
+    "query"
+  ],
+  "author": "Steven Chong",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/teamchong/lanceql/issues"
+  },
+  "homepage": "https://github.com/teamchong/lanceql#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "sideEffects": false
+}
