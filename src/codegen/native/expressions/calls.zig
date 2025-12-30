@@ -1679,20 +1679,23 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             try self.emit("}");
                         } else {
                             // assertRaises or normal context: use block expression
-                            // emitInlineBlockStart already emits "(__label: { "
-                            const label = try self.emitInlineBlockStart("kwarg_err");
-                            try self.emit("\n");
-                            self.indent();
-                            try self.emitIndent();
-                            try self.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), raw_func_name);
-                            try self.emit("() does not take keyword arguments\", @src().line);\n");
-                            try self.emitIndent();
-                            try self.emitFmt("break :{s} error.TypeError;\n", .{label});
-                            self.dedent();
-                            try self.emitIndent();
-                            // emitInlineBlockEnd already emits "})"
-                            try self.emitInlineBlockEnd();
+                            const Ctx = struct { name: []const u8 };
+                            try self.withInlineBlock("kwarg_err", Ctx{ .name = raw_func_name }, struct {
+                                fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                                    try s.emit("\n");
+                                    s.indent();
+                                    try s.emitIndent();
+                                    try s.emit("runtime.debug_reader.printPythonError(__global_allocator, \"TypeError\", \"");
+                                    try zig_keywords.writeEscapedIdent(s.output.writer(s.allocator), ctx.name);
+                                    try s.emit("() does not take keyword arguments\", @src().line);\n");
+                                    try s.emitIndent();
+                                    try s.emit("break :");
+                                    try s.emit(label);
+                                    try s.emit(" error.TypeError;\n");
+                                    s.dedent();
+                                    try s.emitIndent();
+                                }
+                            }.emit);
                         }
                         return;
                     }
@@ -2198,34 +2201,39 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (is_kwarg_func) {
                 // Generate a block expression that creates and populates a PyDict
                 if (call.args.len > 0) try self.emit(", ");
-                const label = try self.emitInlineBlockStart("kwargs");
-                try self.emit("\n");
-                self.indent_level += 1;
-                try self.emitIndent();
-                try self.emit("const __kwargs = try runtime.PyDict.create(__global_allocator);\n");
+                const Ctx = struct { kwargs: []ast.Node.KeywordArg };
+                try self.withInlineBlock("kwargs", Ctx{ .kwargs = call.keyword_args }, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                        try s.emit("\n");
+                        s.indent_level += 1;
+                        try s.emitIndent();
+                        try s.emit("const __kwargs = try runtime.PyDict.create(__global_allocator);\n");
 
-                // Add each keyword argument to the dict
-                for (call.keyword_args) |kwarg| {
-                    try self.emitIndent();
-                    try self.emit("try runtime.PyDict.set(__kwargs, \"");
-                    try self.emit(kwarg.name);
-                    try self.emit("\", ");
+                        // Add each keyword argument to the dict
+                        for (ctx.kwargs) |kwarg| {
+                            try s.emitIndent();
+                            try s.emit("try runtime.PyDict.set(__kwargs, \"");
+                            try s.emit(kwarg.name);
+                            try s.emit("\", ");
 
-                    // Wrap the value in PyValue (handles int, str, float, etc.)
-                    try self.emitCallCtx("try runtime.PyValue.fromAlloc", kwarg.value, struct {
-                        pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
-                            try s.emit("__global_allocator, ");
-                            try genExpr(s, e);
+                            // Wrap the value in PyValue (handles int, str, float, etc.)
+                            try s.emitCallCtx("try runtime.PyValue.fromAlloc", kwarg.value, struct {
+                                pub fn f(s2: *NativeCodegen, e: ast.Node) CodegenError!void {
+                                    try s2.emit("__global_allocator, ");
+                                    try genExpr(s2, e);
+                                }
+                            }.f);
+                            try s.emit(");\n");
                         }
-                    }.f);
-                    try self.emit(");\n");
-                }
 
-                try self.emitIndent();
-                try self.emitFmt("break :{s} __kwargs;\n", .{label});
-                self.indent_level -= 1;
-                try self.emitIndent();
-                try self.emitInlineBlockEnd();
+                        try s.emitIndent();
+                        try s.emit("break :");
+                        try s.emit(label);
+                        try s.emit(" __kwargs;\n");
+                        s.indent_level -= 1;
+                        try s.emitIndent();
+                    }
+                }.emit);
             } else {
                 // Add keyword arguments as positional arguments (non-kwarg functions)
                 // Map keyword arguments to correct parameter positions using function signature

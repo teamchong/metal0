@@ -48,34 +48,44 @@ pub fn genAsyncioRun(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // Use state machine if ANY async function has I/O (for consistency)
             if (self.anyAsyncHasIO()) {
                 // State machine approach: create frame and poll until done
-                const label = try self.emitInlineBlockStart("asyncio_run");
-                try self.emit("    const __main_frame = try ");
-                try self.emit(actual_name);
-                try self.emit("_async();\n");
-                try self.emit("    defer __global_allocator.destroy(__main_frame);\n");
-                try self.emit("    while (");
-                try self.emit(actual_name);
-                try self.emit("_poll(__main_frame) == null) {\n");
-                try self.emit("        // Yield to allow other work\n");
-                try self.emit("        std.Thread.yield() catch {{}};\n");
-                try self.emit("    }\n");
-                try self.emitFmt("    break :{s};\n", .{label});
-                try self.emitInlineBlockEnd();
+                const Ctx = struct { name: []const u8 };
+                try self.withInlineBlock("asyncio_run", Ctx{ .name = actual_name }, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                        try s.emit("    const __main_frame = try ");
+                        try s.emit(ctx.name);
+                        try s.emit("_async();\n");
+                        try s.emit("    defer __global_allocator.destroy(__main_frame);\n");
+                        try s.emit("    while (");
+                        try s.emit(ctx.name);
+                        try s.emit("_poll(__main_frame) == null) {\n");
+                        try s.emit("        // Yield to allow other work\n");
+                        try s.emit("        std.Thread.yield() catch {{}};\n");
+                        try s.emit("    }\n");
+                        try s.emit("    break :");
+                        try s.emit(label);
+                        try s.emit(";\n");
+                    }
+                }.emit);
             } else {
                 // Thread-based approach: spawn and wait
-                const label = try self.emitInlineBlockStart("asyncio_run");
-                try self.emit("    if (!runtime.scheduler_initialized) {\n");
-                try self.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
-                try self.emit("        runtime.scheduler = try runtime.Scheduler.init(__global_allocator, __num_threads);\n");
-                try self.emit("        try runtime.scheduler.?.start();\n");
-                try self.emit("        runtime.scheduler_initialized = true;\n");
-                try self.emit("    }\n");
-                try self.emit("    const __main_thread = try ");
-                try self.emit(actual_name);
-                try self.emit("_async();\n");
-                try self.emit("    runtime.scheduler.?.wait(__main_thread);\n");
-                try self.emitFmt("    break :{s};\n", .{label});
-                try self.emitInlineBlockEnd();
+                const Ctx = struct { name: []const u8 };
+                try self.withInlineBlock("asyncio_run", Ctx{ .name = actual_name }, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                        try s.emit("    if (!runtime.scheduler_initialized) {\n");
+                        try s.emit("        const __num_threads = std.Thread.getCpuCount() catch 8;\n");
+                        try s.emit("        runtime.scheduler = try runtime.Scheduler.init(__global_allocator, __num_threads);\n");
+                        try s.emit("        try runtime.scheduler.?.start();\n");
+                        try s.emit("        runtime.scheduler_initialized = true;\n");
+                        try s.emit("    }\n");
+                        try s.emit("    const __main_thread = try ");
+                        try s.emit(ctx.name);
+                        try s.emit("_async();\n");
+                        try s.emit("    runtime.scheduler.?.wait(__main_thread);\n");
+                        try s.emit("    break :");
+                        try s.emit(label);
+                        try s.emit(";\n");
+                    }
+                }.emit);
             }
             return;
         }
@@ -91,74 +101,84 @@ pub fn genAsyncioGather(self: *NativeCodegen, args: []ast.Node) CodegenError!voi
     // Use thread pool for CPU-bound (parallel execution across cores)
     if (self.anyAsyncHasIO()) { // State machine for I/O operations
         // State machine: poll all frames concurrently using netpoller
-        const label = try self.emitInlineBlockStart("gather");
-        try self.emit("    var __results: std.ArrayListUnmanaged(i64) = .{{}};\n");
+        const Ctx = struct { a: []ast.Node };
+        try self.withInlineBlock("gather", Ctx{ .a = args }, struct {
+            fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                try s.emit("    var __results: std.ArrayListUnmanaged(i64) = .{{}};\n");
 
-        // Handle starred expression (asyncio.gather(*tasks))
-        if (args.len == 1 and args[0] == .starred) {
-            const starred = args[0].starred;
-            try self.emit("    const __frames = ");
-            try self.genExpr(starred.value.*);
-            try self.emit(";\n");
-            // Poll all frames until all are done
-            try self.emit("    var __remaining = __frames.items.len;\n");
-            try self.emit("    var __done = try __global_allocator.alloc(bool, __frames.items.len);\n");
-            try self.emit("    defer __global_allocator.free(__done);\n");
-            try self.emit("    @memset(__done, false);\n");
-            try self.emit("    try __results.ensureTotalCapacity(__global_allocator, __frames.items.len);\n");
-            try self.emit("    for (0..__frames.items.len) |_| try __results.append(__global_allocator, 0);\n");
-            try self.emit("    while (__remaining > 0) {\n");
-            try self.emit("        runtime.netpoller.poll(1_000_000); // 1ms poll\n");
-            try self.emit("        for (__frames.items, 0..) |__frame, __idx| {\n");
-            try self.emit("            if (!__done[__idx]) {\n");
-            try self.emit("                if (worker_poll(__frame)) |__r| {\n");
-            try self.emit("                    __results.items[__idx] = __r;\n");
-            try self.emit("                    __done[__idx] = true;\n");
-            try self.emit("                    __remaining -= 1;\n");
-            try self.emit("                    __global_allocator.destroy(__frame);\n");
-            try self.emit("                }\n");
-            try self.emit("            }\n");
-            try self.emit("        }\n");
-            try self.emit("    }\n");
-        } else {
-            // Direct args - not commonly used with state machines
-            try self.emit("    // Direct gather args not yet implemented for state machines\n");
-        }
-        try self.emitFmt("    break :{s} __results;\n", .{label});
-        try self.emitInlineBlockEnd();
+                // Handle starred expression (asyncio.gather(*tasks))
+                if (ctx.a.len == 1 and ctx.a[0] == .starred) {
+                    const starred = ctx.a[0].starred;
+                    try s.emit("    const __frames = ");
+                    try s.genExpr(starred.value.*);
+                    try s.emit(";\n");
+                    // Poll all frames until all are done
+                    try s.emit("    var __remaining = __frames.items.len;\n");
+                    try s.emit("    var __done = try __global_allocator.alloc(bool, __frames.items.len);\n");
+                    try s.emit("    defer __global_allocator.free(__done);\n");
+                    try s.emit("    @memset(__done, false);\n");
+                    try s.emit("    try __results.ensureTotalCapacity(__global_allocator, __frames.items.len);\n");
+                    try s.emit("    for (0..__frames.items.len) |_| try __results.append(__global_allocator, 0);\n");
+                    try s.emit("    while (__remaining > 0) {\n");
+                    try s.emit("        runtime.netpoller.poll(1_000_000); // 1ms poll\n");
+                    try s.emit("        for (__frames.items, 0..) |__frame, __idx| {\n");
+                    try s.emit("            if (!__done[__idx]) {\n");
+                    try s.emit("                if (worker_poll(__frame)) |__r| {\n");
+                    try s.emit("                    __results.items[__idx] = __r;\n");
+                    try s.emit("                    __done[__idx] = true;\n");
+                    try s.emit("                    __remaining -= 1;\n");
+                    try s.emit("                    __global_allocator.destroy(__frame);\n");
+                    try s.emit("                }\n");
+                    try s.emit("            }\n");
+                    try s.emit("        }\n");
+                    try s.emit("    }\n");
+                } else {
+                    // Direct args - not commonly used with state machines
+                    try s.emit("    // Direct gather args not yet implemented for state machines\n");
+                }
+                try s.emit("    break :");
+                try s.emit(label);
+                try s.emit(" __results;\n");
+            }
+        }.emit);
     } else {
         // Thread-based approach
-        const label = try self.emitInlineBlockStart("gather");
-        try self.emit("    var __threads: std.ArrayListUnmanaged(*runtime.GreenThread) = .{{}};\n");
-        try self.emit("    defer __threads.deinit(__global_allocator);\n");
+        const Ctx = struct { a: []ast.Node };
+        try self.withInlineBlock("gather", Ctx{ .a = args }, struct {
+            fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                try s.emit("    var __threads: std.ArrayListUnmanaged(*runtime.GreenThread) = .{{}};\n");
+                try s.emit("    defer __threads.deinit(__global_allocator);\n");
 
-        // Handle starred expression (asyncio.gather(*tasks))
-        if (args.len == 1 and args[0] == .starred) {
-            const starred = args[0].starred;
-            try self.emit("    for (");
-            try self.genExpr(starred.value.*);
-            try self.emit(".items) |__item| {\n");
-            try self.emit("        try __threads.append(__global_allocator, __item);\n");
-            try self.emit("    }\n");
-        } else {
-            // Direct args: asyncio.gather(task1, task2, ...)
-            for (args) |arg| {
-                try self.emit("    try __threads.append(__global_allocator, ");
-                try self.genExpr(arg);
-                try self.emit(");\n");
+                // Handle starred expression (asyncio.gather(*tasks))
+                if (ctx.a.len == 1 and ctx.a[0] == .starred) {
+                    const starred = ctx.a[0].starred;
+                    try s.emit("    for (");
+                    try s.genExpr(starred.value.*);
+                    try s.emit(".items) |__item| {\n");
+                    try s.emit("        try __threads.append(__global_allocator, __item);\n");
+                    try s.emit("    }\n");
+                } else {
+                    // Direct args: asyncio.gather(task1, task2, ...)
+                    for (ctx.a) |arg| {
+                        try s.emit("    try __threads.append(__global_allocator, ");
+                        try s.genExpr(arg);
+                        try s.emit(");\n");
+                    }
+                }
+
+                // Wait for all and collect results
+                try s.emit("    var __results: std.ArrayListUnmanaged(i64) = .{{}};\n");
+                try s.emit("    for (__threads.items) |__t| {\n");
+                try s.emit("        runtime.scheduler.?.wait(__t);\n");
+                try s.emit("        if (__t.result) |__r| {\n");
+                try s.emit("            try __results.append(__global_allocator, @as(*i64, @ptrCast(@alignCast(__r))).*);\n");
+                try s.emit("        }\n");
+                try s.emit("    }\n");
+                try s.emit("    break :");
+                try s.emit(label);
+                try s.emit(" __results;\n");
             }
-        }
-
-        // Wait for all and collect results
-        try self.emit("    var __results: std.ArrayListUnmanaged(i64) = .{{}};\n");
-        try self.emit("    for (__threads.items) |__t| {\n");
-        try self.emit("        runtime.scheduler.?.wait(__t);\n");
-        try self.emit("        if (__t.result) |__r| {\n");
-            try self.emit("            try __results.append(__global_allocator, @as(*i64, @ptrCast(@alignCast(__r))).*);\n");
-        try self.emit("        }\n");
-        try self.emit("    }\n");
-        try self.emitFmt("    break :{s} __results;\n", .{label});
-        try self.emitInlineBlockEnd();
+        }.emit);
     }
 }
 
@@ -185,13 +205,17 @@ pub fn genAsyncioSleep(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
     // Use runtime.sleep which does chunked sleeping with yields
     // Use labeled block expression that returns void to avoid trailing ; issues
-    const label = try self.emitInlineBlockStart("sleep");
-    try self.emit("    const __sleep_secs: f64 = try @as(anyerror!f64, ");
-    try self.genExpr(args[0]);
-    try self.emit(");\n");
-    try self.emit("    runtime.sleep(__sleep_secs);\n");
-    try self.emitFmt("    break :{s};\n", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("sleep", args[0], struct {
+        fn emit(s: *NativeCodegen, label: []const u8, arg: ast.Node) CodegenError!void {
+            try s.emit("    const __sleep_secs: f64 = try @as(anyerror!f64, ");
+            try s.genExpr(arg);
+            try s.emit(");\n");
+            try s.emit("    runtime.sleep(__sleep_secs);\n");
+            try s.emit("    break :");
+            try s.emit(label);
+            try s.emit(";\n");
+        }
+    }.emit);
 }
 
 /// Generate code for asyncio.Queue(maxsize)
@@ -236,41 +260,51 @@ pub fn genAwait(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
             // Query function_traits for async strategy
             if (self.shouldUseStateMachineAsync(func_name)) {
                 // State machine approach: create frame and poll until done
-                const label = try self.emitInlineBlockStart("await");
-                try self.emit("    const __frame = try ");
-                try self.emit(func_name);
-                try self.emit("_async(");
-                // Pass arguments
-                for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try self.genExpr(arg);
-                }
-                try self.emit(");\n");
-                try self.emit("    defer __global_allocator.destroy(__frame);\n");
-                try self.emit("    while (true) {\n");
-                try self.emit("        if (");
-                try self.emit(func_name);
-                try self.emit("_poll(__frame)) |__result| {\n");
-                try self.emitFmt("            break :{s} __result;\n", .{label});
-                try self.emit("        }\n");
-                try self.emit("        std.Thread.yield() catch {{}};\n");
-                try self.emit("    }\n");
-                try self.emitInlineBlockEnd();
+                const Ctx = struct { name: []const u8, args: []ast.Node };
+                try self.withInlineBlock("await", Ctx{ .name = func_name, .args = call.args }, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                        try s.emit("    const __frame = try ");
+                        try s.emit(ctx.name);
+                        try s.emit("_async(");
+                        // Pass arguments
+                        for (ctx.args, 0..) |arg, i| {
+                            if (i > 0) try s.emit(", ");
+                            try s.genExpr(arg);
+                        }
+                        try s.emit(");\n");
+                        try s.emit("    defer __global_allocator.destroy(__frame);\n");
+                        try s.emit("    while (true) {\n");
+                        try s.emit("        if (");
+                        try s.emit(ctx.name);
+                        try s.emit("_poll(__frame)) |__result| {\n");
+                        try s.emit("            break :");
+                        try s.emit(label);
+                        try s.emit(" __result;\n");
+                        try s.emit("        }\n");
+                        try s.emit("        std.Thread.yield() catch {{}};\n");
+                        try s.emit("    }\n");
+                    }
+                }.emit);
             } else {
                 // Thread-based approach: spawn and wait
-                const label = try self.emitInlineBlockStart("await");
-                try self.emit("    const __thread = try ");
-                try self.emit(func_name);
-                try self.emit("_async(");
-                // Pass arguments
-                for (call.args, 0..) |arg, i| {
-                    if (i > 0) try self.emit(", ");
-                    try self.genExpr(arg);
-                }
-                try self.emit(");\n");
-                try self.emit("    runtime.scheduler.?.wait(__thread);\n");
-                try self.emitFmt("    break :{s} if (__thread.result) |__r| @as(*i64, @ptrCast(@alignCast(__r))).* else 0;\n", .{label});
-                try self.emitInlineBlockEnd();
+                const Ctx = struct { name: []const u8, args: []ast.Node };
+                try self.withInlineBlock("await", Ctx{ .name = func_name, .args = call.args }, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                        try s.emit("    const __thread = try ");
+                        try s.emit(ctx.name);
+                        try s.emit("_async(");
+                        // Pass arguments
+                        for (ctx.args, 0..) |arg, i| {
+                            if (i > 0) try s.emit(", ");
+                            try s.genExpr(arg);
+                        }
+                        try s.emit(");\n");
+                        try s.emit("    runtime.scheduler.?.wait(__thread);\n");
+                        try s.emit("    break :");
+                        try s.emit(label);
+                        try s.emit(" if (__thread.result) |__r| @as(*i64, @ptrCast(@alignCast(__r))).* else 0;\n");
+                    }
+                }.emit);
             }
             return;
         }

@@ -171,12 +171,15 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         // Handle void assertion calls inside mixed tuples by emitting {}
         if (isVoidAssertionCall(elem)) {
             // Emit the assertion as a statement block that produces void
-            const label = try self.emitInlineBlockStart("void_assert");
-            const operand = try self.captureExpr(elem);
-            try self.emitZigValue(operand);
-            try self.emitFmt(" break :{s} ", .{label});
-            try self.emit("{}; ");
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock("void_assert", elem, struct {
+                fn emit(s: *NativeCodegen, label: []const u8, e: ast.Node) CodegenError!void {
+                    const operand = try s.captureExpr(e);
+                    try s.emitZigValue(operand);
+                    try s.emit(" break :");
+                    try s.emit(label);
+                    try s.emit(" {}; ");
+                }
+            }.emit);
             continue;
         }
 
@@ -270,12 +273,15 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     // In Python: t["a"] raises TypeError: tuple indices must be integers or slices, not str
                     // Use _ = on the tuple value to mark it as used, then return error
                     // This allows the error to be caught by assertRaisesRegex context
-                    const label = try self.emitInlineBlockStart("typeerr");
-                    try self.emit("_ = &");
-                    try genExpr(self, subscript.value.*);
-                    try self.emitFmt("; break :{s} try @as(anyerror!@TypeOf(", .{label});
-                    try self.emit("{}), error.TypeError); ");
-                    try self.emitInlineBlockEnd();
+                    try self.withInlineBlock("typeerr", subscript.value.*, struct {
+                        fn emit(s: *NativeCodegen, label: []const u8, value: ast.Node) CodegenError!void {
+                            try s.emit("_ = &");
+                            try genExpr(s, value);
+                            try s.emit("; break :");
+                            try s.emit(label);
+                            try s.emit(" try @as(anyerror!@TypeOf({}), error.TypeError); ");
+                        }
+                    }.emit);
                 } else {
                     // Non-constant tuple index - use runtime helper to avoid comptime explosion
                     // The inline for is still needed internally, but it's compiled once per tuple type

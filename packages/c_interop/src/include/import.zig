@@ -101,7 +101,87 @@ pub export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.
     }
 
     // Try loading extension module (.so/.dylib/.dll)
-    return loadExtensionModule(name_str);
+    if (loadExtensionModule(name_str)) |module| {
+        return module;
+    }
+
+    // If direct loading failed and name contains ".", try hierarchical import
+    // e.g., "numpy.testing" -> import "numpy", then get "testing" attribute
+    if (std.mem.indexOfScalar(u8, name_str, '.')) |dot_idx| {
+        return importHierarchical(name_str, dot_idx);
+    }
+
+    return null;
+}
+
+/// Import a hierarchical module like "numpy.testing" by:
+/// 1. Importing the root module ("numpy")
+/// 2. Getting each subsequent part as an attribute
+fn importHierarchical(full_name: []const u8, first_dot: usize) ?*cpython.PyObject {
+    // Get root module name (e.g., "numpy" from "numpy.testing")
+    const root_name = full_name[0..first_dot];
+
+    // Create null-terminated root name for recursive import
+    var root_buf: [256:0]u8 = undefined;
+    if (root_name.len >= root_buf.len) return null;
+    @memcpy(root_buf[0..root_name.len], root_name);
+    root_buf[root_name.len] = 0;
+
+    // Import root module (recursive call handles caching)
+    const root_module = PyImport_ImportModule(@ptrCast(&root_buf)) orelse return null;
+
+    // Now traverse the remaining parts as attributes
+    var current_module = root_module;
+    var remaining = full_name[first_dot + 1 ..];
+
+    while (remaining.len > 0) {
+        // Find next dot or end of string
+        const next_dot = std.mem.indexOfScalar(u8, remaining, '.') orelse remaining.len;
+        const part = remaining[0..next_dot];
+
+        // Create null-terminated part name
+        var part_buf: [256:0]u8 = undefined;
+        if (part.len >= part_buf.len) {
+            Py_DECREF(current_module);
+            return null;
+        }
+        @memcpy(part_buf[0..part.len], part);
+        part_buf[part.len] = 0;
+
+        // Get submodule as attribute of current module
+        // Try proxy attribute access first (for subprocess-based modules)
+        // then fall back to standard attribute access
+        const submodule = getProxyAttr(current_module, @ptrCast(&part_buf)) orelse
+            traits.externs.PyObject_GetAttrString(current_module, @ptrCast(&part_buf)) orelse {
+            Py_DECREF(current_module);
+            return null;
+        };
+
+        // Release previous module (unless it's the root which we still need cached)
+        if (current_module != root_module) {
+            Py_DECREF(current_module);
+        }
+        current_module = submodule;
+
+        // Move to next part
+        if (next_dot < remaining.len) {
+            remaining = remaining[next_dot + 1 ..];
+        } else {
+            break;
+        }
+    }
+
+    // Cache the final module in sys.modules
+    if (module_dict) |mod_dict| {
+        var name_buf: [512:0]u8 = undefined;
+        if (full_name.len < name_buf.len) {
+            @memcpy(name_buf[0..full_name.len], full_name);
+            name_buf[full_name.len] = 0;
+            _ = PyDict_SetItemString(mod_dict, @ptrCast(&name_buf), current_module);
+        }
+    }
+
+    return current_module;
 }
 
 /// Import module without blocking (same as regular import for now)
@@ -625,10 +705,14 @@ fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
         }
     }
 
-    // Strategy 5: Use subprocess Python for complex packages (numpy, pandas, etc.)
+    // Strategy 5: Use subprocess Python for top-level packages only (numpy, pandas, etc.)
     // These require Python's full import machinery and have symbol conflicts with our stubs
-    if (importViaSubprocess(top_level)) |module| {
-        return module;
+    // For submodules like "numpy.testing", we don't try subprocess here - let the caller
+    // use hierarchical import (import root, then get attribute)
+    if (parts.items.len == 1) {
+        if (importViaSubprocess(top_level)) |module| {
+            return module;
+        }
     }
 
     return null;

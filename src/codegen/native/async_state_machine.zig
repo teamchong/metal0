@@ -960,13 +960,18 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
             if (call.func.* == .name) {
                 const func_name = call.func.*.name.id;
                 if (std.mem.eql(u8, func_name, "sum")) {
-                    const label = try self.emitInlineBlockStart("sum");
-                    try self.emit("\nvar total: i64 = 0;\nfor (");
-                    if (call.args.len > 0) {
-                        try genExprInFrame(self, call.args[0], frame_fields);
-                    }
-                    try self.emitFmt(".items) |item| {{ total += item; }}\nbreak :{s} total;\n", .{label});
-                    try self.emitInlineBlockEnd();
+                    const Ctx = struct { a: []ast.Node, ff: []const []const u8 };
+                    try self.withInlineBlock("sum", Ctx{ .a = call.args, .ff = frame_fields }, struct {
+                        fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                            try s.emit("\nvar total: i64 = 0;\nfor (");
+                            if (ctx.a.len > 0) {
+                                try genExprInFrame(s, ctx.a[0], ctx.ff);
+                            }
+                            try s.emit(".items) |item| { total += item; }\nbreak :");
+                            try s.emit(label);
+                            try s.emit(" total;\n");
+                        }
+                    }.emit);
                     return;
                 }
             }
@@ -995,33 +1000,38 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
                         fn_name = elem_call.func.*.name.id;
                     }
                 }
-                const label = try self.emitInlineBlockStart("comp");
-                try self.emit("\n    var __comp_result = std.ArrayListUnmanaged(*");
-                try self.emit(fn_name);
-                try self.emit("_Frame){{}};\n");
-                // Generate for loop
-                if (comp.generators.len > 0) {
-                    const gen = comp.generators[0];
-                    try self.emit("    var __comp_i: i64 = 0;\n");
-                    try self.emit("    while (__comp_i < ");
-                    // Extract range end
-                    if (gen.iter.* == .call) {
-                        const range_call = gen.iter.*.call;
-                        if (range_call.args.len > 0) {
-                            try genExprInFrame(self, range_call.args[0], frame_fields);
+                const Ctx = struct { c: ast.Node.ListComp, fn_name: []const u8, ff: []const []const u8 };
+                try self.withInlineBlock("comp", Ctx{ .c = comp, .fn_name = fn_name, .ff = frame_fields }, struct {
+                    fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                        try s.emit("\n    var __comp_result = std.ArrayListUnmanaged(*");
+                        try s.emit(ctx.fn_name);
+                        try s.emit("_Frame){};\n");
+                        // Generate for loop
+                        if (ctx.c.generators.len > 0) {
+                            const gen = ctx.c.generators[0];
+                            try s.emit("    var __comp_i: i64 = 0;\n");
+                            try s.emit("    while (__comp_i < ");
+                            // Extract range end
+                            if (gen.iter.* == .call) {
+                                const range_call = gen.iter.*.call;
+                                if (range_call.args.len > 0) {
+                                    try genExprInFrame(s, range_call.args[0], ctx.ff);
+                                }
+                            }
+                            try s.emit(") : (__comp_i += 1) {\n");
+                            // Generate element
+                            try s.emit("        __comp_result.append(__global_allocator, ");
+                            // ctx.c.elt is the async function call
+                            try s.emit(ctx.fn_name);
+                            try s.emit("_async(__comp_i)");
+                            try s.emit(" catch unreachable) catch unreachable;\n");
+                            try s.emit("    }\n");
                         }
+                        try s.emit("    break :");
+                        try s.emit(label);
+                        try s.emit(" __comp_result;\n");
                     }
-                    try self.emit(") : (__comp_i += 1) {\n");
-                    // Generate element
-                    try self.emit("        __comp_result.append(__global_allocator, ");
-                    // comp.elt is the async function call
-                    try self.emit(fn_name);
-                    try self.emit("_async(__comp_i)");
-                    try self.emit(" catch unreachable) catch unreachable;\n");
-                    try self.emit("    }\n");
-                }
-                try self.emitFmt("    break :{s} __comp_result;\n", .{label});
-                try self.emitInlineBlockEnd();
+                }.emit);
             } else {
                 // Fallback to regular list comp
                 try self.genExpr(node);
