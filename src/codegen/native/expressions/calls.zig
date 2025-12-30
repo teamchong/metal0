@@ -1276,11 +1276,28 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                             });
                         },
                         1 => {
-                            // Single arg: could be int, float, or string
-                            // Use fromInt for now (most common case), type dispatch at runtime if needed
+                            // Single arg: type-aware dispatch
+                            // - int/unknown -> fromInt
+                            // - float -> from_float
+                            // - string -> fromString (wrapped in try)
+                            const arg_type = self.inferExprScoped(call.args[0]) catch .unknown;
                             const arg_value = try self.exprToValue(call.args[0]);
-                            const from_int_func = try std.fmt.allocPrint(alloc, "{s}.fromInt", .{escaped_name});
-                            try b.emitCallExpr(from_int_func, &.{.{ .value = arg_value }});
+
+                            if (type_traits.isFloating(arg_type)) {
+                                // Float argument: use from_float
+                                const from_float_func = try std.fmt.allocPrint(alloc, "{s}.from_float", .{escaped_name});
+                                try b.emitCallExpr(from_float_func, &.{.{ .value = arg_value }});
+                            } else if (string_traits.isString(arg_type)) {
+                                // String argument: use fromString (returns error union)
+                                const from_string_func = try std.fmt.allocPrint(alloc, "{s}.fromString", .{escaped_name});
+                                try b.emitRaw("(try ");
+                                try b.emitCallExpr(from_string_func, &.{.{ .value = arg_value }});
+                                try b.emitRaw(")");
+                            } else {
+                                // Default: fromInt for int/unknown types
+                                const from_int_func = try std.fmt.allocPrint(alloc, "{s}.fromInt", .{escaped_name});
+                                try b.emitCallExpr(from_int_func, &.{.{ .value = arg_value }});
+                            }
                         },
                         else => {
                             // 2+ args: use init

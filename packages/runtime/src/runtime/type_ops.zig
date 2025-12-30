@@ -7,6 +7,10 @@ const std = @import("std");
 const pyobject = @import("pyobject.zig");
 const PyTypeObject = pyobject.PyTypeObject;
 
+// Import numbers ABC for numeric hierarchy checks
+const numbers_abc = @import("numbers_abc.zig");
+pub const NumbersABC = numbers_abc.NumbersABC;
+
 // ============================================================================
 // Global ABC Registry for Virtual Subclasses
 // ============================================================================
@@ -284,4 +288,48 @@ pub fn isIterable(comptime T: type) bool {
         info == .array or
         (info == .pointer and info.pointer.size == .one and @typeInfo(info.pointer.child) == .array) or
         (info == .@"struct" and @hasField(T, "items"));
+}
+
+// ============================================================================
+// Numbers ABC Support (issubclass with numbers.Number, etc.)
+// ============================================================================
+
+/// Check if a type (by name) is a subclass of a numbers ABC
+/// Used by codegen for: issubclass(int, numbers.Number)
+///
+/// Examples:
+///   isNumbersSubclass("int", .Number) -> true
+///   isNumbersSubclass("float", .Integral) -> false
+///   isNumbersSubclass("Decimal", .Number) -> true
+pub fn isNumbersSubclass(type_name: []const u8, abc: NumbersABC) bool {
+    return numbers_abc.isBuiltinSubclassOfABC(type_name, abc);
+}
+
+/// Check if a comptime type is a subclass of a numbers ABC
+/// Uses __class_name__ or Zig type introspection to determine the type name
+pub fn isNumbersSubclassType(comptime T: type, abc: NumbersABC) bool {
+    const info = @typeInfo(T);
+
+    // Check for __class_name__ on structs (user-defined classes like Decimal, Fraction)
+    if (info == .@"struct" and @hasDecl(T, "__class_name__")) {
+        return numbers_abc.isBuiltinSubclassOfABC(T.__class_name__, abc);
+    }
+
+    // Built-in types
+    if (T == bool) {
+        return numbers_abc.isBuiltinSubclassOfABC("bool", abc);
+    }
+    if (info == .int or info == .comptime_int) {
+        return numbers_abc.isBuiltinSubclassOfABC("int", abc);
+    }
+    if (info == .float or info == .comptime_float) {
+        return numbers_abc.isBuiltinSubclassOfABC("float", abc);
+    }
+
+    return false;
+}
+
+/// Parse a numbers ABC name string to enum (for codegen)
+pub fn parseNumbersABC(name: []const u8) ?NumbersABC {
+    return numbers_abc.parseABCName(name);
 }

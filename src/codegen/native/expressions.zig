@@ -442,6 +442,22 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
     const orelse_is_int = ie.orelse_value.* == .constant and ie.orelse_value.constant.value == .int;
     const needs_int_cast = is_runtime_condition and body_is_int and orelse_is_int;
 
+    // Check if one branch is None - need to wrap other in @as(?T, ...) for type unification
+    // Pattern: `10 if base is None else base` needs both branches to be ?i64
+    const body_is_none = ie.body.* == .constant and ie.body.constant.value == .none;
+    const orelse_is_none = ie.orelse_value.* == .constant and ie.orelse_value.constant.value == .none;
+    const needs_optional_wrap = (body_is_none or orelse_is_none) and !(body_is_none and orelse_is_none);
+
+    // Infer types for optional wrapping
+    const body_type = if (needs_optional_wrap and !body_is_none)
+        self.inferExprScoped(ie.body.*) catch .unknown
+    else
+        .unknown;
+    const orelse_type = if (needs_optional_wrap and !orelse_is_none)
+        self.inferExprScoped(ie.orelse_value.*) catch .unknown
+    else
+        .unknown;
+
     // Check if condition is a boolop or compare - these always generate bool result
     const cond_is_boolop = ie.condition.* == .boolop;
     const cond_is_compare = ie.condition.* == .compare;
@@ -488,13 +504,43 @@ fn genIfExpr(self: *NativeCodegen, ie: ast.Node.IfExpr) CodegenError!void {
         try genExpr(self, ie.condition.*);
     }
     try self.emit(") ");
-    if (needs_int_cast) try self.emit("@as(i64, ");
-    try genExpr(self, ie.body.*);
-    if (needs_int_cast) try self.emit(")");
+
+    // Emit body branch
+    if (needs_optional_wrap and body_is_none) {
+        // Body is None - emit null, cast orelse_value to optional
+        try self.emit("null");
+    } else if (needs_optional_wrap and orelse_is_none) {
+        // Orelse is None - cast body to optional
+        try self.emit("@as(?");
+        try self.emitZigTypeFor(body_type);
+        try self.emit(", ");
+        try genExpr(self, ie.body.*);
+        try self.emit(")");
+    } else {
+        if (needs_int_cast) try self.emit("@as(i64, ");
+        try genExpr(self, ie.body.*);
+        if (needs_int_cast) try self.emit(")");
+    }
+
     try self.emit(" else ");
-    if (needs_int_cast) try self.emit("@as(i64, ");
-    try genExpr(self, ie.orelse_value.*);
-    if (needs_int_cast) try self.emit(")");
+
+    // Emit orelse branch
+    if (needs_optional_wrap and orelse_is_none) {
+        // Orelse is None - emit null
+        try self.emit("null");
+    } else if (needs_optional_wrap and body_is_none) {
+        // Body was None - cast orelse to optional
+        try self.emit("@as(?");
+        try self.emitZigTypeFor(orelse_type);
+        try self.emit(", ");
+        try genExpr(self, ie.orelse_value.*);
+        try self.emit(")");
+    } else {
+        if (needs_int_cast) try self.emit("@as(i64, ");
+        try genExpr(self, ie.orelse_value.*);
+        if (needs_int_cast) try self.emit(")");
+    }
+
     try self.emit(")");
 }
 

@@ -364,6 +364,44 @@ pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
+    // Handle numbers module ABC checks: issubclass(Decimal, numbers.Number)
+    // The second argument is an attribute access on the 'numbers' module
+    if (args[1] == .attribute) {
+        const attr = args[1].attribute;
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "numbers")) {
+            const abc_name = attr.attr;
+            // Verify it's a valid numbers ABC
+            const valid_abc = std.mem.eql(u8, abc_name, "Number") or
+                std.mem.eql(u8, abc_name, "Complex") or
+                std.mem.eql(u8, abc_name, "Real") or
+                std.mem.eql(u8, abc_name, "Rational") or
+                std.mem.eql(u8, abc_name, "Integral");
+
+            if (valid_abc) {
+                // Get the type name from the first argument
+                const type_name: ?[]const u8 = blk: {
+                    if (args[0] == .name) {
+                        break :blk args[0].name.id;
+                    } else if (args[0] == .attribute) {
+                        // Handle module.Class (e.g., decimal.Decimal)
+                        break :blk args[0].attribute.attr;
+                    }
+                    break :blk null;
+                };
+
+                if (type_name) |tname| {
+                    // Emit: runtime.isNumbersSubclass("TypeName", runtime.NumbersABC.ABCName)
+                    try self.emit("runtime.isNumbersSubclass(\"");
+                    try self.emit(tname);
+                    try self.emit("\", runtime.NumbersABC.");
+                    try self.emit(abc_name);
+                    try self.emit(")");
+                    return;
+                }
+            }
+        }
+    }
+
     // Check if the second argument is a type union (e.g., int | str | float)
     // Python 3.10+ allows isinstance(x, int | str) which creates a union type
     // We need to convert this to a tuple for runtime.isSubclass

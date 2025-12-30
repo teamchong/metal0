@@ -2955,6 +2955,30 @@ pub const NativeCodegen = struct {
         try self.output.appendSlice(self.allocator, formatted);
     }
 
+    /// Emit a Zig type string for a NativeType.
+    /// Used for type casts like @as(?i64, ...) in ternary expressions.
+    pub fn emitZigTypeFor(self: *NativeCodegen, native_type: NativeType) CodegenError!void {
+        const zig_type = switch (native_type) {
+            .int => |kind| switch (kind) {
+                .bounded => "i64",
+                .unbounded => "runtime.BigInt",
+            },
+            .bigint => "runtime.BigInt",
+            .unified_int => "runtime.UnifiedInt",
+            .usize => "usize",
+            .float => "f64",
+            .bool => "bool",
+            .string => "[]const u8",
+            .bytes => "runtime.builtins.PyBytes",
+            .complex => "runtime.PyComplex",
+            .none => "void",
+            .pyvalue => "runtime.PyValue",
+            .class_instance => |name| name,
+            else => "runtime.PyValue", // Fallback for complex types
+        };
+        try self.emit(zig_type);
+    }
+
     /// Flush builder output to the main output buffer.
     /// Use this after calling builder methods that don't auto-flush (like emitAssertEqualStmt).
     /// This is the bridge between ZigBuilder and the main output buffer.

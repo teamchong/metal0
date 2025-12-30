@@ -1,15 +1,9 @@
 /// Python numbers module - Numeric abstract base classes
-/// MIGRATED TO ZIGBUILDER
+/// Emits runtime.NumbersABC enum values for use with issubclass()
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
-
-const number_struct = "struct { _is_number: bool = true, pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {} }{}";
-const complex_struct = "struct { real: f64 = 0.0, imag: f64 = 0.0, pub fn conjugate(__self: @This()) @This() { return .{ .real = __self.real, .imag = -__self.imag }; } pub fn __abs__(__self: @This()) f64 { return @sqrt(__self.real * __self.real + __self.imag * __self.imag); } pub fn __add__(__self: @This(), other: @This()) @This() { return .{ .real = __self.real + other.real, .imag = __self.imag + other.imag }; } pub fn __sub__(__self: @This(), other: @This()) @This() { return .{ .real = __self.real - other.real, .imag = __self.imag - other.imag }; } pub fn __mul__(__self: @This(), other: @This()) @This() { return .{ .real = __self.real * other.real - __self.imag * other.imag, .imag = __self.real * other.imag + __self.imag * other.real }; } pub fn __neg__(__self: @This()) @This() { return .{ .real = -__self.real, .imag = -__self.imag }; } pub fn __pos__(__self: @This()) @This() { return __self; } pub fn __eq__(__self: @This(), other: @This()) bool { return __self.real == other.real and __self.imag == other.imag; } pub fn __bool__(s: @This()) bool { return s.real != 0.0 or s.imag != 0.0; } pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {} }{}";
-const real_struct = "struct { value: f64 = 0.0, pub fn __float__(__self: @This()) f64 { return __self.value; } pub fn __trunc__(__self: @This()) i64 { return @intFromFloat(@trunc(__self.value)); } pub fn __floor__(__self: @This()) i64 { return @intFromFloat(@floor(__self.value)); } pub fn __ceil__(__self: @This()) i64 { return @intFromFloat(@ceil(__self.value)); } pub fn __round__(__self: @This()) i64 { return @intFromFloat(runtime.builtins.bankersRound(__self.value)); } pub fn __divmod__(__self: @This(), other: @This()) struct { f64, f64 } { return .{ @divFloor(__self.value, other.value), @mod(__self.value, other.value) }; } pub fn __floordiv__(__self: @This(), other: @This()) f64 { return @divFloor(__self.value, other.value); } pub fn __mod__(__self: @This(), other: @This()) f64 { return @mod(__self.value, other.value); } pub fn __lt__(__self: @This(), other: @This()) bool { return __self.value < other.value; } pub fn __le__(__self: @This(), other: @This()) bool { return __self.value <= other.value; } pub fn real(__self: @This()) f64 { return __self.value; } pub fn imag(__self: @This()) f64 { _ = __self; return 0.0; } pub fn conjugate(__self: @This()) @This() { return __self; } pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {} }{}";
-const rational_struct = "struct { numerator: i64 = 0, denominator: i64 = 1, pub fn __float__(s: @This()) f64 { return @as(f64, @floatFromInt(s.numerator)) / @as(f64, @floatFromInt(s.denominator)); } pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {} }{}";
-const integral_struct = "struct { value: i64 = 0, pub fn __int__(__self: @This()) i64 { return __self.value; } pub fn __index__(__self: @This()) i64 { return __self.value; } pub fn __and__(__self: @This(), other: @This()) @This() { return .{ .value = __self.value & other.value }; } pub fn __or__(__self: @This(), other: @This()) @This() { return .{ .value = __self.value | other.value }; } pub fn __xor__(__self: @This(), other: @This()) @This() { return .{ .value = __self.value ^ other.value }; } pub fn __invert__(__self: @This()) @This() { return .{ .value = ~__self.value }; } pub fn __lshift__(__self: @This(), n: i64) @This() { return .{ .value = __self.value << @intCast(n) }; } pub fn __rshift__(__self: @This(), n: i64) @This() { return .{ .value = __self.value >> @intCast(n) }; } pub fn numerator(__self: @This()) i64 { return __self.value; } pub fn denominator(__self: @This()) i64 { _ = __self; return 1; } pub fn register(_: @This(), _: std.mem.Allocator, _: anytype) !void {} }{}";
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Number", genNumber },
@@ -21,25 +15,25 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 fn genNumber(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(number_struct), builder_mod.EmitConfig.forExpression());
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.NumbersABC.Number"), builder_mod.EmitConfig.forExpression());
 }
 
 fn genComplex(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(complex_struct), builder_mod.EmitConfig.forExpression());
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.NumbersABC.Complex"), builder_mod.EmitConfig.forExpression());
 }
 
 fn genReal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(real_struct), builder_mod.EmitConfig.forExpression());
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.NumbersABC.Real"), builder_mod.EmitConfig.forExpression());
 }
 
 fn genRational(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(rational_struct), builder_mod.EmitConfig.forExpression());
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.NumbersABC.Rational"), builder_mod.EmitConfig.forExpression());
 }
 
 fn genIntegral(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(integral_struct), builder_mod.EmitConfig.forExpression());
+    try b.emitValue(builder_mod.ZigValue.raw("runtime.NumbersABC.Integral"), builder_mod.EmitConfig.forExpression());
 }
