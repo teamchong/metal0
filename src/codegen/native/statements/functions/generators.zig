@@ -26,6 +26,7 @@ pub const isIteratorBuiltin = builtin_types.isIteratorBuiltin;
 pub const hasCPythonOnlyDecorator = test_skip.hasCPythonOnlyDecorator;
 pub const hasSkipUnlessCPythonModule = test_skip.hasSkipUnlessCPythonModule;
 pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
+pub const isPytestDecorator = test_skip.isPytestDecorator;
 
 /// Check if an AST node references any name from the given hashmap
 /// Used to determine if __alloc will be used via lazy attr calls
@@ -237,12 +238,24 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     self.current_function_returns_pyvalue = false;
 
     // Register decorated functions for application in main()
+    // Filter out pytest decorators (test metadata that doesn't affect execution)
     if (func.decorators.len > 0) {
-        const decorated_func = DecoratedFunction{
-            .name = func.name,
-            .decorators = func.decorators,
-        };
-        try self.decorated_functions.append(self.allocator, decorated_func);
+        // Filter out pytest decorators
+        var non_pytest_decorators = std.ArrayList(ast.Node){};
+        defer non_pytest_decorators.deinit(self.allocator);
+        for (func.decorators) |decorator| {
+            if (!test_skip.isPytestDecorator(decorator)) {
+                try non_pytest_decorators.append(self.allocator, decorator);
+            }
+        }
+        // Only register if there are non-pytest decorators
+        if (non_pytest_decorators.items.len > 0) {
+            const decorated_func = DecoratedFunction{
+                .name = func.name,
+                .decorators = try non_pytest_decorators.toOwnedSlice(self.allocator),
+            };
+            try self.decorated_functions.append(self.allocator, decorated_func);
+        }
     }
 
     // Clear global vars after function exits (they're function-scoped)

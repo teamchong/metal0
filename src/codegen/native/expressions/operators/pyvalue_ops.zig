@@ -294,7 +294,20 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                         return false;
                     }
                 }
-                // No concrete type - stay uncertain
+                // No concrete type from inference - but if we're in a class method and the
+                // attribute matches a field of the current class, treat as same class type.
+                // This handles comptime polymorphic dispatch where `@TypeOf(other) == @This()`.
+                // Zig will error at compile time if the attribute doesn't exist, so this is safe.
+                if (self.current_class_name) |class_name| {
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr.attr)) |field_type| {
+                            const is_unc = field_type == .pyvalue or field_type == .unknown;
+                            std.debug.print("DEBUG isOperandUncertain: anytype {s}.{s} matches current class {s} field, field_type={any}, is_unc={}\n", .{ base_name, attr.attr, class_name, field_type, is_unc });
+                            return is_unc;
+                        }
+                    }
+                }
+                // No concrete type and no matching field - stay uncertain
                 std.debug.print("DEBUG isOperandUncertain: anytype {s} has no concrete type, returning true\n", .{base_name});
                 return true;
             }

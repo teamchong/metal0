@@ -950,11 +950,16 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     }
 
     if (aug.op == .Pow) {
-        try self.emit("std.math.pow(i64, ");
-        try self.genExpr(aug.target.*);
-        try self.emit(", ");
-        try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        const Ctx = struct { t: *ast.Node, v: *ast.Node };
+        try self.emitCallCtx("std.math.pow", Ctx{ .t = aug.target, .v = aug.value }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.emit("i64, ");
+                try s.genExpr(ctx.t.*);
+                try s.emit(", ");
+                try s.genExpr(ctx.v.*);
+            }
+        }.f);
+        try self.emit(";\n");
         return;
     }
 
@@ -962,15 +967,20 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         const left_type = self.type_inferrer.inferExpr(aug.target.*) catch .unknown;
         const right_type = self.type_inferrer.inferExpr(aug.value.*) catch .unknown;
         const semantics = operator_traits.getModuloSemantics(left_type, right_type);
-        switch (semantics) {
-            .zig_native => try self.emit("@mod("),
-            .python_floored => try self.emit("runtime.pyFloatMod("),
-            .runtime_dispatch => try self.emit("runtime.moduloRuntime("),
-        }
-        try self.genExpr(aug.target.*);
-        try self.emit(", ");
-        try self.genExpr(aug.value.*);
-        try self.emit(");\n");
+        const func_name = switch (semantics) {
+            .zig_native => "@mod",
+            .python_floored => "runtime.pyFloatMod",
+            .runtime_dispatch => "runtime.moduloRuntime",
+        };
+        const Ctx = struct { t: *ast.Node, v: *ast.Node };
+        try self.emitCallCtx(func_name, Ctx{ .t = aug.target, .v = aug.value }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.genExpr(ctx.t.*);
+                try s.emit(", ");
+                try s.genExpr(ctx.v.*);
+            }
+        }.f);
+        try self.emit(";\n");
         return;
     }
 
@@ -994,11 +1004,17 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
     const is_string_concat = string_traits.isString(target_type) or string_traits.isString(value_type) or is_fstring or
         ((type_traits.isUnknown(target_type) or target_type == .pyvalue) and (string_traits.isString(value_type) or is_fstring));
     if (aug.op == .Add and is_string_concat) {
-        try self.emit("try std.mem.concat(__global_allocator, u8, &.{");
-        try self.genExpr(aug.target.*);
-        try self.emit(", ");
-        try self.genExpr(aug.value.*);
-        try self.emit("});\n");
+        const Ctx = struct { t: *ast.Node, v: *ast.Node };
+        try self.emitCallCtx("try std.mem.concat", Ctx{ .t = aug.target, .v = aug.value }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.emit("__global_allocator, u8, &.{");
+                try s.genExpr(ctx.t.*);
+                try s.emit(", ");
+                try s.genExpr(ctx.v.*);
+                try s.emit("}");
+            }
+        }.f);
+        try self.emit(";\n");
         return;
     }
 

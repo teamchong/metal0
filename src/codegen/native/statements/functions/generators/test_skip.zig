@@ -289,6 +289,50 @@ fn osNameMatches(name_str: []const u8) bool {
     return false;
 }
 
+/// Check if decorator is from pytest (pytest.mark.xxx, pytest.fixture, etc.)
+/// These should be skipped during code generation as they're test metadata
+pub fn isPytestDecorator(decorator: ast.Node) bool {
+    // @pytest.mark.xxx - attribute access
+    if (decorator == .attribute) {
+        const attr = decorator.attribute;
+        // pytest.mark.slow, pytest.mark.skip, etc.
+        if (attr.value.* == .attribute) {
+            const parent = attr.value.attribute;
+            if (std.mem.eql(u8, parent.attr, "mark") and
+                parent.value.* == .name and std.mem.eql(u8, parent.value.name.id, "pytest"))
+            {
+                return true;
+            }
+        }
+        // pytest.fixture etc.
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "pytest")) {
+            return true;
+        }
+    }
+    // @pytest.mark.skipif(...), @pytest.mark.parametrize(...) - call with pytest.mark.xxx
+    if (decorator == .call) {
+        const call = decorator.call;
+        if (isPytestDecorator(call.func.*)) return true;
+    }
+    return false;
+}
+
+/// Filter out pytest decorators from a list
+/// Returns a slice of non-pytest decorators
+pub fn filterPytestDecorators(
+    allocator: std.mem.Allocator,
+    decorators: []const ast.Node,
+) ![]const ast.Node {
+    var filtered = std.ArrayList(ast.Node).init(allocator);
+    defer filtered.deinit();
+    for (decorators) |decorator| {
+        if (!isPytestDecorator(decorator)) {
+            try filtered.append(decorator);
+        }
+    }
+    return try filtered.toOwnedSlice();
+}
+
 /// Check if test has @support.cpython_only decorator
 pub fn hasCPythonOnlyDecorator(decorators: []const ast.Node) bool {
     for (decorators) |decorator| {
