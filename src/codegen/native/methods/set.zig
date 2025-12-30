@@ -5,7 +5,9 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const expr_emitter = @import("../expr_emitter.zig");
-const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+const expressions = @import("../expressions.zig");
+const producesBlockExpression = expressions.producesBlockExpression;
+const emitObjExpr = expressions.emitObjExpr;
 
 /// Helper: emit runtime.pySetAddPV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
 fn emitPySetAddPV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenError!void {
@@ -75,36 +77,9 @@ fn emitPySetPopPVFunc(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     }.f);
 }
 
-/// Check if a set expression is uncertain (needs PyValue operations)
-/// Two-Flow: routes uncertain sets to runtime helpers
-fn isSetUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        // Variable not in type map - it's likely a local with inferred type
-        // Don't assume uncertain - let Zig compiler catch type mismatches
-        return false;
-    }
-    return false;
-}
+// isSetUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
-/// Helper to emit object expression, wrapping in parens if it's a block expression
-fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    if (producesBlockExpression(obj)) {
-        try self.emitParens(obj);
-    } else {
-        try self.genExpr(obj);
-    }
-}
+// emitObjExpr imported from expressions.zig (DRY consolidation)
 
 /// Generate code for set.add(elem)
 /// Adds element to set (no-op if already present)
@@ -114,7 +89,7 @@ pub fn genAdd(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
-    if (isSetUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue sets
         try emitPySetAddPV(self, obj, args[0]);
         return;
@@ -137,7 +112,7 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
-    if (isSetUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue sets
         try emitPySetRemovePV(self, obj, args[0]);
         return;
@@ -169,7 +144,7 @@ pub fn genDiscard(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
-    if (isSetUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue sets
         try emitPySetDiscardPV(self, obj, args[0]);
         return;
@@ -198,7 +173,7 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     _ = args;
 
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
-    if (isSetUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue sets
         try emitPySetClearPV(self, obj);
         return;
@@ -216,7 +191,7 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     _ = args;
 
     // Two-Flow: Check if set is uncertain (PyValue or unknown type)
-    if (isSetUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue sets
         try emitPySetPopPVFunc(self, obj);
         return;

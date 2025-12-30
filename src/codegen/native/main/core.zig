@@ -943,6 +943,10 @@ pub const NativeCodegen = struct {
     // These are emitted as `const R = type` not pre-declared as variables
     type_alias_vars: FnvVoidMap,
 
+    // Track what type each alias points to (e.g., "R" -> "Fraction", "D" -> "Decimal")
+    // Used to resolve starred args handling for specific types like Fraction
+    type_alias_targets: hashmap_helper.StringHashMap([]const u8),
+
     // Track function names that are hoisted from if-else branches
     // These functions are defined in multiple if-else branches but used after the block
     // Maps function name -> void (e.g., "get_output" -> {})
@@ -1182,6 +1186,7 @@ pub const NativeCodegen = struct {
             .import_module_vars = FnvVoidMap.init(aa),
             .csv_iterators = FnvVoidMap.init(aa),
             .type_alias_vars = FnvVoidMap.init(aa),
+            .type_alias_targets = hashmap_helper.StringHashMap([]const u8).init(aa),
             .hoisted_branch_funcs = FnvVoidMap.init(aa),
             .forward_declared_vars = FnvVoidMap.init(aa),
             .returned_vars = FnvVoidMap.init(aa),
@@ -1658,6 +1663,16 @@ pub const NativeCodegen = struct {
     /// Returns true if the variable's type is 100% provable at compile time
     pub fn isVarCertain(self: *NativeCodegen, name: []const u8) bool {
         return self.type_inferrer.isCertain(name);
+    }
+
+    /// Check if an expression is uncertain (needs PyValue operations)
+    /// DRY: Replaces isStringUncertain, isFloatUncertain, isSetUncertain, etc.
+    /// Two-Flow: Routes uncertain expressions to PyValue extraction
+    pub fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+        if (expr == .name) {
+            return self.isVarUncertain(expr.name.id);
+        }
+        return false;
     }
 
     /// Get the TypedValue (type + confidence) for a variable

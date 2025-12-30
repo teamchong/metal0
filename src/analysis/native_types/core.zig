@@ -27,10 +27,14 @@ pub const StringKind = enum {
     runtime, // Dynamically allocated (from methods, concat, etc.)
     slice, // []const u8 slice from operations
 
-    /// All string kinds map to []const u8 in Zig
+    /// Map to Zig string types
+    /// runtime strings are dynamically allocated ([]u8 from std.mem.concat, etc.)
+    /// literal/slice strings are immutable ([]const u8)
     pub fn toZigType(self: StringKind) []const u8 {
-        _ = self;
-        return "[]const u8";
+        return switch (self) {
+            .runtime => "[]u8", // Dynamically allocated, mutable
+            .literal, .slice => "[]const u8", // Immutable
+        };
     }
 };
 
@@ -373,7 +377,7 @@ pub const NativeType = union(enum) {
             .usize => try buf.appendSlice(allocator, "usize"),
             .float => try buf.appendSlice(allocator, "f64"),
             .bool => try buf.appendSlice(allocator, "bool"),
-            .string => try buf.appendSlice(allocator, "[]const u8"),
+            .string => |kind| try buf.appendSlice(allocator, kind.toZigType()),
             .bytes => try buf.appendSlice(allocator, "runtime.builtins.PyBytes"),
             .complex => try buf.appendSlice(allocator, "runtime.PyComplex"),
             .array => |arr| {

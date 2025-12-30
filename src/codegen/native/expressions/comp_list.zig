@@ -538,7 +538,16 @@ fn determineElementType(self: *NativeCodegen, listcomp: ast.Node.ListComp, lambd
     } else if (listcomp.elt.* == .fstring) {
         return "[]u8";
     } else if (listcomp.elt.* == .binop) {
+        const b = listcomp.elt.binop;
         // Check if binop produces a string (e.g., "prefix" + var)
+        // For Add binop: if either operand is a string, result is string concatenation
+        if (b.op == .Add) {
+            const left_type = self.type_inferrer.inferExpr(b.left.*) catch .unknown;
+            const right_type = self.type_inferrer.inferExpr(b.right.*) catch .unknown;
+            if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
+                return "[]u8"; // std.mem.concat returns []u8
+            }
+        }
         const elt_type = self.type_inferrer.inferExpr(listcomp.elt.*) catch .unknown;
         if (string_traits.isString(elt_type)) {
             return "[]u8"; // std.mem.concat returns []u8

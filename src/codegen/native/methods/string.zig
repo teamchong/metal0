@@ -10,27 +10,7 @@ const expr_emitter = @import("../expr_emitter.zig");
 const validation = @import("string/validation.zig");
 const formatting = @import("string/formatting.zig");
 
-/// Check if a string expression is uncertain (needs PyValue extraction)
-/// Two-Flow: routes uncertain strings to handle PyValue.string
-fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        // Variable not in type map - it's likely a local with inferred type
-        // Don't assume uncertain - let Zig compiler catch type mismatches
-        return false;
-    }
-    return false;
-}
+// isStringUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 // === Structured helpers for string operations ===
 
@@ -95,7 +75,7 @@ pub const genZfill = formatting.genZfill;
 pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // Two-Flow: Check if string is uncertain (PyValue)
     // For uncertain strings, extract .string field from PyValue
-    const emit_obj = if (isStringUncertain(self, obj)) blk: {
+    const emit_obj = if (self.isExprUncertain(obj)) blk: {
         // Generate inline extraction: obj.string
         break :blk true;
     } else false;
@@ -214,7 +194,7 @@ pub fn genStrip(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     _ = args; // strip() takes no arguments
 
     // Two-Flow: Check if string is uncertain (PyValue)
-    const is_uncertain = isStringUncertain(self, obj);
+    const is_uncertain = self.isExprUncertain(obj);
 
     // Allocate a copy to avoid "Invalid free" when result is used with defer
     const label_id = @as(u64, @intCast(std.time.milliTimestamp()));
@@ -294,7 +274,7 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if separator is uncertain (PyValue)
-    const is_uncertain = isStringUncertain(self, obj);
+    const is_uncertain = self.isExprUncertain(obj);
 
     // Generate unique labeled block for join operation
     const join_label = self.nextLabelId();

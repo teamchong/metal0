@@ -176,11 +176,18 @@ fn callFunctionViaSubprocess(
     var args_str_buf: [1024]u8 = undefined; // Increased for escaped content
     const args_str = formatArgsForPython(&args_str_buf, args);
 
+    // For compound module names like "pytest.mark", extract root module for import
+    // e.g., "pytest.mark" -> import pytest; pytest.mark.skipif(...)
+    const root_module = if (std.mem.indexOf(u8, mod_str, ".")) |dot_idx|
+        mod_str[0..dot_idx]
+    else
+        mod_str;
+
     const py_code = std.fmt.bufPrint(&code_buf,
         \\import {s}
         \\result = {s}.{s}({s})
         \\print(repr(result))
-    , .{ mod_str, mod_str, func_str, args_str }) catch return null;
+    , .{ root_module, mod_str, func_str, args_str }) catch return null;
 
     const result = std.process.Child.run(.{
         .allocator = allocator,

@@ -1,10 +1,30 @@
 /// Fraction - Rational number type for Python fractions module
 /// Moved to runtime to avoid monomorphization explosion from inline struct emission
 const std = @import("std");
+const pyint = @import("pyint.zig");
+const UnifiedInt = pyint.UnifiedInt;
 
 pub const Fraction = struct {
     numerator: i64,
     denominator: i64,
+
+    /// Initialize a Fraction from UnifiedInt values (from as_integer_ratio())
+    /// Returns error.Overflow if the UnifiedInt values are too large
+    pub fn fromUnifiedInt(num: UnifiedInt, den: UnifiedInt) !Fraction {
+        const n = num.toI64() orelse return error.Overflow;
+        const d = den.toI64() orelse return error.Overflow;
+        return initI64(n, d);
+    }
+
+    /// Initialize a Fraction from i64 values
+    fn initI64(n: i64, d: i64) Fraction {
+        const g = gcd(if (n < 0) -n else n, if (d < 0) -d else d);
+        const sign: i64 = if ((n < 0) != (d < 0)) -1 else 1;
+        return Fraction{
+            .numerator = sign * @divTrunc(if (n < 0) -n else n, g),
+            .denominator = @divTrunc(if (d < 0) -d else d, g),
+        };
+    }
 
     /// Initialize a Fraction from any numeric types
     /// Handles i64 directly and BigInt via toInt64() method

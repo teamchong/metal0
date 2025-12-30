@@ -1077,6 +1077,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             // Track this type alias for call codegen
                             // So R(...) knows to use .init() without allocator
                             try self.type_alias_vars.put(var_name, {});
+                            // Also store what type it aliases (e.g., "R" -> "Fraction")
+                            try self.type_alias_targets.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, attr_name));
                             // Emit: const R = type (let Zig infer, no PyValue wrapping)
                             try self.emit("const ");
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);

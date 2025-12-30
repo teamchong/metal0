@@ -1207,10 +1207,41 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try b.emitRaw("__starred_blk: { const __starred_t = ");
                 try b.emitValueCore(sv);
                 try b.emitRaw("; break :__starred_blk ");
-                try b.emitCallExpr(init_func, &.{
-                    .{ .raw = "__starred_t.@\"0\"" },
-                    .{ .raw = "__starred_t.@\"1\"" },
-                });
+
+                // Check if this is Fraction AND the starred value is from as_integer_ratio()
+                // as_integer_ratio() returns UnifiedInt tuple, needs fromUnifiedInt
+                // Other cases (tuple literals) use regular init
+                const is_fraction = std.mem.eql(u8, func_name, "Fraction") or
+                    std.mem.endsWith(u8, func_name, ".Fraction") or
+                    (if (self.type_alias_targets.get(func_name)) |target| std.mem.eql(u8, target, "Fraction") else false);
+
+                // Check if starred expression is as_integer_ratio() call
+                const is_as_integer_ratio = blk: {
+                    if (starred_value == .call) {
+                        const inner_call = starred_value.call;
+                        if (inner_call.func.* == .attribute) {
+                            const attr = inner_call.func.attribute;
+                            if (std.mem.eql(u8, attr.attr, "as_integer_ratio")) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (is_fraction and is_as_integer_ratio) {
+                    // as_integer_ratio returns UnifiedInt tuple - use fromUnifiedInt
+                    try b.emitTryCallExpr(try std.fmt.allocPrint(alloc, "{s}.fromUnifiedInt", .{escaped_name}), &.{
+                        .{ .raw = "__starred_t.@\"0\"" },
+                        .{ .raw = "__starred_t.@\"1\"" },
+                    });
+                } else {
+                    // Regular tuple - use init
+                    try b.emitCallExpr(init_func, &.{
+                        .{ .raw = "__starred_t.@\"0\"" },
+                        .{ .raw = "__starred_t.@\"1\"" },
+                    });
+                }
                 try b.emitRaw("; }");
             } else {
                 // Normal case: R.init(arg1, arg2, ...)
@@ -1555,6 +1586,30 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             const has_error_init = self.error_init_classes.contains(raw_func_name);
             // User-defined classes in class_registry have init() returning !@This() due to __dict__ allocation
             const needs_try = needs_try_for_nested or has_error_init or in_class_registry;
+
+            // Special handling for Fraction with starred args (e.g., R(*ratio) where ratio is UnifiedInt tuple)
+            // Must be handled BEFORE .init() is emitted
+            if (call.args.len == 1 and call.args[0] == .starred) {
+                const is_fraction_constructor = blk: {
+                    if (std.mem.eql(u8, raw_func_name, "Fraction")) break :blk true;
+                    if (std.mem.endsWith(u8, raw_func_name, ".Fraction")) break :blk true;
+                    // Check type alias target
+                    if (self.type_alias_targets.get(raw_func_name)) |target| {
+                        if (std.mem.eql(u8, target, "Fraction")) break :blk true;
+                    }
+                    break :blk false;
+                };
+
+                if (is_fraction_constructor) {
+                    // Fraction with starred UnifiedInt tuple: use fromUnifiedInt
+                    // Generate: __starred_blk: { const __starred_t = <expr>; break :__starred_blk R.fromUnifiedInt(__starred_t.@"0", __starred_t.@"1") catch R.init(0, 1); }
+                    var em = self.exprEmitter();
+                    var blk = try em.labeledBlock("fraction_starred", "__starred_t", call.args[0].starred.value.*);
+                    try blk.breakWithFmt("{s}.fromUnifiedInt(__starred_t.@\"0\", __starred_t.@\"1\") catch {s}.init(0, 1)", .{ func_name, func_name });
+                    try blk.close();
+                    return;
+                }
+            }
 
             // Special handling for external class types (ndarray, staticarray) that take options struct
             if (is_external_class) {

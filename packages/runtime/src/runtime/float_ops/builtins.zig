@@ -188,8 +188,14 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
     }
     if (first_info == .@"union" and first_info.@"union".tag_type != null) {
         if (@hasDecl(FirstType, "toFloat")) {
-            if (first.toFloat()) |val| {
-                return val;
+            // UnifiedInt.toFloat() returns f64 directly, not optional
+            const RetType = @typeInfo(@TypeOf(FirstType.toFloat)).@"fn".return_type.?;
+            if (RetType == f64) {
+                return first.toFloat();
+            } else if (@typeInfo(RetType) == .optional) {
+                if (first.toFloat()) |val| {
+                    return val;
+                }
             }
         }
         if (@hasDecl(FirstType, "toInt")) {

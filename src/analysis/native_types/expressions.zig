@@ -1014,24 +1014,60 @@ pub fn inferExprWithInferrer(
             // First, type the loop variables from generators so they're available for elt inference
             for (lc.generators) |gen| {
                 if (gen.target.* == .name) {
-                    // Check if iterator is range() - gives i64 loop variable
-                    if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
-                        const func_name = gen.iter.call.func.name.id;
-                        if (std.mem.eql(u8, func_name, "range")) {
-                            const var_name = gen.target.name.id;
-                            // Use TypeInferrer's temp var system if available, else manual save/restore
-                            if (type_inferrer) |ti| {
-                                if (saved_count < saved_types.len) {
-                                    saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, .{ .int = .bounded }) catch null };
-                                    saved_count += 1;
-                                }
-                            } else {
-                                if (saved_count < saved_types.len) {
-                                    saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
-                                    saved_count += 1;
-                                }
-                                try var_types.put(var_name, .{ .int = .bounded });
+                    const var_name = gen.target.name.id;
+
+                    // Infer loop variable type from the iterator
+                    const loop_var_type: NativeType = loop_var_blk: {
+                        // Check if iterator is range() - gives i64 loop variable
+                        if (gen.iter.* == .call and gen.iter.call.func.* == .name) {
+                            const func_name = gen.iter.call.func.name.id;
+                            if (std.mem.eql(u8, func_name, "range")) {
+                                break :loop_var_blk .{ .int = .bounded };
                             }
+                        }
+
+                        // Check if iterator is a list literal - get element type
+                        if (gen.iter.* == .list) {
+                            const list_type = try inferExprWithInferrer(allocator, var_types, class_fields, func_return_types, gen.iter.*, type_inferrer);
+                            if (list_type == .list) {
+                                break :loop_var_blk list_type.list.*;
+                            } else if (list_type == .array) {
+                                break :loop_var_blk list_type.array.element_type.*;
+                            }
+                        }
+
+                        // Check if iterator is a variable - get its element type
+                        if (gen.iter.* == .name) {
+                            const iter_name = gen.iter.name.id;
+                            if (var_types.get(iter_name)) |iter_type| {
+                                if (iter_type == .list) {
+                                    break :loop_var_blk iter_type.list.*;
+                                } else if (iter_type == .array) {
+                                    break :loop_var_blk iter_type.array.element_type.*;
+                                } else if (string_traits.isString(iter_type)) {
+                                    // Iterating over a string yields single chars (u8)
+                                    break :loop_var_blk .{ .int = .bounded };
+                                }
+                            }
+                        }
+
+                        // Default to unknown
+                        break :loop_var_blk .unknown;
+                    };
+
+                    // Register loop variable with inferred type
+                    if (loop_var_type != .unknown) {
+                        if (type_inferrer) |ti| {
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = ti.putTempVar(var_name, loop_var_type) catch null };
+                                saved_count += 1;
+                            }
+                        } else {
+                            if (saved_count < saved_types.len) {
+                                saved_types[saved_count] = .{ .name = var_name, .old_type = var_types.get(var_name) };
+                                saved_count += 1;
+                            }
+                            try var_types.put(var_name, loop_var_type);
                         }
                     }
                 }

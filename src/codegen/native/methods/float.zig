@@ -5,29 +5,11 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
-/// Check if a float expression is uncertain (needs PyValue operations)
-/// Two-Flow: routes uncertain floats to PyValue extraction
-fn isFloatUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        return false;
-    }
-    return false;
-}
+// isFloatUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Helper to emit float expression, extracting from PyValue if uncertain
 fn emitFloatExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    if (isFloatUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Extract float from PyValue using .asFloat()
         try self.genExpr(obj);
         try self.emit(".asFloat()");
@@ -123,7 +105,7 @@ pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
     try emitSimpleFloatCall(self, "floatIsInteger", obj);
 }
 
-/// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple as BigInt
+/// Generate float.as_integer_ratio() - returns (numerator, denominator) tuple as UnifiedInt
 /// Python: (0.5).as_integer_ratio() -> (1, 2)
 /// Two-Flow: Extracts float from PyValue if uncertain
 /// Zig: try runtime.floatAsIntegerRatioBigInt(allocator, f)
@@ -132,13 +114,13 @@ pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Raises ValueError for NaN, OverflowError for Inf
 pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // as_integer_ratio takes no arguments
-    // Return a struct that can be unpacked: { BigInt, BigInt }
-    // The IntegerRatioResult has .numerator and .denominator, we convert to anonymous tuple
+    // Return a struct that can be unpacked: { UnifiedInt, UnifiedInt }
+    // The IntegerRatioResult has .numerator and .denominator BigInt fields, convert to UnifiedInt
     try self.withInlineBlock("ratio", obj, struct {
         fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
             try s.emit("const __ratio = try runtime.floatAsIntegerRatioBigInt(__global_allocator, ");
             try emitFloatExpr(s, o);
-            try s.emitFmt("); break :{s} .{{ __ratio.numerator, __ratio.denominator }}", .{label});
+            try s.emitFmt("); break :{s} .{{ try runtime.UnifiedInt.fromBigIntValue(__global_allocator, &__ratio.numerator), try runtime.UnifiedInt.fromBigIntValue(__global_allocator, &__ratio.denominator) }}", .{label});
         }
     }.emit);
 }

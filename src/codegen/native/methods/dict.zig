@@ -7,7 +7,9 @@ const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const expr_emitter = @import("../expr_emitter.zig");
 const NativeType = @import("../../../analysis/native_types.zig").NativeType;
-const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+const expressions = @import("../expressions.zig");
+const producesBlockExpression = expressions.producesBlockExpression;
+const emitObjExpr = expressions.emitObjExpr;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 
 /// Helper: emit runtime.pyDictKeysPV(__global_allocator, runtime.PyValue.from(obj)) with bracket matching
@@ -98,27 +100,7 @@ fn emitPyDictPopitem(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
     }.f);
 }
 
-/// Check if a dict expression is uncertain (needs PyValue operations)
-/// Two-Flow: routes uncertain dicts to runtime helpers
-fn isDictUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        // Variable not in type map - it's likely a local with inferred type
-        // Don't assume uncertain - let Zig compiler catch type mismatches
-        return false;
-    }
-    return false;
-}
+// isDictUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Generate code for dict.get(key, default)
 /// Returns value if key exists, otherwise returns default (or null if no default)
@@ -134,7 +116,7 @@ pub fn genGet(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     }
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         const default_val = if (args.len >= 2) args[1] else null;
         // Route to PyValue.pyDictGet
         if (default_val) |def| {
@@ -226,7 +208,7 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     _ = args; // keys() takes no arguments
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictKeysPV(self, obj);
         return;
@@ -298,7 +280,7 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     _ = args; // values() takes no arguments
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictValuesPV(self, obj);
         return;
@@ -364,7 +346,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     _ = args; // items() takes no arguments
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictItemsPV(self, obj);
         return;
@@ -431,14 +413,7 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("})");
 }
 
-/// Helper to emit object expression, wrapping in parens if it's a block expression
-fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    if (producesBlockExpression(obj)) {
-        try self.emitParens(obj);
-    } else {
-        try self.genExpr(obj);
-    }
-}
+// emitObjExpr imported from expressions.zig (DRY consolidation)
 
 /// Generate code for dict.pop(key, default?)
 /// Removes key and returns value, or returns default if key not present
@@ -449,7 +424,7 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
     if (args.len == 0) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         const default_val = if (args.len >= 2) args[1] else null;
         // Route to runtime helper for PyValue dicts
         if (default_val) |def| {
@@ -508,7 +483,7 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictUpdatePV(self, obj, args[0]);
         return;
@@ -563,7 +538,7 @@ pub fn genClear(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     _ = args;
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictClearPV(self, obj);
         return;
@@ -580,7 +555,7 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     _ = args;
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictCopyPV(self, obj);
         return;
@@ -639,7 +614,7 @@ pub fn genSetdefault(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
     if (args.len == 0) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try self.emit("runtime.pyDictSetdefault(__global_allocator, &");
         try self.genExpr(obj);
@@ -704,7 +679,7 @@ pub fn genPopitem(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codegen
     _ = args;
 
     // Two-Flow: Check if dict is uncertain (PyValue or unknown type)
-    if (isDictUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to runtime helper for PyValue dicts
         try emitPyDictPopitem(self, obj);
         return;

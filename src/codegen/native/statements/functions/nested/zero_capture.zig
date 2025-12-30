@@ -378,6 +378,31 @@ pub fn genZeroCaptureClosure(
         }
     }
 
+    // Always emit param discards for all parameters
+    // This is safe because Zig ignores redundant _ = &x; statements if x is actually used
+    // and handles cases where params are used in runtime.eval() strings but not in Zig code
+    {
+        for (func.args) |arg| {
+            if (std.mem.eql(u8, arg.name, "_")) continue;
+            if (param_renames.get(arg.name)) |renamed| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = &{s};\n", .{renamed});
+            }
+        }
+        if (func.vararg) |vararg_name| {
+            if (param_renames.get(vararg_name)) |renamed| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = &{s};\n", .{renamed});
+            }
+        }
+        if (func.kwarg) |kwarg_name| {
+            if (param_renames.get(kwarg_name)) |renamed| {
+                try self.emitIndent();
+                try self.output.writer(self.allocator).print("_ = &{s};\n", .{renamed});
+            }
+        }
+    }
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
         // If control flow terminated, skip remaining statements
@@ -855,4 +880,74 @@ pub fn genModuleLevelZeroCaptureClosure(
     // Mark the function as a closure
     const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
     try self.closure_vars.put(func_name_copy, {});
+}
+
+/// Check if an AST node contains generator expressions that would compile to runtime.eval()
+/// and thus not actually use referenced variables in the generated Zig code
+fn containsEvalComprehension(node: ast.Node) bool {
+    return switch (node) {
+        // Generator expressions compile to runtime.eval()
+        .genexp => true,
+
+        // Return statement may contain a comprehension
+        .return_stmt => |r| if (r.value) |v| containsEvalComprehensionExpr(v.*) else false,
+
+        // Expression statement may contain a comprehension
+        .expr_stmt => |e| containsEvalComprehensionExpr(e.value.*),
+
+        // Assign may have comprehension on right side
+        .assign => |a| containsEvalComprehensionExpr(a.value.*),
+
+        // Check compound statements recursively
+        .if_stmt => |i| blk: {
+            for (i.body) |s| if (containsEvalComprehension(s)) break :blk true;
+            for (i.else_body) |s| if (containsEvalComprehension(s)) break :blk true;
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| if (containsEvalComprehension(s)) break :blk true;
+            if (f.orelse_body) |ob| for (ob) |s| if (containsEvalComprehension(s)) break :blk true;
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| if (containsEvalComprehension(s)) break :blk true;
+            if (w.orelse_body) |ob| for (ob) |s| if (containsEvalComprehension(s)) break :blk true;
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| if (containsEvalComprehension(s)) break :blk true;
+            for (t.handlers) |h| for (h.body) |s| if (containsEvalComprehension(s)) break :blk true;
+            for (t.else_body) |s| if (containsEvalComprehension(s)) break :blk true;
+            for (t.finalbody) |s| if (containsEvalComprehension(s)) break :blk true;
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| if (containsEvalComprehension(s)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Check if an expression node contains eval comprehensions
+fn containsEvalComprehensionExpr(node: ast.Node) bool {
+    return switch (node) {
+        .genexp => true,
+        .call => |c| blk: {
+            // Check call arguments
+            for (c.args) |arg| if (containsEvalComprehensionExpr(arg)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |e| if (containsEvalComprehensionExpr(e)) break :blk true;
+            break :blk false;
+        },
+        .list => |l| blk: {
+            for (l.elts) |e| if (containsEvalComprehensionExpr(e)) break :blk true;
+            break :blk false;
+        },
+        .binop => |b| containsEvalComprehensionExpr(b.left.*) or containsEvalComprehensionExpr(b.right.*),
+        .unaryop => |u| containsEvalComprehensionExpr(u.operand.*),
+        else => false,
+    };
 }

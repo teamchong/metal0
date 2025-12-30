@@ -7,23 +7,7 @@ const builder_mod = @import("codegen.builder");
 
 // MIGRATED TO ZIGBUILDER
 
-/// Check if an expression is uncertain (needs PyValue operations)
-/// Two-Flow: routes uncertain values to PyValue extraction
-fn isExprUncertain(self: *NativeCodegen, expr: ast.Node) bool {
-    if (expr == .name) {
-        const name = expr.name.id;
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        return false;
-    }
-    return false;
-}
+// isExprUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Helper to emit expression, extracting string using runtime.container_dispatch.toPathStr
 /// This handles all cases: []const u8 (passthrough), PyValue (.string field), eval() results

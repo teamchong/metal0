@@ -80,6 +80,17 @@ pub fn producesBlockExpression(expr: ast.Node) bool {
     };
 }
 
+/// Emit object expression, wrapping in parens if it's a block expression.
+/// Use this when calling methods on expressions that may produce blocks.
+/// DRY: Consolidates identical helpers from list.zig, dict.zig, set.zig
+pub fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
+    if (producesBlockExpression(obj)) {
+        try self.emitParens(obj);
+    } else {
+        try self.genExpr(obj);
+    }
+}
+
 // Re-export functions from submodules
 pub const genConstant = constants.genConstant;
 pub const genBinOp = operators.genBinOp;

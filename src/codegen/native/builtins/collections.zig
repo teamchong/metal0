@@ -200,27 +200,7 @@ pub fn genZip(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("}");
 }
 
-/// Check if an iterable expression is uncertain (needs PyValue)
-/// Two-Flow: routes uncertain types to PyValue methods
-fn isIterableUncertain(self: *NativeCodegen, expr: ast.Node) bool {
-    if (expr == .name) {
-        const name = expr.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        // Variable not in type map - it's likely a local with inferred type
-        // Don't assume uncertain - let Zig compiler catch type mismatches
-        return false;
-    }
-    return false;
-}
+// isIterableUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Generate code for sum(iterable)
 /// Returns sum of all elements
@@ -232,7 +212,7 @@ pub fn genSum(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Two-Flow: Check if iterable is uncertain
-    if (isIterableUncertain(self, args[0])) {
+    if (self.isExprUncertain( args[0])) {
         // Route to PyValue.pySum() for runtime type safety
         try self.genExpr(args[0]);
         try self.emit(".pySum()");
@@ -310,7 +290,7 @@ pub fn genAll(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Two-Flow: Check if iterable is uncertain
-    if (isIterableUncertain(self, args[0])) {
+    if (self.isExprUncertain( args[0])) {
         // Route to PyValue.pyAll() for runtime type safety
         try self.genExpr(args[0]);
         try self.emit(".pyAll()");
@@ -378,7 +358,7 @@ pub fn genAny(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Two-Flow: Check if iterable is uncertain
-    if (isIterableUncertain(self, args[0])) {
+    if (self.isExprUncertain( args[0])) {
         // Route to PyValue.pyAny() for runtime type safety
         try self.genExpr(args[0]);
         try self.emit(".pyAny()");

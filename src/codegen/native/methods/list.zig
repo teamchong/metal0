@@ -4,7 +4,9 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const CodegenError = @import("../main.zig").CodegenError;
 const NativeCodegen = @import("../main.zig").NativeCodegen;
-const producesBlockExpression = @import("../expressions.zig").producesBlockExpression;
+const expressions = @import("../expressions.zig");
+const producesBlockExpression = expressions.producesBlockExpression;
+const emitObjExpr = expressions.emitObjExpr;
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const emitPyValueFromAlloc = @import("../expressions/calls.zig").emitPyValueFromAlloc;
 
@@ -73,14 +75,7 @@ fn emitListExtendIterable(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) Co
     }.f);
 }
 
-/// Helper to emit object expression, wrapping in parens if it's a block expression
-fn emitObjExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    if (producesBlockExpression(obj)) {
-        try self.emitParens(obj);
-    } else {
-        try self.genExpr(obj);
-    }
-}
+// emitObjExpr imported from expressions.zig (DRY consolidation)
 
 /// Check if object expression needs a temp variable (list literal, comprehension, etc.)
 /// Returns true for expressions that don't have persistent storage.
@@ -94,27 +89,7 @@ fn needsTempVariable(obj: ast.Node) bool {
     };
 }
 
-/// Check if a list expression is uncertain (needs PyValue operations)
-/// Two-Flow: routes uncertain lists to runtime helpers
-fn isListUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        // Variable not in type map - it's likely a local with inferred type
-        // Don't assume uncertain - let Zig compiler catch type mismatches
-        return false;
-    }
-    return false;
-}
+// isListUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Generate code for list.append(item)
 /// NOTE: Zig arrays are fixed size, need ArrayList for dynamic appending
@@ -127,7 +102,7 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Two-Flow: Check if list is uncertain (PyValue.list is *ArrayListUnmanaged - mutable)
     // For uncertain lists, we need runtime helpers that can handle type dynamically
-    if (isListUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
         // In defer blocks, 'try' is not allowed - use catch unreachable instead
         try emitPyListAppendPV(self, obj, args[0], !self.inside_defer, self.inside_defer);
@@ -292,7 +267,7 @@ pub fn genExtend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len != 1) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if list is uncertain
-    if (isListUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
         try emitPyListExtendPV(self, obj, args[0]);
         return;
@@ -405,7 +380,7 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     if (args.len != 2) return error.UnsupportedSyntax;
 
     // Two-Flow: Check if list is uncertain
-    if (isListUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Route to PyValue-First API that compiles ONCE (no monomorphization)
         try emitPyListInsertPV(self, obj, args[0], args[1]);
         return;

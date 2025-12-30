@@ -5,6 +5,7 @@
 //! Mirrors: CPython Lib/fractions.py
 
 const std = @import("std");
+const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
 
 // ============================================================================
 // Fraction type
@@ -41,6 +42,14 @@ pub const Fraction = struct {
     /// Create a fraction from an integer
     pub fn fromInt(n: i64) Fraction {
         return .{ .numerator = n, .denominator = 1 };
+    }
+
+    /// Create a fraction from UnifiedInt numerator and denominator
+    /// Used by as_integer_ratio() which returns UnifiedInt tuple
+    pub fn fromUnifiedInt(numerator: UnifiedInt, denominator: UnifiedInt) !Fraction {
+        const num = numerator.toI64() orelse return error.Overflow;
+        const den = denominator.toI64() orelse return error.Overflow;
+        return init(num, den);
     }
 
     /// Create a fraction from a float (best rational approximation)

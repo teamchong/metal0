@@ -5,24 +5,7 @@ const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
 
-/// Check if a file expression is uncertain (needs PyValue operations)
-/// Two-Flow: File objects from open() are typically certain, but function params may be uncertain
-/// Note: Current implementation assumes file objects are always runtime.PyFile
-fn isFileUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        return false;
-    }
-    return false;
-}
+// isFileUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Generate code for file.read(n=-1)
 /// Two-Flow: Uses runtime.PyFile which handles type dispatch internally

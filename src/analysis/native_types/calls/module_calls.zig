@@ -204,8 +204,11 @@ pub fn inferModuleFunctionCall(
             if (func_hash == EXISTS_HASH or func_hash == ISFILE_HASH or func_hash == ISDIR_HASH) {
                 return .bool;
             }
-            if (func_hash == JOIN_HASH or func_hash == DIRNAME_HASH or func_hash == BASENAME_HASH) {
-                return .{ .string = .runtime };
+            if (func_hash == JOIN_HASH) {
+                return .{ .string = .runtime };  // join allocates
+            }
+            if (func_hash == DIRNAME_HASH or func_hash == BASENAME_HASH) {
+                return .{ .string = .slice };  // dirname/basename return slices of input
             }
             // os.path.split() and splitext() return tuple of (string, string)
             if (func_hash == SPLIT_HASH_OS or func_hash == SPLITEXT_HASH) {

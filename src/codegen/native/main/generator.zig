@@ -942,27 +942,39 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Check if this variable is assigned from a list comprehension
             // List comprehensions need to be pre-declared at module level because they might be
             // used in class methods (which are generated as module-level struct methods)
-            var is_listcomp_assignment = false;
+            var listcomp_node: ?*const ast.Node = null;
             for (module.body) |stmt| {
                 if (stmt == .assign) {
                     const assign = stmt.assign;
                     for (assign.targets) |target| {
                         if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
                             if (assign.value.* == .listcomp) {
-                                is_listcomp_assignment = true;
+                                listcomp_node = assign.value;
                             }
                         }
                     }
                 }
             }
 
-            // Pre-declare list comprehensions as std.ArrayList(runtime.PyValue)
-            // This handles the common case where element type is complex
-            if (is_listcomp_assignment) {
+            // Pre-declare list comprehensions using type inference (which correctly handles
+            // string concatenation, loop variable types, etc.)
+            if (listcomp_node) |lc_node| {
+                const lc_type = self.type_inferrer.inferExpr(lc_node.*) catch .unknown;
                 try self.emit("var ");
                 try self.emit(var_name);
-                try self.emit(": std.ArrayList(runtime.PyValue) = undefined;\n");
-                try self.symbol_table.declare(var_name, .unknown, true);
+                try self.emit(": ");
+                if (container_traits.isList(lc_type)) {
+                    // Use the inferred list type with correct element type
+                    var type_buf: std.ArrayListUnmanaged(u8) = .{};
+                    defer type_buf.deinit(self.allocator);
+                    try lc_type.toZigType(self.allocator, &type_buf);
+                    try self.emit(type_buf.items);
+                } else {
+                    // Fallback to generic list type
+                    try self.emit("std.ArrayList(runtime.PyValue)");
+                }
+                try self.emit(" = undefined;\n");
+                try self.symbol_table.declare(var_name, lc_type, true);
                 try self.markGlobalVar(var_name);
                 continue;
             }
@@ -1181,7 +1193,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Check if this variable is assigned a type alias (e.g., R = fractions.Fraction)
             // Type aliases need `const R = type` not `var R: SomeType = undefined`
-            var is_type_alias = false;
+            var type_alias_target: ?[]const u8 = null;
             for (module.body) |stmt| {
                 if (stmt == .assign) {
                     const assign = stmt.assign;
@@ -1195,9 +1207,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                     const attr_name = attr.attr;
                                     // Known type exports from modules
                                     if (std.mem.eql(u8, module_name, "fractions") and std.mem.eql(u8, attr_name, "Fraction")) {
-                                        is_type_alias = true;
+                                        type_alias_target = attr_name;
                                     } else if (std.mem.eql(u8, module_name, "decimal") and std.mem.eql(u8, attr_name, "Decimal")) {
-                                        is_type_alias = true;
+                                        type_alias_target = attr_name;
                                     }
                                 }
                             }
@@ -1207,8 +1219,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
 
             // Skip pre-declaring type aliases - they'll be emitted as const at assignment
-            if (is_type_alias) {
+            if (type_alias_target) |target_type| {
                 try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
+                try self.type_alias_targets.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, target_type));
                 continue;
             }
 
@@ -2294,6 +2307,8 @@ fn emitModuleLevelTypeAliases(self: *NativeCodegen, body: []const ast.Node) !voi
 
                         // Track this type alias for call codegen
                         try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
+                        // Also store what type it aliases (e.g., "R" -> "Fraction")
+                        try self.type_alias_targets.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, attr_name));
 
                         // Emit: const F = fractions.Fraction;
                         try self.emit("const ");

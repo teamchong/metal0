@@ -169,7 +169,13 @@ pub fn toFloat(value: anytype) f64 {
 
     if (type_info == .@"union") {
         if (@hasDecl(T, "toFloat")) {
-            if (value.toFloat()) |f| return f;
+            // UnifiedInt.toFloat() returns f64 directly, not optional
+            const RetType = @typeInfo(@TypeOf(T.toFloat)).@"fn".return_type.?;
+            if (RetType == f64) {
+                return value.toFloat();
+            } else if (@typeInfo(RetType) == .optional) {
+                if (value.toFloat()) |f| return f;
+            }
         }
     }
 

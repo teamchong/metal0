@@ -5,29 +5,11 @@ const ast = @import("analysis.ast");
 const CodegenError = @import("../../main.zig").CodegenError;
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 
-/// Check if a string expression is uncertain (needs PyValue operations)
-/// Two-Flow: routes uncertain strings to PyValue extraction via .asString()
-fn isStringUncertain(self: *NativeCodegen, obj: ast.Node) bool {
-    if (obj == .name) {
-        const name = obj.name.id;
-        // Check scoped vars first (for loop variables, function params)
-        // then fall back to global var_types
-        const var_type = self.type_inferrer.getScopedVar(name) orelse
-            self.type_inferrer.var_types.get(name);
-        if (var_type) |vt| {
-            switch (vt) {
-                .pyvalue, .unknown => return true,
-                else => {},
-            }
-        }
-        return false;
-    }
-    return false;
-}
+// isStringUncertain replaced by self.isExprUncertain() (DRY consolidation)
 
 /// Helper to emit string expression, extracting from PyValue if uncertain
 fn emitStringExpr(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    if (isStringUncertain(self, obj)) {
+    if (self.isExprUncertain(obj)) {
         // Extract string from PyValue using .asString()
         try self.genExpr(obj);
         try self.emit(".asString()");
