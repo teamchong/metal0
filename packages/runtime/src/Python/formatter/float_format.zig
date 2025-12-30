@@ -384,7 +384,7 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
                 }
 
                 // Add exponent
-                try emitExponent(result, allocator, final_exp, 'e');
+                try emitExponent(&result, allocator, final_exp, 'e');
             }
         },
     }
