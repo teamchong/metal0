@@ -715,3 +715,72 @@ pub fn conditional(comptime name: []const u8, comptime condition: []const u8, co
         }.emit);
     } }.f;
 }
+
+// === Runtime Call Helpers ===
+
+/// Generates a simple runtime call: runtime.func_name(args...)
+///
+/// Example usage:
+///   const genLen = runtimeCall("builtinLen");  // runtime.builtinLen(arg)
+///
+/// @param func_name: function name in runtime module
+pub fn runtimeCall(comptime func_name: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        try self.emit("runtime." ++ func_name ++ "(");
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(arg);
+        }
+        try self.emit(")");
+    } }.f;
+}
+
+/// Generates a runtime call with allocator as first argument: runtime.func_name(__global_allocator, args...)
+///
+/// Example usage:
+///   const genRepr = runtimeCallWithAlloc("builtinRepr");  // runtime.builtinRepr(__global_allocator, arg)
+///
+/// @param func_name: function name in runtime module
+pub fn runtimeCallWithAlloc(comptime func_name: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        try self.emit("runtime." ++ func_name ++ "(__global_allocator");
+        for (args) |arg| {
+            try self.emit(", ");
+            try self.genExpr(arg);
+        }
+        try self.emit(")");
+    } }.f;
+}
+
+/// Generates a qualified call: module.func_name(args...)
+///
+/// Example usage:
+///   const genSin = qualifiedCall("std.math", "sin");  // std.math.sin(arg)
+///
+/// @param module: module prefix (e.g., "std.math", "runtime.Lib.os")
+/// @param func_name: function name
+pub fn qualifiedCall(comptime module: []const u8, comptime func_name: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        try self.emit(module ++ "." ++ func_name ++ "(");
+        for (args, 0..) |arg, i| {
+            if (i > 0) try self.emit(", ");
+            try self.genExpr(arg);
+        }
+        try self.emit(")");
+    } }.f;
+}
+
+/// Generates a qualified call with allocator first: module.func_name(__global_allocator, args...)
+///
+/// @param module: module prefix
+/// @param func_name: function name
+pub fn qualifiedCallWithAlloc(comptime module: []const u8, comptime func_name: []const u8) H {
+    return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+        try self.emit(module ++ "." ++ func_name ++ "(__global_allocator");
+        for (args) |arg| {
+            try self.emit(", ");
+            try self.genExpr(arg);
+        }
+        try self.emit(")");
+    } }.f;
+}
