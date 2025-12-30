@@ -29,16 +29,23 @@ fn isFileUncertain(self: *NativeCodegen, obj: ast.Node) bool {
 pub fn genFileRead(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
         // read(n) - read n bytes
-        try self.emit("try runtime.PyFile.readN(");
-        try self.genExpr(obj);
-        try self.emit(", ");
-        try self.genExpr(args[0]);
-        try self.emit(", __global_allocator)");
+        const Ctx = struct { o: ast.Node, n: ast.Node };
+        try self.emitCallCtx("try runtime.PyFile.readN", Ctx{ .o = obj, .n = args[0] }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.genExpr(ctx.o);
+                try s.emit(", ");
+                try s.genExpr(ctx.n);
+                try s.emit(", __global_allocator");
+            }
+        }.f);
     } else {
         // read() - read all
-        try self.emit("try runtime.PyFile.read(");
-        try self.genExpr(obj);
-        try self.emit(", __global_allocator)");
+        try self.emitCallCtx("try runtime.PyFile.read", obj, struct {
+            pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
+                try s.genExpr(o);
+                try s.emit(", __global_allocator");
+            }
+        }.f);
     }
 }
 

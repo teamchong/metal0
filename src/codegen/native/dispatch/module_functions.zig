@@ -858,11 +858,14 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
         if (std.mem.eql(u8, func_name, "adjust_int_max_str_digits")) {
             // support.adjust_int_max_str_digits(n) -> support.adjust_int_max_str_digits(n)
             // This is a function, not a struct, so it works normally
-            try self.emit("support.adjust_int_max_str_digits(");
-            if (call.args.len > 0) {
-                try self.genExpr(call.args[0]);
-            }
-            try self.emit(")");
+            const args = call.args;
+            try self.emitCallCtx("support.adjust_int_max_str_digits", args, struct {
+                pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+                    if (a.len > 0) {
+                        try s.genExpr(a[0]);
+                    }
+                }
+            }.f);
             return true;
         }
     }

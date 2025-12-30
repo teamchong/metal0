@@ -1937,9 +1937,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Some sys attributes are mutable at runtime (breakpointhook, etc.)
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "sys")) {
                 if (std.mem.eql(u8, attr.attr, "stdout") or std.mem.eql(u8, attr.attr, "stderr")) {
-                    try self.emit("runtime.discard(");
-                    try self.genExpr(assign.value.*);
-                    try self.emit("); // sys.");
+                    const Ctx = struct { val: *ast.Node, attr_name: []const u8 };
+                    try self.emitCallCtx("runtime.discard", Ctx{ .val = assign.value, .attr_name = attr.attr }, struct {
+                        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                            try s.genExpr(ctx.val.*);
+                        }
+                    }.f);
+                    try self.emit("; // sys.");
                     try self.emit(attr.attr);
                     try self.emit(" assignment is a no-op in metal0\n");
                     return;

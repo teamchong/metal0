@@ -102,14 +102,16 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 
     if (args.len == 0) {
         // split() with no args - split on whitespace using runtime function
-        try self.emit("try runtime.stringSplitWhitespace(");
-        if (emit_obj) {
-            try self.genExpr(obj);
-            try self.emit(".string");
-        } else {
-            try self.genExpr(obj);
-        }
-        try self.emit(", __global_allocator)");
+        const Ctx = struct { o: ast.Node, extract_string: bool };
+        try self.emitCallCtx("try runtime.stringSplitWhitespace", Ctx{ .o = obj, .extract_string = emit_obj }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.genExpr(ctx.o);
+                if (ctx.extract_string) {
+                    try s.emit(".string");
+                }
+                try s.emit(", __global_allocator");
+            }
+        }.f);
         return;
     }
 

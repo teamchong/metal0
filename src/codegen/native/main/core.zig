@@ -2323,6 +2323,7 @@ pub const NativeCodegen = struct {
 
                 // Class instances need dunder method dispatch (__add__, __radd__, etc.)
                 if (type_traits.isClassInstance(left_type) or type_traits.isClassInstance(right_type)) {
+                    std.debug.print("DEBUG exprToValue binop: class_instance fallback, left={any}, right={any}\n", .{ left_type, right_type });
                     return try self.captureExpr(node);
                 }
 

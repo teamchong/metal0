@@ -174,6 +174,7 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
 }
 
 pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
+    std.debug.print("DEBUG isOperandUncertain: checking expr type {s}\n", .{@tagName(expr)});
     // Check if operand is a binary operation that would return PyValue
     // This handles nested operations like: (a * b) + (c * d) where inner ops use PyValue
     if (expr == .binop) {
@@ -182,13 +183,17 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
         // operand is uncertain. If so, the codegen will use PyValue ops, returning PyValue.
         if (PyValueMethods.get(@tagName(binop.op)) != null) {
             // Recursively check operands - if either would trigger PyValue ops, result is PyValue
-            if (isOperandUncertain(self, binop.left.*) or isOperandUncertain(self, binop.right.*)) {
+            const left_unc = isOperandUncertain(self, binop.left.*);
+            const right_unc = isOperandUncertain(self, binop.right.*);
+            std.debug.print("DEBUG isOperandUncertain binop {s}: left_unc={}, right_unc={}\n", .{ @tagName(binop.op), left_unc, right_unc });
+            if (left_unc or right_unc) {
                 return true;
             }
             // Even if operands aren't uncertain, check the inferred result type
             // This catches cases where type inference marks the result as uncertain
             // due to context the recursive check doesn't see
             const result_type = self.type_inferrer.inferExpr(expr) catch return false;
+            std.debug.print("DEBUG isOperandUncertain binop {s}: result_type={any}\n", .{ @tagName(binop.op), result_type });
             if (result_type == .pyvalue or result_type == .unknown) {
                 return true;
             }
@@ -256,10 +261,13 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                     if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                         if (class_info.fields.get(attr.attr)) |field_type| {
                             // Field has a known type - only uncertain if pyvalue/unknown
-                            return field_type == .pyvalue or field_type == .unknown;
+                            const is_unc = field_type == .pyvalue or field_type == .unknown;
+                            std.debug.print("DEBUG isOperandUncertain attr self.{s}: field_type={any}, is_unc={}\n", .{ attr.attr, field_type, is_unc });
+                            return is_unc;
                         }
                     }
                     // Field not found in registry - assume NOT uncertain (use native ops)
+                    std.debug.print("DEBUG isOperandUncertain attr self.{s}: field not found, returning false\n", .{attr.attr});
                     return false;
                 }
             }
@@ -298,14 +306,18 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             // For other variable access, check if the variable is a known class instance
             const var_type = self.type_inferrer.getScopedVar(base_name) orelse
                 self.type_inferrer.var_types.get(base_name);
+            std.debug.print("DEBUG isOperandUncertain: non-self attr {s}.{s} var_type={any}\n", .{ base_name, attr.attr, var_type });
             if (var_type) |vt| {
                 if (vt == .class_instance) {
                     // Class instance - check field type in class registry
                     const class_name = vt.class_instance;
+                    std.debug.print("DEBUG isOperandUncertain: {s} is class_instance of {s}\n", .{ base_name, class_name });
                     if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                         if (class_info.fields.get(attr.attr)) |field_type| {
                             // Field has a known type - only uncertain if pyvalue/unknown
-                            return field_type == .pyvalue or field_type == .unknown;
+                            const is_unc = field_type == .pyvalue or field_type == .unknown;
+                            std.debug.print("DEBUG isOperandUncertain: {s}.{s} field_type={any}, is_unc={}\n", .{ base_name, attr.attr, field_type, is_unc });
+                            return is_unc;
                         }
                     }
                     // Field not found - assume NOT uncertain
@@ -313,6 +325,7 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                 }
                 if (vt == .unknown) {
                     // Unknown type attributes are uncertain
+                    std.debug.print("DEBUG isOperandUncertain: {s} is unknown type, returning true\n", .{base_name});
                     return true;
                 }
             }
@@ -320,9 +333,11 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 
         // For other attribute access, use type inference
         const attr_type = self.type_inferrer.inferExpr(expr) catch return false;
+        std.debug.print("DEBUG isOperandUncertain: fallback inferExpr for attr, attr_type={any}\n", .{attr_type});
         return attr_type == .pyvalue or attr_type == .unknown;
     }
 
+    std.debug.print("DEBUG isOperandUncertain: fallback return false for {s}\n", .{@tagName(expr)});
     return false;
 }
 
