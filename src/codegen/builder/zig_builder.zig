@@ -603,7 +603,8 @@ pub const ZigBuilder = struct {
             .certain_bool => |v| try self.write(if (v) "true" else "false"),
             .certain_str => |s| {
                 try self.write("\"");
-                try self.writeEscapedString(s);
+                // Use Python escape handling for string literals from Python source
+                try self.writePythonBytesEscaped(s);
                 try self.write("\"");
             },
             .certain_bytes => |s| {
@@ -1326,6 +1327,46 @@ pub const ZigBuilder = struct {
                         }
                         // Invalid hex escape - emit as-is
                         try self.write("\\\\x");
+                        i += 2;
+                        continue;
+                    },
+                    'u' => {
+                        // \uXXXX - 4 hex digits for Unicode codepoint
+                        if (i + 5 < s.len) {
+                            const hex = s[i + 2 .. i + 6];
+                            if (std.fmt.parseInt(u21, hex, 16)) |codepoint| {
+                                // UTF-8 encode the codepoint
+                                var buf: [4]u8 = undefined;
+                                const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                                for (buf[0..len]) |b| {
+                                    try self.writeFmt("\\x{x:0>2}", .{b});
+                                }
+                                i += 6;
+                                continue;
+                            } else |_| {}
+                        }
+                        // Invalid unicode escape - emit as-is
+                        try self.write("\\\\u");
+                        i += 2;
+                        continue;
+                    },
+                    'U' => {
+                        // \UXXXXXXXX - 8 hex digits for Unicode codepoint
+                        if (i + 9 < s.len) {
+                            const hex = s[i + 2 .. i + 10];
+                            if (std.fmt.parseInt(u21, hex, 16)) |codepoint| {
+                                // UTF-8 encode the codepoint
+                                var buf: [4]u8 = undefined;
+                                const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                                for (buf[0..len]) |b| {
+                                    try self.writeFmt("\\x{x:0>2}", .{b});
+                                }
+                                i += 10;
+                                continue;
+                            } else |_| {}
+                        }
+                        // Invalid unicode escape - emit as-is
+                        try self.write("\\\\U");
                         i += 2;
                         continue;
                     },
