@@ -538,12 +538,14 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
         // std.AutoHashMap.clone() and std.HashMap.clone() take no arguments
         // (they use the allocator stored internally)
         if (needsTempVariable(obj)) {
-            const label = try self.emitInlineBlockStart("copy");
-            const list_temp = try self.name_gen.temp();
-            try self.emitFmt("const {s} = ", .{list_temp});
-            try self.genExpr(obj);
-            try self.emitFmt("; break :{s} try {s}.clone(); ", .{ label, list_temp });
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock("copy", obj, struct {
+                fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+                    const list_temp = try s.name_gen.temp();
+                    try s.emitFmt("const {s} = ", .{list_temp});
+                    try s.genExpr(o);
+                    try s.emitFmt("; break :{s} try {s}.clone()", .{ label, list_temp });
+                }
+            }.emit);
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);
@@ -552,12 +554,14 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     } else {
         // ArrayList.clone() requires allocator argument
         if (needsTempVariable(obj)) {
-            const label = try self.emitInlineBlockStart("copy");
-            const list_temp = try self.name_gen.temp();
-            try self.emitFmt("const {s} = ", .{list_temp});
-            try self.genExpr(obj);
-            try self.emitFmt("; break :{s} try {s}.clone(__global_allocator); ", .{ label, list_temp });
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock("copy", obj, struct {
+                fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+                    const list_temp = try s.name_gen.temp();
+                    try s.emitFmt("const {s} = ", .{list_temp});
+                    try s.genExpr(o);
+                    try s.emitFmt("; break :{s} try {s}.clone(__global_allocator)", .{ label, list_temp });
+                }
+            }.emit);
         } else {
             try self.emit("try ");
             try emitObjExpr(self, obj);

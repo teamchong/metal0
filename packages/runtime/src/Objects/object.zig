@@ -1598,11 +1598,20 @@ pub const PyValue = union(enum) {
             .int => |a| switch (other) {
                 .int => |b| .{ .int = a +% b }, // Wrapping add for safety
                 .float => |b| .{ .float = @as(f64, @floatFromInt(a)) + b },
+                .bool => |b| .{ .int = a +% @as(i64, @intFromBool(b)) },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| .{ .float = a + @as(f64, @floatFromInt(b)) },
                 .float => |b| .{ .float = a + b },
+                .bool => |b| .{ .float = a + @as(f64, if (b) 1.0 else 0.0) },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                // Bool arithmetic - Python treats bool as subtype of int
+                .int => |b| .{ .int = @as(i64, @intFromBool(a)) +% b },
+                .float => |b| .{ .float = @as(f64, if (a) 1.0 else 0.0) + b },
+                .bool => |b| .{ .int = @as(i64, @intFromBool(a)) +% @as(i64, @intFromBool(b)) },
                 else => .{ .none = {} },
             },
             .string => |a| switch (other) {
@@ -1625,11 +1634,19 @@ pub const PyValue = union(enum) {
             .int => |a| switch (other) {
                 .int => |b| .{ .int = a -% b },
                 .float => |b| .{ .float = @as(f64, @floatFromInt(a)) - b },
+                .bool => |b| .{ .int = a -% @as(i64, @intFromBool(b)) },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| .{ .float = a - @as(f64, @floatFromInt(b)) },
                 .float => |b| .{ .float = a - b },
+                .bool => |b| .{ .float = a - @as(f64, if (b) 1.0 else 0.0) },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| .{ .int = @as(i64, @intFromBool(a)) -% b },
+                .float => |b| .{ .float = @as(f64, if (a) 1.0 else 0.0) - b },
+                .bool => |b| .{ .int = @as(i64, @intFromBool(a)) -% @as(i64, @intFromBool(b)) },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },
@@ -1642,11 +1659,19 @@ pub const PyValue = union(enum) {
             .int => |a| switch (other) {
                 .int => |b| .{ .int = a *% b },
                 .float => |b| .{ .float = @as(f64, @floatFromInt(a)) * b },
+                .bool => |b| .{ .int = a *% @as(i64, @intFromBool(b)) },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| .{ .float = a * @as(f64, @floatFromInt(b)) },
                 .float => |b| .{ .float = a * b },
+                .bool => |b| .{ .float = a * @as(f64, if (b) 1.0 else 0.0) },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| .{ .int = @as(i64, @intFromBool(a)) *% b },
+                .float => |b| .{ .float = @as(f64, if (a) 1.0 else 0.0) * b },
+                .bool => |b| .{ .int = @as(i64, @intFromBool(a)) *% @as(i64, @intFromBool(b)) },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },
@@ -1659,11 +1684,19 @@ pub const PyValue = union(enum) {
             .int => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .float = @as(f64, @floatFromInt(a)) / @as(f64, @floatFromInt(b)) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = @as(f64, @floatFromInt(a)) / b } else .{ .none = {} },
+                .bool => |b| if (b) .{ .float = @as(f64, @floatFromInt(a)) } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .float = a / @as(f64, @floatFromInt(b)) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = a / b } else .{ .none = {} },
+                .bool => |b| if (b) .{ .float = a } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .float = @as(f64, if (a) 1.0 else 0.0) / @as(f64, @floatFromInt(b)) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @as(f64, if (a) 1.0 else 0.0) / b } else .{ .none = {} },
+                .bool => |b| if (b) .{ .float = if (a) 1.0 else 0.0 } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },
@@ -1676,11 +1709,19 @@ pub const PyValue = union(enum) {
             .int => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .int = @divFloor(a, b) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = @floor(@as(f64, @floatFromInt(a)) / b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .int = a } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .float = @floor(a / @as(f64, @floatFromInt(b))) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = @floor(a / b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .float = @floor(a) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .int = @divFloor(@as(i64, @intFromBool(a)), b) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @floor(@as(f64, if (a) 1.0 else 0.0) / b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .int = @as(i64, @intFromBool(a)) } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },

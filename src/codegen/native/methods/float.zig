@@ -132,16 +132,15 @@ pub fn genIsInteger(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codeg
 /// Raises ValueError for NaN, OverflowError for Inf
 pub fn genAsIntegerRatio(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args; // as_integer_ratio takes no arguments
-    const alloc_name = "__global_allocator";
     // Return a struct that can be unpacked: { BigInt, BigInt }
     // The IntegerRatioResult has .numerator and .denominator, we convert to anonymous tuple
-    const label = try self.emitInlineBlockStart("ratio");
-    try self.emit("const __ratio = try runtime.floatAsIntegerRatioBigInt(");
-    try self.emit(alloc_name);
-    try self.emit(", ");
-    try emitFloatExpr(self, obj);
-    try self.emitFmt("); break :{s} .{{ __ratio.numerator, __ratio.denominator }}; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("ratio", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("const __ratio = try runtime.floatAsIntegerRatioBigInt(__global_allocator, ");
+            try emitFloatExpr(s, o);
+            try s.emitFmt("); break :{s} .{{ __ratio.numerator, __ratio.denominator }}", .{label});
+        }
+    }.emit);
 }
 
 /// Generate float.hex() - returns hexadecimal string representation
@@ -205,14 +204,17 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     } else {
         // Round to ndigits decimal places - returns float, not int
         // Use banker's rounding (round half to even) for Python semantics
-        const label = try self.emitInlineBlockStart("round");
-        try self.emit("const __ndigits = ");
-        try self.genExpr(args[0]);
-        try self.emit("; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
-        try self.emitFmt("break :{s} runtime.builtins.bankersRound(", .{label});
-        try emitFloatExpr(self, obj);
-        try self.emit(" * __mult) / __mult; ");
-        try self.emitInlineBlockEnd();
+        const Ctx = struct { o: ast.Node, a: ast.Node };
+        try self.withInlineBlock("round", Ctx{ .o = obj, .a = args[0] }, struct {
+            fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                try s.emit("const __ndigits = ");
+                try s.genExpr(ctx.a);
+                try s.emit("; const __mult = std.math.pow(f64, 10.0, @as(f64, @floatFromInt(__ndigits))); ");
+                try s.emitFmt("break :{s} runtime.builtins.bankersRound(", .{label});
+                try emitFloatExpr(s, ctx.o);
+                try s.emit(" * __mult) / __mult");
+            }
+        }.emit);
     }
 }
 
