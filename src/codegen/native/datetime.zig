@@ -276,9 +276,15 @@ pub fn genDateFromIsoformat(self: *NativeCodegen, args: []ast.Node) CodegenError
 /// datetime.date.fromordinal(ordinal)
 pub fn genDateFromOrdinal(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("runtime.datetime.Date.today()"); return; }
-    try self.emit("runtime.datetime.Date.fromOrdinal(@intCast(");
-    try self.genExpr(args[0]);
-    try self.emit("))");
+    try self.emitCallCtx("runtime.datetime.Date.fromOrdinal", args[0], struct {
+        pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+            try s.emitCallCtx("@intCast", arg, struct {
+                pub fn inner(s2: *NativeCodegen, a: ast.Node) CodegenError!void {
+                    try s2.genExpr(a);
+                }
+            }.inner);
+        }
+    }.f);
 }
 
 // =============================================================================

@@ -272,10 +272,31 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                 }
             }
 
-            // For anytype param attributes - uncertain because the param's type is unknown
-            // (builder's exprToValue marks unknown type attributes as uncertain at line 2532-2533)
+            // For anytype param attributes - check if we have a known class type from type inference
+            // Type inference may have narrowed the type (e.g., after `if isRat(other):`)
             if (self.anytype_params.contains(base_name)) {
-                return true; // Anytype attribute access IS uncertain in binop context
+                // Check if type inference has a concrete class type for this anytype param
+                const var_type = self.type_inferrer.getScopedVar(base_name) orelse
+                    self.type_inferrer.var_types.get(base_name);
+                if (var_type) |vt| {
+                    if (vt == .class_instance) {
+                        // Anytype has been narrowed to a class - check field type
+                        const class_name = vt.class_instance;
+                        std.debug.print("DEBUG isOperandUncertain: anytype {s} narrowed to class {s}\n", .{ base_name, class_name });
+                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                            if (class_info.fields.get(attr.attr)) |field_type| {
+                                const is_unc = field_type == .pyvalue or field_type == .unknown;
+                                std.debug.print("DEBUG isOperandUncertain: anytype {s}.{s} field_type={any}, is_unc={}\n", .{ base_name, attr.attr, field_type, is_unc });
+                                return is_unc;
+                            }
+                        }
+                        // Field not found but it's a class - assume not uncertain
+                        return false;
+                    }
+                }
+                // No concrete type - stay uncertain
+                std.debug.print("DEBUG isOperandUncertain: anytype {s} has no concrete type, returning true\n", .{base_name});
+                return true;
             }
 
             // Also check for "_converted" suffix variables derived from anytype params

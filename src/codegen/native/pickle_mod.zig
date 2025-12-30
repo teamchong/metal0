@@ -42,9 +42,12 @@ fn genLoads(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Use the compile-once helper to avoid @TypeOf introspection at each call site
     // This prevents comptime explosion when pickle.loads is called in loops
     // Returns *PyObject like json.loads() for Python compatibility
-    try self.emit("runtime.pickle.loadsAny(");
-    try self.genExpr(args[0]);
-    try self.emit(", __global_allocator)");
+    try self.emitCallCtx("runtime.pickle.loadsAny", args[0], struct {
+        pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+            try s.genExpr(arg);
+            try s.emit(", __global_allocator");
+        }
+    }.f);
 }
 
 fn genDump(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
