@@ -1,0 +1,215 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'packages/**'
+      - 'benchmarks/**'
+      - '.github/workflows/benchmark.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  ZIG_VERSION: "0.15.2"
+
+# Only run one benchmark at a time to reduce noise
+concurrency:
+  group: benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyPy
+        run: |
+          sudo add-apt-repository ppa:pypy/ppa -y
+          sudo apt-get update
+          sudo apt-get install -y pypy3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install hyperfine
+        run: |
+          wget https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+          sudo dpkg -i hyperfine_1.18.0_amd64.deb
+
+      - name: Build metal0
+        run: zig build -Doptimize=ReleaseFast
+
+      - name: Run Fibonacci Benchmark
+        working-directory: benchmarks/fib
+        run: |
+          ./bench.sh 2>&1 | tee fib_output.txt
+          # Extract metal0 time for tracking
+          grep -A1 "metal0" results.md | tail -1 | awk '{print $2}' > fib_time.txt || echo "N/A" > fib_time.txt
+
+      - name: Run JSON Benchmark
+        working-directory: benchmarks/json
+        run: |
+          ./bench.sh 2>&1 | tee json_output.txt
+          grep -A1 "metal0" results_parse.md | tail -1 | awk '{print $2}' > json_parse_time.txt || echo "N/A" > json_parse_time.txt
+
+      - name: Run Dict Benchmark
+        working-directory: benchmarks/dict
+        run: |
+          # Create bench.sh if not exists (dict may not have one yet)
+          if [ ! -f bench.sh ]; then
+            cat > bench.sh << 'EOF'
+#!/bin/bash
+source "$(dirname "$0")/../common.sh"
+cd "$SCRIPT_DIR"
+init_benchmark "Dict Benchmark"
+cat > dict.py << 'PYEOF'
+def benchmark():
+    data = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 6, "g": 7, "h": 8}
+    total = 0
+    i = 0
+    while i < 10000000:
+        total = total + data["a"]
+        total = total + data["b"]
+        total = total + data["c"]
+        total = total + data["d"]
+        total = total + data["e"]
+        total = total + data["f"]
+        total = total + data["g"]
+        total = total + data["h"]
+        i = i + 1
+    print(total)
+benchmark()
+PYEOF
+            build_metal0_compiler
+            compile_metal0 dict.py dict_metal0
+            BENCH_CMD=(hyperfine --warmup 1 --runs 3 --export-markdown results.md)
+            add_metal0 BENCH_CMD dict_metal0
+            add_pypy BENCH_CMD dict.py
+            add_python BENCH_CMD dict.py
+            "${BENCH_CMD[@]}"
+            rm -f dict_metal0
+EOF
+            chmod +x bench.sh
+          fi
+          ./bench.sh 2>&1 | tee dict_output.txt
+
+      - name: Run String Benchmark
+        working-directory: benchmarks/string
+        run: |
+          if [ ! -f bench.sh ]; then
+            cat > bench.sh << 'EOF'
+#!/bin/bash
+source "$(dirname "$0")/../common.sh"
+cd "$SCRIPT_DIR"
+init_benchmark "String Benchmark"
+cat > string.py << 'PYEOF'
+def benchmark():
+    n = 100000000
+    a = "test_string_alpha_one"
+    b = "test_string_alpha_two"
+    c = "test_string_alpha_one"
+    matches = 0
+    j = 0
+    while j < n:
+        if a == c:
+            matches = matches + 1
+        if a != b:
+            matches = matches + 1
+        j = j + 1
+    total_len = 0
+    k = 0
+    while k < n:
+        total_len = total_len + len(a)
+        k = k + 1
+    print(matches)
+    print(total_len)
+benchmark()
+PYEOF
+            build_metal0_compiler
+            compile_metal0 string.py string_metal0
+            BENCH_CMD=(hyperfine --warmup 1 --runs 3 --export-markdown results.md)
+            add_metal0 BENCH_CMD string_metal0
+            add_pypy BENCH_CMD string.py
+            add_python BENCH_CMD string.py
+            "${BENCH_CMD[@]}"
+            rm -f string_metal0
+EOF
+            chmod +x bench.sh
+          fi
+          ./bench.sh 2>&1 | tee string_output.txt
+
+      - name: Run List Benchmark
+        working-directory: benchmarks/list
+        run: ./bench.sh 2>&1 | tee list_output.txt
+
+      - name: Run Set Benchmark
+        working-directory: benchmarks/set
+        run: ./bench.sh 2>&1 | tee set_output.txt
+
+      - name: Run Class Benchmark
+        working-directory: benchmarks/class
+        run: ./bench.sh 2>&1 | tee class_output.txt
+
+      - name: Run Generator Benchmark
+        working-directory: benchmarks/generator
+        run: ./bench.sh 2>&1 | tee generator_output.txt
+
+      - name: Collect Results
+        run: |
+          mkdir -p benchmark-results
+          echo "# Benchmark Results - $(date -u +%Y-%m-%d)" > benchmark-results/summary.md
+          echo "" >> benchmark-results/summary.md
+          echo "Commit: ${{ github.sha }}" >> benchmark-results/summary.md
+          echo "" >> benchmark-results/summary.md
+
+          for bench in fib json dict string list set class generator; do
+            if [ -f "benchmarks/$bench/results.md" ]; then
+              echo "## $bench" >> benchmark-results/summary.md
+              cat "benchmarks/$bench/results.md" >> benchmark-results/summary.md
+              echo "" >> benchmark-results/summary.md
+            fi
+          done
+
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results/
+          retention-days: 90
+
+      - name: Comment on Commit (if results available)
+        if: github.event_name == 'push'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summaryPath = 'benchmark-results/summary.md';
+            if (fs.existsSync(summaryPath)) {
+              const summary = fs.readFileSync(summaryPath, 'utf8');
+              // Create a check run with the summary
+              await github.rest.repos.createCommitComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha,
+                body: '## Benchmark Results\n\n' + summary.substring(0, 60000) // GitHub limit
+              });
+            }
