@@ -1473,9 +1473,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 try self.genExpr(int_call.args[0]);
                                 try self.emit(", ");
                                 if (int_call.args.len >= 2) {
-                                    try self.emit("@intCast(");
-                                    try self.genExpr(int_call.args[1]);
-                                    try self.emit(")");
+                                    try self.emitCallCtx("@intCast", int_call.args[1], struct {
+                                        pub fn f(s: *NativeCodegen, arg: ast.Node) CodegenError!void {
+                                            try s.genExpr(arg);
+                                        }
+                                    }.f);
                                 } else {
                                     try self.emit("10");
                                 }

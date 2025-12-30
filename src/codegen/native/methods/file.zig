@@ -126,19 +126,23 @@ pub fn genFileSeek(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
 /// Generate code for file.tell()
 pub fn genFileTell(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("tell");
-    try self.emit("const _f = "); try self.genExpr(obj);
-    try self.emitFmt("; break :{s} @as(i64, @intCast(_f.file.getPos() catch 0)); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("tell", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("const _f = "); try s.genExpr(o);
+            try s.emitFmt("; break :{s} @as(i64, @intCast(_f.file.getPos() catch 0))", .{label});
+        }
+    }.emit);
 }
 
 /// Generate code for file.flush()
 pub fn genFileFlush(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("flush");
-    try self.emit("const _f = "); try self.genExpr(obj);
-    try self.emitFmt("; _ = _f; break :{s} {{}}; ", .{label});
-    try self.emitInlineBlockEnd(); // Zig auto-flushes on write
+    try self.withInlineBlock("flush", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("const _f = "); try s.genExpr(o);
+            try s.emitFmt("; _ = _f; break :{s} {{}}", .{label}); // Zig auto-flushes on write
+        }
+    }.emit);
 }
 
 /// Generate code for file.truncate(size=None)
@@ -158,41 +162,54 @@ pub fn genFileTruncate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 /// Generate code for file.readable()
 pub fn genFileReadable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("readable");
-    try self.emit("_ = "); try self.genExpr(obj); try self.emitFmt("; break :{s} true; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("readable", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("_ = "); try s.genExpr(o);
+            try s.emitFmt("; break :{s} true", .{label});
+        }
+    }.emit);
 }
 
 /// Generate code for file.writable()
 pub fn genFileWritable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("writable");
-    try self.emit("_ = "); try self.genExpr(obj); try self.emitFmt("; break :{s} true; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("writable", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("_ = "); try s.genExpr(o);
+            try s.emitFmt("; break :{s} true", .{label});
+        }
+    }.emit);
 }
 
 /// Generate code for file.seekable()
 pub fn genFileSeekable(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("seekable");
-    try self.emit("_ = "); try self.genExpr(obj); try self.emitFmt("; break :{s} true; ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("seekable", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("_ = "); try s.genExpr(o);
+            try s.emitFmt("; break :{s} true", .{label});
+        }
+    }.emit);
 }
 
 /// Generate code for file.fileno()
 pub fn genFileFileno(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("fileno");
-    try self.emit("const _f = "); try self.genExpr(obj);
-    try self.emitFmt("; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.file.handle)) else @as(i64, @intCast(_f.file.handle)); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("fileno", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("const _f = "); try s.genExpr(o);
+            try s.emitFmt("; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) @as(i64, @intFromPtr(_f.file.handle)) else @as(i64, @intCast(_f.file.handle))", .{label});
+        }
+    }.emit);
 }
 
 /// Generate code for file.isatty()
 pub fn genFileIsatty(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = args;
-    const label = try self.emitInlineBlockStart("isatty");
-    try self.emit("const _f = "); try self.genExpr(obj);
-    try self.emitFmt("; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) std.os.windows.GetFileType(_f.file.handle) == std.os.windows.FILE_TYPE_CHAR else std.posix.isatty(_f.file.handle); ", .{label});
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("isatty", obj, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, o: ast.Node) CodegenError!void {
+            try s.emit("const _f = "); try s.genExpr(o);
+            try s.emitFmt("; break :{s} if (comptime @import(\"builtin\").os.tag == .windows) std.os.windows.GetFileType(_f.file.handle) == std.os.windows.FILE_TYPE_CHAR else std.posix.isatty(_f.file.handle)", .{label});
+        }
+    }.emit);
 }

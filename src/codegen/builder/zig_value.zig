@@ -296,6 +296,30 @@ pub const ZigValue = union(enum) {
             .certain_bytes => .bytes,
             .certain_null => .null_,
             .bigint, .unified_int => .int,
+            // typed_raw with type_hint - use the hint
+            .typed_raw => |t| if (t.type_hint) |hint| hint else .other,
+            // binop_result - infer from operand types
+            .binop_result => |b| blk: {
+                const lhs_ty = b.lhs.certainType();
+                const rhs_ty = b.rhs.certainType();
+                // Numeric result: int + int = int, int + float = float, float + float = float
+                if ((lhs_ty == .int or lhs_ty == .float) and (rhs_ty == .int or rhs_ty == .float)) {
+                    // Float promotion
+                    if (lhs_ty == .float or rhs_ty == .float) {
+                        break :blk .float;
+                    }
+                    break :blk .int;
+                }
+                break :blk .other;
+            },
+            // unaryop_result - preserve operand type for neg/pos, bool for not
+            .unaryop_result => |u| blk: {
+                switch (u.op) {
+                    .neg, .pos => break :blk u.operand.certainType(),
+                    .not_ => break :blk .bool_,
+                    .bit_not => break :blk .int, // Bitwise not always produces int
+                }
+            },
             else => .other,
         };
     }

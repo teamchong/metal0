@@ -1472,9 +1472,11 @@ pub fn genInitMethodWithBuiltinBase(
                             string_traits.isString(field_type);
 
                         if (is_anytype_param and !is_primitive_field) {
-                            try self.emit("runtime.PyValue.from(");
-                            try self.genExpr(assign.value.*);
-                            try self.emit(")");
+                            try self.emitCallCtx("runtime.PyValue.from", assign.value.*, struct {
+                                pub fn f(s: *NativeCodegen, v: ast.Node) CodegenError!void {
+                                    try s.genExpr(v);
+                                }
+                            }.f);
                         } else {
                             try self.genExpr(assign.value.*);
                         }

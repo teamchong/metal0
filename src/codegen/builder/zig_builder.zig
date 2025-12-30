@@ -842,6 +842,8 @@ pub const ZigBuilder = struct {
         const rhs = b.rhs.*;
         const lhs_conf = lhs.confidence();
         const rhs_conf = rhs.confidence();
+        const lhs_ty = lhs.certainType();
+        const rhs_ty = rhs.certainType();
 
         // For comparison ops, delegate to emitComparison
         switch (b.op) {
@@ -975,19 +977,35 @@ pub const ZigBuilder = struct {
 
         // Both certain: check if same type for optimized native path
         if (lhs_conf == .certain and rhs_conf == .certain) {
-            const lhs_ty = lhs.certainType();
-            const rhs_ty = rhs.certainType();
+            // lhs_ty and rhs_ty already computed at function start for debug
 
             // Arithmetic ops on numeric types
             if ((lhs_ty == .int or lhs_ty == .float) and (rhs_ty == .int or rhs_ty == .float)) {
                 switch (b.op) {
                     .add, .sub, .mul => {
-                        // Native operation: (lhs) op (rhs)
-                        try self.write("((");
-                        try self.emitValueCore(lhs);
-                        try self.writeFmt(") {s} (", .{binOpStr(b.op)});
-                        try self.emitValueCore(rhs);
-                        try self.write("))");
+                        // Handle mixed int/float types - convert int to float
+                        if (lhs_ty == .int and rhs_ty == .float) {
+                            // int op float -> float: @as(f64, @floatFromInt(lhs)) op rhs
+                            try self.write("(@as(f64, @floatFromInt(");
+                            try self.emitValueCore(lhs);
+                            try self.writeFmt(")) {s} (", .{binOpStr(b.op)});
+                            try self.emitValueCore(rhs);
+                            try self.write("))");
+                        } else if (lhs_ty == .float and rhs_ty == .int) {
+                            // float op int -> float: lhs op @as(f64, @floatFromInt(rhs))
+                            try self.write("((");
+                            try self.emitValueCore(lhs);
+                            try self.writeFmt(") {s} @as(f64, @floatFromInt(", .{binOpStr(b.op)});
+                            try self.emitValueCore(rhs);
+                            try self.write(")))");
+                        } else {
+                            // Same types: native operation
+                            try self.write("((");
+                            try self.emitValueCore(lhs);
+                            try self.writeFmt(") {s} (", .{binOpStr(b.op)});
+                            try self.emitValueCore(rhs);
+                            try self.write("))");
+                        }
                         return;
                     },
                     .div => {
@@ -1515,7 +1533,9 @@ pub const ZigBuilder = struct {
         rhs_ptr.* = rhs;
 
         // Determine result confidence
-        const confidence: TypeConfidence = if (lhs.needsPyValue() or rhs.needsPyValue())
+        const lhs_needs = lhs.needsPyValue();
+        const rhs_needs = rhs.needsPyValue();
+        const confidence: TypeConfidence = if (lhs_needs or rhs_needs)
             .uncertain
         else
             .certain;

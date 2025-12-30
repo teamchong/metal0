@@ -2430,7 +2430,6 @@ pub const NativeCodegen = struct {
                     } else if (left_is_field and !type_traits.isClassInstance(right_type)) {
                         // Left is field, right is primitive - continue
                     } else {
-                        std.debug.print("DEBUG exprToValue binop: class_instance fallback, left={any}, right={any}\n", .{ left_type, right_type });
                         return try self.captureExpr(node);
                     }
                 }
@@ -2599,21 +2598,42 @@ pub const NativeCodegen = struct {
                 return try self.captureExprTyped(node, confidence);
             },
 
-            // Attribute access - infer attribute type confidence
+            // Attribute access - infer attribute type confidence and type hint
             .attribute => |a| {
                 // Check if accessing a known type's attribute
                 const obj_type = self.inferExprScoped(a.value.*) catch .unknown;
 
-                // Builtin types have certain attribute types
-                const confidence: builder_mod.TypeConfidence = blk: {
+                // Helper to convert NativeType to CertainType
+                const nativeTypeToCertainType = struct {
+                    fn convert(native_type: NativeType) ?builder_mod.CertainType {
+                        return switch (native_type) {
+                            .int => .int,
+                            .float => .float,
+                            .bool => .bool_,
+                            .string => .string,
+                            .bytes => .bytes,
+                            .none => .null_,
+                            else => null, // Unknown or complex types
+                        };
+                    }
+                }.convert;
+
+                // Track both confidence and type_hint
+                const TypeInfo = struct {
+                    confidence: builder_mod.TypeConfidence,
+                    type_hint: ?builder_mod.CertainType,
+                };
+                const type_info: TypeInfo = blk: {
                     // String/bytes/list/dict methods are certain
-                    if (string_traits.isStringLike(obj_type) or
-                        container_traits.isList(obj_type) or
+                    if (string_traits.isStringLike(obj_type)) {
+                        break :blk .{ .confidence = .certain, .type_hint = .string };
+                    }
+                    if (container_traits.isList(obj_type) or
                         container_traits.isDict(obj_type) or
                         container_traits.isTuple(obj_type) or
                         container_traits.isSet(obj_type))
                     {
-                        break :blk .certain;
+                        break :blk .{ .confidence = .certain, .type_hint = null };
                     }
 
                     // Module access (math.sqrt, os.path) - check if obj is a known module name
@@ -2628,7 +2648,46 @@ pub const NativeCodegen = struct {
                             .{ "socket", {} }, .{ "sqlite3", {} }, .{ "ctypes", {} },
                         });
                         if (known_modules.has(module_name)) {
-                            break :blk .certain;
+                            break :blk .{ .confidence = .certain, .type_hint = null };
+                        }
+                    }
+
+                    // Special handling for anytype params and _converted suffix variables
+                    // In comptime polymorphic dispatch, these should use current class field types
+                    if (a.value.* == .name) {
+                        const base_name = a.value.name.id;
+
+                        // Check for _converted suffix (e.g., other_converted from other = Rat(...))
+                        if (std.mem.endsWith(u8, base_name, "_converted")) {
+                            const original_name = base_name[0 .. base_name.len - "_converted".len];
+                            if (self.anytype_params.contains(original_name)) {
+                                // Check current class fields - _converted is same class type
+                                if (self.current_class_name) |class_name| {
+                                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                        if (class_info.fields.get(a.attr)) |field_type| {
+                                            if (field_type == .pyvalue or field_type == .unknown) {
+                                                break :blk .{ .confidence = .uncertain, .type_hint = null };
+                                            }
+                                            break :blk .{ .confidence = .certain, .type_hint = nativeTypeToCertainType(field_type) };
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check for anytype param directly (e.g., other.__den in @This() branch)
+                        // When attribute matches current class field, treat as certain
+                        if (self.anytype_params.contains(base_name)) {
+                            if (self.current_class_name) |class_name| {
+                                if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                    if (class_info.fields.get(a.attr)) |field_type| {
+                                        if (field_type == .pyvalue or field_type == .unknown) {
+                                            break :blk .{ .confidence = .uncertain, .type_hint = null };
+                                        }
+                                        break :blk .{ .confidence = .certain, .type_hint = nativeTypeToCertainType(field_type) };
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -2636,36 +2695,31 @@ pub const NativeCodegen = struct {
                     // Only uncertain if field type is actually pyvalue/unknown
                     if (type_traits.isClassInstance(obj_type)) {
                         const class_name = obj_type.class_instance;
-                        std.debug.print("DEBUG exprToValue attr: {s}.{s} (class {s})\n", .{ if (a.value.* == .name) a.value.name.id else "?", a.attr, class_name });
                         if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
-                            std.debug.print("DEBUG: Found class info for {s}\n", .{class_name});
                             if (class_info.fields.get(a.attr)) |field_type| {
-                                std.debug.print("DEBUG: Found field {s} type {any}\n", .{ a.attr, field_type });
                                 // Field has a known type - only uncertain if pyvalue/unknown
                                 if (field_type == .pyvalue or field_type == .unknown) {
-                                    break :blk .uncertain;
+                                    break :blk .{ .confidence = .uncertain, .type_hint = null };
                                 }
-                                // Known primitive field type - mark as certain
-                                break :blk .certain;
+                                // Known primitive field type - mark as certain with type hint
+                                break :blk .{ .confidence = .certain, .type_hint = nativeTypeToCertainType(field_type) };
                             }
-                            std.debug.print("DEBUG: Field {s} NOT found in fields\n", .{a.attr});
                         } else {
-                            std.debug.print("DEBUG: Class {s} NOT found in class_fields\n", .{class_name});
                         }
                         // Field not found - assume certain to avoid PyValue overhead
-                        break :blk .certain;
+                        break :blk .{ .confidence = .certain, .type_hint = null };
                     }
 
                     // Unknown type -> uncertain
                     if (obj_type == .unknown) {
-                        break :blk .uncertain;
+                        break :blk .{ .confidence = .uncertain, .type_hint = null };
                     }
 
                     // Default to certain for known primitive types
-                    break :blk .certain;
+                    break :blk .{ .confidence = .certain, .type_hint = null };
                 };
 
-                return try self.captureExprTyped(node, confidence);
+                return try self.captureExprTypedWithHint(node, type_info.confidence, type_info.type_hint);
             },
 
             // Subscript access - infer element type confidence
@@ -3332,6 +3386,52 @@ pub const NativeCodegen = struct {
         return builder_mod.ZigValue{ .typed_raw = .{
             .raw = code,
             .confidence = typed_confidence,
+        } };
+    }
+
+    /// Capture an expression with type confidence and type hint tracking
+    /// Like captureExprTyped but also stores the CertainType for better dispatch
+    pub fn captureExprTypedWithHint(self: *NativeCodegen, expr: ast.Node, typed_confidence: builder_mod.TypeConfidence, type_hint: ?builder_mod.CertainType) CodegenError!builder_mod.ZigValue {
+        const expressions = @import("../expressions.zig");
+
+        // Save builder state - nested code may use builder and flush
+        const builder_save: ?[]const u8 = if (self.builder) |b| blk: {
+            const content = try b.getBodyDupe();
+            if (content.len > 0) {
+                break :blk try self.arena.allocator().dupe(u8, content);
+            }
+            break :blk null;
+        } else null;
+
+        // Save current output position
+        const start_pos = self.output.items.len;
+
+        // Generate the expression into the output buffer
+        try expressions.genExpr(self, expr);
+
+        // Flush builder to ensure any pending output gets written
+        try self.flushBuilder();
+
+        // Extract the generated code
+        const generated = self.output.items[start_pos..];
+
+        // Copy to arena so it persists
+        const code = try self.arena.allocator().dupe(u8, generated);
+
+        // Remove the generated code from output (we're capturing it)
+        self.output.shrinkRetainingCapacity(start_pos);
+
+        // Restore builder state
+        if (builder_save) |saved| {
+            if (self.builder) |b| {
+                try b.emitRaw(saved);
+            }
+        }
+
+        return builder_mod.ZigValue{ .typed_raw = .{
+            .raw = code,
+            .confidence = typed_confidence,
+            .type_hint = type_hint,
         } };
     }
 

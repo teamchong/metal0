@@ -47,6 +47,7 @@ pub fn err(comptime name: []const u8) H { return c("error." ++ name); }
 /// Generates a handler that discards all args and returns a default value
 /// Use this for stub functions that need to consume their arguments
 pub fn discard(comptime ret: []const u8) H {
+    const Ctx = struct { args: []ast.Node };
     return struct {
         fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             if (args.len == 0) {
@@ -54,16 +55,17 @@ pub fn discard(comptime ret: []const u8) H {
                 return;
             }
             // Generate: (__m{id}_discard: { _ = arg1; _ = arg2; break :__m{id}_discard default; })
-            const label = try self.emitInlineBlockStart("discard");
-            for (args, 0..) |arg, i| {
-                // Emit: _ = arg; (semicolon only needed before next arg)
-                if (i > 0) try self.emit(" ");
-                try self.emit("_ = ");
-                try self.genExpr(arg);
-                if (i < args.len - 1) try self.emit(";"); // semicolon between args, not after last
-            }
-            try self.emitFmt("; break :{s} {s}; ", .{ label, ret });
-            try self.emitInlineBlockEnd();
+            try self.withInlineBlock("discard", Ctx{ .args = args }, struct {
+                fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                    for (ctx.args, 0..) |arg, i| {
+                        if (i > 0) try s.emit(" ");
+                        try s.emit("_ = ");
+                        try s.genExpr(arg);
+                        if (i < ctx.args.len - 1) try s.emit(";");
+                    }
+                    try s.emitFmt("; break :{s} {s}", .{ label, ret });
+                }
+            }.emit);
         }
     }.f;
 }

@@ -108,23 +108,16 @@ const genProd = h.wrapBlk("prod", "var _product: f64 = 1; for (__v) |_item| { _p
 const genNextafter = h.wrap2("math.nextafter(@as(f64, ", "), @as(f64, ", "), null)", "@as(f64, 0.0)");
 const genUlp = h.wrapBlk("ulp", "const _x = @abs(@as(f64, __v)); const _exp = @as(i32, @intFromFloat(@log2(_x)));", "std.math.ldexp(@as(f64, 1.0), _exp - 52)", "std.math.floatMin(f64)");
 
-// Classification functions that handle PyPowResult union type via runtime.math.*
+// Classification functions that handle PyPowResult union type via runtime.Lib.math.*
 // Note: std.math uses camelCase (isNan, isInf, isFinite)
 
-/// Helper: emit runtime.math.func(expr) with guaranteed bracket matching
-fn emitRuntimeMathCall(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
-    const Ctx = struct { f: []const u8, e: ast.Node };
-    try self.emitCallCtx("runtime.math", Ctx{ .f = func, .e = expr }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit(".");
-            try s.emit(ctx.f);
-            try s.emitCallCtx("", ctx.e, struct {
-                pub fn inner(ss: *NativeCodegen, e: ast.Node) CodegenError!void {
-                    try ss.genExpr(e);
-                }
-            }.inner);
-        }
-    }.f);
+const builder_mod = @import("codegen.builder");
+
+/// Helper: emit runtime.Lib.math.func(expr) using builder pattern
+fn emitRuntimeMathClassification(self: *NativeCodegen, func: []const u8, expr: ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    const arg_val = try self.exprToValue(expr);
+    try b.emitCallExpr(func, &.{.{ .value = arg_val }});
 }
 
 /// Helper: emit runtime.Lib.math.copysign(expr1, expr2) with guaranteed bracket matching
@@ -141,7 +134,7 @@ fn emitCopysignCall(self: *NativeCodegen, expr1: ast.Node, expr2: ast.Node) Code
 
 fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitRuntimeMathCall(self, "isNan", args[0]);
+        try emitRuntimeMathClassification(self, "runtime.Lib.math.isnan", args[0]);
     } else {
         try self.emit("false");
     }
@@ -149,7 +142,7 @@ fn genIsNan(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitRuntimeMathCall(self, "isInf", args[0]);
+        try emitRuntimeMathClassification(self, "runtime.Lib.math.isinf", args[0]);
     } else {
         try self.emit("false");
     }
@@ -157,7 +150,7 @@ fn genIsInf(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
 fn genIsFinite(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len > 0) {
-        try emitRuntimeMathCall(self, "isFinite", args[0]);
+        try emitRuntimeMathClassification(self, "runtime.Lib.math.isfinite", args[0]);
     } else {
         try self.emit("true");
     }
