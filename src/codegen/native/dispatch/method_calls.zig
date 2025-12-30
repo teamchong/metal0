@@ -137,6 +137,92 @@ fn isUniqueStringMethod(name: []const u8) bool {
     return unique_methods.has(name);
 }
 
+/// Generate PyValue string method call for uncertain types
+/// Returns true if handled, false if should fall through
+fn genPyValueStringMethod(self: *NativeCodegen, obj: ast.Node, method_name: []const u8, args: []ast.Node) CodegenError!bool {
+    const parent = @import("../expressions.zig");
+
+    // Methods that return bool (no allocator needed)
+    if (std.mem.eql(u8, method_name, "startswith")) {
+        // obj.startswith(prefix) -> runtime.PyValue.from(obj).startswith(prefix)
+        try self.emit("runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").startswith(");
+        if (args.len > 0) {
+            try parent.genExpr(self, args[0]);
+        } else {
+            try self.emit("\"\"");
+        }
+        try self.emit(")");
+        return true;
+    }
+
+    if (std.mem.eql(u8, method_name, "endswith")) {
+        try self.emit("runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").endswith(");
+        if (args.len > 0) {
+            try parent.genExpr(self, args[0]);
+        } else {
+            try self.emit("\"\"");
+        }
+        try self.emit(")");
+        return true;
+    }
+
+    // Methods that return []const u8 (no allocator needed)
+    if (std.mem.eql(u8, method_name, "strip")) {
+        try self.emit("runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").strip()");
+        return true;
+    }
+
+    if (std.mem.eql(u8, method_name, "lstrip")) {
+        try self.emit("runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").lstrip()");
+        return true;
+    }
+
+    if (std.mem.eql(u8, method_name, "rstrip")) {
+        try self.emit("runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").rstrip()");
+        return true;
+    }
+
+    // Methods that return i64 (no allocator needed)
+    if (std.mem.eql(u8, method_name, "find")) {
+        try self.emit("runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").find(");
+        if (args.len > 0) {
+            try parent.genExpr(self, args[0]);
+        } else {
+            try self.emit("\"\"");
+        }
+        try self.emit(")");
+        return true;
+    }
+
+    // Methods that need allocator (return ArrayList or complex types)
+    if (std.mem.eql(u8, method_name, "split")) {
+        try self.emit("(try runtime.PyValue.from(");
+        try parent.genExpr(self, obj);
+        try self.emit(").split(__global_allocator, ");
+        if (args.len > 0) {
+            try parent.genExpr(self, args[0]);
+        } else {
+            try self.emit("\" \""); // Default: split on whitespace
+        }
+        try self.emit(")).items");
+        return true;
+    }
+
+    return false;
+}
+
 // List methods - O(1) lookup via StaticStringMap
 const ListMethods = std.StaticStringMap(MethodHandler).initComptime(.{
     .{ "append", methods.genAppend },
@@ -512,6 +598,12 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
                 return err;
             };
             return true;
+        }
+        // Two-Flow: For PyValue/unknown types, use PyValue string methods instead of eval fallback
+        if (obj_type == .pyvalue or type_traits.isUnknown(obj_type)) {
+            if (try genPyValueStringMethod(self, obj, method_name, call.args)) {
+                return true;
+            }
         }
         // Not a string type or uncertain - fall through to other handlers
     }

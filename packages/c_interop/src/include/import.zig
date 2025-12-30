@@ -116,7 +116,8 @@ pub export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.
 
 /// Import a hierarchical module like "numpy.testing" by:
 /// 1. Importing the root module ("numpy")
-/// 2. Getting each subsequent part as an attribute
+/// 2. For proxy modules: create a new proxy for the full submodule path
+/// 3. For native modules: traverse using attribute access
 fn importHierarchical(full_name: []const u8, first_dot: usize) ?*cpython.PyObject {
     // Get root module name (e.g., "numpy" from "numpy.testing")
     const root_name = full_name[0..first_dot];
@@ -130,7 +131,43 @@ fn importHierarchical(full_name: []const u8, first_dot: usize) ?*cpython.PyObjec
     // Import root module (recursive call handles caching)
     const root_module = PyImport_ImportModule(@ptrCast(&root_buf)) orelse return null;
 
-    // Now traverse the remaining parts as attributes
+    // If root is a proxy module, create a new proxy for the full submodule path
+    // This handles pure Python submodules of C extensions (like numpy.testing)
+    if (isProxyModule(root_module)) {
+        // Verify the full submodule can be imported via subprocess
+        var check_buf: [512]u8 = undefined;
+        const check_code = std.fmt.bufPrint(&check_buf, "import {s}", .{full_name}) catch return null;
+
+        const check_result = std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &[_][]const u8{ "python3", "-c", check_code },
+        }) catch return null;
+        defer allocator.free(check_result.stdout);
+        defer allocator.free(check_result.stderr);
+
+        // Check if import succeeded
+        switch (check_result.term) {
+            .Exited => |code| if (code != 0) return null,
+            else => return null,
+        }
+
+        // Create a proxy module for the full submodule path
+        const submodule = createProxyModule(full_name) orelse return null;
+
+        // Cache in sys.modules
+        if (module_dict) |mod_dict| {
+            var name_buf: [512:0]u8 = undefined;
+            if (full_name.len < name_buf.len) {
+                @memcpy(name_buf[0..full_name.len], full_name);
+                name_buf[full_name.len] = 0;
+                _ = PyDict_SetItemString(mod_dict, @ptrCast(&name_buf), submodule);
+            }
+        }
+
+        return submodule;
+    }
+
+    // For non-proxy modules, traverse using attribute access
     var current_module = root_module;
     var remaining = full_name[first_dot + 1 ..];
 
@@ -149,10 +186,7 @@ fn importHierarchical(full_name: []const u8, first_dot: usize) ?*cpython.PyObjec
         part_buf[part.len] = 0;
 
         // Get submodule as attribute of current module
-        // Try proxy attribute access first (for subprocess-based modules)
-        // then fall back to standard attribute access
-        const submodule = getProxyAttr(current_module, @ptrCast(&part_buf)) orelse
-            traits.externs.PyObject_GetAttrString(current_module, @ptrCast(&part_buf)) orelse {
+        const submodule = traits.externs.PyObject_GetAttrString(current_module, @ptrCast(&part_buf)) orelse {
             Py_DECREF(current_module);
             return null;
         };

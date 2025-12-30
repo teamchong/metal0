@@ -113,21 +113,19 @@ pub fn importModule(module_name: [*:0]const u8) ?*PyObject {
 }
 
 /// Import attribute from module using Python's from-import semantics
-/// Handles C extension modules and their direct attributes.
-///
-/// NOTE: This does NOT handle pure Python subpackages of C extensions
-/// (like numpy.testing) - those require the Python interpreter to run __init__.py.
-/// For those cases, consider using pytest or running the test with Python.
+/// Handles C extension modules and proxy modules (subprocess-based).
 ///
 /// For "from numpy import array", this:
-/// 1. Loads the C extension module (numpy)
-/// 2. Gets the attribute (array) from the module
+/// 1. Loads the module (C extension or proxy)
+/// 2. Gets the attribute using appropriate method (subprocess for proxies)
 pub fn fromImport(module_name: [*:0]const u8, attr_name: [*:0]const u8) ?*PyObject {
-    // Import the module (works for C extensions)
+    // Import the module (works for C extensions and proxy modules)
     const module = import.PyImport_ImportModule(module_name) orelse return null;
 
-    // Get the attribute from the module
-    const result = traits.externs.PyObject_GetAttrString(module, attr_name);
+    // For proxy modules, use subprocess-based attribute access
+    // For regular modules, use standard PyObject_GetAttrString
+    const result = import.getProxyAttr(module, attr_name) orelse
+        traits.externs.PyObject_GetAttrString(module, attr_name);
     traits.externs.Py_DECREF(module);
     return result;
 }

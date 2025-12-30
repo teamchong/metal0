@@ -363,21 +363,29 @@ fn genBytesCallWithSubs(
         try self.emit(")}");
     } else {
         // General case: generate list with substitution
-        const label = try self.emitInlineBlockStart("blk");
-        try self.emit("var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
-        if (c.args[0] == .list) {
-            for (c.args[0].list.elts) |elt| {
-                try self.emit("try _bytes_list.append(__global_allocator, @intCast(");
-                try genExprWithSubs(self, elt, subs);
-                try self.emit(")); ");
+        const Ctx = struct {
+            arg: ast.Node,
+            subs: *const hashmap_helper.StringHashMap([]const u8),
+        };
+        try self.withInlineBlock("blk", Ctx{ .arg = c.args[0], .subs = subs }, struct {
+            fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                try s.emit("var _bytes_list = std.ArrayListUnmanaged(u8){}; ");
+                if (ctx.arg == .list) {
+                    for (ctx.arg.list.elts) |elt| {
+                        try s.emit("try _bytes_list.append(__global_allocator, @intCast(");
+                        try genExprWithSubs(s, elt, ctx.subs);
+                        try s.emit(")); ");
+                    }
+                } else {
+                    try s.emit("for ((");
+                    try genExprWithSubs(s, ctx.arg, ctx.subs);
+                    try s.emit(").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
+                }
+                try s.emit("break :");
+                try s.emit(label);
+                try s.emit(" _bytes_list.items; ");
             }
-        } else {
-            try self.emit("for ((");
-            try genExprWithSubs(self, c.args[0], subs);
-            try self.emit(").items) |_item| try _bytes_list.append(__global_allocator, @intCast(_item)); ");
-        }
-        try self.emitFmt("break :{s} _bytes_list.items; ", .{label});
-        try self.emitInlineBlockEnd();
+        }.emit);
     }
 }
 
@@ -388,39 +396,47 @@ fn genSetCallWithSubs(
     subs: *const hashmap_helper.StringHashMap([]const u8),
 ) CodegenError!void {
     // Generate: set_blk: { var _set = ...; for (<arg>) |_item| { try _set.put(_item, {}); } break :set_blk _set; }
-    const label = try self.emitInlineBlockStart("set");
-    try self.emit("\n");
-    self.indent();
-    try self.emitIndent();
-    try self.emit("var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
+    const Ctx = struct {
+        arg: ast.Node,
+        subs: *const hashmap_helper.StringHashMap([]const u8),
+    };
+    try self.withInlineBlock("set", Ctx{ .arg = c.args[0], .subs = subs }, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+            try s.emit("\n");
+            s.indent();
+            try s.emitIndent();
+            try s.emit("var _set = std.AutoHashMap(i64, void).init(__global_allocator);\n");
 
-    // Check if arg is a list literal - iterate over elements
-    if (c.args[0] == .list) {
-        const list_elts = c.args[0].list.elts;
-        for (list_elts) |elt| {
-            try self.emitIndent();
-            try self.emit("try _set.put(");
-            try genExprWithSubs(self, elt, subs);
-            try self.emit(", {});\n");
+            // Check if arg is a list literal - iterate over elements
+            if (ctx.arg == .list) {
+                const list_elts = ctx.arg.list.elts;
+                for (list_elts) |elt| {
+                    try s.emitIndent();
+                    try s.emit("try _set.put(");
+                    try genExprWithSubs(s, elt, ctx.subs);
+                    try s.emit(", {});\n");
+                }
+            } else {
+                // General case - iterate over the expression
+                try s.emitIndent();
+                try s.emit("for (");
+                try genExprWithSubs(s, ctx.arg, ctx.subs);
+                try s.emit(") |_item| {\n");
+                s.indent();
+                try s.emitIndent();
+                try s.emit("try _set.put(_item, {});\n");
+                s.dedent();
+                try s.emitIndent();
+                try s.emit("}\n");
+            }
+            try s.emitIndent();
+            try s.emit("break :");
+            try s.emit(label);
+            try s.emit(" _set;\n");
+            s.dedent();
+            try s.emitIndent();
         }
-    } else {
-        // General case - iterate over the expression
-        try self.emitIndent();
-        try self.emit("for (");
-        try genExprWithSubs(self, c.args[0], subs);
-        try self.emit(") |_item| {\n");
-        self.indent();
-        try self.emitIndent();
-        try self.emit("try _set.put(_item, {});\n");
-        self.dedent();
-        try self.emitIndent();
-        try self.emit("}\n");
-    }
-    try self.emitIndent();
-    try self.emitFmt("break :{s} _set;\n", .{label});
-    self.dedent();
-    try self.emitIndent();
-    try self.emitInlineBlockEnd();
+    }.emit);
 }
 
 /// Generate subscript with substitutions
@@ -432,23 +448,32 @@ fn genSubscriptWithSubs(
     switch (sub.slice) {
         .slice => |sr| {
             // It's a slice - generate slice with substitutions
-            const label = try self.emitInlineBlockStart("slice");
-            try self.emit("const __s = ");
-            try genExprWithSubs(self, sub.value.*, subs);
-            try self.emit("; const __start = @min(");
-            if (sr.lower) |lower| {
-                try genExprWithSubs(self, lower.*, subs);
-            } else {
-                try self.emit("0");
-            }
-            try self.emit(", __s.len); const __end = @min(");
-            if (sr.upper) |upper| {
-                try genExprWithSubs(self, upper.*, subs);
-            } else {
-                try self.emit("__s.len");
-            }
-            try self.emitFmt(", __s.len); break :{s} if (__start < __end) __s[__start..__end] else \"\"; ", .{label});
-            try self.emitInlineBlockEnd();
+            const Ctx = struct {
+                value: ast.Node,
+                sr: ast.Node.SliceRange,
+                subs: *const hashmap_helper.StringHashMap([]const u8),
+            };
+            try self.withInlineBlock("slice", Ctx{ .value = sub.value.*, .sr = sr, .subs = subs }, struct {
+                fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+                    try s.emit("const __s = ");
+                    try genExprWithSubs(s, ctx.value, ctx.subs);
+                    try s.emit("; const __start = @min(");
+                    if (ctx.sr.lower) |lower| {
+                        try genExprWithSubs(s, lower.*, ctx.subs);
+                    } else {
+                        try s.emit("0");
+                    }
+                    try s.emit(", __s.len); const __end = @min(");
+                    if (ctx.sr.upper) |upper| {
+                        try genExprWithSubs(s, upper.*, ctx.subs);
+                    } else {
+                        try s.emit("__s.len");
+                    }
+                    try s.emit(", __s.len); break :");
+                    try s.emit(label);
+                    try s.emit(" if (__start < __end) __s[__start..__end] else \"\"; ");
+                }
+            }.emit);
         },
         .index => |idx| {
             // Simple index with substitution

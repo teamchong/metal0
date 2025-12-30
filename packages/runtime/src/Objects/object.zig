@@ -959,6 +959,62 @@ pub const PyValue = union(enum) {
         return self.isTruthy();
     }
 
+    // ========================================================================
+    // String methods for PyValue (dynamic dispatch for uncertain types)
+    // ========================================================================
+
+    /// Check if string starts with prefix
+    pub fn startswith(self: PyValue, prefix: []const u8) bool {
+        const str = self.asString();
+        if (prefix.len > str.len) return false;
+        return std.mem.eql(u8, str[0..prefix.len], prefix);
+    }
+
+    /// Check if string ends with suffix
+    pub fn endswith(self: PyValue, suffix: []const u8) bool {
+        const str = self.asString();
+        if (suffix.len > str.len) return false;
+        return std.mem.eql(u8, str[str.len - suffix.len ..], suffix);
+    }
+
+    /// Strip whitespace from both ends
+    pub fn strip(self: PyValue) []const u8 {
+        const str = self.asString();
+        return std.mem.trim(u8, str, " \t\n\r");
+    }
+
+    /// Strip whitespace from left
+    pub fn lstrip(self: PyValue) []const u8 {
+        const str = self.asString();
+        return std.mem.trimLeft(u8, str, " \t\n\r");
+    }
+
+    /// Strip whitespace from right
+    pub fn rstrip(self: PyValue) []const u8 {
+        const str = self.asString();
+        return std.mem.trimRight(u8, str, " \t\n\r");
+    }
+
+    /// Split string by delimiter (returns slice, caller should use allocator for dynamic)
+    pub fn split(self: PyValue, allocator: std.mem.Allocator, delim: []const u8) !std.ArrayList([]const u8) {
+        const str = self.asString();
+        var result: std.ArrayList([]const u8) = .{};
+        var iter = std.mem.splitSequence(u8, str, delim);
+        while (iter.next()) |part| {
+            try result.append(allocator, part);
+        }
+        return result;
+    }
+
+    /// Find substring, returns -1 if not found
+    pub fn find(self: PyValue, needle: []const u8) i64 {
+        const str = self.asString();
+        if (std.mem.indexOf(u8, str, needle)) |idx| {
+            return @intCast(idx);
+        }
+        return -1;
+    }
+
     /// Get underlying pointer for c_interop method calls
     /// Returns *anyopaque that can be cast to *cpython.PyObject for C extension calls
     pub fn toPtr(self: PyValue) *anyopaque {
