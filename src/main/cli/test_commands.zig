@@ -1018,16 +1018,16 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
         std.Thread.sleep(poll_interval);
         elapsed += poll_interval;
     }
+    // Final check before attempting kill
     if (done.load(.seq_cst)) return;
-    // Try to kill the hung process
-    const kill_result = child.kill() catch {
-        std.debug.print("WARN: Failed to kill hung process\n", .{});
-        done.store(true, .seq_cst);
-        return;
+
+    // Send SIGKILL to process directly instead of using child.kill() which calls waitpid
+    // This avoids race condition when main thread has already reaped the process
+    // ProcessNotFound (ESRCH) means process already exited - this is OK
+    std.posix.kill(child.id, std.posix.SIG.KILL) catch |err| switch (err) {
+        error.ProcessNotFound => {}, // Already exited, ignore
+        else => std.debug.print("WARN: Failed to send SIGKILL: {}\n", .{err}),
     };
-    _ = kill_result;
-    // Force-mark as done to unblock main thread
-    done.store(true, .seq_cst);
 }
 
 /// Compile a test file by linking against the precompiled runtime archive

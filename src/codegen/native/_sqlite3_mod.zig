@@ -1,54 +1,62 @@
 /// Python _sqlite3 module - Internal SQLite3 support (C accelerator)
 /// MIGRATED TO ZIGBUILDER
+/// DRY: Uses h.c(), h.str(), h.I32(), h.err() factories for constants
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
-// MIGRATED TO ZIGBUILDER
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    // Connection/cursor operations (genConnect kept as function - has arg handling)
     .{ "connect", genConnect },
-    .{ "connection", genConnection },
-    .{ "cursor", genCursor },
-    .{ "row", genRow },
-    .{ "cursor_method", genCursorMethod },
-    .{ "commit", genCommit },
-    .{ "rollback", genRollback },
-    .{ "close", genClose },
-    .{ "execute", genExecute },
-    .{ "executemany", genExecutemany },
-    .{ "executescript", genExecutescript },
-    .{ "create_function", genCreateFunction },
-    .{ "create_aggregate", genCreateAggregate },
-    .{ "create_collation", genCreateCollation },
-    .{ "set_authorizer", genSetAuthorizer },
-    .{ "set_progress_handler", genSetProgressHandler },
-    .{ "set_trace_callback", genSetTraceCallback },
-    .{ "enable_load_extension", genEnableLoadExtension },
-    .{ "load_extension", genLoadExtension },
-    .{ "interrupt", genInterrupt },
-    .{ "backup", genBackup },
-    .{ "iterdump", genIterdump },
-    .{ "fetchone", genFetchone },
-    .{ "fetchmany", genFetchmany },
-    .{ "fetchall", genFetchall },
-    .{ "setinputsizes", genSetinputsizes },
-    .{ "setoutputsize", genSetoutputsize },
-    .{ "version", genVersion },
-    .{ "version_info", genVersionInfo },
-    .{ "sqlite_version", genSqliteVersion },
-    .{ "sqlite_version_info", genSqliteVersionInfo },
-    .{ "p_a_r_s_e__d_e_c_l_t_y_p_e_s", genParseDeclTypes },
-    .{ "p_a_r_s_e__c_o_l_n_a_m_e_s", genParseColNames },
-    .{ "error", genErrorType },
-    .{ "database_error", genDatabaseError },
-    .{ "integrity_error", genIntegrityError },
-    .{ "programming_error", genProgrammingError },
-    .{ "operational_error", genOperationalError },
-    .{ "not_supported_error", genNotSupportedError },
+    .{ "connection", h.c(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }") },
+    .{ "cursor", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
+    .{ "row", h.c(".{}") },
+    .{ "cursor_method", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
+    // Transaction operations
+    .{ "commit", h.c("{}") },
+    .{ "rollback", h.c("{}") },
+    .{ "close", h.c("{}") },
+    // Execute operations
+    .{ "execute", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
+    .{ "executemany", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
+    .{ "executescript", h.c(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }") },
+    // Extension/callback registration
+    .{ "create_function", h.c("{}") },
+    .{ "create_aggregate", h.c("{}") },
+    .{ "create_collation", h.c("{}") },
+    .{ "set_authorizer", h.c("{}") },
+    .{ "set_progress_handler", h.c("{}") },
+    .{ "set_trace_callback", h.c("{}") },
+    .{ "enable_load_extension", h.c("{}") },
+    .{ "load_extension", h.c("{}") },
+    .{ "interrupt", h.c("{}") },
+    .{ "backup", h.c("{}") },
+    .{ "iterdump", h.c("&[_][]const u8{}") },
+    // Fetch operations
+    .{ "fetchone", h.c("null") },
+    .{ "fetchmany", h.c("&[_]@TypeOf(.{}){}") },
+    .{ "fetchall", h.c("&[_]@TypeOf(.{}){}") },
+    .{ "setinputsizes", h.c("{}") },
+    .{ "setoutputsize", h.c("{}") },
+    // Version info
+    .{ "version", h.c("\"2.6.0\"") },
+    .{ "version_info", h.c(".{ @as(i32, 2), @as(i32, 6), @as(i32, 0) }") },
+    .{ "sqlite_version", h.c("\"3.45.0\"") },
+    .{ "sqlite_version_info", h.c(".{ @as(i32, 3), @as(i32, 45), @as(i32, 0) }") },
+    // Parse constants
+    .{ "p_a_r_s_e__d_e_c_l_t_y_p_e_s", h.I32(1) },
+    .{ "p_a_r_s_e__c_o_l_n_a_m_e_s", h.I32(2) },
+    // Error types
+    .{ "error", h.err("Error") },
+    .{ "database_error", h.err("DatabaseError") },
+    .{ "integrity_error", h.err("IntegrityError") },
+    .{ "programming_error", h.err("ProgrammingError") },
+    .{ "operational_error", h.err("OperationalError") },
+    .{ "not_supported_error", h.err("NotSupportedError") },
 });
 
+// genConnect kept as function - has special arg handling with withInlineBlock
 fn genConnect(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
@@ -62,194 +70,4 @@ fn genConnect(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     } else {
         try b.emitValue(builder_mod.ZigValue.raw(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }"), builder_mod.EmitConfig.forExpression());
     }
-}
-
-fn genConnection(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .database = \":memory:\", .isolation_level = \"\", .row_factory = null }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genCursor(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genRow(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genCursorMethod(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genCommit(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genRollback(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genClose(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genExecute(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genExecutemany(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genExecutescript(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .connection = null, .description = null, .rowcount = -1, .lastrowid = null, .arraysize = 1 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genCreateFunction(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genCreateAggregate(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genCreateCollation(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetAuthorizer(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetProgressHandler(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetTraceCallback(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genEnableLoadExtension(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genLoadExtension(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genInterrupt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genBackup(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genIterdump(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_][]const u8{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genFetchone(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
-}
-
-fn genFetchmany(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]@TypeOf(.{}){}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genFetchall(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]@TypeOf(.{}){}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetinputsizes(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetoutputsize(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genVersion(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("2.6.0"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genVersionInfo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ @as(i32, 2), @as(i32, 6), @as(i32, 0) }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSqliteVersion(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("3.45.0"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSqliteVersionInfo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ @as(i32, 3), @as(i32, 45), @as(i32, 0) }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genParseDeclTypes(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 1)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genParseColNames(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 2)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genErrorType(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.Error"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genDatabaseError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.DatabaseError"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genIntegrityError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.IntegrityError"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genProgrammingError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.ProgrammingError"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genOperationalError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.OperationalError"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genNotSupportedError(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("error.NotSupportedError"), builder_mod.EmitConfig.forExpression());
 }
