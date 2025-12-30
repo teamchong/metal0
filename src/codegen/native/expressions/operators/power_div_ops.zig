@@ -187,6 +187,20 @@ pub fn genDivOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
         return;
     }
 
+    // For C extension values (PyObject), use PyValue's div method
+    // This handles Path objects (NUMPY_ROOT / '_core'), numpy arrays, etc.
+    // The __truediv__ method will be dispatched at runtime
+    if (left_type == .pyobject or left_type == .unknown) {
+        try b.emitRaw("(runtime.PyValue.from(");
+        const left_val = try self.exprToValue(binop.left.*);
+        try self.emitZigValue(left_val);
+        try b.emitRaw(")).div(runtime.PyValue.from(");
+        const right_val = try self.exprToValue(binop.right.*);
+        try self.emitZigValue(right_val);
+        try b.emitRaw("))");
+        return;
+    }
+
     const left_is_bool = type_traits.isBoolean(left_type);
     const right_is_bool = type_traits.isBoolean(right_type);
 

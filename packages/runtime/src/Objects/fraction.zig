@@ -134,4 +134,12 @@ pub const Fraction = struct {
             .denominator = self.denominator,
         };
     }
+
+    /// String representation: "numerator/denominator" (like Python's Fraction)
+    pub fn toStr(self: Fraction, allocator: std.mem.Allocator) ![]const u8 {
+        if (self.denominator == 1) {
+            return std.fmt.allocPrint(allocator, "{d}", .{self.numerator});
+        }
+        return std.fmt.allocPrint(allocator, "{d}/{d}", .{ self.numerator, self.denominator });
+    }
 };

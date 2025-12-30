@@ -20,6 +20,18 @@ fn genFraction(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("runtime.Fraction");
         return;
     } else if (args.len == 1) {
+        // Check for starred arg: Fraction(*tuple) - need to expand tuple elements
+        if (args[0] == .starred) {
+            // Starred expression: Fraction(*f2) where f2 is (num, den) tuple
+            // Need to generate: try runtime.Fraction.fromUnifiedInt(f2.@"0", f2.@"1")
+            const inner = args[0].starred.value.*;
+            try self.emit("try runtime.Fraction.fromUnifiedInt(");
+            try self.genExpr(inner);
+            try self.emit(".@\"0\", ");
+            try self.genExpr(inner);
+            try self.emit(".@\"1\")");
+            return;
+        }
         try self.emitCallCtx("runtime.Fraction.init", args[0], struct {
             pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
                 try s.genExpr(e);

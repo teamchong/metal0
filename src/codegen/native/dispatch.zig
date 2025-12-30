@@ -184,7 +184,7 @@ pub fn dispatchCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool
 }
 
 /// Generate call to C extension module via Python C API
-/// Example: np.array([1, 2, 3]) -> runtime.PyValue.from(c_interop.callModuleFunction("numpy", "array", .{args}).?)
+/// Example: np.array([1, 2, 3]) -> runtime.PyValue.from(c_interop.callModuleFunction("numpy", "array", .{args}) orelse @panic(...))
 fn generateCExtensionCall(
     self: *NativeCodegen,
     module_alias: []const u8,
@@ -196,8 +196,8 @@ fn generateCExtensionCall(
     // Resolve alias to actual module name (e.g., "np" -> "numpy")
     const actual_module_name = self.c_extension_modules.get(module_alias) orelse module_alias;
 
-    // Generate: runtime.PyValue.from(c_interop.callModuleFunction("module_name", "func_name", .{args...}).?)
-    // Use .? to unwrap optional - if null, it means Python call failed
+    // Generate: runtime.PyValue.from(c_interop.callModuleFunction("module_name", "func_name", .{args...}) orelse @panic(...))
+    // Use orelse @panic for safe null handling with clear error message instead of .?
     // PyValue.from() handles *cpython.PyObject -> PyValue conversion automatically
     try self.emit("runtime.PyValue.from(c_interop.callModuleFunction(\"");
     try self.emit(actual_module_name);
@@ -211,11 +211,11 @@ fn generateCExtensionCall(
         try expressions.genExpr(self, arg);
     }
 
-    try self.emit("}).?)");
+    try self.emitFmt("}}) orelse @panic(\"C extension call '{s}.{s}()' returned null\"))", .{ actual_module_name, func_name });
 }
 
 /// Generate call to C extension submodule via Python C API
-/// Example: np.linalg.norm(x) -> runtime.PyValue.from(c_interop.callModuleFunction("numpy.linalg", "norm", .{args}).?)
+/// Example: np.linalg.norm(x) -> runtime.PyValue.from(c_interop.callModuleFunction("numpy.linalg", "norm", .{args}) orelse @panic(...))
 fn generateNestedCExtensionCall(
     self: *NativeCodegen,
     compound_module: []const u8,
@@ -224,7 +224,8 @@ fn generateNestedCExtensionCall(
 ) CodegenError!void {
     const expressions = @import("expressions.zig");
 
-    // Generate: runtime.PyValue.from(c_interop.callModuleFunction("module.submodule", "func_name", .{args...}).?)
+    // Generate: runtime.PyValue.from(c_interop.callModuleFunction("module.submodule", "func_name", .{args...}) orelse @panic(...))
+    // Use orelse @panic for safe null handling with clear error message instead of .?
     // PyValue.from() handles *cpython.PyObject -> PyValue conversion automatically
     try self.emit("runtime.PyValue.from(c_interop.callModuleFunction(\"");
     try self.emit(compound_module);
@@ -238,7 +239,7 @@ fn generateNestedCExtensionCall(
         try expressions.genExpr(self, arg);
     }
 
-    try self.emit("}).?)");
+    try self.emitFmt("}}) orelse @panic(\"C extension call '{s}.{s}()' returned null\"))", .{ compound_module, func_name });
 }
 
 /// Generate direct C library call (zero PyObject* overhead)

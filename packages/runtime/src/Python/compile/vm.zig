@@ -16,20 +16,103 @@ const BytecodeProgram = program.BytecodeProgram;
 const PyBigInt = helpers.PyBigInt;
 const createPyBytes = helpers.createPyBytes;
 
+/// PyDict operations for scope lookups
+const PyDict = @import("../../Objects/dictobject.zig").PyDict;
+
+/// PyBuiltinFunction for callable builtins
+const builtinfunc = @import("../../Objects/builtinfunc.zig");
+const PyBuiltinFunction = builtinfunc.PyBuiltinFunction;
+const PyBuiltinFunction_Check = builtinfunc.PyBuiltinFunction_Check;
+
 /// Bytecode VM executor
 pub const VM = struct {
     stack: std.ArrayList(*PyObject),
     allocator: std.mem.Allocator,
+    globals: ?*PyObject, // Global scope dict (optional)
+    locals: ?*PyObject, // Local scope dict (optional)
+    builtins: ?*PyObject, // Builtins scope dict (optional)
 
     pub fn init(allocator: std.mem.Allocator) VM {
         return .{
             .stack = .{},
             .allocator = allocator,
+            .globals = null,
+            .locals = null,
+            .builtins = null,
+        };
+    }
+
+    /// Initialize VM with globals and locals scope dicts
+    pub fn initWithScope(allocator: std.mem.Allocator, globals: ?*PyObject, locals: ?*PyObject) VM {
+        return .{
+            .stack = .{},
+            .allocator = allocator,
+            .globals = globals,
+            .locals = locals,
+            .builtins = null,
+        };
+    }
+
+    /// Initialize VM with full scope: globals, locals, and builtins
+    pub fn initWithFullScope(allocator: std.mem.Allocator, globals: ?*PyObject, locals: ?*PyObject, builtins: ?*PyObject) VM {
+        return .{
+            .stack = .{},
+            .allocator = allocator,
+            .globals = globals,
+            .locals = locals,
+            .builtins = builtins,
         };
     }
 
     pub fn deinit(self: *VM) void {
         self.stack.deinit(self.allocator);
+    }
+
+    /// Look up a name in scope: locals -> globals -> builtins -> NameError
+    fn lookupName(self: *VM, name: []const u8) !*PyObject {
+        // Try locals first
+        if (self.locals) |locals_dict| {
+            if (PyDict.getItemString(locals_dict, name)) |value| {
+                return value;
+            }
+        }
+
+        // Then try globals
+        if (self.globals) |globals_dict| {
+            if (PyDict.getItemString(globals_dict, name)) |value| {
+                return value;
+            }
+        }
+
+        // Then try builtins
+        if (self.builtins) |builtins_dict| {
+            if (PyDict.getItemString(builtins_dict, name)) |value| {
+                return value;
+            }
+        }
+
+        // Name not found - NameError
+        return error.NameError;
+    }
+
+    /// Look up a name in globals only
+    fn lookupGlobal(self: *VM, name: []const u8) !*PyObject {
+        if (self.globals) |globals_dict| {
+            if (PyDict.getItemString(globals_dict, name)) |value| {
+                return value;
+            }
+        }
+        return error.NameError;
+    }
+
+    /// Look up a name in locals only
+    fn lookupLocal(self: *VM, name: []const u8) !*PyObject {
+        if (self.locals) |locals_dict| {
+            if (PyDict.getItemString(locals_dict, name)) |value| {
+                return value;
+            }
+        }
+        return error.NameError;
     }
 
     /// Execute bytecode program
@@ -102,7 +185,97 @@ pub const VM = struct {
                     try self.stack.append(self.allocator, list);
                 },
 
-                else => return error.UnsupportedOpcode, // Opcode not yet supported in bytecode VM
+                .LoadName => {
+                    // Load variable: tries locals -> globals
+                    const name_idx = inst.arg;
+                    if (name_idx >= prog.names.len) return error.InvalidNameIndex;
+                    const name = prog.names[name_idx];
+                    const value = try self.lookupName(name);
+                    try self.stack.append(self.allocator, value);
+                },
+
+                .LoadGlobal => {
+                    // Load from globals dict only
+                    const name_idx = inst.arg;
+                    if (name_idx >= prog.names.len) return error.InvalidNameIndex;
+                    const name = prog.names[name_idx];
+                    const value = try self.lookupGlobal(name);
+                    try self.stack.append(self.allocator, value);
+                },
+
+                .LoadLocal => {
+                    // Load from locals dict only
+                    const name_idx = inst.arg;
+                    if (name_idx >= prog.names.len) return error.InvalidNameIndex;
+                    const name = prog.names[name_idx];
+                    const value = try self.lookupLocal(name);
+                    try self.stack.append(self.allocator, value);
+                },
+
+                .StoreName => {
+                    // Store to current scope (locals if available, else globals)
+                    const name_idx = inst.arg;
+                    if (name_idx >= prog.names.len) return error.InvalidNameIndex;
+                    const name = prog.names[name_idx];
+                    const value = self.stack.pop() orelse return error.StackUnderflow;
+                    const target = self.locals orelse self.globals orelse return error.NoScope;
+                    try PyDict.setItemString(target, name, value);
+                },
+
+                .StoreGlobal => {
+                    // Store to globals
+                    const name_idx = inst.arg;
+                    if (name_idx >= prog.names.len) return error.InvalidNameIndex;
+                    const name = prog.names[name_idx];
+                    const value = self.stack.pop() orelse return error.StackUnderflow;
+                    const globals_dict = self.globals orelse return error.NoScope;
+                    try PyDict.setItemString(globals_dict, name, value);
+                },
+
+                .StoreLocal => {
+                    // Store to locals
+                    const name_idx = inst.arg;
+                    if (name_idx >= prog.names.len) return error.InvalidNameIndex;
+                    const name = prog.names[name_idx];
+                    const value = self.stack.pop() orelse return error.StackUnderflow;
+                    const locals_dict = self.locals orelse return error.NoScope;
+                    try PyDict.setItemString(locals_dict, name, value);
+                },
+
+                .Pop => {
+                    // Discard top of stack
+                    _ = self.stack.pop() orelse return error.StackUnderflow;
+                },
+
+                .Call => {
+                    // Call a callable with arg_count arguments
+                    const arg_count = inst.arg;
+
+                    // Need at least arg_count + 1 items (args + callable)
+                    if (self.stack.items.len < arg_count + 1) return error.StackUnderflow;
+
+                    // Pop args from stack (in reverse order, so last arg is on top)
+                    var args = try self.allocator.alloc(*PyObject, arg_count);
+                    defer self.allocator.free(args);
+
+                    var i: usize = arg_count;
+                    while (i > 0) {
+                        i -= 1;
+                        args[i] = self.stack.pop() orelse return error.StackUnderflow;
+                    }
+
+                    // Pop callable
+                    const callable = self.stack.pop() orelse return error.StackUnderflow;
+
+                    // Check if it's a PyBuiltinFunction
+                    if (PyBuiltinFunction_Check(callable)) {
+                        const result = try PyBuiltinFunction.call(callable, self.allocator, args);
+                        try self.stack.append(self.allocator, result);
+                    } else {
+                        // Not a callable we recognize
+                        return error.TypeError;
+                    }
+                },
             }
 
             ip += 1;

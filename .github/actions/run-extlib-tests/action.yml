@@ -1,0 +1,90 @@
+name: 'Run External Library Tests'
+description: 'Run tests from external Python libraries (numpy, scipy, etc.)'
+inputs:
+  library:
+    description: 'Library name (e.g., numpy, scipy, pandas)'
+    required: true
+  test_dir:
+    description: 'Test directory relative to repo root (e.g., tests/numpy)'
+    required: true
+  pip_packages:
+    description: 'Space-separated pip packages to install'
+    required: false
+    default: ''
+  fail_on_error:
+    description: 'Whether to fail CI on test failures (true/false)'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run external library tests
+      shell: bash
+      run: |
+        set +e
+
+        # Run tests and capture output
+        ./zig-out/bin/metal0 test ${{ inputs.test_dir }} 2>&1 | tee extlib_output.txt
+        TEST_EXIT=$?
+
+        set -e
+
+        # Strip ANSI codes for parsing
+        sed 's/\x1b\[[0-9;]*m//g' extlib_output.txt > extlib_output_clean.txt
+
+        # Parse test results
+        if grep -q "All.*tests passed" extlib_output_clean.txt; then
+          PASSED=$(grep -oE 'All [0-9]+ tests passed' extlib_output_clean.txt | grep -oE '[0-9]+' | head -1)
+          PASSED=${PASSED:-0}
+          FAILED=0
+          TOTAL=$PASSED
+        elif grep -q '[0-9]\+/[0-9]\+ passed' extlib_output_clean.txt; then
+          PASSED=$(grep -oE '[0-9]+/[0-9]+ passed' extlib_output_clean.txt | head -1 | cut -d'/' -f1)
+          TOTAL=$(grep -oE '[0-9]+/[0-9]+ passed' extlib_output_clean.txt | head -1 | cut -d'/' -f2 | cut -d' ' -f1)
+          PASSED=${PASSED:-0}
+          TOTAL=${TOTAL:-0}
+          FAILED=$((TOTAL - PASSED))
+        else
+          echo "Warning: Could not parse test results"
+          PASSED=0
+          FAILED=0
+          TOTAL=0
+        fi
+
+        # Calculate pass rate
+        if [ "$TOTAL" -gt 0 ]; then
+          RATE=$(echo "scale=1; $PASSED * 100 / $TOTAL" | bc)
+        else
+          RATE="0"
+        fi
+
+        # Generate summary
+        LIB_NAME="${{ inputs.library }}"
+        LIB_UPPER=$(echo "$LIB_NAME" | tr '[:lower:]' '[:upper:]' | head -c1)$(echo "$LIB_NAME" | tail -c+2)
+
+        echo "## ExtLib $LIB_UPPER Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Total | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+        echo "| Pass Rate | ${RATE}% |" >> $GITHUB_STEP_SUMMARY
+
+        # Show failed tests if any
+        if [ "$FAILED" -gt 0 ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Failed Tests" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          grep -E "\[FAIL\]|\[TIMEOUT\]" extlib_output_clean.txt >> $GITHUB_STEP_SUMMARY || true
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        # Exit based on fail_on_error setting
+        if [ "${{ inputs.fail_on_error }}" = "true" ] && [ "$FAILED" -gt 0 ]; then
+          echo "Tests failed and fail_on_error is true"
+          exit 1
+        fi
+
+        echo "ExtLib $LIB_UPPER: $PASSED/$TOTAL passed (${RATE}%)"

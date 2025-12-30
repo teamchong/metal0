@@ -576,6 +576,21 @@ pub fn collectImports(
                         break;
                     }
                 }
+
+                // When importing a submodule like "numpy._core.include", also create a variable
+                // for the root module "numpy" even if there's already an aliased import.
+                // This handles patterns like: import numpy as np; import numpy._core.lib.pkgconfig
+                // where later code uses: numpy._core.lib.pkgconfig.__name__ (bare 'numpy')
+                // We add to c_extension_root_modules which is emitted separately from aliases
+                if (std.mem.indexOfScalar(u8, python_module, '.')) |dot_pos| {
+                    const root_module = python_module[0..dot_pos];
+                    // Add to root_modules map - will be emitted even if there's an alias
+                    if (!self.c_extension_root_modules.contains(root_module)) {
+                        const root_copy = try self.arena.allocator().dupe(u8, root_module);
+                        try self.c_extension_root_modules.put(root_copy, root_copy);
+                    }
+                }
+
                 try self.markCExtensionModule(python_module, alias_name);
                 continue;
             }

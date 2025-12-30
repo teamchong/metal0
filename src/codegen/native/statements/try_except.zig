@@ -656,6 +656,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try collectAssignedVarsRecursive(handler.body, &declared_vars, self, addVarIfNeeded);
     }
 
+    // Also collect from else_body - variables assigned there need hoisting too
+    // Pattern: try/except/else where else clause assigns module-level vars
+    // Example: try: import ctypes except: ctypes=None else: c_forward_pointer = ...
+    try collectAssignedVarsRecursive(try_node.else_body, &declared_vars, self, addVarIfNeeded);
+
+    // Also collect from finalbody for completeness
+    try collectAssignedVarsRecursive(try_node.finalbody, &declared_vars, self, addVarIfNeeded);
+
     // Also hoist exception variable names (the "as name" in "except Exception as name")
     // Python allows these variables to be accessed after the try/except block
     for (try_node.handlers) |handler| {
@@ -703,8 +711,17 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         } else {
             var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;
             if (var_type) |vt| {
-                zig_type = try self.nativeTypeToZigType(vt);
-                needs_free = true;
+                // If the inferred type is 'none' (from assigning None), use PyValue
+                // because None assignments typically mean the variable can hold other types too
+                // e.g., cdll = None followed by cdll = load_library(...)
+                if (vt == .none) {
+                    zig_type = "runtime.PyValue";
+                    // Mark this variable so assignments wrap values in PyValue.from()
+                    try self.pyvalue_hoisted_vars.put(var_name, {});
+                } else {
+                    zig_type = try self.nativeTypeToZigType(vt);
+                    needs_free = true;
+                }
             } else {
                 zig_type = "i64";
             }
@@ -1010,6 +1027,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 }
             }
             // For non-class types, use the standard type conversion
+            // Special case: None type variables (x = None) should use runtime.PyValue
+            // because Python allows reassigning None-initialized vars to other types
+            if (var_type) |vt| {
+                if (vt == .none) {
+                    try self.emit(": *runtime.PyValue");
+                    param_count += 1;
+                    continue;
+                }
+            }
             const zig_type = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";
@@ -1053,6 +1079,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 }
             }
             // For non-class types, use the standard type conversion
+            // Special case: None type variables (x = None) should use runtime.PyValue
+            // because Python allows reassigning None-initialized vars to other types
+            if (var_type) |vt| {
+                if (vt == .none) {
+                    try self.emit(": *runtime.PyValue");
+                    param_count += 1;
+                    continue;
+                }
+            }
             const zig_type2 = if (var_type) |vt| blk: {
                 break :blk try self.nativeTypeToZigType(vt);
             } else "i64";

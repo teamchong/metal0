@@ -39,9 +39,16 @@ pub const ExprParser = struct {
         try self.parseExpr();
         try self.compiler.instructions.append(self.allocator, .{ .op = .Return });
 
+        // Duplicate name strings for the program (program owns the strings)
+        var names_owned = try self.allocator.alloc([]const u8, self.compiler.names.items.len);
+        for (self.compiler.names.items, 0..) |name, i| {
+            names_owned[i] = try self.allocator.dupe(u8, name);
+        }
+
         return .{
             .instructions = try self.compiler.instructions.toOwnedSlice(self.allocator),
             .constants = try self.compiler.consts.toOwnedSlice(self.allocator),
+            .names = names_owned,
             .allocator = self.allocator,
         };
     }
@@ -286,6 +293,43 @@ pub const ExprParser = struct {
                 try self.advance();
                 // Emit BUILD_LIST with count
                 self.compiler.instructions.append(self.allocator, .{ .op = .BuildList, .arg = count }) catch return ParseError.OutOfMemory;
+            },
+            .Name => {
+                // Variable reference - emit LoadName
+                const name = self.getText(self.current);
+                const name_idx = self.compiler.addName(name) catch return ParseError.OutOfMemory;
+                self.compiler.instructions.append(self.allocator, .{ .op = .LoadName, .arg = name_idx }) catch return ParseError.OutOfMemory;
+                try self.advance();
+
+                // Check for function call: name(args)
+                if (self.current.type == .LParen) {
+                    try self.advance(); // skip (
+
+                    // Parse arguments
+                    var arg_count: u32 = 0;
+                    while (self.current.type != .RParen and self.current.type != .Eof) {
+                        try self.parseExpr();
+                        arg_count += 1;
+                        if (self.current.type == .Comma) {
+                            try self.advance();
+                        } else {
+                            break; // No comma means end of args (or closing paren)
+                        }
+                    }
+
+                    if (self.current.type != .RParen) return ParseError.UnclosedParen;
+                    try self.advance(); // skip )
+
+                    // Emit Call with argument count
+                    self.compiler.instructions.append(self.allocator, .{ .op = .Call, .arg = arg_count }) catch return ParseError.OutOfMemory;
+                }
+            },
+            .None => {
+                // Python None
+                const const_idx = @as(u32, @intCast(self.compiler.consts.items.len));
+                self.compiler.consts.append(self.allocator, .{ .none = {} }) catch return ParseError.OutOfMemory;
+                self.compiler.instructions.append(self.allocator, .{ .op = .LoadConst, .arg = const_idx }) catch return ParseError.OutOfMemory;
+                try self.advance();
             },
             else => return ParseError.UnexpectedToken,
         }

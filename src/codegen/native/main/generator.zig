@@ -281,6 +281,19 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try self.emitIdent(key);
             try self.emit(": ?*c_interop.PyObject = null;\n");
         }
+
+        // PHASE 3.6.2: Emit root module variables for submodule imports
+        // When "import numpy._core.include" is used, emit "var numpy" even if "numpy as np" exists
+        // This allows direct access to the root module name in attribute chains like numpy._core.lib.pkgconfig
+        for (self.c_extension_root_modules.keys()) |root_module| {
+            // Skip if already emitted (might overlap with regular c_extension_modules)
+            if (emitted_c_ext.contains(root_module)) continue;
+            try emitted_c_ext.put(root_module, {});
+
+            try self.emit("var ");
+            try self.emitIdent(root_module);
+            try self.emit(": ?*c_interop.PyObject = null;\n");
+        }
     }
 
     // PHASE 3.7: Emit module assignments for registry modules
@@ -782,11 +795,87 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 5.6: Generate module-level global variables (for 'global' keyword support)
     if (analysis.global_vars.len > 0) {
+        // PRE-SCAN: Detect ALL type aliases FIRST before processing any variables
+        // This ensures type_alias_targets is fully populated when we process variables
+        // that use type aliases (e.g., a = R(0, 1) where R = fractions.Fraction)
+        for (analysis.global_vars) |var_name| {
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            // Check if RHS is a module.Type pattern (fractions.Fraction, decimal.Decimal, etc.)
+                            if (assign.value.* == .attribute) {
+                                const attr = assign.value.attribute;
+                                if (attr.value.* == .name) {
+                                    const module_name = attr.value.name.id;
+                                    const attr_name = attr.attr;
+                                    // Known type exports from modules
+                                    if (std.mem.eql(u8, module_name, "fractions") and std.mem.eql(u8, attr_name, "Fraction")) {
+                                        try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
+                                        try self.type_alias_targets.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, attr_name));
+                                    } else if (std.mem.eql(u8, module_name, "decimal") and std.mem.eql(u8, attr_name, "Decimal")) {
+                                        try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
+                                        try self.type_alias_targets.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, attr_name));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         try self.emit("\n// Module-level variables declared with 'global' keyword\n");
         for (analysis.global_vars) |var_name| {
             // Track in module_level_vars so local variables with same name get renamed
             // to avoid Zig's module-level shadowing error
             try self.module_level_vars.put(var_name, {});
+
+            // Check if this is a type alias (already detected in pre-scan)
+            // Skip pre-declaring type aliases - they'll be emitted as const at assignment
+            if (self.type_alias_vars.contains(var_name)) {
+                continue;
+            }
+
+            // Legacy early check kept for safety (should already be caught by pre-scan)
+            var is_type_alias_early = false;
+            var type_alias_target_early: ?[]const u8 = null;
+            for (module.body) |stmt| {
+                if (stmt == .assign) {
+                    const assign = stmt.assign;
+                    for (assign.targets) |target| {
+                        if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                            // Check if RHS is a module.Type pattern (fractions.Fraction, decimal.Decimal, etc.)
+                            if (assign.value.* == .attribute) {
+                                const attr = assign.value.attribute;
+                                if (attr.value.* == .name) {
+                                    const module_name = attr.value.name.id;
+                                    const attr_name = attr.attr;
+                                    // Known type exports from modules
+                                    if (std.mem.eql(u8, module_name, "fractions") and std.mem.eql(u8, attr_name, "Fraction")) {
+                                        is_type_alias_early = true;
+                                        type_alias_target_early = attr_name;
+                                    } else if (std.mem.eql(u8, module_name, "decimal") and std.mem.eql(u8, attr_name, "Decimal")) {
+                                        is_type_alias_early = true;
+                                        type_alias_target_early = attr_name;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Skip pre-declaring type aliases - they'll be emitted as const at assignment
+            if (is_type_alias_early) {
+                if (type_alias_target_early) |target_type| {
+                    try self.type_alias_vars.put(try self.arena.allocator().dupe(u8, var_name), {});
+                    try self.type_alias_targets.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, target_type));
+                }
+                continue;
+            }
+
             // Get type from type inferrer, default to i64 for integers
             const var_type = self.type_inferrer.var_types.get(var_name);
 
@@ -1213,6 +1302,41 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                     }
                                 }
                             }
+                            // Also check if RHS is a simple name that was from-imported
+                            // e.g., `from fractions import Fraction; R = Fraction`
+                            // We can't rely on module_level_from_imports here because it's
+                            // populated in Phase 5.1, after this Phase 4.7.
+                            // Instead, scan the module body for from-imports directly.
+                            if (assign.value.* == .name) {
+                                const rhs_name = assign.value.name.id;
+                                // Scan module body for from-import that provides this name
+                                for (module.body) |from_stmt| {
+                                    if (from_stmt == .import_from) {
+                                        const from_import = from_stmt.import_from;
+                                        // ImportFrom has names: [][]const u8 and asnames: []?[]const u8
+                                        for (from_import.names, 0..) |import_name, idx| {
+                                            // Get the local name (asname if set, else import_name)
+                                            const local_name = if (idx < from_import.asnames.len and from_import.asnames[idx] != null)
+                                                from_import.asnames[idx].?
+                                            else
+                                                import_name;
+                                            if (std.mem.eql(u8, local_name, rhs_name)) {
+                                                // Found the from-import. Now check if it's a type alias.
+                                                // fractions.Fraction or decimal.Decimal
+                                                if (std.mem.eql(u8, from_import.module, "fractions") and
+                                                    std.mem.eql(u8, import_name, "Fraction"))
+                                                {
+                                                    type_alias_target = "Fraction";
+                                                } else if (std.mem.eql(u8, from_import.module, "decimal") and
+                                                    std.mem.eql(u8, import_name, "Decimal"))
+                                                {
+                                                    type_alias_target = "Decimal";
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1435,6 +1559,32 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     }
                 }
 
+                // Check if this variable is assigned from a type alias call (R(0, 1) where R = fractions.Fraction)
+                // This must be checked before falling back to nativeTypeToZigType
+                for (module.body) |stmt| {
+                    if (stmt == .assign) {
+                        const assign = stmt.assign;
+                        for (assign.targets) |target| {
+                            if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                                if (assign.value.* == .call) {
+                                    const call = assign.value.call;
+                                    if (call.func.* == .name) {
+                                        const func_name = call.func.name.id;
+                                        if (self.type_alias_targets.get(func_name)) |target_type| {
+                                            // R(0, 1) where R = fractions.Fraction -> use Fraction type
+                                            if (std.mem.eql(u8, target_type, "Fraction")) {
+                                                break :blk "fractions.Fraction";
+                                            } else if (std.mem.eql(u8, target_type, "Decimal")) {
+                                                break :blk "runtime.Decimal";
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 needs_free = true;
                 break :blk try self.nativeTypeToZigType(vt);
             } else blk: {
@@ -1453,6 +1603,21 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                     if (val == .float) break :blk "f64";
                                     if (val == .bool) break :blk "bool";
                                     if (val == .none) break :blk "?*anyopaque";
+                                }
+                                // Check if this is a call to a type alias (R(0, 1) where R = fractions.Fraction)
+                                if (assign.value.* == .call) {
+                                    const call = assign.value.call;
+                                    if (call.func.* == .name) {
+                                        const func_name = call.func.name.id;
+                                        if (self.type_alias_targets.get(func_name)) |target_type| {
+                                            // R(0, 1) where R = fractions.Fraction -> use fractions.Fraction type
+                                            if (std.mem.eql(u8, target_type, "Fraction")) {
+                                                break :blk "fractions.Fraction";
+                                            } else if (std.mem.eql(u8, target_type, "Decimal")) {
+                                                break :blk "decimal.Decimal";
+                                            }
+                                        }
+                                    }
                                 }
                                 // For non-constant values, try type inference on the expression
                                 const inferred = self.type_inferrer.inferExpr(assign.value.*) catch .unknown;
@@ -1482,6 +1647,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Also track them as global vars in codegen for assignment handling
             try self.markGlobalVar(var_name);
+
+            // If declared as PyValue, track for assignment wrapping
+            // This ensures assignments like `cdll = null` become `cdll = runtime.PyValue.from(null)`
+            if (std.mem.eql(u8, zig_type, "runtime.PyValue")) {
+                try self.pyvalue_hoisted_vars.put(var_name, {});
+            }
         }
         try self.emit("\n");
     }
@@ -1697,6 +1868,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 // For dotted names like numpy.exceptions, escape the variable name
                 try self.emitIdent(key);
                 try self.emitFmt(" = c_interop.importModule(\"{s}\") orelse @panic(\"Failed to import C extension module: {s}\");\n", .{ module_name, module_name });
+            }
+
+            // Initialize root modules for submodule imports
+            // When "import numpy._core.include" is used, initialize "numpy" even if "numpy as np" exists
+            for (self.c_extension_root_modules.keys()) |root_module| {
+                if (emitted_c_ext.contains(root_module)) continue;
+                try emitted_c_ext.put(root_module, {});
+
+                try self.emitIndent();
+                try self.emitIdent(root_module);
+                try self.emitFmt(" = c_interop.importModule(\"{s}\") orelse @panic(\"Failed to import C extension module: {s}\");\n", .{ root_module, root_module });
             }
         }
 

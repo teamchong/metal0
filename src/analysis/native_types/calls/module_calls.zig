@@ -61,6 +61,7 @@ pub fn inferModuleFunctionCall(
     const HTTP_HASH = comptime fnv_hash.hash("http");
     const REQUESTS_HASH = comptime fnv_hash.hash("requests");
     const SUPPORT_HASH = comptime fnv_hash.hash("support");
+    const FRACTIONS_HASH = comptime fnv_hash.hash("fractions");
 
     switch (module_hash) {
         SUPPORT_HASH => {
@@ -79,6 +80,15 @@ pub fn inferModuleFunctionCall(
             const POST_HASH = comptime fnv_hash.hash("post");
             if (func_hash == GET_HASH or func_hash == POST_HASH) {
                 return .http_response;
+            }
+            return .unknown;
+        },
+        FRACTIONS_HASH => {
+            // fractions module - Fraction constructor returns Fraction
+            const func_hash = fnv_hash.hash(func_name);
+            const FRACTION_HASH = comptime fnv_hash.hash("Fraction");
+            if (func_hash == FRACTION_HASH) {
+                return .fraction;
             }
             return .unknown;
         },

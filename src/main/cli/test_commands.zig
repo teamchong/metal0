@@ -974,60 +974,65 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
 const RunResult = enum { ok, timeout, failed };
 
+/// Run a binary with timeout using single-threaded non-blocking poll.
+/// This approach eliminates all race conditions that exist in two-thread architectures.
+///
+/// Architecture:
+/// 1. Spawn the child process using std.process.Child
+/// 2. Poll process status using waitpid(WNOHANG) every 10ms
+/// 3. If process exits before timeout, return its exit status
+/// 4. If timeout expires, send SIGKILL and wait for process to die
+///
+/// No race conditions because:
+/// - Single thread handles both waiting and timeout
+/// - Process is always properly reaped by the same thread that spawned it
+/// - No concurrent access to child process state
 fn runBinaryWithTimeout(allocator: std.mem.Allocator, bin_path: []const u8, timeout_ns: u64) RunResult {
+    // Spawn child process
     var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
     child.stdin_behavior = .Inherit;
     child.stdout_behavior = .Inherit;
     child.stderr_behavior = .Inherit;
 
-    // Track completion across the killer thread
-    var done = std.atomic.Value(bool).init(false);
-
     child.spawn() catch return .failed;
+    const pid = child.id;
 
-    var killer = std.Thread.spawn(.{}, killAfterTimeout, .{ &child, timeout_ns, &done }) catch {
-        // If we can't start the killer thread, fall back to blocking wait
-        const term = child.wait() catch return .failed;
-        done.store(true, .seq_cst);
-        return switch (term) {
-            .Exited => |code| if (code == 0) .ok else .failed,
-            else => .failed,
-        };
-    };
-    defer {
-        // Wait for killer thread to finish (it should be quick after done=true)
-        // If it hangs, the timeout mechanism in killAfterTimeout will handle it
-        killer.join();
-    }
-
-    const term = child.wait() catch return .failed;
-    done.store(true, .seq_cst);
-
-    return switch (term) {
-        .Exited => |code| if (code == 0) .ok else .failed,
-        else => .failed,
-    };
-}
-
-fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomic.Value(bool)) void {
-    // Poll every 10ms to check if process has finished
-    const poll_interval: u64 = 10 * std.time.ns_per_ms;
+    // Poll for completion with timeout using non-blocking waitpid
+    const poll_interval_ns: u64 = 10 * std.time.ns_per_ms; // 10ms
     var elapsed: u64 = 0;
-    while (elapsed < timeout_ns) {
-        if (done.load(.seq_cst)) return;
-        std.Thread.sleep(poll_interval);
-        elapsed += poll_interval;
-    }
-    // Final check before attempting kill
-    if (done.load(.seq_cst)) return;
 
-    // Send SIGKILL to process directly instead of using child.kill() which calls waitpid
-    // This avoids race condition when main thread has already reaped the process
-    // ProcessNotFound (ESRCH) means process already exited - this is OK
-    std.posix.kill(child.id, std.posix.SIG.KILL) catch |err| switch (err) {
-        error.ProcessNotFound => {}, // Already exited, ignore
-        else => std.debug.print("WARN: Failed to send SIGKILL: {}\n", .{err}),
+    while (elapsed < timeout_ns) {
+        // Non-blocking wait - check if process has exited
+        const wait_result = std.posix.waitpid(pid, std.posix.W.NOHANG);
+
+        if (wait_result.pid != 0) {
+            // Process has exited - decode POSIX status
+            // WIFEXITED(status) = (status & 0x7f) == 0
+            // WEXITSTATUS(status) = (status >> 8) & 0xff
+            const status = wait_result.status;
+            const exited_normally = (status & 0x7f) == 0;
+            if (exited_normally) {
+                const exit_code = (status >> 8) & 0xff;
+                return if (exit_code == 0) .ok else .failed;
+            }
+            // Signaled or stopped - treat as failure
+            return .failed;
+        }
+
+        // Process still running - sleep and retry
+        std.Thread.sleep(poll_interval_ns);
+        elapsed += poll_interval_ns;
+    }
+
+    // Timeout expired - kill the process
+    std.posix.kill(pid, std.posix.SIG.KILL) catch {
+        // Process might have just exited - try to reap it anyway
     };
+
+    // Blocking wait to reap the killed process (should be immediate after SIGKILL)
+    _ = std.posix.waitpid(pid, 0);
+
+    return .timeout;
 }
 
 /// Compile a test file by linking against the precompiled runtime archive

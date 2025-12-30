@@ -153,12 +153,15 @@ pub fn inferCallWithInferrer(
                         return .bool;
                     }
                     if (std.mem.eql(u8, func_name_os, "join") or
-                        std.mem.eql(u8, func_name_os, "dirname") or
-                        std.mem.eql(u8, func_name_os, "basename") or
                         std.mem.eql(u8, func_name_os, "abspath") or
                         std.mem.eql(u8, func_name_os, "realpath"))
                     {
-                        return .{ .string = .runtime };
+                        return .{ .string = .runtime };  // These allocate
+                    }
+                    if (std.mem.eql(u8, func_name_os, "dirname") or
+                        std.mem.eql(u8, func_name_os, "basename"))
+                    {
+                        return .{ .string = .slice };  // These return slices of input
                     }
                     // os.path.split() and splitext() return tuple of (string, string)
                     if (std.mem.eql(u8, func_name_os, "split") or

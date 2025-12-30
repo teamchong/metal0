@@ -365,3 +365,40 @@ jobs:
           label: "windows"
           os: "windows"
         timeout-minutes: 60
+
+  # =============================================================================
+  # External Library Tests (Official test suites from PyPI packages)
+  # Each library has its own job for clear CI summary display
+  # =============================================================================
+
+  test-extlib-numpy:
+    name: ExtLib NumPy (11 tests)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install NumPy
+        run: pip install numpy
+      - name: Build metal0
+        run: zig build
+      - uses: ./.github/actions/run-extlib-tests
+        with:
+          library: "numpy"
+          test_dir: "tests/numpy"
+          fail_on_error: "false"
+
+  # Add more external library tests below as we add support:
+  # test-extlib-scipy:
+  #   name: ExtLib SciPy
+  #   ...
+  # test-extlib-pandas:
+  #   name: ExtLib Pandas
+  #   ...

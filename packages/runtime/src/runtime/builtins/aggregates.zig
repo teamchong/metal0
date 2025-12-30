@@ -78,8 +78,8 @@ pub fn abs(value: i64) i64 {
 
 /// Minimum value from a list
 pub fn minList(iterable: *PyObject) i64 {
-    std.debug.assert(iterable.type_id == .list);
-    const src_list: *PyList = @ptrCast(@alignCast(iterable.data));
+    std.debug.assert(runtime_core.PyList_Check(iterable));
+    const src_list: *runtime_core.PyListObject = @ptrCast(@alignCast(iterable));
 
     var min_val: i64 = std.math.maxInt(i64);
     for (src_list.items.items) |item| {

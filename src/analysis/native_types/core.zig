@@ -278,6 +278,9 @@ pub const NativeType = union(enum) {
     // http module types
     http_response: void, // http.Response - runtime.http.Response struct
 
+    // fractions module types
+    fraction: void, // fractions.Fraction - runtime.Fraction struct
+
     // Iterator types
     list_iterator: void, // iter() on list - SequenceIterator(i64)
 
@@ -497,6 +500,8 @@ pub const NativeType = union(enum) {
             .re_pattern => try buf.appendSlice(allocator, "*runtime.PyObject"),
             // http module types
             .http_response => try buf.appendSlice(allocator, "runtime.http.Response"),
+            // fractions module types
+            .fraction => try buf.appendSlice(allocator, "runtime.Fraction"),
             // Iterator types
             .list_iterator => try buf.appendSlice(allocator, "runtime.iterators.SequenceIterator(i64)"),
         }

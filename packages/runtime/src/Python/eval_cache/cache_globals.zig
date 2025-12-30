@@ -157,7 +157,7 @@ pub fn evalWithScope(
             if (lru_cache) |*cache| cache.release(program);
             cache_mutex.unlock();
         }
-        return execution.executeWithScope(allocator, program, globals, locals);
+        return execution.executeWithScopeAnyopaque(allocator, program, globals, locals);
     }
 
     // Cache miss - parse expression directly to bytecode
@@ -180,7 +180,7 @@ pub fn evalWithScope(
             if (lru_cache) |*cache| cache.release(p);
             cache_mutex.unlock();
         }
-        return execution.executeWithScope(allocator, p, globals, locals);
+        return execution.executeWithScopeAnyopaque(allocator, p, globals, locals);
     }
     return error.CacheFailed;
 }

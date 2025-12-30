@@ -21,6 +21,60 @@ const CallArg = builder_mod.ZigBuilder.CallArg;
 
 // MIGRATED TO ZIGBUILDER
 
+/// Check if an expression resolves to a C extension module attribute access
+/// Used to detect nested attribute access patterns like np._core._multiarray_umath
+fn isCExtAttrAccess(self: *NativeCodegen, node: ast.Node) bool {
+    switch (node) {
+        .name => |n| {
+            // Check if this is a C extension module (direct or via TryHelper local)
+            if (self.isCExtensionModule(n.id)) return true;
+            // TryHelper pattern: __local_VARNAME_N -> check if VARNAME is C extension
+            if (std.mem.startsWith(u8, n.id, "__local_")) {
+                const after_prefix = n.id["__local_".len..];
+                if (std.mem.lastIndexOf(u8, after_prefix, "_")) |last_underscore| {
+                    const original_name = after_prefix[0..last_underscore];
+                    return self.isCExtensionModule(original_name);
+                }
+            }
+            return false;
+        },
+        .attribute => |a| {
+            // Recursively check if the base is a C extension access
+            return isCExtAttrAccess(self, a.value.*);
+        },
+        else => return false,
+    }
+}
+
+/// Generate a raw C extension attribute chain without PyValue.from() wrapping
+/// Returns ?*PyObject that can be used for further attribute access or wrapped at the end
+/// For np._core._multiarray_umath generates:
+///   c_interop.getAttr(c_interop.getAttr((np orelse @panic("...")), "_core") orelse @panic("..."), "_multiarray_umath")
+fn genCExtAttrChainRaw(self: *NativeCodegen, node: ast.Node) CodegenError!void {
+    switch (node) {
+        .name => |n| {
+            // Base case: module name (direct or TryHelper local)
+            // Use orelse @panic instead of .? for safer null handling with clear error message
+            try self.emit("(");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), n.id);
+            try self.emitFmt(" orelse @panic(\"C extension module '{s}' not loaded\"))", .{n.id});
+        },
+        .attribute => |a| {
+            // Recursive: chain.attr -> c_interop.getAttr(chain, "attr") orelse @panic(...)
+            // Use orelse @panic instead of .? for safer null handling
+            try self.emit("(c_interop.getAttr(");
+            try genCExtAttrChainRaw(self, a.value.*);
+            try self.emit(", \"");
+            try self.emit(a.attr);
+            try self.emitFmt("\") orelse @panic(\"Attribute '{s}' not found on C extension object\"))", .{a.attr});
+        },
+        else => {
+            // Fallback for unexpected nodes
+            try expressions_mod.genExpr(self, node);
+        },
+    }
+}
+
 /// Emit runtime.pyTypeName(expr) using builder pattern
 fn emitPyTypeName(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const b = try self.getBuilder();
@@ -358,6 +412,21 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     // Wrap in parentheses to prevent "label:" from being parsed as named argument when used in fn calls
     if (producesBlockExpression(attr.value.*)) {
+        // Check if the base expression resolves to a C extension module attribute
+        // If so, we need to use c_interop.getAttr for the nested access
+        const base_is_c_ext = isCExtAttrAccess(self, attr.value.*);
+        if (base_is_c_ext) {
+            // C extension nested attribute: np._core._multiarray_umath.__file__
+            // Generate the entire chain without intermediate PyValue conversions:
+            //   runtime.PyValue.from(c_interop.getAttr(c_interop.getAttr(np.?, "_core").?, "_multiarray_umath").?)
+            // The genCExtAttrChainRaw generates the raw chain, we wrap the final result
+            try self.emit("runtime.PyValue.from(c_interop.getAttr(");
+            try genCExtAttrChainRaw(self, attr.value.*);
+            try self.emit(", \"");
+            try self.emit(attr.attr);
+            try self.emit("\").?)");
+            return;
+        }
         var em = self.exprEmitter();
         var block = try em.labeledBlock("attr", "__obj", attr.value.*);
         try block.emit("break :");
@@ -434,7 +503,20 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
 
         // Check if this is a C extension module (numpy, pandas, etc.)
         // np.__version__ -> c_interop.getAttr(np.?, "__version__")
-        if (self.isCExtensionModule(module_name)) {
+        // Also check for TryHelper local copies: __local_np_2 -> np is a C extension module
+        const is_c_extension = self.isCExtensionModule(module_name) or blk: {
+            // TryHelper pattern: __local_VARNAME_N -> check if VARNAME is C extension
+            if (std.mem.startsWith(u8, module_name, "__local_")) {
+                const after_prefix = module_name["__local_".len..];
+                // Find last underscore (before the number suffix)
+                if (std.mem.lastIndexOf(u8, after_prefix, "_")) |last_underscore| {
+                    const original_name = after_prefix[0..last_underscore];
+                    break :blk self.isCExtensionModule(original_name);
+                }
+            }
+            break :blk false;
+        };
+        if (is_c_extension) {
             // Resolve alias to actual module name for error messages
             const actual_module = self.c_extension_modules.get(module_name) orelse module_name;
             try self.emit("runtime.PyValue.from(c_interop.getAttr(");
@@ -705,7 +787,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         if (attr.value.* == .name) {
             const original_name = attr.value.name.id;
             if (self.var_renames.get(original_name)) |renamed| {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
+                // Use writeLocalVarName instead of writeEscapedIdent to handle field access notation
+                // e.g., "__m22_cap_check.expected" should be output as __m22_cap_check.expected (not @"...")
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
                 try self.emit(".");
                 // Apply name demangling for private attributes
                 // Skip demangling for true dunder attributes (starting with __)

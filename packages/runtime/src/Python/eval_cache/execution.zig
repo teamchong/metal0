@@ -31,16 +31,41 @@ fn executeNative(allocator: std.mem.Allocator, program: *const bytecode.Bytecode
 }
 
 /// Execute with globals/locals scope
-/// TODO: Wire globals/locals into VM frame when VM supports it
 pub fn executeWithScope(
+    allocator: std.mem.Allocator,
+    program: *const bytecode.BytecodeProgram,
+    globals: ?*PyObject,
+    locals: ?*PyObject,
+) !*PyObject {
+    // Initialize VM with scope dicts
+    var vm = bytecode.VM.initWithScope(allocator, globals, locals);
+    defer vm.deinit();
+    return vm.execute(program);
+}
+
+/// Execute with globals/locals scope (anyopaque version for backward compatibility)
+pub fn executeWithScopeAnyopaque(
     allocator: std.mem.Allocator,
     program: *const bytecode.BytecodeProgram,
     globals: ?*anyopaque,
     locals: ?*anyopaque,
 ) !*PyObject {
-    // For now, ignore globals/locals and execute normally
-    // TODO: When VM supports scope, pass these to the frame
-    _ = globals;
-    _ = locals;
-    return executeTarget(allocator, program);
+    // Cast anyopaque to PyObject and execute with scope
+    const globals_obj: ?*PyObject = if (globals) |g| @ptrCast(@alignCast(g)) else null;
+    const locals_obj: ?*PyObject = if (locals) |l| @ptrCast(@alignCast(l)) else null;
+    return executeWithScope(allocator, program, globals_obj, locals_obj);
+}
+
+/// Execute with full scope: globals, locals, and builtins
+pub fn executeWithFullScope(
+    allocator: std.mem.Allocator,
+    program: *const bytecode.BytecodeProgram,
+    globals: ?*PyObject,
+    locals: ?*PyObject,
+    builtins: ?*PyObject,
+) !*PyObject {
+    // Initialize VM with full scope dicts
+    var vm = bytecode.VM.initWithFullScope(allocator, globals, locals, builtins);
+    defer vm.deinit();
+    return vm.execute(program);
 }

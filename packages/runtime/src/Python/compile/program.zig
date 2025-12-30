@@ -9,15 +9,21 @@ const OpCode = constants.OpCode;
 pub const BytecodeProgram = struct {
     instructions: []Instruction,
     constants: []Constant,
+    names: [][]const u8, // Variable names for LoadName/LoadGlobal/LoadLocal
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *BytecodeProgram) void {
+        // Free name strings
+        for (self.names) |name| {
+            self.allocator.free(name);
+        }
+        self.allocator.free(self.names);
         self.allocator.free(self.instructions);
         self.allocator.free(self.constants);
     }
 
     /// Serialize bytecode to binary format for subprocess IPC
-    /// Format: [magic][version][num_constants][constants...][num_instructions][instructions...]
+    /// Format: [magic][version][num_names][names...][num_constants][constants...][num_instructions][instructions...]
     pub fn serialize(self: *const BytecodeProgram, allocator: std.mem.Allocator) ![]u8 {
         var buffer = std.ArrayList(u8).init(allocator);
         errdefer buffer.deinit();
@@ -25,8 +31,17 @@ pub const BytecodeProgram = struct {
         // Magic: "PYBC" (4 bytes)
         try buffer.appendSlice("PYBC");
 
-        // Version: 1 (4 bytes, little endian)
-        try buffer.appendSlice(&std.mem.toBytes(@as(u32, 1)));
+        // Version: 2 (4 bytes, little endian) - bumped for names support
+        try buffer.appendSlice(&std.mem.toBytes(@as(u32, 2)));
+
+        // Number of names (4 bytes)
+        try buffer.appendSlice(&std.mem.toBytes(@as(u32, @intCast(self.names.len))));
+
+        // Names (length-prefixed strings)
+        for (self.names) |name| {
+            try buffer.appendSlice(&std.mem.toBytes(@as(u32, @intCast(name.len))));
+            try buffer.appendSlice(name);
+        }
 
         // Number of constants (4 bytes)
         try buffer.appendSlice(&std.mem.toBytes(@as(u32, @intCast(self.constants.len))));
@@ -93,8 +108,31 @@ pub const BytecodeProgram = struct {
 
         // Check version
         const version = std.mem.readInt(u32, data[pos..][0..4], .little);
-        if (version != 1) return error.UnsupportedVersion;
+        if (version != 1 and version != 2) return error.UnsupportedVersion;
         pos += 4;
+
+        // Read names (version 2+)
+        var names: [][]const u8 = &[_][]const u8{};
+        if (version >= 2) {
+            const num_names = std.mem.readInt(u32, data[pos..][0..4], .little);
+            pos += 4;
+
+            var names_list = try allocator.alloc([]const u8, num_names);
+            errdefer {
+                for (names_list[0..]) |n| allocator.free(n);
+                allocator.free(names_list);
+            }
+
+            for (0..num_names) |i| {
+                if (pos + 4 > data.len) return error.UnexpectedEof;
+                const name_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+                pos += 4;
+                if (pos + name_len > data.len) return error.UnexpectedEof;
+                names_list[i] = try allocator.dupe(u8, data[pos..][0..name_len]);
+                pos += name_len;
+            }
+            names = names_list;
+        }
 
         // Read constants
         const num_constants = std.mem.readInt(u32, data[pos..][0..4], .little);
@@ -169,6 +207,7 @@ pub const BytecodeProgram = struct {
         return .{
             .instructions = instructions,
             .constants = consts,
+            .names = names,
             .allocator = allocator,
         };
     }
@@ -194,10 +233,96 @@ pub const BytecodeProgram = struct {
         const bytecode_bytes = data[pos..][0..bytecode_len];
         pos += bytecode_len;
 
-        // Constants count (constants not serialized in MET0 format currently)
+        // Constants count + data
         if (pos + 4 > data.len) return error.UnexpectedEof;
         const num_constants = std.mem.readInt(u32, data[pos..][0..4], .little);
-        _ = num_constants;
+        pos += 4;
+
+        // Parse serialized constants
+        var serialized_consts = try allocator.alloc(Constant, num_constants);
+        errdefer allocator.free(serialized_consts);
+
+        for (0..num_constants) |i| {
+            if (pos >= data.len) return error.UnexpectedEof;
+            const type_tag = data[pos];
+            pos += 1;
+
+            switch (type_tag) {
+                0 => { // int
+                    if (pos + 8 > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .int = std.mem.readInt(i64, data[pos..][0..8], .little) };
+                    pos += 8;
+                },
+                1 => { // string
+                    if (pos + 4 > data.len) return error.UnexpectedEof;
+                    const str_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+                    pos += 4;
+                    if (pos + str_len > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .string = try allocator.dupe(u8, data[pos..][0..str_len]) };
+                    pos += str_len;
+                },
+                2 => { // float
+                    if (pos + 8 > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .float = @bitCast(std.mem.readInt(u64, data[pos..][0..8], .little)) };
+                    pos += 8;
+                },
+                3 => { // bool
+                    if (pos + 1 > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .bool = data[pos] != 0 };
+                    pos += 1;
+                },
+                4 => { // bigint (stored as string)
+                    if (pos + 4 > data.len) return error.UnexpectedEof;
+                    const str_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+                    pos += 4;
+                    if (pos + str_len > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .bigint = try allocator.dupe(u8, data[pos..][0..str_len]) };
+                    pos += str_len;
+                },
+                5 => { // bytes
+                    if (pos + 4 > data.len) return error.UnexpectedEof;
+                    const str_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+                    pos += 4;
+                    if (pos + str_len > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .bytes = try allocator.dupe(u8, data[pos..][0..str_len]) };
+                    pos += str_len;
+                },
+                6 => { // complex
+                    if (pos + 8 > data.len) return error.UnexpectedEof;
+                    serialized_consts[i] = .{ .complex = @bitCast(std.mem.readInt(u64, data[pos..][0..8], .little)) };
+                    pos += 8;
+                },
+                7 => { // none
+                    serialized_consts[i] = .{ .none = {} };
+                },
+                else => return error.InvalidConstantType,
+            }
+        }
+
+        // Names count + names
+        var names: [][]const u8 = &[_][]const u8{};
+        if (pos + 4 <= data.len) {
+            const num_names = std.mem.readInt(u32, data[pos..][0..4], .little);
+            pos += 4;
+
+            if (num_names > 0) {
+                var names_list = try allocator.alloc([]const u8, num_names);
+                errdefer {
+                    for (names_list) |n| if (n.len > 0) allocator.free(n);
+                    allocator.free(names_list);
+                }
+
+                for (0..num_names) |i| {
+                    if (pos + 4 > data.len) return error.UnexpectedEof;
+                    const name_len = std.mem.readInt(u32, data[pos..][0..4], .little);
+                    pos += 4;
+                    if (pos + name_len > data.len) return error.UnexpectedEof;
+                    names_list[i] = try allocator.dupe(u8, data[pos..][0..name_len]);
+                    pos += name_len;
+                }
+                names = names_list;
+            }
+        }
 
         // Parse the raw bytecode into instructions
         // MET0 bytecode uses varint encoding for arguments
@@ -289,8 +414,16 @@ pub const BytecodeProgram = struct {
                     arg = @intCast(const_idx);
                     break :blk .LoadConst;
                 },
-                // LOAD_CONST
-                0x10 => .LoadConst,
+                // LOAD_CONST: Copy from serialized constants pool
+                0x10 => blk: {
+                    // arg is index into serialized_consts
+                    if (arg < serialized_consts.len) {
+                        const const_idx = constants_list.items.len;
+                        try constants_list.append(allocator, serialized_consts[arg]);
+                        arg = @intCast(const_idx);
+                    }
+                    break :blk .LoadConst;
+                },
                 // POP
                 0x01 => .Pop,
                 // Binary ops: ADD=0x40, SUB=0x41, MUL=0x42, DIV=0x43, FLOORDIV=0x44, MOD=0x45, POW=0x46
@@ -315,6 +448,14 @@ pub const BytecodeProgram = struct {
                 0x65 => .GtE,
                 // RETURN=0x88
                 0x88 => .Return,
+                // Name ops: LOAD_NAME=0x33, LOAD_GLOBAL=0x34, LOAD_LOCAL=0x35
+                0x33 => .LoadName,
+                0x34 => .LoadGlobal,
+                0x35 => .LoadLocal,
+                // Call ops: CALL=0x80
+                0x80 => .Call,
+                // Build ops: BUILD_LIST=0x90
+                0x90 => .BuildList,
                 // Unknown - skip
                 else => continue,
             };
@@ -328,10 +469,14 @@ pub const BytecodeProgram = struct {
         const instructions = try instructions_list.toOwnedSlice(allocator);
         const consts = try constants_list.toOwnedSlice(allocator);
 
+        // Free the serialized_consts array (but not string contents - they're referenced by consts)
+        allocator.free(serialized_consts);
+
         // Build result struct
         const result: BytecodeProgram = .{
             .instructions = instructions,
             .constants = consts,
+            .names = names,
             .allocator = allocator,
         };
 

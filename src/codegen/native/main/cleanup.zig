@@ -88,6 +88,7 @@ pub fn deinit(self: *NativeCodegen) void {
     self.skipped_modules.deinit();
     self.skipped_functions.deinit();
     self.c_extension_modules.deinit();
+    self.c_extension_root_modules.deinit();
     self.local_var_types.deinit();
     self.local_from_imports.deinit();
     self.loop_capture_vars.deinit();

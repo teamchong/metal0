@@ -12,12 +12,14 @@ const BytecodeProgram = program.BytecodeProgram;
 pub const Compiler = struct {
     instructions: std.ArrayList(Instruction),
     consts: std.ArrayList(Constant),
+    names: std.ArrayList([]const u8), // Variable names for LoadName/LoadGlobal/LoadLocal
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Compiler {
         return .{
             .instructions = .{},
             .consts = .{},
+            .names = .{},
             .allocator = allocator,
         };
     }
@@ -25,6 +27,22 @@ pub const Compiler = struct {
     pub fn deinit(self: *Compiler) void {
         self.instructions.deinit(self.allocator);
         self.consts.deinit(self.allocator);
+        // Note: name strings are not owned by compiler - they come from source
+        self.names.deinit(self.allocator);
+    }
+
+    /// Add a name to the names pool and return its index
+    pub fn addName(self: *Compiler, name: []const u8) !u32 {
+        // Check if name already exists
+        for (self.names.items, 0..) |existing, i| {
+            if (std.mem.eql(u8, existing, name)) {
+                return @intCast(i);
+            }
+        }
+        // Add new name
+        const idx = @as(u32, @intCast(self.names.items.len));
+        try self.names.append(self.allocator, name);
+        return idx;
     }
 
     /// Compile AST node to bytecode
@@ -32,9 +50,16 @@ pub const Compiler = struct {
         try self.compileNode(node);
         try self.instructions.append(self.allocator, .{ .op = .Return });
 
+        // Duplicate name strings for the program (program owns the strings)
+        var names_owned = try self.allocator.alloc([]const u8, self.names.items.len);
+        for (self.names.items, 0..) |name, i| {
+            names_owned[i] = try self.allocator.dupe(u8, name);
+        }
+
         return .{
             .instructions = try self.instructions.toOwnedSlice(self.allocator),
             .constants = try self.consts.toOwnedSlice(self.allocator),
+            .names = names_owned,
             .allocator = self.allocator,
         };
     }

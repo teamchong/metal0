@@ -1304,7 +1304,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // EXCEPTION 2: List literals use the ArrayList expansion pattern (init + appends),
                     // which is incompatible with PyValue.from() wrapping
                     // EXCEPTION 3: eval() calls already wrap result in PyValue.from() via genEval
-                    const is_pyvalue_reassign = (declared_type == .pyvalue);
+                    // Also check pyvalue_hoisted_vars for variables hoisted from try-except blocks
+                    const is_pyvalue_reassign = (declared_type == .pyvalue) or self.pyvalue_hoisted_vars.contains(var_name);
                     const binop_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
                     // Check if this is an eval() call - genEval already wraps in PyValue.from()
                     const is_eval_call = blk: {

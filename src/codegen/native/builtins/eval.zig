@@ -78,9 +78,13 @@ pub fn genComptimeEval(self: *NativeCodegen, source: []const u8) CodegenError!vo
     try emitInt(self, blob_id);
     try self.emit(") catch unreachable;\n    defer _program_");
     try emitInt(self, blob_id);
-    try self.emit(".deinit();\n    var _vm_");
+    try self.emit(".deinit();\n    const _builtins_");
     try emitInt(self, blob_id);
-    try self.emit(" = runtime.BytecodeVM.init(__global_allocator);\n    defer _vm_");
+    try self.emit(" = runtime.builtins_dict.getBuiltinsDict(__global_allocator) catch unreachable;\n    var _vm_");
+    try emitInt(self, blob_id);
+    try self.emit(" = runtime.BytecodeVM.initWithFullScope(__global_allocator, null, null, _builtins_");
+    try emitInt(self, blob_id);
+    try self.emit(");\n    defer _vm_");
     try emitInt(self, blob_id);
     try self.emit(".deinit();\n");
     try self.emitFmt("    break :__m{d}_eval runtime.PyValue.from({s}_vm_", .{ id, try_expr });

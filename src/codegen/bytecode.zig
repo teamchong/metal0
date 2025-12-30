@@ -31,7 +31,7 @@ pub const BytecodeProgram = struct {
     }
 
     /// Serialize bytecode to bytes for subprocess communication
-    /// Format: [magic:4][version:2][bytecode_len:4][bytecode][constants_len:4][constants...]
+    /// Format: [magic:4][version:2][bytecode_len:4][bytecode][constants_len:4][names_len:4][names...]
     pub fn serialize(self: BytecodeProgram, allocator: std.mem.Allocator) ![]u8 {
         var result: std.ArrayList(u8) = .{};
         errdefer result.deinit(allocator);
@@ -43,9 +43,60 @@ pub const BytecodeProgram = struct {
         // Bytecode length + bytes
         try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(self.code.bytecode.len))));
         try result.appendSlice(allocator, self.code.bytecode);
-        // Constants count
+        // Constants count + data
         try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(self.code.constants.len))));
-        // Constants are not serialized for now (too complex), just the bytecode
+        // Serialize each constant
+        for (self.code.constants) |constant| {
+            switch (constant) {
+                .int => |i| {
+                    try result.append(allocator, 0); // type tag: int
+                    try result.appendSlice(allocator, &std.mem.toBytes(i));
+                },
+                .float => |f| {
+                    try result.append(allocator, 2); // type tag: float
+                    try result.appendSlice(allocator, &std.mem.toBytes(f));
+                },
+                .string => |s| {
+                    try result.append(allocator, 1); // type tag: string
+                    try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(s.len))));
+                    try result.appendSlice(allocator, s);
+                },
+                .bool => |b| {
+                    try result.append(allocator, 3); // type tag: bool
+                    try result.append(allocator, if (b) 1 else 0);
+                },
+                .none => {
+                    try result.append(allocator, 7); // type tag: none
+                },
+                .complex => |c| {
+                    try result.append(allocator, 6); // type tag: complex
+                    try result.appendSlice(allocator, &std.mem.toBytes(c.imag));
+                },
+                .bytes => |b| {
+                    try result.append(allocator, 5); // type tag: bytes
+                    try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(b.data.len))));
+                    try result.appendSlice(allocator, b.data);
+                },
+                .bigint => |bi| {
+                    try result.append(allocator, 4); // type tag: bigint
+                    // Serialize BigInt as string representation
+                    const str = bi.toString(allocator, 10) catch "0";
+                    defer allocator.free(str);
+                    try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(str.len))));
+                    try result.appendSlice(allocator, str);
+                },
+                else => {
+                    // Skip unsupported constant types
+                    try result.append(allocator, 7); // treat as none
+                },
+            }
+        }
+        // Names count + names (length-prefixed strings)
+        try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(self.code.names.len))));
+        for (self.code.names) |name| {
+            try result.appendSlice(allocator, &std.mem.toBytes(@as(u32, @intCast(name.len))));
+            try result.appendSlice(allocator, name);
+        }
         return result.toOwnedSlice(allocator);
     }
 };

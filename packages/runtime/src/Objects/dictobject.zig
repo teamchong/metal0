@@ -98,6 +98,16 @@ pub const PyDict = struct {
         return @intCast(dict_obj.ma_used);
     }
 
+    /// CPython-compatible alias for get()
+    pub fn getItemString(obj: *PyObject, key: []const u8) ?*PyObject {
+        return get(obj, key);
+    }
+
+    /// CPython-compatible alias for set()
+    pub fn setItemString(obj: *PyObject, key: []const u8, value: *PyObject) !void {
+        return set(obj, key, value);
+    }
+
     pub fn keys(allocator: std.mem.Allocator, obj: *PyObject) !*PyObject {
         std.debug.assert(runtime.PyDict_Check(obj));
         const dict_obj: *PyDictObject = @ptrCast(@alignCast(obj));

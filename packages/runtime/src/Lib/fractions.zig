@@ -17,26 +17,49 @@ pub const Fraction = struct {
     denominator: i64,
 
     /// Create a new fraction (auto-reduces)
-    pub fn init(numerator: i64, denominator: i64) !Fraction {
-        if (denominator == 0) {
-            return error.ZeroDivision;
+    /// Note: Division by zero panics (like Python's Fraction(1, 0))
+    /// Accepts anytype to handle i64, UnifiedInt, BigInt, etc.
+    pub fn init(numerator: anytype, denominator: anytype) Fraction {
+        const num = toI64(numerator);
+        const den = toI64(denominator);
+
+        if (den == 0) {
+            @panic("ZeroDivisionError: Fraction denominator cannot be zero");
         }
 
-        var num = numerator;
-        var den = denominator;
+        var n = num;
+        var d = den;
 
         // Handle negative denominator
-        if (den < 0) {
-            num = -num;
-            den = -den;
+        if (d < 0) {
+            n = -n;
+            d = -d;
         }
 
         // Reduce to lowest terms
-        const g = gcd(@abs(num), @abs(den));
+        const g: i64 = @intCast(gcd(@abs(n), @abs(d)));
         return .{
-            .numerator = @divTrunc(num, @as(i64, @intCast(g))),
-            .denominator = @divTrunc(den, @as(i64, @intCast(g))),
+            .numerator = @divTrunc(n, g),
+            .denominator = @divTrunc(d, g),
         };
+    }
+
+    /// Convert any numeric value to i64
+    fn toI64(v: anytype) i64 {
+        const T = @TypeOf(v);
+        const info = @typeInfo(T);
+        if (info == .int or info == .comptime_int) {
+            return @as(i64, @intCast(v));
+        }
+        // Handle UnifiedInt - has toI64() method
+        if (info == .@"union" and @hasDecl(T, "toI64")) {
+            return v.toI64() orelse @panic("Fraction: value too large for i64");
+        }
+        // Handle BigInt or other types with toInt64() method
+        if (info == .@"struct" and @hasDecl(T, "toInt64")) {
+            return v.toInt64() orelse @panic("Fraction: value too large for i64");
+        }
+        return 0;
     }
 
     /// Create a fraction from an integer

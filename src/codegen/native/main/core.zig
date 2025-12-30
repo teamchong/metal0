@@ -27,6 +27,7 @@ const container_traits = @import("../../../analysis/traits/container_traits.zig"
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const bigint_ops = @import("../expressions/operators/bigint_ops.zig");
 const unified_int_ops = @import("../expressions/operators/unified_int_ops.zig");
+const shared_maps = @import("../shared_maps.zig");
 
 // MIGRATED TO ZIGBUILDER
 // NOTE: emitConst/emitFmtConst are DEPRECATED - use self.emit()/self.emitFmt() instead
@@ -892,6 +893,11 @@ pub const NativeCodegen = struct {
     // These are loaded at runtime via PyImport_ImportModule
     c_extension_modules: FnvStringMap,
 
+    // Track root modules that need explicit variables even when aliased
+    // e.g., "import numpy as np" + "import numpy._core.include" needs BOTH np AND numpy vars
+    // When a submodule is imported, the root module must have its own variable for direct access
+    c_extension_root_modules: FnvStringMap,
+
     // Track from-imports from C extension modules (need runtime initialization)
     // Maps symbol name -> {module, attr} (e.g., "assert_" -> {"numpy.testing", "assert_"})
     c_extension_from_imports: hashmap_helper.StringHashMap(CExtFromImport),
@@ -1177,6 +1183,7 @@ pub const NativeCodegen = struct {
             .skipped_functions = FnvVoidMap.init(aa),
             .codegen_only_modules = FnvVoidMap.init(aa),
             .c_extension_modules = FnvStringMap.init(aa),
+            .c_extension_root_modules = FnvStringMap.init(aa),
             .c_extension_from_imports = hashmap_helper.StringHashMap(CExtFromImport).init(aa),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(aa),
             .local_from_imports = FnvStringMap.init(aa),
@@ -1656,7 +1663,17 @@ pub const NativeCodegen = struct {
         if (self.pyvalue_vars.contains(renamed_name)) {
             return true;
         }
-        return self.type_inferrer.isUncertain(name);
+        // CONSERVATIVE: Only return true for explicitly uncertain or unknown typed variables
+        // If variable isn't tracked, DON'T assume uncertain - let Zig compiler catch type mismatches
+        // This avoids false positives for loop variables (e.g., from file.readlines()) that have
+        // Zig-native types but aren't in the confidence map
+        const var_type = self.type_inferrer.getScopedVar(name) orelse
+            self.type_inferrer.var_types.get(name);
+        if (var_type) |vt| {
+            return vt == .pyvalue or vt == .unknown;
+        }
+        // Variable not in type map - don't assume uncertain
+        return false;
     }
 
     /// Check if a variable has certain type confidence (can use raw Zig types)
@@ -1802,6 +1819,17 @@ pub const NativeCodegen = struct {
                             for (pyvalue_string_methods) |pyv_method| {
                                 if (std.mem.eql(u8, method_name, pyv_method)) {
                                     return false; // Let dispatch handle via PyValue methods
+                                }
+                            }
+                            // Float methods on uncertain types - native dispatch extracts float via .asFloat()
+                            const pyvalue_float_methods = [_][]const u8{
+                                "is_integer", "as_integer_ratio", "hex", "conjugate",
+                                "__truediv__", "__rtruediv__", "__floordiv__", "__mod__",
+                                "__floor__", "__ceil__", "__trunc__", "__round__",
+                            };
+                            for (pyvalue_float_methods) |pyv_method| {
+                                if (std.mem.eql(u8, method_name, pyv_method)) {
+                                    return false; // Let dispatch handle via float methods with .asFloat()
                                 }
                             }
                             return true;
@@ -2326,6 +2354,14 @@ pub const NativeCodegen = struct {
                 });
                 if (builtin_types.get(orig_name)) |zig_name| {
                     return builder_mod.ZigValue.raw(zig_name);
+                }
+
+                // Check for Python exception types - emit with runtime. prefix
+                // e.g., TypeError -> runtime.TypeError
+                if (shared_maps.RuntimeExceptions.has(orig_name)) {
+                    var buf: [256]u8 = undefined;
+                    const full_name = std.fmt.bufPrint(&buf, "runtime.{s}", .{orig_name}) catch orig_name;
+                    return builder_mod.ZigValue.raw(try self.arena.allocator().dupe(u8, full_name));
                 }
 
                 // Return named reference (will be emitted as variable name)

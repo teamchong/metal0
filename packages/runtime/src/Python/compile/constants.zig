@@ -34,6 +34,14 @@ pub const OpCode = enum(u8) {
     Return, // Return top of stack
     Call, // Call builtin function
     BuildList, // Build list from N stack items
+
+    // Name lookup (for eval with scope)
+    LoadName, // Load variable: tries locals -> globals -> builtins
+    LoadGlobal, // Load from globals dict only
+    LoadLocal, // Load from locals dict only
+    StoreName, // Store to current scope (for exec())
+    StoreGlobal, // Store to globals
+    StoreLocal, // Store to locals
 };
 
 /// Bytecode instruction

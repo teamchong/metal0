@@ -363,12 +363,19 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
         .bool => if (value) traits.externs.Py_True() else traits.externs.Py_False(),
         .pointer => |ptr| blk: {
             if (ptr.size == .slice and ptr.child == u8) {
-                // String slice
+                // String slice []const u8
                 break :blk traits.externs.PyUnicode_FromStringAndSize(value.ptr, @intCast(value.len));
             } else if (ptr.size == .one) {
-                // Assume it's already a PyObject*
-                traits.externs.Py_INCREF(@ptrCast(value));
-                break :blk @ptrCast(value);
+                // Check if it's a pointer to a u8 array (string literal like *const [N:0]u8)
+                const child_info = @typeInfo(ptr.child);
+                if (child_info == .array and child_info.array.child == u8) {
+                    // String literal: *const [N:0]u8 or *const [N]u8 -> use PyUnicode_FromString
+                    break :blk traits.externs.PyUnicode_FromString(@ptrCast(value));
+                } else if (ptr.child == cpython.PyObject) {
+                    // Already a PyObject*
+                    traits.externs.Py_INCREF(value);
+                    break :blk value;
+                }
             }
             break :blk null;
         },
@@ -389,6 +396,24 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
             break :blk list;
         },
         .optional => if (value) |v| toPyObject(v) else traits.externs.Py_None(),
+        .@"union" => {
+            // Handle runtime.PyValue union - convert each variant to PyObject
+            // Use inline else to handle all variants
+            return switch (value) {
+                .ptr => |p| blk: {
+                    // Check for null pointer before cast to prevent segfaults
+                    if (@intFromPtr(p) == 0) break :blk traits.externs.Py_None();
+                    break :blk @as(*cpython.PyObject, @ptrCast(@alignCast(p)));
+                },
+                .string => |s| traits.externs.PyUnicode_FromStringAndSize(s.ptr, @intCast(s.len)),
+                .int => |i| traits.externs.PyLong_FromLongLong(i),
+                .float => |f| traits.externs.PyFloat_FromDouble(f),
+                // Convert bool to int (1/0) since Py_True/Py_False stubs have layout issues
+                .bool => |b| traits.externs.PyLong_FromLongLong(if (b) 1 else 0),
+                .none => traits.externs.Py_None(),
+                inline else => null,
+            };
+        },
         else => null,
     };
 }
@@ -404,6 +429,20 @@ pub fn callMethod(
     _ = method_name;
     _ = args;
     return null;
+}
+
+/// Call a PyObject callable with Zig arguments
+/// Used for calling from-imported C extension functions like load_library
+/// The callable is a ?*PyObject retrieved via fromImport
+pub fn callFromImport(callable: ?*cpython.PyObject, args: anytype) ?*cpython.PyObject {
+    const c = callable orelse return null;
+
+    // Build args tuple from Zig values
+    const args_tuple = buildArgsTuple(args) orelse return null;
+    defer traits.externs.Py_DECREF(args_tuple);
+
+    // Call the callable using PyObject_Call
+    return traits.externs.PyObject_Call(c, args_tuple, null);
 }
 
 /// Get an attribute from a PyObject

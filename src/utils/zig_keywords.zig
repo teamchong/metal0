@@ -306,6 +306,18 @@ pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
         return;
     }
 
+    // Handle field access expressions (e.g., "__m22_cap_check.expected" from closure captures)
+    // These are generated when capturing variables in closures - the dot is field access, not part of the name
+    // Split into base.field and emit each part separately
+    if (std.mem.indexOfScalar(u8, name, '.')) |dot_pos| {
+        const base = name[0..dot_pos];
+        const field = name[dot_pos + 1 ..];
+        try writeLocalVarName(writer, base);
+        try writer.writeByte('.');
+        try writeLocalVarName(writer, field);
+        return;
+    }
+
     // Handle bare underscore - Zig requires @"_" syntax for _ as an identifier
     if (name.len == 1 and name[0] == '_') {
         try writer.writeAll("@\"_\"");

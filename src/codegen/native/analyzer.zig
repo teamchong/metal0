@@ -151,6 +151,23 @@ pub fn analyzeModule(module: ast.Node.Module, allocator: std.mem.Allocator) !Mod
                 }
             }
         }
+
+        // Handle module-level try-except blocks
+        // Variables assigned in else/finally need to be collected as global vars
+        // so they're available to class methods (generated before main())
+        // NOTE: We skip try body and except handlers because:
+        // - try body: typically contains imports, which create their own consts
+        // - except handlers: typically assign fallbacks like `ctypes = None` for failed imports
+        //   These are handled by try_except.zig's hoisting logic during Phase 6
+        // - else body: contains new variables only set when try succeeds (e.g. c_forward_pointer)
+        // - finally body: may contain cleanup assignments that need visibility
+        if (stmt == .try_stmt) {
+            const try_node = stmt.try_stmt;
+            // Only collect from else body - new variables only set when try succeeds
+            try collectModuleTryVars(try_node.else_body, &global_vars, allocator);
+            // Also collect from finally body for completeness
+            try collectModuleTryVars(try_node.finalbody, &global_vars, allocator);
+        }
     }
 
     // Store global vars in analysis
@@ -209,6 +226,43 @@ fn collectGlobalVars(stmts: []const ast.Node, globals: *std.ArrayList([]const u8
         } else if (stmt == .function_def) {
             // Nested functions
             try collectGlobalVars(stmt.function_def.body, globals, allocator);
+        }
+    }
+}
+
+/// Collect variable assignments from module-level try-except blocks
+/// These need to be in global_vars so they're pre-declared at module level
+/// (before class definitions which are generated in Phase 5)
+fn collectModuleTryVars(stmts: []const ast.Node, globals: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+    for (stmts) |stmt| {
+        if (stmt == .assign) {
+            for (stmt.assign.targets) |target| {
+                if (target == .name) {
+                    const var_name = target.name.id;
+                    // Check if already added (avoid duplicates)
+                    var exists = false;
+                    for (globals.items) |existing| {
+                        if (std.mem.eql(u8, existing, var_name)) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        try globals.append(allocator, var_name);
+                    }
+                }
+            }
+        }
+        // Recurse into nested blocks
+        if (stmt == .if_stmt) {
+            try collectModuleTryVars(stmt.if_stmt.body, globals, allocator);
+            try collectModuleTryVars(stmt.if_stmt.else_body, globals, allocator);
+        } else if (stmt == .for_stmt) {
+            try collectModuleTryVars(stmt.for_stmt.body, globals, allocator);
+            if (stmt.for_stmt.orelse_body) |ob| try collectModuleTryVars(ob, globals, allocator);
+        } else if (stmt == .while_stmt) {
+            try collectModuleTryVars(stmt.while_stmt.body, globals, allocator);
+            if (stmt.while_stmt.orelse_body) |ob| try collectModuleTryVars(ob, globals, allocator);
         }
     }
 }
