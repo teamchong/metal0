@@ -81,9 +81,6 @@ pub const itertools_ops = @import("runtime/itertools_ops.zig");
 /// Export list operations for native codegen (fixes comptime explosion in list literal casting)
 pub const list_ops = @import("runtime/list_ops.zig");
 
-/// Export equality operations for reducing assertion monomorphization
-pub const equality_ops = @import("runtime/equality_ops.zig");
-
 /// Export operator operations for reducing operator callable monomorphization
 pub const operator_ops = @import("runtime/operator_ops.zig");
 
@@ -788,6 +785,11 @@ pub const PySet_Check = cpython.PySet_Check;
 pub const PyFrozenSet_Check = cpython.PyFrozenSet_Check;
 pub const PyAnySet_Check = cpython.PyAnySet_Check;
 pub const PyDeque_Check = cpython.PyDeque_Check;
+pub const PyBuiltinFunction = cpython.PyBuiltinFunction;
+pub const PyBuiltinFunctionObject = cpython.PyBuiltinFunctionObject;
+pub const PyBuiltinFunction_Type = cpython.PyBuiltinFunction_Type;
+pub const PyBuiltinFunction_Check = cpython.PyBuiltinFunction_Check;
+pub const BuiltinFn = cpython.BuiltinFn;
 pub const Py_SIZE = cpython.Py_SIZE;
 pub const Py_SET_SIZE = cpython.Py_SET_SIZE;
 

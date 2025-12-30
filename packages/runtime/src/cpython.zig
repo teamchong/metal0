@@ -445,6 +445,17 @@ pub inline fn PyDeque_Check(op: *PyObject) bool {
     return Py_IS_TYPE(op, &PyDeque_Type);
 }
 
+// PyBuiltinFunction - callable wrapper for builtin functions
+const builtinfunc = @import("Objects/builtinfunc.zig");
+pub const PyBuiltinFunctionObject = builtinfunc.PyBuiltinFunctionObject;
+pub const PyBuiltinFunction = builtinfunc.PyBuiltinFunction;
+pub const PyBuiltinFunction_Type = &builtinfunc.PyBuiltinFunction_Type;
+pub const BuiltinFn = builtinfunc.BuiltinFn;
+
+pub inline fn PyBuiltinFunction_Check(op: *PyObject) bool {
+    return Py_IS_TYPE(op, PyBuiltinFunction_Type);
+}
+
 /// Get ob_size from PyVarObject
 pub inline fn Py_SIZE(op: *PyObject) Py_ssize_t {
     const var_obj: *PyVarObject = @ptrCast(@alignCast(op));

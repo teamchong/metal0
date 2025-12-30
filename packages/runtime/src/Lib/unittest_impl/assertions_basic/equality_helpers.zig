@@ -9,10 +9,8 @@ pub fn pythonEql(a: anytype, b: anytype) bool {
     return PyValue.from(a).eql(PyValue.from(b));
 }
 
-/// Helper to compare two elements - delegates to PyValue.eql() for Python semantics
-pub fn elemEql(a: anytype, b: anytype) bool {
-    return PyValue.from(a).eql(PyValue.from(b));
-}
+/// Helper to compare two elements - alias for pythonEql for backward compatibility
+pub const elemEql = pythonEql;
 
 /// Helper to compare two ArrayList instances element by element
 pub fn equalArrayList(a: anytype, b: anytype) bool {
@@ -262,8 +260,7 @@ pub fn deepEqualUnion(a: anytype, b: anytype) bool {
 
     // Use PyValue comparison to reduce monomorphization
     // Instead of inline for over union fields, delegate to PyValue.eql
-    const allocator = @import("utils.allocator_helper").fast_allocator;
-    return runtime.equality_ops.equalViaPyValue(allocator, a, b);
+    return pythonEql(a, b);
 }
 
 /// Helper to compare two tuple structs
@@ -283,8 +280,7 @@ pub fn equalTuples(a: anytype, b: anytype) bool {
 
     // Use PyValue comparison to reduce monomorphization
     // O(n) conversions + O(1) comparison instead of O(n²) inline field iteration
-    const allocator = @import("utils.allocator_helper").fast_allocator;
-    return runtime.equality_ops.equalViaPyValue(allocator, a, b);
+    return pythonEql(a, b);
 }
 
 /// Check if a type is a string-like type (slice or string literal pointer)
@@ -413,8 +409,7 @@ pub fn equalValues(a: anytype, b: anytype) bool {
         const b_fields = b_info.@"struct".fields;
         if (a_fields.len == b_fields.len) {
             // Use PyValue comparison instead of inline for over fields
-            const allocator = @import("utils.allocator_helper").fast_allocator;
-            return runtime.equality_ops.equalViaPyValue(allocator, a, b);
+            return pythonEql(a, b);
         }
     }
 
