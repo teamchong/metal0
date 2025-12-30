@@ -603,8 +603,8 @@ pub const ZigBuilder = struct {
             .certain_bool => |v| try self.write(if (v) "true" else "false"),
             .certain_str => |s| {
                 try self.write("\"");
-                // Use Python escape handling for string literals from Python source
-                try self.writePythonBytesEscaped(s);
+                // Use Python string escape handling with UTF-8 encoding for non-ASCII
+                try self.writePythonStringEscaped(s);
                 try self.write("\"");
             },
             .certain_bytes => |s| {
@@ -1320,6 +1320,7 @@ pub const ZigBuilder = struct {
                         if (i + 3 < s.len) {
                             const hex = s[i + 2 .. i + 4];
                             if (std.fmt.parseInt(u8, hex, 16)) |byte_val| {
+                                // For bytes literals, emit raw byte value (no UTF-8 encoding)
                                 try self.writeFmt("\\x{x:0>2}", .{byte_val});
                                 i += 4;
                                 continue;
@@ -1372,6 +1373,101 @@ pub const ZigBuilder = struct {
                     },
                     else => {
                         // Unknown escape - emit backslash and continue
+                        try self.write("\\\\");
+                        i += 1;
+                        continue;
+                    },
+                }
+            }
+            // Regular character
+            if (c < 32 or c > 126) {
+                try self.writeFmt("\\x{x:0>2}", .{c});
+            } else if (c == '"') {
+                try self.write("\\\"");
+            } else {
+                try self.body.append(self.allocator, c);
+            }
+            i += 1;
+        }
+    }
+
+    /// Write Python string content, processing Python escape sequences with UTF-8 encoding
+    /// Similar to writePythonBytesEscaped but UTF-8 encodes \xNN values > 0x7F
+    fn writePythonStringEscaped(self: *ZigBuilder, s: []const u8) !void {
+        var i: usize = 0;
+        while (i < s.len) {
+            const c = s[i];
+            if (c == '\\' and i + 1 < s.len) {
+                const next = s[i + 1];
+                switch (next) {
+                    'n' => { try self.write("\\n"); i += 2; continue; },
+                    'r' => { try self.write("\\r"); i += 2; continue; },
+                    't' => { try self.write("\\t"); i += 2; continue; },
+                    '\\' => { try self.write("\\\\"); i += 2; continue; },
+                    '\'' => { try self.write("'"); i += 2; continue; },
+                    '"' => { try self.write("\\\""); i += 2; continue; },
+                    '0' => { try self.write("\\x00"); i += 2; continue; },
+                    'a' => { try self.write("\\x07"); i += 2; continue; },
+                    'b' => { try self.write("\\x08"); i += 2; continue; },
+                    'f' => { try self.write("\\x0c"); i += 2; continue; },
+                    'v' => { try self.write("\\x0b"); i += 2; continue; },
+                    'x' => {
+                        if (i + 3 < s.len) {
+                            const hex = s[i + 2 .. i + 4];
+                            if (std.fmt.parseInt(u8, hex, 16)) |byte_val| {
+                                // UTF-8 encode for values > 0x7F (non-ASCII codepoints)
+                                if (byte_val > 0x7F) {
+                                    var buf: [4]u8 = undefined;
+                                    const len = std.unicode.utf8Encode(@intCast(byte_val), &buf) catch 0;
+                                    for (buf[0..len]) |b| {
+                                        try self.writeFmt("\\x{x:0>2}", .{b});
+                                    }
+                                } else {
+                                    try self.writeFmt("\\x{x:0>2}", .{byte_val});
+                                }
+                                i += 4;
+                                continue;
+                            } else |_| {}
+                        }
+                        try self.write("\\\\x");
+                        i += 2;
+                        continue;
+                    },
+                    'u' => {
+                        if (i + 5 < s.len) {
+                            const hex = s[i + 2 .. i + 6];
+                            if (std.fmt.parseInt(u21, hex, 16)) |codepoint| {
+                                var buf: [4]u8 = undefined;
+                                const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                                for (buf[0..len]) |b| {
+                                    try self.writeFmt("\\x{x:0>2}", .{b});
+                                }
+                                i += 6;
+                                continue;
+                            } else |_| {}
+                        }
+                        try self.write("\\\\u");
+                        i += 2;
+                        continue;
+                    },
+                    'U' => {
+                        if (i + 9 < s.len) {
+                            const hex = s[i + 2 .. i + 10];
+                            if (std.fmt.parseInt(u21, hex, 16)) |codepoint| {
+                                var buf: [4]u8 = undefined;
+                                const len = std.unicode.utf8Encode(codepoint, &buf) catch 0;
+                                for (buf[0..len]) |b| {
+                                    try self.writeFmt("\\x{x:0>2}", .{b});
+                                }
+                                i += 10;
+                                continue;
+                            } else |_| {}
+                        }
+                        try self.write("\\\\U");
+                        i += 2;
+                        continue;
+                    },
+                    else => {
                         try self.write("\\\\");
                         i += 1;
                         continue;

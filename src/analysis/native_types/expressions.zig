@@ -1591,6 +1591,13 @@ fn inferBinOpWithInferrer(
         return trait_result;
     }
 
+    // If either operand is unknown, the result is unknown
+    // Don't fall through to widen() which would prefer the known type
+    // This preserves uncertainty for cases like Path / string where the Path is unknown
+    if (type_traits.isUnknown(left_type) or type_traits.isUnknown(right_type)) {
+        return .unknown;
+    }
+
     // Special case: usize mixed with int preserves int's boundedness
     if (binop.op == .Add or binop.op == .Sub or binop.op == .Mult) {
         if (left_tag == .usize and right_tag == .int) {

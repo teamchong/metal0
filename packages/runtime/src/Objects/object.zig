@@ -1084,6 +1084,11 @@ pub const PyValue = union(enum) {
                     const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
                     return .{ .bool = bool_obj.ob_digit != 0 };
                 }
+                // Check PyBigIntObject first (our internal arbitrary precision type)
+                if (cpython.PyBigInt_Check(obj)) {
+                    const bigint_obj: *cpython.PyBigIntObject = @ptrCast(@alignCast(obj));
+                    return .{ .bigint = bigint_obj.value };
+                }
                 if (cpython.PyLong_Check(obj)) {
                     const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(obj));
                     return .{ .int = @intCast(long_obj.ob_digit) };
