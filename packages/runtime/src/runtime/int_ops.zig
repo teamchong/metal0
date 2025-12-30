@@ -574,11 +574,22 @@ pub fn intBuiltinCall(allocator: std.mem.Allocator, first: anytype, rest: anytyp
                 return PythonError.TypeError;
             }
             // Try __int__ first, then __index__
+            // Handle both plain return and error union return types
             if (@hasDecl(first_info.pointer.child, "__int__")) {
-                return @as(i128, @intCast(first.__int__()));
+                const result = first.__int__();
+                const int_val = if (@typeInfo(@TypeOf(result)) == .error_union)
+                    result catch return PythonError.TypeError
+                else
+                    result;
+                return @as(i128, @intCast(int_val));
             }
             if (@hasDecl(first_info.pointer.child, "__index__")) {
-                return @as(i128, @intCast(first.__index__()));
+                const result = first.__index__();
+                const idx_val = if (@typeInfo(@TypeOf(result)) == .error_union)
+                    result catch return PythonError.TypeError
+                else
+                    result;
+                return @as(i128, @intCast(idx_val));
             }
             return PythonError.TypeError;
         }

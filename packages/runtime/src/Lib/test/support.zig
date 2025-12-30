@@ -646,3 +646,31 @@ pub fn check__all__(self: anytype, module: anytype, extra: anytype) void {
     _ = module;
     _ = extra;
 }
+
+// ============================================================================
+// Integer String Digit Limit Context Manager
+// ============================================================================
+
+/// Context manager for temporarily adjusting int string digit limits
+/// CPython's sys.set_int_max_str_digits() controls conversion limits for security
+/// In AOT compilation, this is a no-op stub since we don't have the same limits
+pub const IntMaxStrDigitsContext = struct {
+    old_limit: i64,
+
+    pub fn __enter__(self: *@This(), _: std.mem.Allocator) !void {
+        _ = self;
+        // No-op - AOT doesn't have dynamic int limits
+    }
+
+    pub fn __exit__(self: *@This(), _: std.mem.Allocator, _: ?*anyopaque, _: ?*anyopaque, _: ?*anyopaque) !void {
+        _ = self;
+        // No-op - nothing to restore
+    }
+};
+
+/// Create context manager for adjusting int max string digits
+/// Usage: with support.adjust_int_max_str_digits(0): ...
+pub fn adjust_int_max_str_digits(new_limit: i64) IntMaxStrDigitsContext {
+    _ = new_limit;
+    return .{ .old_limit = 0 };
+}
