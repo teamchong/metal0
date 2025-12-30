@@ -1,67 +1,73 @@
 /// Python _signal module - C accelerator for signal (internal)
 /// MIGRATED TO ZIGBUILDER
+/// DRY: Uses h.I32(), h.c() factories for signal constants
 const std = @import("std");
 const h = @import("mod_helper.zig");
 const builder_mod = @import("codegen.builder");
 const ast = @import("analysis.ast");
 
-// MIGRATED TO ZIGBUILDER
-
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
+    // Functions that need runtime args - keep as functions
     .{ "signal", genSignal },
-    .{ "getsignal", genGetsignal },
-    .{ "raise_signal", genRaiseSignal },
     .{ "alarm", genAlarm },
-    .{ "pause", genPause },
-    .{ "getitimer", genGetitimer },
-    .{ "setitimer", genSetitimer },
-    .{ "siginterrupt", genSiginterrupt },
-    .{ "set_wakeup_fd", genSetWakeupFd },
-    .{ "sigwait", genSigwait },
-    .{ "pthread_kill", genPthreadKill },
-    .{ "pthread_sigmask", genPthreadSigmask },
-    .{ "sigpending", genSigpending },
-    .{ "valid_signals", genValidSignals },
-    .{ "SIGHUP", genSighup },
-    .{ "SIGINT", genSigint },
-    .{ "SIGQUIT", genSigquit },
-    .{ "SIGILL", genSigill },
-    .{ "SIGTRAP", genSigtrap },
-    .{ "SIGABRT", genSigabrt },
-    .{ "SIGFPE", genSigfpe },
-    .{ "SIGKILL", genSigkill },
-    .{ "SIGBUS", genSigbus },
-    .{ "SIGSEGV", genSigsegv },
-    .{ "SIGSYS", genSigsys },
-    .{ "SIGPIPE", genSigpipe },
-    .{ "SIGALRM", genSigalrm },
-    .{ "SIGTERM", genSigterm },
-    .{ "SIGURG", genSigurg },
-    .{ "SIGSTOP", genSigstop },
-    .{ "SIGTSTP", genSigtstp },
-    .{ "SIGCONT", genSigcont },
-    .{ "SIGCHLD", genSigchld },
-    .{ "SIGTTIN", genSigttin },
-    .{ "SIGTTOU", genSigttou },
-    .{ "SIGIO", genSigio },
-    .{ "SIGXCPU", genSigxcpu },
-    .{ "SIGXFSZ", genSigxfsz },
-    .{ "SIGVTALRM", genSigvtalrm },
-    .{ "SIGPROF", genSigprof },
-    .{ "SIGWINCH", genSigwinch },
-    .{ "SIGINFO", genSiginfo },
-    .{ "SIGUSR1", genSigusr1 },
-    .{ "SIGUSR2", genSigusr2 },
-    .{ "SIG_DFL", genSigDfl },
-    .{ "SIG_IGN", genSigIgn },
-    .{ "ITIMER_REAL", genItimerReal },
-    .{ "ITIMER_VIRTUAL", genItimerVirtual },
-    .{ "ITIMER_PROF", genItimerProf },
-    .{ "SIG_BLOCK", genSigBlock },
-    .{ "SIG_UNBLOCK", genSigUnblock },
-    .{ "SIG_SETMASK", genSigSetmask },
+    // Simple constant returns - using h.c() factory
+    .{ "getsignal", h.c("null") },
+    .{ "raise_signal", h.c("{}") },
+    .{ "pause", h.c("{}") },
+    .{ "getitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") },
+    .{ "setitimer", h.c(".{ .interval = 0.0, .value = 0.0 }") },
+    .{ "siginterrupt", h.c("{}") },
+    .{ "set_wakeup_fd", h.I32(-1) },
+    .{ "sigwait", h.I32(0) },
+    .{ "pthread_kill", h.c("{}") },
+    .{ "pthread_sigmask", h.c("&[_]i32{}") },
+    .{ "sigpending", h.c("&[_]i32{}") },
+    .{ "valid_signals", h.c("&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }") },
+    // Signal constants - using h.I32() factory
+    .{ "SIGHUP", h.I32(1) },
+    .{ "SIGINT", h.I32(2) },
+    .{ "SIGQUIT", h.I32(3) },
+    .{ "SIGILL", h.I32(4) },
+    .{ "SIGTRAP", h.I32(5) },
+    .{ "SIGABRT", h.I32(6) },
+    .{ "SIGFPE", h.I32(8) },
+    .{ "SIGKILL", h.I32(9) },
+    .{ "SIGBUS", h.I32(10) },
+    .{ "SIGSEGV", h.I32(11) },
+    .{ "SIGSYS", h.I32(12) },
+    .{ "SIGPIPE", h.I32(13) },
+    .{ "SIGALRM", h.I32(14) },
+    .{ "SIGTERM", h.I32(15) },
+    .{ "SIGURG", h.I32(16) },
+    .{ "SIGSTOP", h.I32(17) },
+    .{ "SIGTSTP", h.I32(18) },
+    .{ "SIGCONT", h.I32(19) },
+    .{ "SIGCHLD", h.I32(20) },
+    .{ "SIGTTIN", h.I32(21) },
+    .{ "SIGTTOU", h.I32(22) },
+    .{ "SIGIO", h.I32(23) },
+    .{ "SIGXCPU", h.I32(24) },
+    .{ "SIGXFSZ", h.I32(25) },
+    .{ "SIGVTALRM", h.I32(26) },
+    .{ "SIGPROF", h.I32(27) },
+    .{ "SIGWINCH", h.I32(28) },
+    .{ "SIGINFO", h.I32(29) },
+    .{ "SIGUSR1", h.I32(30) },
+    .{ "SIGUSR2", h.I32(31) },
+    // Signal handling constants
+    .{ "SIG_DFL", h.I32(0) },
+    .{ "SIG_IGN", h.I32(1) },
+    // Interval timer constants
+    .{ "ITIMER_REAL", h.I32(0) },
+    .{ "ITIMER_VIRTUAL", h.I32(1) },
+    .{ "ITIMER_PROF", h.I32(2) },
+    // Signal mask constants
+    .{ "SIG_BLOCK", h.I32(1) },
+    .{ "SIG_UNBLOCK", h.I32(2) },
+    .{ "SIG_SETMASK", h.I32(3) },
 });
 
+// Functions that need runtime args
 fn genSignal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
@@ -77,16 +83,6 @@ fn genSignal(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     }
 }
 
-fn genGetsignal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.null_(), builder_mod.EmitConfig.forExpression());
-}
-
-fn genRaiseSignal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
 fn genAlarm(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     if (args.len > 0) {
@@ -100,244 +96,4 @@ fn genAlarm(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
     }
-}
-
-fn genPause(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genGetitimer(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .interval = 0.0, .value = 0.0 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetitimer(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw(".{ .interval = 0.0, .value = 0.0 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSiginterrupt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSetWakeupFd(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, -1)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigwait(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genPthreadKill(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genPthreadSigmask(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]i32{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigpending(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]i32{}"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genValidSignals(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("&[_]i32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 }"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSighup(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 1)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigint(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 2)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigquit(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 3)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigill(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 4)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigtrap(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 5)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigabrt(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 6)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigfpe(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 8)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigkill(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 9)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigbus(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 10)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigsegv(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 11)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigsys(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 12)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigpipe(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 13)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigalrm(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 14)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigterm(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 15)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigurg(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 16)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigstop(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 17)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigtstp(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 18)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigcont(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 19)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigchld(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 20)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigttin(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 21)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigttou(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 22)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigio(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 23)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigxcpu(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 24)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigxfsz(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 25)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigvtalrm(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 26)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigprof(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 27)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigwinch(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 28)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSiginfo(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 29)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigusr1(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 30)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigusr2(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 31)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigDfl(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigIgn(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 1)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genItimerReal(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 0)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genItimerVirtual(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 1)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genItimerProf(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 2)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigBlock(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 1)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigUnblock(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 2)"), builder_mod.EmitConfig.forExpression());
-}
-
-fn genSigSetmask(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.raw("@as(i32, 3)"), builder_mod.EmitConfig.forExpression());
 }
