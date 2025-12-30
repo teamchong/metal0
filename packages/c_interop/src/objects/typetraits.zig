@@ -850,6 +850,18 @@ pub const externs = struct {
         return -1;
     }
 
+    pub fn PyObject_HasAttrString(obj: *cpython.PyObject, name: [*:0]const u8) c_int {
+        // Try to get the attribute - if it succeeds, the attr exists
+        const attr = PyObject_GetAttrString(obj, name);
+        if (attr) |a| {
+            Py_DECREF(a);
+            return 1;
+        }
+        // Clear any error that was set
+        PyErr_Clear();
+        return 0;
+    }
+
     pub fn PyObject_CallObject(callable: *cpython.PyObject, args: ?*cpython.PyObject) ?*cpython.PyObject {
         const type_obj = cpython.Py_TYPE(callable);
 

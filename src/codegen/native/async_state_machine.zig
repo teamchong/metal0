@@ -1358,11 +1358,14 @@ fn genFrameExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 try genFrameExpr(self, bin.right.*);
                 try self.emit(")");
             } else {
-                try self.emit("(");
-                try genFrameExpr(self, bin.left.*);
-                try emitBinOp(self, bin.op);
-                try genFrameExpr(self, bin.right.*);
-                try self.emit(")");
+                const BinOpCtx = struct { left: *ast.Node, right: *ast.Node, op: ast.Operator };
+                try self.withParensCtx(BinOpCtx{ .left = bin.left, .right = bin.right, .op = bin.op }, struct {
+                    fn emit(s: *NativeCodegen, ctx: BinOpCtx) CodegenError!void {
+                        try genFrameExpr(s, ctx.left.*);
+                        try emitBinOp(s, ctx.op);
+                        try genFrameExpr(s, ctx.right.*);
+                    }
+                }.emit);
             }
         },
         else => try self.emit("0"),
@@ -1760,11 +1763,14 @@ fn genSyncExprInFrameWithLoopVar(self: *NativeCodegen, node: ast.Node, args: []a
                 try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
                 try self.emit(")");
             } else {
-                try self.emit("(");
-                try genSyncExprInFrameWithLoopVar(self, bin.left.*, args, loop_var);
-                try emitBinOp(self, bin.op);
-                try genSyncExprInFrameWithLoopVar(self, bin.right.*, args, loop_var);
-                try self.emit(")");
+                const LoopBinOpCtx = struct { left: *ast.Node, right: *ast.Node, op: ast.Operator, args: []ast.Arg, loop_var: []const u8 };
+                try self.withParensCtx(LoopBinOpCtx{ .left = bin.left, .right = bin.right, .op = bin.op, .args = args, .loop_var = loop_var }, struct {
+                    fn emit(s: *NativeCodegen, ctx: LoopBinOpCtx) CodegenError!void {
+                        try genSyncExprInFrameWithLoopVar(s, ctx.left.*, ctx.args, ctx.loop_var);
+                        try emitBinOp(s, ctx.op);
+                        try genSyncExprInFrameWithLoopVar(s, ctx.right.*, ctx.args, ctx.loop_var);
+                    }
+                }.emit);
             }
         },
         .call => {
@@ -1815,11 +1821,14 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                 try genSyncExprInFrame(self, bin.right.*, args);
                 try self.emit(")");
             } else {
-                try self.emit("(");
-                try genSyncExprInFrame(self, bin.left.*, args);
-                try emitBinOp(self, bin.op);
-                try genSyncExprInFrame(self, bin.right.*, args);
-                try self.emit(")");
+                const SyncBinOpCtx = struct { left: *ast.Node, right: *ast.Node, op: ast.Operator, args: []ast.Arg };
+                try self.withParensCtx(SyncBinOpCtx{ .left = bin.left, .right = bin.right, .op = bin.op, .args = args }, struct {
+                    fn emit(s: *NativeCodegen, ctx: SyncBinOpCtx) CodegenError!void {
+                        try genSyncExprInFrame(s, ctx.left.*, ctx.args);
+                        try emitBinOp(s, ctx.op);
+                        try genSyncExprInFrame(s, ctx.right.*, ctx.args);
+                    }
+                }.emit);
             }
         },
         .call => |call| {

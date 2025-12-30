@@ -413,6 +413,20 @@ pub fn getAttr(
     return traits.externs.PyObject_GetAttrString(obj, attr_name);
 }
 
+/// Check if a PyObject has an attribute
+/// Uses subprocess for proxy modules, PyObject_HasAttrString otherwise
+pub fn hasattr(
+    obj: *cpython.PyObject,
+    attr_name: [*:0]const u8,
+) bool {
+    // Check if this is a subprocess proxy module first
+    if (import.isProxyModule(obj)) {
+        return import.hasattrProxy(obj, attr_name);
+    }
+    // Use the real PyObject_HasAttrString from CPython C API
+    return traits.externs.PyObject_HasAttrString(obj, attr_name) != 0;
+}
+
 /// Set an attribute on a PyObject
 /// Currently a stub - C extensions require native reimplementation
 pub fn setAttr(

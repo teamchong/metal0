@@ -1316,6 +1316,50 @@ fn getAttrViaSubprocess(module_name: []const u8, attr_name: []const u8) ?*cpytho
     return parseSubprocessOutput(output);
 }
 
+/// Check if a proxy module has an attribute via subprocess
+/// Returns true if the attribute exists, false otherwise
+pub fn hasattrProxy(module: *cpython.PyObject, attr_name: [*:0]const u8) bool {
+    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
+    const dict = mod_obj.md_dict orelse return false;
+
+    // Check if this is a proxy module
+    const proxy_marker = PyDict_GetItemString(dict, "__subprocess_proxy__");
+    if (proxy_marker == null) return false;
+
+    // Get the module name
+    const name_obj = PyDict_GetItemString(dict, "__proxy_module_name__") orelse return false;
+    const name_str = PyUnicode_AsUTF8(name_obj) orelse return false;
+    const module_name = std.mem.span(name_str);
+
+    // Run subprocess to check hasattr
+    const attr_str = std.mem.span(attr_name);
+    return hasattrViaSubprocess(module_name, attr_str);
+}
+
+/// Check if a module has an attribute via subprocess
+pub fn hasattrViaSubprocess(module_name: []const u8, attr_name: []const u8) bool {
+    var code_buf: [512]u8 = undefined;
+    const py_code = std.fmt.bufPrint(&code_buf,
+        \\import {s}
+        \\print(hasattr({s}, '{s}'))
+    , .{ module_name, module_name, attr_name }) catch return false;
+
+    const result = std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &[_][]const u8{ "python3", "-c", py_code },
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |exit_code| if (exit_code != 0) return false,
+        else => return false,
+    }
+
+    const output = std.mem.trimRight(u8, result.stdout, "\n\r");
+    return std.mem.eql(u8, output, "True");
+}
+
 /// Decode Python escape sequences in a string
 /// Handles: \n, \r, \t, \\, \', \"
 fn decodePythonEscapes(alloc: std.mem.Allocator, input: []const u8) ?[]u8 {
