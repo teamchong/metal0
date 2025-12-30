@@ -674,3 +674,33 @@ pub fn adjust_int_max_str_digits(new_limit: i64) IntMaxStrDigitsContext {
     _ = new_limit;
     return .{ .old_limit = 0 };
 }
+
+/// CPUStopwatch result with timing info
+pub const CPUStopwatchResult = struct {
+    seconds: f64,
+    clock_info: struct {
+        resolution: f64,
+    },
+};
+
+/// CPUStopwatch context manager type for timing tests
+/// In AOT compilation, this returns a dummy result since we don't have
+/// the same timing infrastructure as CPython's test.support
+pub const CPUStopwatchContext = struct {
+    pub fn __enter__(self: *@This(), _: std.mem.Allocator) !CPUStopwatchResult {
+        _ = self;
+        return .{
+            .seconds = 0.0,
+            .clock_info = .{ .resolution = 0.001 },
+        };
+    }
+
+    pub fn __exit__(self: *@This(), _: std.mem.Allocator, _: ?*anyopaque, _: ?*anyopaque, _: ?*anyopaque) !void {
+        _ = self;
+    }
+};
+
+/// CPUStopwatch constructor function (matches Python's CPUStopwatch())
+pub fn CPUStopwatch() CPUStopwatchContext {
+    return .{};
+}

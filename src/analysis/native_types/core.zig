@@ -28,13 +28,11 @@ pub const StringKind = enum {
     slice, // []const u8 slice from operations
 
     /// Map to Zig string types
-    /// runtime strings are dynamically allocated ([]u8 from std.mem.concat, etc.)
-    /// literal/slice strings are immutable ([]const u8)
+    /// All string types use []const u8 since Zig allocators return []u8 which coerces to []const u8
+    /// and all runtime string functions (strRepeat, pyStr, etc.) return []const u8
     pub fn toZigType(self: StringKind) []const u8 {
-        return switch (self) {
-            .runtime => "[]u8", // Dynamically allocated, mutable
-            .literal, .slice => "[]const u8", // Immutable
-        };
+        _ = self;
+        return "[]const u8";
     }
 };
 

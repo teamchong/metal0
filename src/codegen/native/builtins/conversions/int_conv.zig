@@ -337,8 +337,10 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             }
             try self.emit("))");
         } else {
-            // Cast to i64 for normal integers (using @as for explicit type)
-            try self.emit("@as(i64, @intCast(try runtime.parseIntUnicode(");
+            // Use UnifiedInt.parseUnicode for int(str, base) calls since result can be
+            // arbitrarily large (e.g., int("c" * 65000, 16)). UnifiedInt auto-demotes to i64 if small.
+            const alloc_name = "__global_allocator";
+            try self.emitFmt("(try runtime.UnifiedInt.parseUnicode({s}, ", .{alloc_name});
             try self.genExpr(args[0]);
             try self.emit(", @intCast(");
             if (base_is_indexable_class) {
@@ -350,7 +352,7 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             } else {
                 try self.genExpr(args[1]);
             }
-            try self.emit("))))");
+            try self.emit(")))");
         }
         return;
     }

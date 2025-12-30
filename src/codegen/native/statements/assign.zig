@@ -60,24 +60,22 @@ fn isBigIntExpression(self: *NativeCodegen, expr: ast.Node) bool {
         }
     }
     // int() call MAY produce BigInt, but only in specific cases:
-    // - int(string_var) - parsing large number strings
     // - int(bigint_var) - returns the BigInt as-is
     // NOT BigInt-producing:
+    // - int(string_var) - now uses UnifiedInt (auto-promotes if needed)
     // - int(class_instance) - calls __int__() which returns i64
     // - int(float_var) - truncates to i64 (may overflow but genInt handles it)
     if (expr == .call and expr.call.func.* == .name) {
         if (std.mem.eql(u8, expr.call.func.name.id, "int")) {
             if (expr.call.args.len >= 1) {
                 const arg = expr.call.args[0];
-                // Only string variables could parse into BigInt
                 if (arg == .name) {
                     const arg_name = arg.name.id;
                     if (self.getVarType(arg_name)) |arg_type| {
-                        // String argument: int("12345...") could be BigInt
-                        if (string_traits.isString(arg_type)) return true;
                         // BigInt argument: int(bigint_var) returns BigInt
                         if (arg_type == .bigint) return true;
                         if (arg_type == .int and arg_type.int.needsBigInt()) return true;
+                        // Note: int(string_var) now uses UnifiedInt, not BigInt
                     }
                 }
             }
