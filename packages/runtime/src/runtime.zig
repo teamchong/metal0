@@ -257,6 +257,9 @@ pub const execWithScope = @import("Python/pythonrun.zig").execWithScope;
 pub const BytecodeProgram = @import("Python/compile.zig").BytecodeProgram;
 pub const BytecodeVM = @import("Python/compile.zig").VM;
 
+// Re-export builtins dict for eval/exec (three-tier lookup: locals -> globals -> builtins)
+pub const builtins_dict = @import("Python/builtins_dict.zig");
+
 // Re-export test_support and unittest for unittest codegen
 pub const test_support = @import("Lib/test/support.zig");
 pub const unittest = @import("Lib/unittest.zig");

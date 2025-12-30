@@ -249,11 +249,7 @@ pub fn pyFormat(allocator: std.mem.Allocator, value: anytype, format_spec_str: a
                     if (spec.alternate and prec == 0) {
                         try buf.append(allocator, '.');
                     }
-                    try buf.append(allocator, if (spec.fmt_type == 'E') 'E' else 'e');
-                    try buf.append(allocator, if (exp >= 0) '+' else '-');
-                    const abs_exp: u32 = @intCast(@abs(exp));
-                    if (abs_exp < 10) try buf.append(allocator, '0');
-                    try buf.writer(allocator).print("{d}", .{abs_exp});
+                    try float_format.emitExponent(&buf, allocator, exp, if (spec.fmt_type == 'E') 'E' else 'e');
                 },
                 '%' => {
                     // Apply banker's rounding for Python semantics

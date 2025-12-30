@@ -72,6 +72,44 @@ pub const PyFloatFormatOptions = struct {
     alt_form: bool = false, // '#' flag - always include decimal point
 };
 
+// ============================================================================
+// Shared Helpers (used by py_format.zig and this file)
+// ============================================================================
+
+/// Emit sign character based on value's sign bit and sign option.
+/// Handles negative zero correctly via std.math.signbit().
+pub fn emitFloatSign(
+    result: *std.ArrayListUnmanaged(u8),
+    allocator: std.mem.Allocator,
+    value: f64,
+    sign: FloatSignOption,
+) !void {
+    if (std.math.signbit(value)) {
+        try result.append(allocator, '-');
+    } else {
+        switch (sign) {
+            .plus => try result.append(allocator, '+'),
+            .space => try result.append(allocator, ' '),
+            .none => {},
+        }
+    }
+}
+
+/// Emit Python-style exponent (e+05, e-03, E+05, E-03).
+/// Always uses 2-digit exponent with leading zero if needed.
+pub fn emitExponent(
+    result: *std.ArrayListUnmanaged(u8),
+    allocator: std.mem.Allocator,
+    exp: i32,
+    exp_char: u8,
+) !void {
+    try result.append(allocator, exp_char);
+    try result.append(allocator, if (exp >= 0) '+' else '-');
+    const abs_exp: u32 = @intCast(@abs(exp));
+    if (abs_exp < 10) try result.append(allocator, '0');
+    try result.writer(allocator).print("{d}", .{abs_exp});
+}
+
 /// Format a large float (>= 1e15) using BigInt for exact decimal representation.
 /// This is essential for Python compatibility where "%.0f" % 1e49 must output
 /// the exact IEEE 754 representation, not a rounded value.
@@ -346,17 +384,7 @@ pub fn formatPythonFloat(allocator: std.mem.Allocator, value: f64, options: PyFl
                 }
 
                 // Add exponent
-                try result.append(allocator, 'e');
-                if (final_exp >= 0) {
-                    try result.append(allocator, '+');
-                    if (final_exp < 10) try result.append(allocator, '0');
-                    try result.writer(allocator).print("{d}", .{@as(u32, @intCast(final_exp))});
-                } else {
-                    try result.append(allocator, '-');
-                    const abs_exp: u32 = @intCast(-final_exp);
-                    if (abs_exp < 10) try result.append(allocator, '0');
-                    try result.writer(allocator).print("{d}", .{abs_exp});
-                }
+                try emitExponent(result, allocator, final_exp, 'e');
             }
         },
     }
@@ -440,17 +468,7 @@ fn formatGeneralScientific(allocator: std.mem.Allocator, result: *std.ArrayListU
     }
 
     // Add exponent
-    try result.append(allocator, 'e');
-    if (final_exp >= 0) {
-        try result.append(allocator, '+');
-        if (final_exp < 10) try result.append(allocator, '0');
-        try result.writer(allocator).print("{d}", .{@as(u32, @intCast(final_exp))});
-    } else {
-        try result.append(allocator, '-');
-        const abs_exp: u32 = @intCast(-final_exp);
-        if (abs_exp < 10) try result.append(allocator, '0');
-        try result.writer(allocator).print("{d}", .{abs_exp});
-    }
+    try emitExponent(result, allocator, final_exp, 'e');
 }
 
 /// Convert Zig's scientific notation to Python format
