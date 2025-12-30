@@ -100,9 +100,11 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
 
     // TWO-FLOW TYPE SYSTEM: Check if either operand is uncertain (needs PyValue)
     // If so, use safe PyValue arithmetic methods instead of raw Zig operators
+    // EXCEPTION: @logic_table methods are designed for numeric processing - use runtime.addNum/etc
+    // which handle anytype polymorphism at comptime instead of PyValue runtime dispatch
     const left_uncertain = pyvalue_ops.isOperandUncertain(self, binop.left.*);
     const right_uncertain = pyvalue_ops.isOperandUncertain(self, binop.right.*);
-    if (left_uncertain or right_uncertain) {
+    if ((left_uncertain or right_uncertain) and !self.in_logic_table_class) {
         // Only use PyValue ops for supported arithmetic operations
         // EXCEPTION: For Mod operator, check if left is string - that's string formatting, not arithmetic
         if (pyvalue_ops.getPyValueMethod(@tagName(binop.op)) != null) {
