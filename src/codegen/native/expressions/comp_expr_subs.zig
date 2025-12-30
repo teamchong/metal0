@@ -209,14 +209,17 @@ fn genCallWithSubs(
     } else if (c.func.* == .attribute) {
         // Attribute call (e.g., random.sample, struct.unpack_from)
         try genExprWithSubs(self, c.func.*, subs);
-        try self.emit("(");
-        var first_arg = true;
-        for (c.args) |arg| {
-            if (!first_arg) try self.emit(", ");
-            first_arg = false;
-            try genExprWithSubs(self, arg, subs);
-        }
-        try self.emit(")");
+        const AttrCallCtx = struct { a: []ast.Node, s: *const hashmap_helper.StringHashMap([]const u8) };
+        try self.withParensCtx(AttrCallCtx{ .a = c.args, .s = subs }, struct {
+            fn emit(s: *NativeCodegen, ctx: AttrCallCtx) CodegenError!void {
+                var first_arg = true;
+                for (ctx.a) |arg| {
+                    if (!first_arg) try s.emit(", ");
+                    first_arg = false;
+                    try genExprWithSubs(s, arg, ctx.s);
+                }
+            }
+        }.emit);
     } else if (c.func.* == .name) {
         try genBuiltinCallWithSubs(self, c, subs);
     } else {
@@ -338,14 +341,17 @@ fn genBuiltinCallWithSubs(
     } else {
         // Fallback: generate call with substituted args
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
-        try self.emit("(");
-        var first_arg = true;
-        for (c.args) |arg| {
-            if (!first_arg) try self.emit(", ");
-            first_arg = false;
-            try genExprWithSubs(self, arg, subs);
-        }
-        try self.emit(")");
+        const FallbackCtx = struct { a: []ast.Node, s: *const hashmap_helper.StringHashMap([]const u8) };
+        try self.withParensCtx(FallbackCtx{ .a = c.args, .s = subs }, struct {
+            fn emit(s: *NativeCodegen, ctx: FallbackCtx) CodegenError!void {
+                var first_arg = true;
+                for (ctx.a) |arg| {
+                    if (!first_arg) try s.emit(", ");
+                    first_arg = false;
+                    try genExprWithSubs(s, arg, ctx.s);
+                }
+            }
+        }.emit);
     }
 }
 

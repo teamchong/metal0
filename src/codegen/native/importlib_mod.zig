@@ -12,7 +12,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "SourcelessFileLoader", h.c(".{}") }, .{ "ExtensionFileLoader", h.c(".{}") },
     .{ "SOURCE_SUFFIXES", h.c("&[_][]const u8{\".py\"}") }, .{ "BYTECODE_SUFFIXES", h.c("&[_][]const u8{\".pyc\"}") },
     .{ "EXTENSION_SUFFIXES", h.c("&[_][]const u8{\".so\", \".pyd\"}") }, .{ "all_suffixes", h.c("&[_][]const u8{\".py\", \".pyc\", \".so\", \".pyd\"}") },
-    .{ "import_module", h.c("@as(?*anyopaque, null)") }, .{ "reload", h.pass("@as(?*anyopaque, null)") }, .{ "invalidate_caches", h.c("{}") },
+    .{ "import_module", h.c("@as(?*anyopaque, null)") }, .{ "reload", h.c("{}") }, .{ "invalidate_caches", h.c("{}") },
     .{ "Loader", h.c(".{}") }, .{ "MetaPathFinder", h.c(".{}") }, .{ "PathEntryFinder", h.c(".{}") },
     .{ "ResourceLoader", h.c(".{}") }, .{ "InspectLoader", h.c(".{}") }, .{ "ExecutionLoader", h.c(".{}") },
     .{ "FileLoader", h.c(".{}") }, .{ "SourceLoader", h.c(".{}") }, .{ "Traversable", h.c(".{}") },
