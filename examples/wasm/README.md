@@ -1,67 +1,133 @@
-# metal0 WASM Examples
+# LanceQL Web Demo
 
-Compile Python to WebAssembly for browser and Node.js.
+Browser-based Lance file reader with SQL queries and vector search. Query 1M+ row datasets directly from URLs without downloading the full file.
 
-## Quick Start
+**Live Demo:** [https://teamchong.github.io/lanceql/](https://teamchong.github.io/lanceql/)
+
+## Features
+
+- **SQL Queries** - DuckDB-style syntax with `read_lance()` function
+- **Vector Search** - Semantic search using MiniLM or CLIP encoders
+- **HTTP Range Requests** - Only downloads needed data (~100MB instead of 1.5GB)
+- **IVF Index Support** - Fast approximate nearest neighbor search
+
+## SQL Syntax
+
+### Basic Queries
+
+```sql
+-- Load and query remote dataset
+SELECT * FROM read_lance('https://data.metal0.dev/laion-1m/images.lance') LIMIT 50
+
+-- With filter
+SELECT url, text, aesthetic
+FROM read_lance('https://data.metal0.dev/laion-1m/images.lance')
+WHERE aesthetic > 7
+LIMIT 100
+```
+
+### Vector Search
+
+```sql
+-- Text search using MiniLM (default)
+SELECT * FROM read_lance('https://data.metal0.dev/laion-1m/images.lance')
+SEARCH 'cat'
+LIMIT 20
+
+-- Image search using CLIP
+SELECT * FROM read_lance('https://data.metal0.dev/laion-1m/images.lance')
+SEARCH 'sunset on the beach' USING clip
+LIMIT 20
+
+-- Specify vector column
+SELECT * FROM read_lance('https://data.metal0.dev/laion-1m/images.lance')
+SEARCH 'cat' ON embedding
+LIMIT 20
+```
+
+## DataFrame API
+
+```python
+import lanceql
+
+# Open remote dataset
+dataset = lanceql.open("https://data.metal0.dev/laion-1m/images.lance")
+
+# Query data
+result = (
+    dataset.df()
+    .search("cat", encoder="minilm")
+    .filter("aesthetic", ">", 7)
+    .select(["url", "text", "aesthetic"])
+    .limit(50)
+    .collect()
+)
+```
+
+## Encoders
+
+| Encoder | Model | Dimensions | Use Case |
+|---------|-------|------------|----------|
+| `minilm` | all-MiniLM-L6-v2 | 384 | Text-to-text similarity |
+| `clip` | OpenAI ViT-B/32 | 512 | Text-to-image search |
+
+## Dataset
+
+The demo uses the LAION-1M dataset hosted on Cloudflare R2:
+
+- **URL:** `https://data.metal0.dev/laion-1m/images.lance`
+- **Rows:** 1,000,000
+- **Schema:** `url`, `text`, `width`, `height`, `aesthetic`, `embedding` (384D)
+- **Index:** IVF-PQ with 256 partitions
+
+## Local Development
 
 ```bash
-# Compile to WASM
+# Build WASM module
+zig build wasm
+cp zig-out/bin/lanceql.wasm examples/wasm/
+
+# Start local server
 cd examples/wasm
-../../zig-out/bin/metal0 build --target wasm-browser math.py
+python -m http.server 3000
 
-# Test in Node.js
-node node_test.mjs
-
-# Test in browser
-python3 -m http.server 8080
-# Open http://localhost:8080/browser.html
+# Open http://localhost:3000
 ```
 
-## Files
+## Architecture
 
-- `math.py` - Example Python module with math functions
-- `browser.html` - Browser test page with Immer-style runtime
-- `node_test.mjs` - Node.js test script
-
-## Generated Files
-
-After compilation:
-- `math.wasm` - WebAssembly binary (functions exported)
-- `math.d.ts` - TypeScript definitions
-
-## Immer-Style Runtime
-
-The runtime is only 773 bytes (minified) and uses a Proxy pattern:
-
-```javascript
-const E = new TextEncoder();
-let w, m, p, M = 1 << 20;
-const g = () => new Uint8Array(m.buffer, p, M);
-const x = a => {
-    if (typeof a !== 'string') return [typeof a === 'number' ? BigInt(a) : a];
-    const b = E.encode(a);
-    const u = g();
-    u.set(b);
-    return [p, b.length];
-};
-
-async function load(s) {
-    const b = typeof s === 'string' ? await fetch(s).then(r => r.arrayBuffer()) : s;
-    w = (await WebAssembly.instantiate(await WebAssembly.compile(b), {})).exports;
-    m = w.memory;
-    if (w.alloc) { p = w.alloc(M); }
-    return new Proxy({}, {
-        get: (_, n) => typeof w[n] === 'function' ? (...a) => w[n](...a.flatMap(x)) : w[n]
-    });
-}
-
-// Usage
-const mod = await load('./math.wasm');
-mod.add(3, 4);  // Returns 7n (BigInt)
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Browser (JavaScript)                     │
+├─────────────────────────────────────────────────────────────┤
+│  SQL Parser  │  DataFrame API  │  Text Encoders (WASM)       │
+├─────────────────────────────────────────────────────────────┤
+│                    LanceQL WASM Module                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ Lance File  │  │  Protobuf   │  │  Vector Search      │  │
+│  │  Parser     │  │  Decoder    │  │  (IVF Index)        │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│                  HTTP Range Requests (fetch)                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Cloudflare R2 / Any HTTP Server                  │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │  images.lance/                                       │    │
+│  │  ├── _versions/1.manifest                           │    │
+│  │  ├── data/*.lance                                   │    │
+│  │  └── ivf_vectors.bin (partition-organized vectors)  │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Notes
+## Performance
 
-- Python `int` compiles to `i64`, which maps to JavaScript `BigInt`
-- Use `Number(result)` to convert BigInt to regular number if needed
-- String arguments are automatically marshalled to WASM memory
+| Operation | Data Transfer | Time |
+|-----------|--------------|------|
+| Load metadata | ~50 KB | <1s |
+| First 50 rows | ~200 KB | <2s |
+| Vector search (20 partitions) | ~100 MB | ~5s |
+| Full dataset scan | 1.5 GB | N/A (not needed) |
