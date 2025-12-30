@@ -562,9 +562,28 @@ pub fn intBuiltinCall(allocator: std.mem.Allocator, first: anytype, rest: anytyp
         return @as(i128, @intCast(first));
     }
 
-    // String case
+    // String case - but not class instance pointers
     if (first_info == .pointer) {
-        // Get base from rest args if present
+        const child_info = @typeInfo(first_info.pointer.child);
+
+        // If pointing to a struct (class instance), check for __int__/__index__
+        if (child_info == .@"struct") {
+            if (has_extra_args) {
+                // int(object, base) with class instance that has __index__ - call __index__ first
+                // CPython raises TypeError if first arg is not string/bytes-like
+                return PythonError.TypeError;
+            }
+            // Try __int__ first, then __index__
+            if (@hasDecl(first_info.pointer.child, "__int__")) {
+                return @as(i128, @intCast(first.__int__()));
+            }
+            if (@hasDecl(first_info.pointer.child, "__index__")) {
+                return @as(i128, @intCast(first.__index__()));
+            }
+            return PythonError.TypeError;
+        }
+
+        // Get base from rest args if present (for string parsing)
         const base: u8 = if (has_extra_args) blk: {
             const fields = rest_info.@"struct".fields;
             const base_val = @field(rest, fields[0].name);

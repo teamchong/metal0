@@ -163,10 +163,10 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                     try self.emit("() catch {\n");
                 }
                 self.indent();
-                // tearDown on failure
+                // tearDown on failure (no allocator - Python tearDown takes no args)
                 if (class_info.has_tearDown) {
                     try self.emitIndent();
-                    try self.emit("ctx.instance.tearDown(ctx.allocator) catch {};\n");
+                    try self.emit("ctx.instance.tearDown();\n");
                 }
                 try self.emitIndent();
                 try self.emit("ctx.result.store(2, .release);\n"); // 2 = failed
@@ -182,16 +182,10 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
                 try self.emit("();\n");
             }
 
-            // tearDown on success
+            // tearDown on success (no allocator - Python tearDown takes no args)
             if (class_info.has_tearDown) {
                 try self.emitIndent();
-                try self.emit("ctx.instance.tearDown(ctx.allocator) catch {\n");
-                self.indent();
-                try self.emitIndent();
-                try self.emit("ctx.result.store(2, .release); return;\n"); // Fail test on tearDown error
-                self.dedent();
-                try self.emitIndent();
-                try self.emit("};\n");
+                try self.emit("ctx.instance.tearDown();\n");
             }
             try self.emitIndent();
             try self.emit("ctx.result.store(1, .release);\n"); // 1 = passed

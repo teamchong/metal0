@@ -608,6 +608,14 @@ pub const UnifiedInt = union(enum) {
         };
     }
 
+    /// Convert to decimal string representation
+    pub fn toDecimalString(self: Self, allocator: Allocator) ![]const u8 {
+        return switch (self) {
+            .small => |v| try std.fmt.allocPrint(allocator, "{d}", .{v}),
+            .big => |b| try b.toDecimalString(allocator),
+        };
+    }
+
     /// Python-compatible hash
     pub fn hash(self: Self, allocator: Allocator) !i64 {
         switch (self) {

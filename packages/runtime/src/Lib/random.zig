@@ -63,10 +63,12 @@ pub const Random = struct {
         return start + idx * actual_step;
     }
 
-    /// Return a random n-bit integer
-    pub fn getrandbits(self: *Self, k: u6) u64 {
+    /// Return a random n-bit integer (k can be 0-64)
+    pub fn getrandbits(self: *Self, k: u7) u64 {
         if (k == 0) return 0;
-        return self.rng.random().int(u64) >> (@as(u6, 64) - k);
+        if (k == 64) return self.rng.random().int(u64);
+        // k is 1-63, so shift amount 64-k is 1-63 which fits in u6
+        return self.rng.random().int(u64) >> @as(u6, @intCast(64 - @as(u8, k)));
     }
 
     // ========================================================================

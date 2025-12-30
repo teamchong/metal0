@@ -327,6 +327,19 @@ fn emitCallableInvocation(
         return;
     }
 
+    if (callable == .name and std.mem.eql(u8, callable.name.id, "getattr")) {
+        // getattr produces a labeled block expression that can't be invoked directly
+        // Use runtime.getattr_builtin directly which returns error union (for assertRaises to check)
+        try self.emit("runtime.getattr_builtin(");
+        if (call_args.len > 0) try parent.genExpr(self, call_args[0]);
+        if (call_args.len > 1) {
+            try self.emit(", ");
+            try parent.genExpr(self, call_args[1]);
+        }
+        try self.emit(")");
+        return;
+    }
+
     if (callable == .name and std.mem.eql(u8, callable.name.id, "int")) {
         // Use builder pattern for int() builtin
         const b = try self.getBuilder();

@@ -138,7 +138,15 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         break :blk false;
     };
 
-    // If left operand needs BigInt (explicit bigint or unbounded int), use BigInt method calls
+    // Check UnifiedInt FIRST - it's a superset that handles both i64 and BigInt
+    // UnifiedInt auto-promotes on overflow, so it should handle all integer arithmetic
+    // BUT NOT for string formatting operations
+    if ((unified_int_ops.isUnifiedInt(bigint_left_type) or unified_int_ops.isUnifiedInt(bigint_right_type)) and !is_string_formatting) {
+        try unified_int_ops.genUnifiedIntBinOp(self, binop, bigint_left_type, bigint_right_type);
+        return;
+    }
+
+    // Then check BigInt - for explicit bigint types not using UnifiedInt
     // BUT NOT for string formatting operations
     if (bigint_ops.needsBigInt(bigint_left_type) and !is_string_formatting) {
         try bigint_ops.genBigIntBinOp(self, binop, bigint_left_type, bigint_right_type);
@@ -149,13 +157,6 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     // BUT NOT for string formatting operations
     if (bigint_ops.needsBigInt(bigint_right_type) and !is_string_formatting) {
         try bigint_ops.genBigIntBinOpRightBig(self, binop, bigint_left_type, bigint_right_type);
-        return;
-    }
-
-    // If either operand is UnifiedInt, use UnifiedInt method calls
-    // BUT NOT for string formatting operations
-    if ((unified_int_ops.isUnifiedInt(bigint_left_type) or unified_int_ops.isUnifiedInt(bigint_right_type)) and !is_string_formatting) {
-        try unified_int_ops.genUnifiedIntBinOp(self, binop, bigint_left_type, bigint_right_type);
         return;
     }
 

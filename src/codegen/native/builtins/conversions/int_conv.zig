@@ -307,8 +307,23 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             break :blk false;
         };
 
-        // In assertRaises context, don't emit 'try' or type casts - the outer catch will handle errors
-        // Use runtime.parseIntUnicode to handle Unicode whitespace (like Python's int())
+        // Check if first argument is a string type - only use parseIntUnicode for strings
+        const first_arg_type = self.inferExprScoped(args[0]) catch .unknown;
+        const first_arg_is_string = string_traits.isString(first_arg_type) or string_traits.isBytes(first_arg_type);
+
+        // In assertRaises context with non-string first arg, use runtime intWithBase
+        // This handles cases like int(class_instance, base) which should raise TypeError
+        if (self.in_assert_raises_context and !first_arg_is_string) {
+            try self.emit("(try runtime.builtins.intWithBase(__global_allocator, ");
+            try self.genExpr(args[0]);
+            try self.emit(", ");
+            try self.genExpr(args[1]);
+            try self.emit("))");
+            return;
+        }
+
+        // In assertRaises context with string first arg, use parseIntUnicode
+        // Don't emit 'try' or type casts - the outer catch will handle errors
         if (self.in_assert_raises_context) {
             // Return raw error union for assertRaises to catch
             try self.emit("runtime.parseIntUnicode(");
