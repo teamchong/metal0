@@ -221,15 +221,26 @@ pub fn genRound(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
 /// Handles both int and BigInt divisors
 pub fn genTruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     // obj / args[0], with runtime type dispatch for BigInt
-    try self.emit("((");
-    try self.genExpr(obj);
-    try self.emit(") / runtime.toFloat(");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("1");
-    }
-    try self.emit("))");
+    const Ctx = struct { o: ast.Node, a: []ast.Node };
+    try self.withParensCtx(Ctx{ .o = obj, .a = args }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.withParensCtx(ctx.o, struct {
+                pub fn inner(s2: *NativeCodegen, o: ast.Node) CodegenError!void {
+                    try s2.genExpr(o);
+                }
+            }.inner);
+            try s.emit(" / ");
+            try s.emitCallCtx("runtime.toFloat", ctx.a, struct {
+                pub fn inner2(s2: *NativeCodegen, a: []ast.Node) CodegenError!void {
+                    if (a.len > 0) {
+                        try s2.genExpr(a[0]);
+                    } else {
+                        try s2.emit("1");
+                    }
+                }
+            }.inner2);
+        }
+    }.f);
 }
 
 /// Generate float.__rtruediv__(other) - reverse true division
@@ -238,43 +249,84 @@ pub fn genRtruediv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
     // args[0] / obj
     const Ctx = struct { o: ast.Node, a: []ast.Node };
     try self.withParensCtx(Ctx{ .o = obj, .a = args }, struct {
-        pub fn emit(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit("@as(f64, @floatFromInt(");
-            if (ctx.a.len > 0) {
-                try s.genExpr(ctx.a[0]);
-            } else {
-                try s.emit("1");
-            }
-            try s.emit(")) / ");
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emitCallCtx("@as", ctx.a, struct {
+                pub fn inner(s2: *NativeCodegen, a: []ast.Node) CodegenError!void {
+                    try s2.emit("f64, ");
+                    try s2.emitCallCtx("@floatFromInt", a, struct {
+                        pub fn inner2(s3: *NativeCodegen, args2: []ast.Node) CodegenError!void {
+                            if (args2.len > 0) {
+                                try s3.genExpr(args2[0]);
+                            } else {
+                                try s3.emit("1");
+                            }
+                        }
+                    }.inner2);
+                }
+            }.inner);
+            try s.emit(" / ");
             try s.genExpr(ctx.o);
         }
-    }.emit);
+    }.f);
 }
 
 /// Generate float.__floordiv__(other) - floor division
 /// Python: (10.0).__floordiv__(3) -> 3.0
 pub fn genFloordiv(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try self.emit("@as(f64, @floatFromInt(@divFloor(@as(i64, @intFromFloat(");
-    try self.genExpr(obj);
-    try self.emit(")), ");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("1");
-    }
-    try self.emit(")))");
+    const Ctx = struct { o: ast.Node, a: []ast.Node };
+    try self.emitCallCtx("@as", Ctx{ .o = obj, .a = args }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.emit("f64, ");
+            try s.emitCallCtx("@floatFromInt", ctx, struct {
+                pub fn inner(s2: *NativeCodegen, ctx2: Ctx) CodegenError!void {
+                    try s2.emitCallCtx("@divFloor", ctx2, struct {
+                        pub fn inner2(s3: *NativeCodegen, ctx3: Ctx) CodegenError!void {
+                            try s3.emitCallCtx("@as", ctx3.o, struct {
+                                pub fn inner3(s4: *NativeCodegen, o: ast.Node) CodegenError!void {
+                                    try s4.emit("i64, ");
+                                    try s4.emitCallCtx("@intFromFloat", o, struct {
+                                        pub fn inner4(s5: *NativeCodegen, obj2: ast.Node) CodegenError!void {
+                                            try s5.genExpr(obj2);
+                                        }
+                                    }.inner4);
+                                }
+                            }.inner3);
+                            try s3.emit(", ");
+                            if (ctx3.a.len > 0) {
+                                try s3.genExpr(ctx3.a[0]);
+                            } else {
+                                try s3.emit("1");
+                            }
+                        }
+                    }.inner2);
+                }
+            }.inner);
+        }
+    }.f);
 }
 
 /// Generate float.__mod__(other) - modulo
 /// Python: (10.0).__mod__(3) -> 1.0
 pub fn genMod(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
-    try self.emit("@mod(");
-    try self.genExpr(obj);
-    try self.emit(", @as(f64, @floatFromInt(");
-    if (args.len > 0) {
-        try self.genExpr(args[0]);
-    } else {
-        try self.emit("1");
-    }
-    try self.emit(")))");
+    const Ctx = struct { o: ast.Node, a: []ast.Node };
+    try self.emitCallCtx("@mod", Ctx{ .o = obj, .a = args }, struct {
+        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+            try s.genExpr(ctx.o);
+            try s.emit(", ");
+            try s.emitCallCtx("@as", ctx.a, struct {
+                pub fn inner(s2: *NativeCodegen, a: []ast.Node) CodegenError!void {
+                    try s2.emit("f64, ");
+                    try s2.emitCallCtx("@floatFromInt", a, struct {
+                        pub fn innermost(s3: *NativeCodegen, args2: []ast.Node) CodegenError!void {
+                            if (args2.len > 0) {
+                                try s3.genExpr(args2[0]);
+                            } else {
+                                try s3.emit("1");
+                            }
+                        }
+                    }.innermost);
+                }
+            }.inner);
+        }
+    }.f);
 }

@@ -302,10 +302,12 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
             // Also check for "_converted" suffix variables derived from anytype params
             if (std.mem.endsWith(u8, base_name, "_converted")) {
                 const original_name = base_name[0 .. base_name.len - "_converted".len];
+                std.debug.print("DEBUG isOperandUncertain: _converted {s}, original={s}, in_anytype={}\n", .{ base_name, original_name, self.anytype_params.contains(original_name) });
                 if (self.anytype_params.contains(original_name)) {
                     // Converted anytype has known class type, check if field is primitive
                     const var_type = self.type_inferrer.getScopedVar(base_name) orelse
                         self.type_inferrer.var_types.get(base_name);
+                    std.debug.print("DEBUG isOperandUncertain: _converted {s}.{s} var_type={any}\n", .{ base_name, attr.attr, var_type });
                     if (var_type) |vt| {
                         if (vt == .class_instance) {
                             // Class instance - check field type in class registry
@@ -313,7 +315,9 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                             if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                                 if (class_info.fields.get(attr.attr)) |field_type| {
                                     // Field has a known type - only uncertain if pyvalue/unknown
-                                    return field_type == .pyvalue or field_type == .unknown;
+                                    const is_unc = field_type == .pyvalue or field_type == .unknown;
+                                    std.debug.print("DEBUG isOperandUncertain: _converted {s}.{s} field_type={any}, is_unc={}\n", .{ base_name, attr.attr, field_type, is_unc });
+                                    return is_unc;
                                 }
                             }
                             // Field not found - assume NOT uncertain

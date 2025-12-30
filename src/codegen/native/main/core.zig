@@ -2018,6 +2018,39 @@ pub const NativeCodegen = struct {
             }
         }
 
+        // For attribute access (e.g., self.__num), look up field type if base is class instance
+        if (node == .attribute) {
+            const attr = node.attribute;
+            if (attr.value.* == .name) {
+                const base_name = attr.value.name.id;
+                const attr_name = attr.attr;
+
+                // Check if base is "self" inside a class method
+                if (std.mem.eql(u8, base_name, "self")) {
+                    if (self.current_class_name) |class_name| {
+                        // Look up field type in class_fields registry
+                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                            if (class_info.fields.get(attr_name)) |field_type| {
+                                return field_type;
+                            }
+                        }
+                    }
+                }
+
+                // Check if base is a known class instance variable
+                const base_type = try self.inferExprScoped(attr.value.*);
+                if (base_type == .class_instance) {
+                    const class_name = base_type.class_instance;
+                    // Look up field type in class_fields registry
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr_name)) |field_type| {
+                            return field_type;
+                        }
+                    }
+                }
+            }
+        }
+
         // For unary ops, recursively check the operand
         if (node == .unaryop) {
             const operand_type = try self.inferExprScoped(node.unaryop.operand.*);
@@ -2322,9 +2355,84 @@ pub const NativeCodegen = struct {
                 }
 
                 // Class instances need dunder method dispatch (__add__, __radd__, etc.)
+                // But NOT for primitive field access like self.__num where the field has a concrete type
                 if (type_traits.isClassInstance(left_type) or type_traits.isClassInstance(right_type)) {
-                    std.debug.print("DEBUG exprToValue binop: class_instance fallback, left={any}, right={any}\n", .{ left_type, right_type });
-                    return try self.captureExpr(node);
+                    // Check if this is actually attribute access on a class with known field types
+                    // In that case, the field types should be used, not class_instance
+                    const left_is_field = if (b.left.* == .attribute) blk: {
+                        const attr = b.left.attribute;
+                        if (attr.value.* == .name) {
+                            const base_name = attr.value.name.id;
+                            // Check if base is self or known class instance
+                            if (std.mem.eql(u8, base_name, "self")) {
+                                if (self.current_class_name) |class_name| {
+                                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                        if (class_info.fields.get(attr.attr)) |field_type| {
+                                            // Has known field type - not a class_instance operation
+                                            break :blk field_type != .class_instance and field_type != .unknown;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Check if base is a known class instance variable
+                                const var_type = self.type_inferrer.getScopedVar(base_name) orelse
+                                    self.type_inferrer.var_types.get(base_name);
+                                if (var_type) |vt| {
+                                    if (vt == .class_instance) {
+                                        const class_name = vt.class_instance;
+                                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                            if (class_info.fields.get(attr.attr)) |field_type| {
+                                                break :blk field_type != .class_instance and field_type != .unknown;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break :blk false;
+                    } else false;
+
+                    const right_is_field = if (b.right.* == .attribute) blk: {
+                        const attr = b.right.attribute;
+                        if (attr.value.* == .name) {
+                            const base_name = attr.value.name.id;
+                            if (std.mem.eql(u8, base_name, "self")) {
+                                if (self.current_class_name) |class_name| {
+                                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                        if (class_info.fields.get(attr.attr)) |field_type| {
+                                            break :blk field_type != .class_instance and field_type != .unknown;
+                                        }
+                                    }
+                                }
+                            } else {
+                                const var_type = self.type_inferrer.getScopedVar(base_name) orelse
+                                    self.type_inferrer.var_types.get(base_name);
+                                if (var_type) |vt| {
+                                    if (vt == .class_instance) {
+                                        const class_name = vt.class_instance;
+                                        if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                            if (class_info.fields.get(attr.attr)) |field_type| {
+                                                break :blk field_type != .class_instance and field_type != .unknown;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break :blk false;
+                    } else false;
+
+                    // If BOTH operands are field accesses with primitive types, skip class_instance fallback
+                    if (left_is_field and right_is_field) {
+                        // Continue to builder path - don't fall back to captureExpr
+                    } else if (!type_traits.isClassInstance(left_type) and right_is_field) {
+                        // Left is primitive, right is field - continue
+                    } else if (left_is_field and !type_traits.isClassInstance(right_type)) {
+                        // Left is field, right is primitive - continue
+                    } else {
+                        std.debug.print("DEBUG exprToValue binop: class_instance fallback, left={any}, right={any}\n", .{ left_type, right_type });
+                        return try self.captureExpr(node);
+                    }
                 }
 
                 // Unknown types need special handling (PyValue ops, class dunders, etc.)
