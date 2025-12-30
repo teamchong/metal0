@@ -318,7 +318,7 @@ jobs:
           path: macos
 
       - name: Comment benchmark results on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
