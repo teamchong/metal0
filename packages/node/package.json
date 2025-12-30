@@ -48,7 +48,7 @@
   "homepage": "https://github.com/teamchong/lanceql#readme",
   "dependencies": {
     "node-addon-api": "^8.0.0",
-    "node-gyp": "^10.0.0"
+    "node-gyp": "^12.1.0"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.15",
