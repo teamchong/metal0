@@ -1,0 +1,38 @@
+# Source files (keep compiled)
+*.cc
+*.h
+binding.gyp
+
+# Development
+.github/
+test/
+*.spec.js
+*.test.js
+vitest.config.js
+.eslintrc*
+.prettierrc*
+
+# Build artifacts
+build/
+Release/
+Debug/
+*.node
+*.o
+*.obj
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local env
+.env*

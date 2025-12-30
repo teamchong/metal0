@@ -1,0 +1,55 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package to publish'
+        required: true
+        default: 'browser'
+        type: choice
+        options:
+          - browser
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for npm provenance
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.15.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Build WASM
+        run: zig build wasm -Doptimize=ReleaseSmall
+
+      - name: Copy WASM to package
+        run: cp zig-out/bin/lanceql.wasm packages/browser/dist/
+
+      - name: Build package
+        working-directory: packages/browser
+        run: node scripts/build.js
+
+      - name: Run tests
+        working-directory: packages/browser
+        run: node --test test/*.test.js
+
+      - name: Publish to npm
+        working-directory: packages/browser
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,390 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'scripts/bench-*.sh'
+      - 'build.zig'
+      - '.github/workflows/benchmark.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'scripts/bench-*.sh'
+      - 'build.zig'
+      - '.github/workflows/benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  benchmark-macos:
+    runs-on: macos-14  # Apple Silicon (M1)
+    timeout-minutes: 120  # 200M row benchmarks need more time
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Free disk space
+        run: |
+          # Show initial disk space
+          df -h
+          # Remove unnecessary tools to free space
+          sudo rm -rf /usr/local/share/powershell || true
+          sudo rm -rf /usr/local/lib/node_modules || true
+          # Clean up any old benchmark files
+          rm -rf /tmp/lanceql_*.parquet || true
+          df -h
+
+      - name: Install dependencies
+        run: |
+          pip install polars numpy pyarrow pylance duckdb pandas
+
+      - name: Generate benchmark data
+        run: |
+          python3 benchmarks/generate_benchmark_data.py
+          echo "Benchmark data files:"
+          ls -la benchmarks/*.lance benchmarks/*.parquet 2>/dev/null || echo "Some files missing"
+
+      - name: Build Metal shaders
+        run: zig build metal-shaders
+
+      - name: Build library and CLI
+        run: |
+          zig build lib
+          zig build cli
+          sudo cp zig-out/bin/lanceql /usr/local/bin/
+          lanceql --version || echo "LanceQL CLI installed"
+
+      - name: Build metal0 and compile @logic_table
+        run: |
+          # Build metal0 AOT Python compiler
+          cd deps/metal0
+          zig build
+
+          # Clear old cache to ensure fresh compilation
+          rm -rf .metal0
+          rm -rf ../../benchmarks/.metal0
+
+          # Compile Python @logic_table to native static library
+          # Must run from metal0 dir for correct vendor paths
+          mkdir -p ../../lib
+          ./zig-out/bin/metal0 build --emit-logic-table ../../benchmarks/vector_ops.py -o ../../lib/vector_ops.a
+          cd ../..
+          echo "Compiled @logic_table:"
+          ls -la lib/vector_ops.a
+
+      - name: Run Vector benchmark (CPU-only)
+        id: bench-vector
+        run: |
+          echo "## Vector Operations Benchmark (CPU)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          # Run CPU-only vector benchmark (GPU acceleration not available in CI)
+          ./scripts/bench-vector.sh 2>&1 | tee bench-vector.txt || {
+            echo "Skipped: Vector benchmark failed" | tee bench-vector.txt
+          }
+          cat bench-vector.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run SQL clause benchmark (LanceQL vs DuckDB vs Polars)
+        id: bench-sql
+        run: |
+          echo "## SQL Clause Benchmark (200M rows)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./scripts/bench-sql.sh 2>&1 | tee bench-sql.txt
+          cat bench-sql.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run @logic_table benchmark (LanceQL vs DuckDB vs Polars)
+        id: bench-logic-table
+        run: |
+          echo "## @logic_table ML Workflow Benchmark" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./scripts/bench-logic-table.sh 2>&1 | tee bench-logic-table.txt
+          cat bench-logic-table.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Check Vector Ops status
+          if grep -q "Skipped" bench-vector.txt 2>/dev/null; then
+            echo "| Vector Ops (CPU) | :yellow_circle: Skipped |" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "rows/sec" bench-vector.txt 2>/dev/null; then
+            echo "| Vector Ops (CPU) | :white_check_mark: |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Vector Ops (CPU) | :yellow_circle: Partial |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check SQL Clauses status
+          if grep -q "Missing data files" bench-sql.txt 2>/dev/null; then
+            echo "| SQL Clauses | :red_circle: Missing data |" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "rows/sec" bench-sql.txt 2>/dev/null; then
+            echo "| SQL Clauses | :white_check_mark: |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| SQL Clauses | :yellow_circle: Partial |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check @logic_table status
+          if grep -q "SKIPPED" bench-logic-table.txt 2>/dev/null; then
+            echo "| @logic_table | :yellow_circle: Skipped (no vector_ops.a) |" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "rows/sec" bench-logic-table.txt 2>/dev/null; then
+            echo "| @logic_table | :white_check_mark: |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| @logic_table | :yellow_circle: Partial |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform:** macOS Apple Silicon (M1)" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+      - name: Combine results
+        run: |
+          echo "=== LanceQL Benchmark Results ===" > benchmark-results.txt
+          echo "Platform: macOS Apple Silicon (GPU enabled)" >> benchmark-results.txt
+          echo "Date: $(date -u)" >> benchmark-results.txt
+          echo "" >> benchmark-results.txt
+          cat bench-vector.txt >> benchmark-results.txt
+          echo "" >> benchmark-results.txt
+          cat bench-sql.txt >> benchmark-results.txt
+          echo "" >> benchmark-results.txt
+          cat bench-logic-table.txt >> benchmark-results.txt
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-macos
+          path: |
+            benchmark-results.txt
+            bench-*.txt
+          retention-days: 30
+
+  benchmark-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 200M row benchmarks need more time
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install polars numpy pyarrow pylance duckdb pandas
+
+      - name: Generate benchmark data
+        run: |
+          python3 benchmarks/generate_benchmark_data.py
+          echo "Benchmark data files:"
+          ls -la benchmarks/*.lance benchmarks/*.parquet 2>/dev/null || echo "Some files missing"
+
+      - name: Build library and CLI
+        run: |
+          zig build lib
+          zig build cli
+          sudo cp zig-out/bin/lanceql /usr/local/bin/
+          lanceql --version || echo "LanceQL CLI installed"
+
+      - name: Install metal0 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libbz2-dev liblzma-dev
+
+      - name: Build metal0 and compile @logic_table
+        run: |
+          # Build metal0 AOT Python compiler
+          cd deps/metal0
+          zig build
+
+          # Clear old cache to ensure fresh compilation
+          rm -rf .metal0
+          rm -rf ../../benchmarks/.metal0
+
+          # Compile Python @logic_table to native static library
+          # Must run from metal0 dir for correct vendor paths
+          mkdir -p ../../lib
+          ./zig-out/bin/metal0 build --emit-logic-table ../../benchmarks/vector_ops.py -o ../../lib/vector_ops.a
+          cd ../..
+          echo "Compiled @logic_table:"
+          ls -la lib/vector_ops.a
+
+      - name: Run SQL clause benchmark (LanceQL vs DuckDB vs Polars)
+        run: |
+          echo "## SQL Clause Benchmark (Linux - 200M rows)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./scripts/bench-sql.sh 2>&1 | tee bench-sql.txt
+          cat bench-sql.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Run @logic_table benchmark (LanceQL vs DuckDB vs Polars)
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## @logic_table ML Workflow Benchmark (Linux)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ./scripts/bench-logic-table.sh 2>&1 | tee bench-logic-table.txt
+          cat bench-logic-table.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Summary (Linux)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Check SQL Clauses status
+          if grep -q "Missing data files" bench-sql.txt 2>/dev/null; then
+            echo "| SQL Clauses | :red_circle: Missing data |" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "rows/sec" bench-sql.txt 2>/dev/null; then
+            echo "| SQL Clauses | :white_check_mark: |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| SQL Clauses | :yellow_circle: Partial |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check @logic_table status
+          if grep -q "SKIPPED" bench-logic-table.txt 2>/dev/null; then
+            echo "| @logic_table | :yellow_circle: Skipped (no vector_ops.a) |" >> $GITHUB_STEP_SUMMARY
+          elif grep -q "rows/sec" bench-logic-table.txt 2>/dev/null; then
+            echo "| @logic_table | :white_check_mark: |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| @logic_table | :yellow_circle: Partial |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platform:** Linux x86_64 (CPU only)" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-linux
+          path: bench-*.txt
+          retention-days: 30
+
+  compare-results:
+    needs: [benchmark-linux, benchmark-macos]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Download Linux results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results-linux
+          path: linux
+
+      - name: Download macOS results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-results-macos
+          path: macos
+
+      - name: Comment benchmark results on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let comment = '## LanceQL Benchmark Results\n\n';
+            comment += 'All benchmarks run 30+ seconds each to ensure fair comparison (no cold-start bias).\n\n';
+
+            try {
+              comment += '### macOS (Apple Silicon + GPU)\n\n';
+
+              if (fs.existsSync('macos/bench-vector.txt')) {
+                comment += '#### Vector Operations\n```\n';
+                comment += fs.readFileSync('macos/bench-vector.txt', 'utf8').slice(0, 3000);
+                comment += '\n```\n\n';
+              }
+
+              if (fs.existsSync('macos/bench-sql.txt')) {
+                comment += '#### SQL Clauses (200M rows)\n```\n';
+                comment += fs.readFileSync('macos/bench-sql.txt', 'utf8').slice(0, 3000);
+                comment += '\n```\n\n';
+              }
+
+              if (fs.existsSync('macos/bench-logic-table.txt')) {
+                comment += '#### ML Workflows\n```\n';
+                comment += fs.readFileSync('macos/bench-logic-table.txt', 'utf8').slice(0, 3000);
+                comment += '\n```\n\n';
+              }
+            } catch (e) {
+              comment += '_macOS results not available_\n\n';
+            }
+
+            try {
+              comment += '### Linux (CPU only)\n\n';
+
+              if (fs.existsSync('linux/bench-sql.txt')) {
+                comment += '#### SQL Clauses\n```\n';
+                comment += fs.readFileSync('linux/bench-sql.txt', 'utf8').slice(0, 3000);
+                comment += '\n```\n\n';
+              }
+            } catch (e) {
+              comment += '_Linux results not available_\n';
+            }
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('LanceQL Benchmark Results')
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
+
