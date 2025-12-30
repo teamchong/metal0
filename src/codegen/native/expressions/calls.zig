@@ -537,16 +537,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                         // This is a type attribute - call as @This().attr_name(args)
                         try self.emit("@This().");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
-                        try self.emit("(");
-                        for (call.args, 0..) |arg, i| {
-                            if (i > 0) try self.emit(", ");
-                            try genExpr(self, arg);
-                        }
-                        // For int type attributes with optional base param, add null if not provided
-                        if (std.mem.eql(u8, type_value, "int") and call.args.len == 1) {
-                            try self.emit(", null");
-                        }
-                        try self.emit(")");
+                        const TypeAttrCtx = struct { args: []ast.Node, type_value: []const u8 };
+                        try self.withParensCtx(TypeAttrCtx{ .args = call.args, .type_value = type_value }, struct {
+                            fn emit(s: *NativeCodegen, ctx: TypeAttrCtx) CodegenError!void {
+                                for (ctx.args, 0..) |arg, i| {
+                                    if (i > 0) try s.emit(", ");
+                                    try genExpr(s, arg);
+                                }
+                                // For int type attributes with optional base param, add null if not provided
+                                if (std.mem.eql(u8, ctx.type_value, "int") and ctx.args.len == 1) {
+                                    try s.emit(", null");
+                                }
+                            }
+                        }.emit);
                         return;
                     }
                 }

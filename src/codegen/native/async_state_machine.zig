@@ -1844,12 +1844,15 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                     if (std.mem.eql(u8, obj_name, "hashlib")) {
                         try self.emit("hashlib.");
                         try self.emit(method);
-                        try self.emit("(");
-                        for (call.args, 0..) |arg_expr, idx| {
-                            if (idx > 0) try self.emit(", ");
-                            try genSyncExprInFrame(self, arg_expr, args);
-                        }
-                        try self.emit(")");
+                        const HashlibCtx = struct { call_args: []ast.Node, fn_args: []ast.Arg };
+                        try self.withParensCtx(HashlibCtx{ .call_args = call.args, .fn_args = args }, struct {
+                            fn emit(s: *NativeCodegen, ctx: HashlibCtx) CodegenError!void {
+                                for (ctx.call_args, 0..) |arg_expr, idx| {
+                                    if (idx > 0) try s.emit(", ");
+                                    try genSyncExprInFrame(s, arg_expr, ctx.fn_args);
+                                }
+                            }
+                        }.emit);
                         return;
                     }
 
@@ -1869,12 +1872,15 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                     try self.emit(obj_name);
                     try self.emit(".");
                     try self.emit(method);
-                    try self.emit("(");
-                    for (call.args, 0..) |arg_expr, idx| {
-                        if (idx > 0) try self.emit(", ");
-                        try genSyncExprInFrame(self, arg_expr, args);
-                    }
-                    try self.emit(")");
+                    const MethodCtx = struct { call_args: []ast.Node, fn_args: []ast.Arg };
+                    try self.withParensCtx(MethodCtx{ .call_args = call.args, .fn_args = args }, struct {
+                        fn emit(s: *NativeCodegen, ctx: MethodCtx) CodegenError!void {
+                            for (ctx.call_args, 0..) |arg_expr, idx| {
+                                if (idx > 0) try s.emit(", ");
+                                try genSyncExprInFrame(s, arg_expr, ctx.fn_args);
+                            }
+                        }
+                    }.emit);
                     return;
                 }
                 // Chained method call like str(x).encode()
@@ -1891,12 +1897,15 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
                     // Then the method
                     try self.emit(".");
                     try self.emit(method);
-                    try self.emit("(");
-                    for (call.args, 0..) |arg_expr, idx| {
-                        if (idx > 0) try self.emit(", ");
-                        try genSyncExprInFrame(self, arg_expr, args);
-                    }
-                    try self.emit(")");
+                    const ChainedCtx = struct { call_args: []ast.Node, fn_args: []ast.Arg };
+                    try self.withParensCtx(ChainedCtx{ .call_args = call.args, .fn_args = args }, struct {
+                        fn emit(s: *NativeCodegen, ctx: ChainedCtx) CodegenError!void {
+                            for (ctx.call_args, 0..) |arg_expr, idx| {
+                                if (idx > 0) try s.emit(", ");
+                                try genSyncExprInFrame(s, arg_expr, ctx.fn_args);
+                            }
+                        }
+                    }.emit);
                     return;
                 }
             }
@@ -1932,12 +1941,15 @@ fn genSyncExprInFrame(self: *NativeCodegen, node: ast.Node, args: []ast.Arg) Cod
 
                 // Generic function call
                 try self.emit(func_name);
-                try self.emit("(");
-                for (call.args, 0..) |arg_expr, idx| {
-                    if (idx > 0) try self.emit(", ");
-                    try genSyncExprInFrame(self, arg_expr, args);
-                }
-                try self.emit(")");
+                const GenericCtx = struct { call_args: []ast.Node, fn_args: []ast.Arg };
+                try self.withParensCtx(GenericCtx{ .call_args = call.args, .fn_args = args }, struct {
+                    fn emit(s: *NativeCodegen, ctx: GenericCtx) CodegenError!void {
+                        for (ctx.call_args, 0..) |arg_expr, idx| {
+                            if (idx > 0) try s.emit(", ");
+                            try genSyncExprInFrame(s, arg_expr, ctx.fn_args);
+                        }
+                    }
+                }.emit);
                 return;
             }
             // Fallback to regular codegen (shouldn't reach here)

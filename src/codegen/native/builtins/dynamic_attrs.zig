@@ -99,6 +99,46 @@ pub fn genHasattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("return error.TypeError");
         return;
     }
+
+    // Check if first argument is a C extension object
+    // Case 1: Attribute access on C extension module (e.g., np.__config__)
+    // Case 2: Direct C extension module variable (e.g., np)
+    const obj_node = args[0];
+
+    // Check for attribute access on C extension module
+    if (obj_node == .attribute) {
+        const attr = obj_node.attribute;
+        if (attr.value.* == .name) {
+            const base_name = attr.value.*.name.id;
+            if (self.isCExtensionModule(base_name)) {
+                // Generate: __hablk: { const __haobj = c_interop.getAttr(module.?, "attr") orelse break :__hablk false;
+                //           break :__hablk c_interop.hasattr(__haobj, "name"); }
+                const attr_name = attr.attr;
+                const id = self.nextNameId();
+                try self.emitFmt("__m{d}_ha: {{ const __ha_obj = c_interop.getAttr(", .{id});
+                try self.emit(base_name);
+                try self.emitFmt(".?, \"{s}\") orelse break :__m{d}_ha false; break :__m{d}_ha c_interop.hasattr(__ha_obj, ", .{ attr_name, id, id });
+                try self.genExpr(args[1]);
+                try self.emit("); }");
+                return;
+            }
+        }
+    }
+
+    // Check for direct C extension module variable
+    if (obj_node == .name) {
+        const name = obj_node.name.id;
+        if (self.isCExtensionModule(name)) {
+            // Generate: c_interop.hasattr(module.?, "name")
+            try self.emit("c_interop.hasattr(");
+            try self.emit(name);
+            try self.emit(".?, ");
+            try self.genExpr(args[1]);
+            try self.emit(")");
+            return;
+        }
+    }
+
     try emitHasattrBuiltin(self, args[0], args[1]);
 }
 
