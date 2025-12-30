@@ -15,28 +15,18 @@ const NativeType = @import("../../../../analysis/native_types/core.zig").NativeT
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 const ZigBuilder = builder_mod.ZigBuilder;
+const shared_maps = @import("../../shared_maps.zig");
 
 /// Check if a type is UnifiedInt (handles both small i64 and large BigInt)
 pub fn isUnifiedInt(t: NativeType) bool {
     return t == .unified_int;
 }
 
-/// Runtime helper function names for UnifiedInt operations
-/// Maps operator tag to runtime.unified_int_ops.xxx function name
-/// UnifiedInt handles both small (i64) and large (BigInt) automatically, panics on OOM
-pub const UnifiedIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "add" },
-    .{ "Sub", "sub" },
-    .{ "Mult", "mul" },
-    .{ "FloorDiv", "floorDiv" },
-    .{ "Mod", "mod" },
-    .{ "LShift", "shl" },
-    .{ "RShift", "shr" },
-    .{ "Pow", "pow" },
-    .{ "BitAnd", "bitAnd" },
-    .{ "BitOr", "bitOr" },
-    .{ "BitXor", "bitXor" },
-});
+/// Get UnifiedInt runtime function name for an operator
+/// Uses unified OperatorMap from shared_maps.zig
+pub fn getUnifiedIntRuntimeOp(op_name: []const u8) ?[]const u8 {
+    return shared_maps.getUnifiedIntOp(op_name);
+}
 
 /// Emit an operand as UnifiedInt value using builder pattern
 /// Handles conversion from different source types
@@ -71,11 +61,11 @@ pub fn genUnifiedIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type
     const right_operand = try self.captureExpr(binop.right.*);
     const b = try self.getBuilder();
 
-    // Get the runtime helper function name
+    // Get the runtime helper function name from unified map
     const op_name = @tagName(binop.op);
 
     // Standard binary operations: runtime.unified_int_ops.xxx(left, right, allocator)
-    if (UnifiedIntRuntimeOps.get(op_name)) |runtime_fn| {
+    if (getUnifiedIntRuntimeOp(op_name)) |runtime_fn| {
         // For shift/pow operations, right operand is a primitive (u32)
         if (binop.op == .LShift or binop.op == .RShift or binop.op == .Pow) {
             // Emit: runtime.unified_int_ops.func(left, @as(u32, @intCast(right)), __global_allocator)

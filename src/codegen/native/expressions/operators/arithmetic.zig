@@ -84,7 +84,7 @@ pub const genUnifiedIntBinOp = unified_int_ops.genUnifiedIntBinOp;
 pub const genComplexBinOp = unified_int_ops.genComplexBinOp;
 
 pub const isOperandUncertain = pyvalue_ops.isOperandUncertain;
-pub const PyValueMethods = pyvalue_ops.PyValueMethods;
+pub const getPyValueMethod = pyvalue_ops.getPyValueMethod;
 
 pub const willGenerateAsFixedArray = collection_ops.willGenerateAsFixedArray;
 pub const genExprWrapped = collection_ops.genExprWrapped;
@@ -105,7 +105,7 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
     if (left_uncertain or right_uncertain) {
         // Only use PyValue ops for supported arithmetic operations
         // EXCEPTION: For Mod operator, check if left is string - that's string formatting, not arithmetic
-        if (pyvalue_ops.PyValueMethods.get(@tagName(binop.op)) != null) {
+        if (pyvalue_ops.getPyValueMethod(@tagName(binop.op)) != null) {
             // Skip PyValue.mod() for string formatting - let the standard handling do it
             if (binop.op == .Mod) {
                 const left_type = try self.inferExprScoped(binop.left.*);

@@ -16,6 +16,7 @@ const expr_emitter = @import("../../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
 const ZigBuilder = builder_mod.ZigBuilder;
+const shared_maps = @import("../../shared_maps.zig");
 
 // ============================================
 // BigInt operation helpers - builder pattern
@@ -55,29 +56,11 @@ fn emitPowExponent(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue) Code
     try b.emitRaw("))");
 }
 
-/// BigInt method names for standard binary operations (left.method(&right, allocator))
-pub const BigIntStdMethods = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "add" }, .{ "Sub", "sub" }, .{ "Mult", "mul" },
-    .{ "FloorDiv", "floorDiv" }, .{ "Mod", "mod" },
-    .{ "BitAnd", "bitAnd" }, .{ "BitOr", "bitOr" }, .{ "BitXor", "bitXor" },
-});
-
-/// Runtime helper function names for BigInt operations
-/// Maps operator tag to runtime.bigint_ops.xxx function name
-pub const BigIntRuntimeOps = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "add" },
-    .{ "Sub", "sub" },
-    .{ "Mult", "mul" },
-    .{ "FloorDiv", "divFloor" },
-    .{ "Div", "divFloor" }, // Python / on ints is floor div
-    .{ "Mod", "mod" },
-    .{ "BitAnd", "bitAnd" },
-    .{ "BitOr", "bitOr" },
-    .{ "BitXor", "bitXor" },
-    .{ "LShift", "shl" },
-    .{ "RShift", "shr" },
-    .{ "Pow", "pow" },
-});
+/// Get BigInt runtime function name for an operator
+/// Uses unified OperatorMap from shared_maps.zig
+pub fn getBigIntRuntimeOp(op_name: []const u8) ?[]const u8 {
+    return shared_maps.getBigIntOp(op_name);
+}
 
 // =============================================================================
 // BigInt operand emission helpers (module-level for callback access)
@@ -330,9 +313,9 @@ pub fn genBigIntBinOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: Na
     const right_operand = try self.captureExpr(binop.right.*);
     const b = try self.getBuilder();
 
-    // Get the runtime helper function name
+    // Get the runtime helper function name from unified map
     const op_name = @tagName(binop.op);
-    const runtime_fn = BigIntRuntimeOps.get(op_name) orelse {
+    const runtime_fn = getBigIntRuntimeOp(op_name) orelse {
         // Unsupported operation - use VM fallback for drop-in CPython replacement
         try self.flushBuilder();
         try self.emitVMFallback(.{ .binop = binop });

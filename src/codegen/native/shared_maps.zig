@@ -2,6 +2,73 @@
 /// Consolidates duplicate definitions across codegen modules for DCE efficiency
 const std = @import("std");
 
+// ============================================================================
+// Unified Operator Configuration
+// Single source of truth for operator method names across all type contexts
+// ============================================================================
+
+/// Configuration for a binary operator across different type contexts
+/// Each field contains the method/function name for that type context
+pub const OperatorConfig = struct {
+    /// Method name for BigInt operations (runtime.bigint_ops.xxx)
+    bigint: []const u8,
+    /// Method name for UnifiedInt operations (runtime.unified_int_ops.xxx)
+    unified: []const u8,
+    /// Method name for PyValue operations (.xxx() method on PyValue)
+    pyvalue: []const u8,
+    /// Direct Zig operator string, or null if not supported as direct op
+    zig_op: ?[]const u8,
+};
+
+/// Unified operator map - single source of truth for all operator names
+/// Maps Python AST operator tag to names for each type context
+pub const OperatorMap = std.StaticStringMap(OperatorConfig).initComptime(.{
+    // Arithmetic operators
+    .{ "Add", OperatorConfig{ .bigint = "add", .unified = "add", .pyvalue = "add", .zig_op = " + " } },
+    .{ "Sub", OperatorConfig{ .bigint = "sub", .unified = "sub", .pyvalue = "sub", .zig_op = " - " } },
+    .{ "Mult", OperatorConfig{ .bigint = "mul", .unified = "mul", .pyvalue = "mul", .zig_op = " * " } },
+    .{ "Div", OperatorConfig{ .bigint = "divFloor", .unified = "div", .pyvalue = "div", .zig_op = " / " } },
+    .{ "FloorDiv", OperatorConfig{ .bigint = "divFloor", .unified = "floorDiv", .pyvalue = "floordiv", .zig_op = null } },
+    .{ "Mod", OperatorConfig{ .bigint = "mod", .unified = "mod", .pyvalue = "mod", .zig_op = null } },
+    .{ "Pow", OperatorConfig{ .bigint = "pow", .unified = "pow", .pyvalue = "pyPow", .zig_op = null } },
+    // Bitwise operators
+    .{ "BitAnd", OperatorConfig{ .bigint = "bitAnd", .unified = "bitAnd", .pyvalue = "pyBitAnd", .zig_op = " & " } },
+    .{ "BitOr", OperatorConfig{ .bigint = "bitOr", .unified = "bitOr", .pyvalue = "pyBitOr", .zig_op = " | " } },
+    .{ "BitXor", OperatorConfig{ .bigint = "bitXor", .unified = "bitXor", .pyvalue = "pyBitXor", .zig_op = " ^ " } },
+    .{ "LShift", OperatorConfig{ .bigint = "shl", .unified = "shl", .pyvalue = "pyLShift", .zig_op = " << " } },
+    .{ "RShift", OperatorConfig{ .bigint = "shr", .unified = "shr", .pyvalue = "pyRShift", .zig_op = " >> " } },
+    // Matrix multiplication (not supported by primitive types)
+    .{ "MatMul", OperatorConfig{ .bigint = "matmul", .unified = "matmul", .pyvalue = "matmul", .zig_op = null } },
+});
+
+/// Get BigInt method name for an operator
+pub fn getBigIntOp(op_name: []const u8) ?[]const u8 {
+    if (OperatorMap.get(op_name)) |config| return config.bigint;
+    return null;
+}
+
+/// Get UnifiedInt method name for an operator
+pub fn getUnifiedIntOp(op_name: []const u8) ?[]const u8 {
+    if (OperatorMap.get(op_name)) |config| return config.unified;
+    return null;
+}
+
+/// Get PyValue method name for an operator
+pub fn getPyValueOp(op_name: []const u8) ?[]const u8 {
+    if (OperatorMap.get(op_name)) |config| return config.pyvalue;
+    return null;
+}
+
+/// Get direct Zig operator string for an operator (or null if not supported)
+pub fn getZigOp(op_name: []const u8) ?[]const u8 {
+    if (OperatorMap.get(op_name)) |config| return config.zig_op;
+    return null;
+}
+
+// ============================================================================
+// Legacy maps (kept for backward compatibility during migration)
+// ============================================================================
+
 /// Binary operator to Zig operator string mapping
 /// NOTE: Pow, Mod, FloorDiv need special handling (std.math.pow, @mod, @divFloor)
 /// and should NOT use this map! Pow has no direct Zig equivalent.

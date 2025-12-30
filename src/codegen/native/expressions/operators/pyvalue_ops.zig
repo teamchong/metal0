@@ -13,23 +13,13 @@ const expressions = @import("../../expressions.zig");
 const genExpr = expressions.genExpr;
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
+const shared_maps = @import("../../shared_maps.zig");
 
-/// PyValue method names for binary operations
-pub const PyValueMethods = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "Add", "add" },
-    .{ "Sub", "sub" },
-    .{ "Mult", "mul" },
-    .{ "Div", "div" },
-    .{ "FloorDiv", "floordiv" },
-    .{ "Mod", "mod" },
-    // Bitwise operations for Two-Flow uncertain operands
-    .{ "BitAnd", "pyBitAnd" },
-    .{ "BitOr", "pyBitOr" },
-    .{ "BitXor", "pyBitXor" },
-    .{ "LShift", "pyLShift" },
-    .{ "RShift", "pyRShift" },
-    .{ "Pow", "pyPow" },
-});
+/// Get PyValue method name for an operator
+/// Uses unified OperatorMap from shared_maps.zig
+pub fn getPyValueMethod(op_name: []const u8) ?[]const u8 {
+    return shared_maps.getPyValueOp(op_name);
+}
 
 /// Check if an expression operand is uncertain (needs PyValue)
 /// TWO-FLOW TYPE SYSTEM: Check type and confidence together.
@@ -180,7 +170,7 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
         const binop = expr.binop;
         // If this binop has a PyValue method (Add, Sub, Mul, etc.), check if EITHER
         // operand is uncertain. If so, the codegen will use PyValue ops, returning PyValue.
-        if (PyValueMethods.get(@tagName(binop.op)) != null) {
+        if (getPyValueMethod(@tagName(binop.op)) != null) {
             // Recursively check operands - if either would trigger PyValue ops, result is PyValue
             const left_unc = isOperandUncertain(self, binop.left.*);
             const right_unc = isOperandUncertain(self, binop.right.*);
@@ -383,7 +373,7 @@ pub fn isComptimeFloat(expr: ast.Node) bool {
 /// Generate PyValue binary operations for uncertain operands
 /// Pattern: (runtime.PyValue.from(left)).method(runtime.PyValue.from(right))
 pub fn genPyValueBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
-    const method_name = PyValueMethods.get(@tagName(binop.op)) orelse {
+    const method_name = getPyValueMethod(@tagName(binop.op)) orelse {
         // Unsupported operation - use VM fallback for drop-in CPython replacement
         try self.emitVMFallback(.{ .binop = binop });
         return;
