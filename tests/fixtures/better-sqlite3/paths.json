@@ -1,0 +1,6 @@
+{
+  "simple": "/Users/steven_chong/Downloads/repos/lanceql/fixtures/../tests/fixtures/better-sqlite3/simple.lance/data/1010001110011001100010108ba1604433ac0cda4c27f6809f.lance",
+  "distinct_test": "/Users/steven_chong/Downloads/repos/lanceql/fixtures/../tests/fixtures/better-sqlite3/distinct_test.lance/data/1011100101110011011000001a2ed149c5895af73c13059290.lance",
+  "types_test": "/Users/steven_chong/Downloads/repos/lanceql/fixtures/../tests/fixtures/better-sqlite3/types_test.lance/data/1001011110111010000110017c7899445c8eadd0bc3b151743.lance",
+  "timestamp_test": "/Users/steven_chong/Downloads/repos/lanceql/fixtures/../tests/fixtures/better-sqlite3/timestamp_test.lance/data/011111001011111100101100943f3242dabe12bccde906d306.lance"
+}
