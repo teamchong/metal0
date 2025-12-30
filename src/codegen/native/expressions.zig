@@ -402,15 +402,17 @@ fn genNamedExpr(self: *NativeCodegen, ne: ast.Node.NamedExpr) CodegenError!void 
     };
 
     // Generate: (label: { target = value; break :label target; })
-    const label = try self.emitInlineBlockStart("walrus");
-    try self.emit(" ");
-    try self.emit(target_name);
-    try self.emit(" = ");
-    try genExpr(self, ne.value.*);
-    try self.emitFmt("; break :{s} ", .{label});
-    try self.emit(target_name);
-    try self.emit("; ");
-    try self.emitInlineBlockEnd();
+    const Ctx = struct { name: []const u8, value: ast.Node };
+    try self.withInlineBlock("walrus", Ctx{ .name = target_name, .value = ne.value.* }, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+            try s.emit(" ");
+            try s.emit(ctx.name);
+            try s.emit(" = ");
+            try genExpr(s, ctx.value);
+            try s.emitFmt("; break :{s} ", .{label});
+            try s.emit(ctx.name);
+        }
+    }.emit);
 }
 
 /// Generate conditional expression (ternary): body if condition else orelse_value
@@ -560,15 +562,18 @@ fn genAwait(self: *NativeCodegen, await_node: ast.Node.AwaitExpr) CodegenError!v
     }
 
     // For regular coroutine calls: await expr → wait for green thread and get result
-    const label = try self.emitInlineBlockStart("await");
-    try self.emit("\n");
-    try self.emit("    const __thread = ");
-    try genExpr(self, await_node.value.*);
-    try self.emit(";\n");
-    try self.emit("    runtime.scheduler.?.wait(__thread);\n");
-    try self.emit("    const __result = __thread.result orelse unreachable;\n");
-    try self.output.writer(self.allocator).print("    break :{s} @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{ label, result_type });
-    try self.emitInlineBlockEnd();
+    const Ctx = struct { value: ast.Node, result_type: []const u8 };
+    try self.withInlineBlock("await", Ctx{ .value = await_node.value.*, .result_type = result_type }, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, ctx: Ctx) CodegenError!void {
+            try s.emit("\n");
+            try s.emit("    const __thread = ");
+            try genExpr(s, ctx.value);
+            try s.emit(";\n");
+            try s.emit("    runtime.scheduler.?.wait(__thread);\n");
+            try s.emit("    const __result = __thread.result orelse unreachable;\n");
+            try s.emitFmt("    break :{s} @as(*{s}, @ptrCast(@alignCast(__result))).*;\n", .{ label, ctx.result_type });
+        }
+    }.emit);
 }
 
 /// Convert Python format specifier to Zig format specifier

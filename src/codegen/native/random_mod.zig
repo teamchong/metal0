@@ -39,9 +39,11 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 });
 
 fn genRandom(self: *NativeCodegen, _: []ast.Node) CodegenError!void {
-    const label = try self.emitInlineBlockStart("rand");
-    try self.emitFmt("{s}break :{s} @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32))); ", .{ prng, label });
-    try self.emitInlineBlockEnd();
+    try self.withInlineBlock("rand", {}, struct {
+        fn emit(s: *NativeCodegen, label: []const u8, _: void) CodegenError!void {
+            try s.emitFmt("{s}break :{s} @as(f64, @floatFromInt(_r.int(u32))) / @as(f64, @floatFromInt(std.math.maxInt(u32)))", .{ prng, label });
+        }
+    }.emit);
 }
 
 fn genUniform(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
