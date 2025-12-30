@@ -772,11 +772,14 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
         },
         .subscript => |sub| {
             try genExprWithCapturePrefix(self, sub.value.*, captured_vars, prefix);
-            try self.emit("[");
-            if (sub.slice == .index) {
-                try genExprWithCapturePrefix(self, sub.slice.index.*, captured_vars, prefix);
-            }
-            try self.emit("]");
+            const SubCtx = struct { slice: ast.Node.Slice, c: [][]const u8, p: []const u8 };
+            try self.withBracketsCtx(SubCtx{ .slice = sub.slice, .c = captured_vars, .p = prefix }, struct {
+                fn emit(s: *NativeCodegen, ctx: SubCtx) CodegenError!void {
+                    if (ctx.slice == .index) {
+                        try genExprWithCapturePrefix(s, ctx.slice.index.*, ctx.c, ctx.p);
+                    }
+                }
+            }.emit);
         },
         else => {
             // For other node types, fall back to regular generation

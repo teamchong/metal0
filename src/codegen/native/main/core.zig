@@ -1776,8 +1776,19 @@ pub const NativeCodegen = struct {
                                 }
                             }
                         }
-                        // If receiver type is uncertain, we can't statically dispatch
+                        // If receiver type is uncertain, check if method can be handled by PyValue dispatch
+                        // String methods on uncertain types are handled via PyValue.from(obj).method()
                         if (self.isVarUncertain(var_name)) {
+                            const method_name = attr.attr;
+                            const pyvalue_string_methods = [_][]const u8{
+                                "startswith", "endswith", "strip", "lstrip", "rstrip",
+                                "split", "find", "upper", "lower", "replace",
+                            };
+                            for (pyvalue_string_methods) |pyv_method| {
+                                if (std.mem.eql(u8, method_name, pyv_method)) {
+                                    return false; // Let dispatch handle via PyValue methods
+                                }
+                            }
                             return true;
                         }
                     }

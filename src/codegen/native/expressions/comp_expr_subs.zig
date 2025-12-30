@@ -478,9 +478,12 @@ fn genSubscriptWithSubs(
         .index => |idx| {
             // Simple index with substitution
             try genExprWithSubs(self, sub.value.*, subs);
-            try self.emit("[");
-            try genExprWithSubs(self, idx.*, subs);
-            try self.emit("]");
+            const IndexCtx = struct { i: *ast.Node, s: *const hashmap_helper.StringHashMap([]const u8) };
+            try self.withBracketsCtx(IndexCtx{ .i = idx, .s = subs }, struct {
+                fn emit(s: *NativeCodegen, ctx: IndexCtx) CodegenError!void {
+                    try genExprWithSubs(s, ctx.i.*, ctx.s);
+                }
+            }.emit);
         },
     }
 }
