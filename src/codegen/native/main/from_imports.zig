@@ -651,8 +651,43 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 continue;
             }
 
-            // Module not in registry - generate null placeholders for optional imports
-            // This handles try/except ImportError patterns like: from numpy import ndarray as numpy_array
+            // Module not in registry - check if it's a known pure Python subpackage
+            // that needs runtime import (e.g., numpy.testing.NUMPY_ROOT is a Path)
+            const is_known_subpackage = blk: {
+                // Check if this is a subpackage of a known C extension parent
+                // e.g., numpy.testing is under numpy (a C extension)
+                var iter = std.mem.splitScalar(u8, from_imp.module, '.');
+                if (iter.next()) |first_part| {
+                    if (self.isCExtensionModule(first_part)) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            if (is_known_subpackage) {
+                // Use c_interop to fetch at runtime, same as C extensions
+                for (from_imp.names, 0..) |name, i| {
+                    if (std.mem.eql(u8, name, "*")) continue;
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (generated_symbols.contains(symbol_name)) continue;
+                    // Generate: var symbol_name: ?*c_interop.PyObject = null;
+                    try self.emit("var ");
+                    try self.emitIdent(symbol_name);
+                    try self.emit(": ?*c_interop.PyObject = null;\n");
+                    try generated_symbols.put(symbol_name, {});
+                    try self.module_level_from_imports.put(symbol_name, {});
+                    // Track for main() initialization
+                    try self.c_extension_from_imports.put(symbol_name, .{ .module = from_imp.module, .attr = name });
+                }
+                continue;
+            }
+
+            // Unknown module - generate null placeholders for optional imports
+            // This handles try/except ImportError patterns like: from foo import bar
             for (from_imp.names, 0..) |name, i| {
                 if (std.mem.eql(u8, name, "*")) continue;
                 const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)

@@ -1734,11 +1734,19 @@ pub const PyValue = union(enum) {
             .int => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .int = @mod(a, b) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = @mod(@as(f64, @floatFromInt(a)), b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .int = 0 } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .float = @mod(a, @as(f64, @floatFromInt(b))) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = @mod(a, b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .float = @mod(a, 1.0) } else .{ .none = {} },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| if (b != 0) .{ .int = @mod(@as(i64, @intFromBool(a)), b) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = @mod(@as(f64, if (a) 1.0 else 0.0), b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .int = 0 } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },
@@ -1764,11 +1772,24 @@ pub const PyValue = union(enum) {
                     } };
                 },
                 .float => |b| .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(a)), b) },
+                .bool => |b| .{ .int = if (b) a else 1 },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
                 .int => |b| .{ .float = std.math.pow(f64, a, @as(f64, @floatFromInt(b))) },
                 .float => |b| .{ .float = std.math.pow(f64, a, b) },
+                .bool => |b| .{ .float = if (b) a else 1.0 },
+                else => .{ .none = {} },
+            },
+            .bool => |a| switch (other) {
+                .int => |b| blk: {
+                    const base: i64 = if (a) 1 else 0;
+                    if (b < 0) break :blk .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(base)), @as(f64, @floatFromInt(b))) };
+                    if (b > 63) break :blk .{ .float = std.math.pow(f64, @as(f64, @floatFromInt(base)), @as(f64, @floatFromInt(b))) };
+                    break :blk .{ .int = std.math.powi(i64, base, @intCast(b)) catch 1 };
+                },
+                .float => |b| .{ .float = std.math.pow(f64, @as(f64, if (a) 1.0 else 0.0), b) },
+                .bool => |b| .{ .int = if (b) @as(i64, @intFromBool(a)) else 1 },
                 else => .{ .none = {} },
             },
             else => .{ .none = {} },
