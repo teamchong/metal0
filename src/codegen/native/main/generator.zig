@@ -1447,6 +1447,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                 if (type_traits.isIntegral(inferred)) break :blk "i64";
                                 if (type_traits.isFloating(inferred)) break :blk "f64";
                                 if (inferred == .bool) break :blk "bool";
+                                // Handle unknown types - use PyValue for runtime safety
+                                if (inferred == .unknown) break :blk "runtime.PyValue";
                             }
                         }
                     }
