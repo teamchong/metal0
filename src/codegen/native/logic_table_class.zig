@@ -248,8 +248,12 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
         }
     }
 
-    // Methods return error unions (!f64), catch to convert to plain value
-    try self.emit(") catch 0.0;\n");
+    // Only use catch if method returns error union (needs_allocator implies error return)
+    if (needs_allocator) {
+        try self.emit(") catch 0.0;\n");
+    } else {
+        try self.emit(");\n");
+    }
 
     self.indent_level -= 1;
     try self.emitIndent();
