@@ -358,6 +358,80 @@ fn resolveRelativeImport(import_name: []const u8, source_dir: []const u8, alloca
     return module_path;
 }
 
+/// Helper to recursively extract imports from any statement
+fn extractImportsFromStmt(allocator: std.mem.Allocator, stmt: ast.Node, imports: *std.ArrayList([]const u8)) !void {
+    switch (stmt) {
+        .import_stmt => |imp| {
+            const module_copy = try allocator.dupe(u8, imp.module);
+            try imports.append(allocator, module_copy);
+        },
+        .import_from => |imp| {
+            // Check if module is dots-only (e.g., ".", "..", "...")
+            var is_dots_only = true;
+            for (imp.module) |c| {
+                if (c != '.') {
+                    is_dots_only = false;
+                    break;
+                }
+            }
+
+            if (is_dots_only and imp.module.len > 0) {
+                // For "from . import X, Y", treat each name as a submodule
+                // Generate imports like "._core", "._exceptions", etc.
+                for (imp.names) |name| {
+                    if (std.mem.eql(u8, name, "*")) continue; // Skip star imports
+                    // Concatenate dots + name to form relative import path
+                    const submodule_import = try std.fmt.allocPrint(allocator, "{s}{s}", .{ imp.module, name });
+                    try imports.append(allocator, submodule_import);
+                }
+            } else {
+                // Regular from-import: store module as-is
+                const module_copy = try allocator.dupe(u8, imp.module);
+                try imports.append(allocator, module_copy);
+            }
+        },
+        // Compound statements - recurse into their bodies
+        .try_stmt => |t| {
+            // try body
+            for (t.body) |s| try extractImportsFromStmt(allocator, s, imports);
+            // except handlers
+            for (t.handlers) |h| {
+                for (h.body) |s| try extractImportsFromStmt(allocator, s, imports);
+            }
+            // else body
+            for (t.else_body) |s| try extractImportsFromStmt(allocator, s, imports);
+            // finally body
+            for (t.finalbody) |s| try extractImportsFromStmt(allocator, s, imports);
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| try extractImportsFromStmt(allocator, s, imports);
+            for (i.else_body) |s| try extractImportsFromStmt(allocator, s, imports);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| try extractImportsFromStmt(allocator, s, imports);
+            if (f.orelse_body) |ob| {
+                for (ob) |s| try extractImportsFromStmt(allocator, s, imports);
+            }
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try extractImportsFromStmt(allocator, s, imports);
+            if (w.orelse_body) |ob| {
+                for (ob) |s| try extractImportsFromStmt(allocator, s, imports);
+            }
+        },
+        .with_stmt => |wth| {
+            for (wth.body) |s| try extractImportsFromStmt(allocator, s, imports);
+        },
+        .function_def => |fd| {
+            for (fd.body) |s| try extractImportsFromStmt(allocator, s, imports);
+        },
+        .class_def => |cd| {
+            for (cd.body) |s| try extractImportsFromStmt(allocator, s, imports);
+        },
+        else => {},
+    }
+}
+
 /// Extract import statements from Python source
 fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u8 {
     var imports = std.ArrayList([]const u8){};
@@ -393,23 +467,11 @@ fn extractImports(allocator: std.mem.Allocator, source: []const u8) ![][]const u
     };
     // tree freed by arena
 
-    // Find all import nodes
+    // Find all import nodes (recursively through compound statements)
     switch (tree) {
         .module => |mod| {
             for (mod.body) |stmt| {
-                switch (stmt) {
-                    .import_stmt => |imp| {
-                        const module_copy = try allocator.dupe(u8, imp.module);
-                        try imports.append(allocator, module_copy);
-                    },
-                    .import_from => |imp| {
-                        // For relative imports, we'll resolve them later with source_dir context
-                        // For now, store them as-is - the scanner will resolve them
-                        const module_copy = try allocator.dupe(u8, imp.module);
-                        try imports.append(allocator, module_copy);
-                    },
-                    else => {},
-                }
+                try extractImportsFromStmt(allocator, stmt, &imports);
             }
         },
         else => {},
