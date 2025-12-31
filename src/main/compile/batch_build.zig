@@ -157,6 +157,66 @@ pub fn build(b: *std.Build) void {
     c_interop.addImport("utils.hashmap_helper", hashmap_helper);
 
     // ══════════════════════════════════════════════════════════════════════════
+    // PACKAGE MODULES - read from package_modules.txt manifest
+    // These are external packages (numpy, pytest, etc.) that were compiled during codegen
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // Store package modules for later injection into test executables
+    const PackageModule = struct {
+        name: []const u8,
+        module: *std.Build.Module,
+    };
+    var package_modules_list: [64]PackageModule = undefined;
+    var package_module_count: usize = 0;
+
+    const pkg_manifest_path = "package_modules.txt";
+    if (std.fs.cwd().openFile(pkg_manifest_path, .{})) |pkg_file| {
+        defer pkg_file.close();
+
+        var pkg_buf: [256 * 1024]u8 = undefined;
+        const pkg_size = pkg_file.readAll(&pkg_buf) catch 0;
+        const pkg_content = pkg_buf[0..pkg_size];
+
+        // Parse package manifest: each line is "module_name:absolute_path"
+        var pkg_lines = std.mem.splitScalar(u8, pkg_content, '\n');
+        while (pkg_lines.next()) |pkg_line| {
+            if (pkg_line.len == 0) continue;
+            if (package_module_count >= 64) break; // Safety limit
+
+            var pkg_parts = std.mem.splitScalar(u8, pkg_line, ':');
+            const mod_name = pkg_parts.next() orelse continue;
+            const mod_path = pkg_parts.next() orelse continue;
+
+            if (mod_name.len == 0 or mod_path.len == 0) continue;
+
+            // Create module for this package
+            // Use .cwd_relative for absolute paths (Zig 0.15)
+            const pkg_mod = b.addModule(mod_name, .{
+                .root_source_file = .{ .cwd_relative = mod_path },
+                .target = target,
+                .optimize = optimize,
+            });
+
+            // Package modules need access to runtime and c_interop
+            pkg_mod.addImport("runtime", runtime);
+            pkg_mod.addImport("c_interop", c_interop);
+            pkg_mod.addImport("utils.hashmap_helper", hashmap_helper);
+            pkg_mod.addImport("utils.allocator_helper", allocator_helper);
+            pkg_mod.addImport("bigint", bigint);
+
+            package_modules_list[package_module_count] = .{
+                .name = mod_name,
+                .module = pkg_mod,
+            };
+            package_module_count += 1;
+
+            std.debug.print("Registered package module: {s}\n", .{mod_name});
+        }
+    } else |_| {
+        // No package modules manifest - that's OK, just means no external packages
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // TEST EXECUTABLES - read from manifest file
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -222,6 +282,12 @@ pub fn build(b: *std.Build) void {
                 },
             }),
         });
+
+        // Add package modules (numpy, pytest, etc.) to this executable
+        // These are registered dynamically from package_modules.txt
+        for (package_modules_list[0..package_module_count]) |pkg| {
+            exe.root_module.addImport(pkg.name, pkg.module);
+        }
 
         // Link libc
         exe.linkLibC();

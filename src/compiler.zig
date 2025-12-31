@@ -115,6 +115,11 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     try args.append(allocator, "utils.hashmap_helper");
     try args.append(allocator, "--dep");
     try args.append(allocator, "utils.allocator_helper");
+
+    // 2.5 Add package modules (numpy, pytest, etc.) from manifest if it exists
+    // These are external packages compiled during codegen
+    try addPackageModuleFlags(allocator, args);
+
     const main_flag = try std.fmt.allocPrint(allocator, "-Mmain={s}", .{main_path});
     try args.append(allocator, main_flag);
 
@@ -133,6 +138,51 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
 
         // -Mname=path
         const m_flag = try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod.name, mod.path });
+        try args.append(allocator, m_flag);
+    }
+}
+
+/// Add package module flags from .metal0/package_modules.txt manifest
+/// This enables individual compilation to also have access to compiled packages like numpy/pytest
+fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+    const manifest_path = build_dirs.CACHE ++ "/package_modules.txt";
+
+    const file = std.fs.cwd().openFile(manifest_path, .{}) catch {
+        return; // No manifest - that's fine, no external packages
+    };
+    defer file.close();
+
+    var buf: [256 * 1024]u8 = undefined;
+    const content_len = file.readAll(&buf) catch return;
+    const content = buf[0..content_len];
+
+    // Parse manifest: each line is "module_name:absolute_path"
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+
+        var parts = std.mem.splitScalar(u8, line, ':');
+        const mod_name = parts.next() orelse continue;
+        const mod_path = parts.next() orelse continue;
+
+        if (mod_name.len == 0 or mod_path.len == 0) continue;
+
+        // Add --dep for main to depend on this package
+        try args.append(allocator, "--dep");
+        try args.append(allocator, mod_name);
+
+        // Package modules also need runtime and c_interop dependencies
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "runtime");
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "c_interop");
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "utils.hashmap_helper");
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "utils.allocator_helper");
+
+        // -Mname=path
+        const m_flag = try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod_name, mod_path });
         try args.append(allocator, m_flag);
     }
 }

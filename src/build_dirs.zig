@@ -397,6 +397,76 @@ pub fn ensureParentDir(path: []const u8) !void {
     }
 }
 
+/// Compute relative import path from one Zig file to another
+/// Both paths should be within the .metal0 directory structure
+/// e.g., from ".metal0/gen/tests/numpy/test_numpy_version.zig"
+///       to   ".metal0/gen/venv/lib/python3.12/site-packages/numpy/__init__.zig"
+///       -> "../../venv/lib/python3.12/site-packages/numpy/__init__.zig"
+pub fn relativeImportPath(allocator: std.mem.Allocator, from_path: []const u8, to_path: []const u8) ![]const u8 {
+    // Get the directory containing the from_path file
+    const from_dir = std.fs.path.dirname(from_path) orelse ".";
+
+    // Split both paths into components
+    var from_components = std.ArrayList([]const u8){};
+    defer from_components.deinit(allocator);
+    var to_components = std.ArrayList([]const u8){};
+    defer to_components.deinit(allocator);
+
+    // Parse from_dir components
+    var from_iter = std.mem.splitScalar(u8, from_dir, '/');
+    while (from_iter.next()) |component| {
+        if (component.len > 0) {
+            try from_components.append(allocator, component);
+        }
+    }
+
+    // Parse to_path components
+    var to_iter = std.mem.splitScalar(u8, to_path, '/');
+    while (to_iter.next()) |component| {
+        if (component.len > 0) {
+            try to_components.append(allocator, component);
+        }
+    }
+
+    // Find common prefix length
+    var common_prefix: usize = 0;
+    while (common_prefix < from_components.items.len and
+        common_prefix < to_components.items.len and
+        std.mem.eql(u8, from_components.items[common_prefix], to_components.items[common_prefix]))
+    {
+        common_prefix += 1;
+    }
+
+    // Build the relative path
+    var result = std.ArrayList(u8){};
+    defer result.deinit(allocator);
+
+    // Add ".." for each remaining component in from_dir
+    const levels_up = from_components.items.len - common_prefix;
+    for (0..levels_up) |_| {
+        if (result.items.len > 0) {
+            try result.append(allocator, '/');
+        }
+        try result.appendSlice(allocator, "..");
+    }
+
+    // Add remaining components from to_path
+    for (to_components.items[common_prefix..]) |component| {
+        if (result.items.len > 0) {
+            try result.append(allocator, '/');
+        }
+        try result.appendSlice(allocator, component);
+    }
+
+    // If no relative path needed (same directory), use "./"
+    if (result.items.len == 0) {
+        const basename = std.fs.path.basename(to_path);
+        return std.fmt.allocPrint(allocator, "./{s}", .{basename});
+    }
+
+    return allocator.dupe(u8, result.items);
+}
+
 // ============================================================================
 // Legacy constants for backward compatibility during migration
 // DEPRECATED: Use source-relative functions above

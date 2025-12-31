@@ -127,6 +127,9 @@ pub const hash_ops = @import("runtime/hash_ops.zig");
 /// Type operations module
 pub const type_ops = @import("runtime/type_ops.zig");
 
+/// Type predicates (isIntInfo, isFloatInfo, etc.)
+pub const type_predicates = @import("runtime/type_predicates.zig");
+
 /// Numbers ABC support for issubclass(x, numbers.Number) etc.
 pub const numbers_abc = @import("runtime/numbers_abc.zig");
 pub const NumbersABC = numbers_abc.NumbersABC;

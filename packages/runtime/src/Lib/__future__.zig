@@ -5,6 +5,19 @@
 ///
 /// See: https://docs.python.org/3/library/__future__.html
 
+/// Feature flag type (simplified - in CPython this is a _Feature class)
+/// Used for `from __future__ import annotations` style imports
+pub const annotations: bool = true;
+pub const division: bool = true;
+pub const absolute_import: bool = true;
+pub const with_statement: bool = true;
+pub const print_function: bool = true;
+pub const unicode_literals: bool = true;
+pub const generator_stop: bool = true;
+pub const nested_scopes: bool = true;
+pub const generators: bool = true;
+pub const barry_as_FLUFL: bool = true;
+
 /// Code flags for compile() builtin
 pub const CO_NESTED: i64 = 16;
 pub const CO_GENERATOR_ALLOWED: i64 = 0;

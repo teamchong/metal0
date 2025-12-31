@@ -13,6 +13,7 @@ const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 const build_dirs = @import("../../../build_dirs.zig");
+const method_categories = @import("../dispatch/method_categories.zig");
 const FnvVoidMap = hashmap_helper.StringHashMap(void);
 
 // MIGRATED TO ZIGBUILDER
@@ -34,6 +35,47 @@ const MAIN_NAME = "__main__";
 const RUNTIME_IMPORT = "runtime";
 const RUNTIME_PREFIX = "runtime.";  // For submodules like runtime.string_utils
 const UTILS_PREFIX = "utils.";      // For utils.hashmap_helper, utils.allocator_helper
+
+// Package modules manifest for batch compilation
+// Format: one line per package, "module_name:absolute_path"
+const PACKAGE_MODULES_MANIFEST = BUILD_DIR ++ "/package_modules.txt";
+
+/// Write a package module entry to the manifest file (append-only, thread-safe)
+/// This is called during codegen for each site-packages import
+fn writePackageModuleEntry(module_name: []const u8, abs_path: []const u8) !void {
+    // Buffer for formatted output
+    var write_buf: [4096]u8 = undefined;
+
+    // Open or create manifest file for appending
+    const file = std.fs.cwd().openFile(PACKAGE_MODULES_MANIFEST, .{ .mode = .read_write }) catch |err| {
+        if (err == error.FileNotFound) {
+            // Create new file
+            const new_file = try std.fs.cwd().createFile(PACKAGE_MODULES_MANIFEST, .{});
+            defer new_file.close();
+            const line = std.fmt.bufPrint(&write_buf, "{s}:{s}\n", .{ module_name, abs_path }) catch return;
+            try new_file.writeAll(line);
+            return;
+        }
+        return err;
+    };
+    defer file.close();
+
+    // Check if this module is already in the manifest (avoid duplicates)
+    var buf: [64 * 1024]u8 = undefined;
+    const content_len = file.readAll(&buf) catch 0;
+    const content = buf[0..content_len];
+
+    // Simple check: if "module_name:" exists in content, skip
+    const prefix = std.fmt.bufPrint(&write_buf, "{s}:", .{module_name}) catch return;
+    if (std.mem.indexOf(u8, content, prefix) != null) {
+        return; // Already exists
+    }
+
+    // Seek to end and append
+    file.seekFromEnd(0) catch {};
+    const line = std.fmt.bufPrint(&write_buf, "{s}:{s}\n", .{ module_name, abs_path }) catch return;
+    file.writeAll(line) catch {};
+}
 
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
@@ -90,15 +132,39 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     std.debug.print("generate(): Processing {d} imported modules...\n", .{imported_modules.items.len});
     for (imported_modules.items, 0..) |mod_name, i| {
         std.debug.print("generate():   Processing import {d}/{d}: {s}\n", .{i+1, imported_modules.items.len, mod_name});
+
+        // Skip empty module names (from bare "." relative imports)
+        if (mod_name.len == 0) continue;
+
         // Extract root module name from dotted path (e.g., "test.support" -> "test")
         const root_mod_name = if (std.mem.indexOfScalar(u8, mod_name, '.')) |dot_idx|
             mod_name[0..dot_idx]
         else
             mod_name;
 
+        // Skip empty root module names (from relative imports like ".something")
+        if (root_mod_name.len == 0) continue;
+
         // Skip if we already imported this root module
         if (imported_roots.contains(root_mod_name)) {
             continue;
+        }
+
+        // Skip self-imports (module importing itself)
+        if (self.module_name) |current_module| {
+            // For numpy/__init__.py, module_name is "numpy"
+            // Skip if importing the same module
+            if (std.mem.eql(u8, root_mod_name, current_module)) {
+                continue;
+            }
+            // Also check if it's a submodule of current module (e.g., numpy._core from numpy)
+            if (std.mem.startsWith(u8, root_mod_name, current_module) and
+                root_mod_name.len > current_module.len and
+                root_mod_name[current_module.len] == '.')
+            {
+                // This is a relative import within the same package, skip
+                continue;
+            }
         }
 
         // Skip modules that use registry imports (zig_runtime or c_library)
@@ -109,18 +175,53 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             }
         }
 
-        // Skip if external module (no cache file)
-        const import_path = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ "{s}" ++ MODULE_EXT, .{root_mod_name});
-        defer self.allocator.free(import_path);
+        // Check if module was compiled - try simple path first, then resolved path
+        // Simple path: .metal0/gen/{module_name}.zig (local user modules)
+        // Resolved path: .metal0/gen/{source_path}/{module_name}.zig (site-packages)
+        var import_path_owned: ?[]const u8 = null;
+        defer if (import_path_owned) |p| self.allocator.free(p);
 
-        // Check if module was compiled to cache (uses comptime constants)
-        const build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
-        defer self.allocator.free(build_path);
+        // Try simple path first: .metal0/gen/{module_name}.zig
+        const simple_build_path = try std.fmt.allocPrint(self.allocator, BUILD_DIR ++ "/" ++ build_dirs.SRC_SUBDIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
+        defer self.allocator.free(simple_build_path);
 
-        std.fs.cwd().access(build_path, .{}) catch {
-            // Module not in cache, skip it
-            continue;
-        };
+        if (std.fs.cwd().access(simple_build_path, .{})) |_| {
+            import_path_owned = try std.fmt.allocPrint(self.allocator, IMPORT_PREFIX ++ build_dirs.SRC_SUBDIR ++ "/{s}" ++ MODULE_EXT, .{root_mod_name});
+        } else |_| {
+            // Try resolved path: resolve module to source, then get compiled path
+            const source_path = import_resolver.resolveImport(root_mod_name, source_file_dir, self.allocator) catch null;
+            if (source_path) |sp| {
+                defer self.allocator.free(sp);
+                const zig_path = build_dirs.projectZigPath(self.allocator, ".", sp) catch continue;
+                defer self.allocator.free(zig_path);
+                std.fs.cwd().access(zig_path, .{}) catch continue;
+
+                // Check if this is a site-packages module (external package like numpy)
+                // For batch compilation, use module name instead of absolute path
+                // The module will be registered in batch_build.zig
+                if (std.mem.indexOf(u8, zig_path, "site-packages") != null or
+                    std.mem.indexOf(u8, zig_path, ".venv") != null)
+                {
+                    // Use module name - will be registered as Zig module in batch build
+                    import_path_owned = try self.allocator.dupe(u8, root_mod_name);
+
+                    // Write module:path mapping to package_modules.txt for batch_build.zig
+                    // Use absolute path for the manifest since batch_build.zig needs it
+                    const abs_path = std.fs.cwd().realpathAlloc(self.allocator, zig_path) catch continue;
+                    defer self.allocator.free(abs_path);
+                    try writePackageModuleEntry(root_mod_name, abs_path);
+                } else {
+                    // Local module - use absolute path
+                    const abs_path = std.fs.cwd().realpathAlloc(self.allocator, zig_path) catch continue;
+                    import_path_owned = abs_path;
+                }
+            } else {
+                // Module not found
+                continue;
+            }
+        }
+
+        const import_path = import_path_owned orelse continue;
 
         // Generate import statement (escape module name if it's a Zig keyword)
         const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
@@ -274,9 +375,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             // Submodules without alias are accessed via fromImport()
             if (std.mem.indexOfScalar(u8, module_name, '.') != null and std.mem.eql(u8, key, module_name)) continue;
 
-            // Generate: var np: ?*c_interop.PyObject = null;
+            // Generate: [pub] var np: ?*c_interop.PyObject = null;
             // The import will be done at runtime start via c_interop.importModule()
             // For dotted names like numpy.exceptions, we need to escape: var @"numpy.exceptions": ...
+            // Use pub for module mode so symbols are accessible from importing modules
+            if (self.mode == .module) try self.emit("pub ");
             try self.emit("var ");
             try self.emitIdent(key);
             try self.emit(": ?*c_interop.PyObject = null;\n");
@@ -288,8 +391,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         for (self.c_extension_root_modules.keys()) |root_module| {
             // Skip if already emitted (might overlap with regular c_extension_modules)
             if (emitted_c_ext.contains(root_module)) continue;
+
+            // Skip if this is the current module (self-reference)
+            if (self.module_name) |current_module| {
+                if (std.mem.eql(u8, root_module, current_module)) continue;
+            }
+
             try emitted_c_ext.put(root_module, {});
 
+            // Use pub for module mode so symbols are accessible from importing modules
+            if (self.mode == .module) try self.emit("pub ");
             try self.emit("var ");
             try self.emitIdent(root_module);
             try self.emit(": ?*c_interop.PyObject = null;\n");
@@ -2331,14 +2442,13 @@ fn analyzeTestFactories(self: *NativeCodegen, module: ast.Node.Module) !void {
                         .returns_error = method_needs_allocator, // Methods needing allocator typically have fallible ops
                         .is_skipped = skip_reason != null,
                     });
-                } else if (std.mem.eql(u8, method_name, "setUp")) {
-                    has_setUp = true;
-                } else if (std.mem.eql(u8, method_name, "tearDown")) {
-                    has_tearDown = true;
-                } else if (std.mem.eql(u8, method_name, "setUpClass")) {
-                    has_setup_class = true;
-                } else if (std.mem.eql(u8, method_name, "tearDownClass")) {
-                    has_teardown_class = true;
+                } else if (method_categories.getUnittestLifecycleKind(method_name)) |kind| {
+                    switch (kind) {
+                        .setUp => has_setUp = true,
+                        .tearDown => has_tearDown = true,
+                        .setUpClass => has_setup_class = true,
+                        .tearDownClass => has_teardown_class = true,
+                    }
                 }
             }
 
