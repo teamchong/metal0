@@ -339,6 +339,8 @@ pub fn collectImports(
                     },
                     .import_from => |imp| {
                         const module_name = imp.module;
+                        // Skip empty module names (from . import X has empty module)
+                        if (module_name.len == 0) continue;
                         try mod_names.put(module_name, {});
                         if (std.mem.indexOfScalar(u8, module_name, '.')) |dot_idx| {
                             try mod_names.put(module_name[0..dot_idx], {});
@@ -403,6 +405,9 @@ pub fn collectImports(
 
     // Process each module using registry
     for (module_names.keys()) |python_module| {
+        // Skip empty module names
+        if (python_module.len == 0) continue;
+
         // Handle relative imports (starting with .)
         // Convert .module to full path like package/module when inside package/__init__.py
         if (python_module.len > 0 and python_module[0] == '.') {
@@ -553,8 +558,8 @@ pub fn collectImports(
                 continue;
             }
 
-            // Check if it's an installed package first - loaded via c_interop at runtime
-            // This includes C extensions (numpy) AND pure Python packages (pytest)
+            // Check if it's a C extension package FIRST (before checking if compiled)
+            // This prevents trying to use stale .zig files for C extensions like numpy
             // Also check root module for dotted names (numpy.exceptions -> check numpy)
             const is_installed = blk: {
                 if (import_resolver.isInstalledPackage(python_module, self.allocator)) break :blk true;
@@ -565,8 +570,27 @@ pub fn collectImports(
                 }
                 break :blk false;
             };
+
+            // Check if this module can be resolved to Python source
+            // If so, compile it instead of treating as C extension
+            const can_resolve_source = blk: {
+                const source = import_resolver.resolveImport(python_module, source_file_dir, self.allocator) catch null;
+                if (source) |sp| {
+                    self.allocator.free(sp);
+                    break :blk true;
+                }
+                break :blk false;
+            };
+
+            // If module has Python source, compile it instead of C extension path
+            if (can_resolve_source) {
+                std.debug.print("Info: Package '{s}' has Python source, compiling to Zig\n", .{python_module});
+                try imports.append(self.allocator, python_module);
+                continue;
+            }
+
             if (is_installed) {
-                std.debug.print("Info: Installed package '{s}' will be loaded at runtime via c_interop\n", .{python_module});
+                std.debug.print("Info: C extension package '{s}' will be loaded at runtime via c_interop\n", .{python_module});
                 // Mark as C extension - loaded at runtime via PyImport_ImportModule
                 // Find alias for this module (e.g., np for numpy)
                 var alias_name: []const u8 = python_module;
@@ -582,10 +606,21 @@ pub fn collectImports(
                 // This handles patterns like: import numpy as np; import numpy._core.lib.pkgconfig
                 // where later code uses: numpy._core.lib.pkgconfig.__name__ (bare 'numpy')
                 // We add to c_extension_root_modules which is emitted separately from aliases
+                // EXCEPT if the root module was already compiled (would cause duplicate symbol)
                 if (std.mem.indexOfScalar(u8, python_module, '.')) |dot_pos| {
                     const root_module = python_module[0..dot_pos];
-                    // Add to root_modules map - will be emitted even if there's an alias
-                    if (!self.c_extension_root_modules.contains(root_module)) {
+                    // Check if root module has Python source (will be compiled, or is being compiled)
+                    // We check for source instead of .zig file because during codegen the .zig may not exist yet
+                    const root_has_source = blk: {
+                        const root_source = import_resolver.resolveImport(root_module, source_file_dir, self.allocator) catch null;
+                        if (root_source) |rsp| {
+                            self.allocator.free(rsp);
+                            break :blk true;
+                        }
+                        break :blk false;
+                    };
+                    // Only add to c_extension_root_modules if root has NO Python source
+                    if (!root_has_source and !self.c_extension_root_modules.contains(root_module)) {
                         const root_copy = try self.arena.allocator().dupe(u8, root_module);
                         try self.c_extension_root_modules.put(root_copy, root_copy);
                     }
