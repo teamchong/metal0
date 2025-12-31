@@ -227,6 +227,52 @@ fn isTypingNoOp(expr: ast.Node) bool {
         std.mem.eql(u8, name, "TypeVarTuple");
 }
 
+/// Check if this is a pytest.mark assignment that should be skipped
+/// pytestmark = pytest.mark.skipif(...) is test metadata, not runtime behavior
+fn isPytestmarkNoOp(targets: []const ast.Node, expr: ast.Node) bool {
+    // Check if target is "pytestmark"
+    if (targets.len != 1 or targets[0] != .name) return false;
+    if (!std.mem.eql(u8, targets[0].name.id, "pytestmark")) return false;
+
+    // Check if value involves pytest.mark
+    return isPytestMarkExpr(expr);
+}
+
+fn isPytestMarkExpr(expr: ast.Node) bool {
+    // Direct: pytest.mark.skipif(...)
+    if (expr == .call) {
+        const call = expr.call;
+        if (call.func.* == .attribute) {
+            return isPytestMarkAttribute(call.func.attribute);
+        }
+    }
+    // List: [pytest.mark.skipif(...), ...]
+    if (expr == .list) {
+        for (expr.list.elts) |elem| {
+            if (isPytestMarkExpr(elem)) return true;
+        }
+    }
+    // Attribute: pytest.mark.skipif (without call)
+    if (expr == .attribute) {
+        return isPytestMarkAttribute(expr.attribute);
+    }
+    return false;
+}
+
+fn isPytestMarkAttribute(attr: ast.Node.Attribute) bool {
+    // Check for pytest.mark.* pattern
+    if (attr.value.* == .attribute) {
+        const parent = attr.value.attribute;
+        if (parent.value.* == .name) {
+            const module_name = parent.value.name.id;
+            const attr_name = parent.attr;
+            return std.mem.eql(u8, module_name, "pytest") and
+                std.mem.eql(u8, attr_name, "mark");
+        }
+    }
+    return false;
+}
+
 /// Generate assignment statement with automatic defer cleanup
 pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!void {
     const b = try self.getBuilder();
@@ -255,6 +301,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             }
         }
         try self.emit("\n");
+        return;
+    }
+
+    // Skip pytestmark assignments (pytest.mark.* decorators)
+    // These are test metadata that metal0's test runner doesn't use
+    if (isPytestmarkNoOp(assign.targets, assign.value.*)) {
+        try self.emitIndent();
+        try self.emit("// pytest marker skipped\n");
         return;
     }
 

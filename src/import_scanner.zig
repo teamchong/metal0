@@ -291,6 +291,12 @@ pub const ImportGraph = struct {
             if (std.mem.eql(u8, import_name, "builtins")) {
                 continue;
             }
+            // Check if it's a C extension package (like numpy, pandas, etc.)
+            // These should be loaded at runtime via c_interop, not compiled
+            if (import_resolver.isCExtension(import_name, self.allocator)) {
+                std.debug.print("  Skipped import (C extension): {s}\n", .{import_name});
+                continue;
+            }
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
                 std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);
