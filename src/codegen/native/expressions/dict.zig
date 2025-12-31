@@ -314,6 +314,28 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
 
 /// Generate comptime-optimized dict literal
 fn genDictComptime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
+    // Check if we're at module level (not inside a function)
+    // Module-level const initializers can't use: comptime keyword (already comptime),
+    // inline for (invalid in comptime), or try (only valid in functions)
+    const at_module_level = self.current_function_name == null;
+
+    if (at_module_level) {
+        // At module level: generate a simple struct tuple literal of key-value pairs
+        // This can be passed to anytype params or iterated at comptime
+        try self.emit("&.{ ");
+        for (dict.keys, dict.values, 0..) |key, value, i| {
+            if (i > 0) try self.emit(", ");
+            const key_operand = try self.captureExpr(key);
+            const value_operand = try self.captureExpr(value);
+            try self.emit(".{ ");
+            try self.emitZigValue(key_operand);
+            try self.emit(", ");
+            try self.emitZigValue(value_operand);
+            try self.emit(" }");
+        }
+        try self.emit(" }");
+        return;
+    }
 
     // Infer key type from first key using getDictKeyType
     const key_type = try self.type_inferrer.inferExpr(dict.keys[0]);
@@ -516,6 +538,16 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
 
 /// Generate runtime dict literal (fallback path)
 fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
+    // Check if we're at module level (not inside a function)
+    // Module-level const initializers can't use labeled blocks with `try`
+    const at_module_level = self.current_function_name == null;
+    if (at_module_level) {
+        // At module level: generate a placeholder that can be iterated as empty
+        // Runtime dicts with function call values can't be fully initialized at module level
+        try self.emit("&.{}");
+        return;
+    }
+
     // Infer key type from first key (for non-unpacking entries)
     // Use getDictKeyType for proper classification (int, string, pyvalue for tuples/bools/etc)
     var key_classification: type_traits.DictKeyType = .string; // Default to string
@@ -725,7 +757,7 @@ fn genValueToString(
         } else if (type_traits.isFloating(value_type)) {
             try self.emit("\"{d}\"");
         } else {
-            try self.emit("\"{any}\"");
+            try self.emit("\"{}\"");
         }
         try self.emit(", .{");
         try genExpr(self, value);

@@ -676,8 +676,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         if (analysis.needs_allocator) {
             try self.emit("\n// Module-level allocator for f-strings and dynamic allocations\n");
             try self.emit("var __gpa = std.heap.GeneralPurposeAllocator(.{ .safety = true, .thread_safe = true }){};\n");
-            try self.emit("var __global_allocator: std.mem.Allocator = __gpa.allocator();\n\n");
+            try self.emit("var __global_allocator: std.mem.Allocator = __gpa.allocator();\n");
         }
+
+        // Module mode: emit sys.platform constant (computed at compile time)
+        // This is used when modules reference sys.platform at module level
+        try self.emit("const __sys_platform: []const u8 = switch (@import(\"builtin\").os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" };\n");
 
         if (self.module_name) |mod_name| {
             try self.emit("pub const ");
@@ -1161,7 +1165,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (listcomp_node) |lc_node| {
                 const lc_type = self.type_inferrer.inferExpr(lc_node.*) catch .unknown;
                 try self.emit("var ");
-                try self.emit(var_name);
+                try self.emitVarName(var_name);
                 try self.emit(": ");
                 if (container_traits.isList(lc_type)) {
                     // Use the inferred list type with correct element type
@@ -1200,7 +1204,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (dictcomp_node) |dc_node| {
                 const dc_type = self.type_inferrer.inferExpr(dc_node.*) catch .unknown;
                 try self.emit("var ");
-                try self.emit(var_name);
+                try self.emitVarName(var_name);
                 try self.emit(": ");
                 if (container_traits.isDict(dc_type)) {
                     // Use the inferred dict type with correct key/value types
@@ -1379,7 +1383,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     } else "hashmap_helper.StringHashMap(i64)"; // Default for empty dict()
 
                     try self.emit("var ");
-                    try self.emit(var_name);
+                    try self.emitVarName(var_name);
                     try self.emit(": ");
                     try self.emit(zig_type);
                     try self.emit(" = undefined;\n");
@@ -1748,7 +1752,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             defer if (needs_free) self.allocator.free(zig_type);
 
             try self.emit("var ");
-            try self.emit(var_name);
+            try self.emitVarName(var_name);
             try self.emit(": ");
             try self.emit(zig_type);
             try self.emit(" = undefined;\n");

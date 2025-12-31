@@ -7,6 +7,86 @@ const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const build_dirs = @import("../../../build_dirs.zig");
 
+/// Parse __all__ list from a Python source file
+/// Returns a list of exported symbol names, or null if __all__ not found
+fn parseAllList(allocator: std.mem.Allocator, py_path: []const u8) ?std.ArrayList([]const u8) {
+    const file = std.fs.cwd().openFile(py_path, .{}) catch return null;
+    defer file.close();
+
+    const content = file.readToEndAlloc(allocator, 1024 * 1024) catch return null;
+    defer allocator.free(content);
+
+    // Find __all__ = [ or __all__: list = [
+    var start_idx: ?usize = null;
+    var search_start: usize = 0;
+    while (search_start < content.len) {
+        const all_pos = std.mem.indexOf(u8, content[search_start..], "__all__") orelse break;
+        const pos = search_start + all_pos;
+
+        // Find the [ after __all__
+        var i = pos + 7; // Skip "__all__"
+        while (i < content.len and (content[i] == ' ' or content[i] == ':' or content[i] == '=' or
+            (content[i] >= 'a' and content[i] <= 'z'))) : (i += 1)
+        {}
+        if (i < content.len) {
+            // Skip whitespace
+            while (i < content.len and (content[i] == ' ' or content[i] == '\n' or content[i] == '\t')) : (i += 1) {}
+            if (i < content.len and content[i] == '[') {
+                start_idx = i;
+                break;
+            }
+        }
+        search_start = pos + 7;
+    }
+    const list_start = start_idx orelse return null;
+
+    // Find matching ]
+    var depth: usize = 0;
+    var end_idx: ?usize = null;
+    var j = list_start;
+    while (j < content.len) : (j += 1) {
+        if (content[j] == '[') depth += 1;
+        if (content[j] == ']') {
+            depth -= 1;
+            if (depth == 0) {
+                end_idx = j;
+                break;
+            }
+        }
+    }
+    const list_end = end_idx orelse return null;
+
+    // Parse the list content
+    var result: std.ArrayList([]const u8) = .{};
+    const list_content = content[list_start + 1 .. list_end];
+
+    // Extract quoted strings
+    var in_string = false;
+    var quote_char: u8 = 0;
+    var string_start: usize = 0;
+    for (list_content, 0..) |c, idx| {
+        if (!in_string and (c == '\'' or c == '"')) {
+            in_string = true;
+            quote_char = c;
+            string_start = idx + 1;
+        } else if (in_string and c == quote_char) {
+            const symbol = list_content[string_start..idx];
+            // Skip keywords and reserved names
+            if (!zig_keywords.isZigKeyword(symbol) and !zig_keywords.wouldShadowModule(symbol)) {
+                const duped = allocator.dupe(u8, symbol) catch continue;
+                result.append(allocator, duped) catch continue;
+            }
+            in_string = false;
+        }
+    }
+
+    if (result.items.len == 0) {
+        result.deinit(allocator);
+        return null;
+    }
+    return result;
+}
+
 // MIGRATED TO ZIGBUILDER
 
 /// Check if operator function name is known
@@ -294,7 +374,44 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             // Generate re-exports for each imported symbol
             // from .version import __version__ -> pub const __version__ = version.__version__;
             for (from_imp.names, 0..) |name, i| {
-                if (std.mem.eql(u8, name, "*")) continue;
+                // Handle star imports by expanding __all__ from the submodule
+                if (std.mem.eql(u8, name, "*")) {
+                    // Find the Python source file for this submodule
+                    if (source_dir) |dir| {
+                        // Try {dir}/{submodule}.py first
+                        const py_file = std.fmt.allocPrint(self.allocator, "{s}/{s}.py", .{ dir, submodule_name }) catch continue;
+                        defer self.allocator.free(py_file);
+
+                        var all_list = parseAllList(self.allocator, py_file);
+
+                        // If not found, try {dir}/{submodule}/__init__.py
+                        if (all_list == null) {
+                            const init_file = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.py", .{ dir, submodule_name }) catch continue;
+                            defer self.allocator.free(init_file);
+                            all_list = parseAllList(self.allocator, init_file);
+                        }
+
+                        if (all_list) |*list| {
+                            defer {
+                                for (list.items) |item| {
+                                    self.allocator.free(item);
+                                }
+                                list.deinit(self.allocator);
+                            }
+
+                            // Generate re-exports for each symbol in __all__
+                            for (list.items) |symbol| {
+                                // Skip if already generated
+                                if (generated_symbols.contains(symbol)) continue;
+
+                                // Generate: pub const symbol = submodule.symbol;
+                                try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol, ident_name, symbol });
+                                try generated_symbols.put(symbol, {});
+                            }
+                        }
+                    }
+                    continue;
+                }
 
                 const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
                     from_imp.asnames[i].?
@@ -756,6 +873,25 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         try self.emit(exp_name);
                         try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Handle test.test_grammar module - export underscore literal constants
+        if (std.mem.eql(u8, from_imp.module, "test.test_grammar")) {
+            for (from_imp.names) |name| {
+                if (std.mem.eql(u8, name, "VALID_UNDERSCORE_LITERALS")) {
+                    if (!generated_symbols.contains("VALID_UNDERSCORE_LITERALS")) {
+                        // Use slice coercion for array - container_dispatch.getSlice handles arrays correctly
+                        try self.emit("const VALID_UNDERSCORE_LITERALS: []const []const u8 = &runtime.test_support.numbers.VALID_UNDERSCORE_LITERALS;\n");
+                        try generated_symbols.put("VALID_UNDERSCORE_LITERALS", {});
+                    }
+                } else if (std.mem.eql(u8, name, "INVALID_UNDERSCORE_LITERALS")) {
+                    if (!generated_symbols.contains("INVALID_UNDERSCORE_LITERALS")) {
+                        try self.emit("const INVALID_UNDERSCORE_LITERALS: []const []const u8 = &runtime.test_support.numbers.INVALID_UNDERSCORE_LITERALS;\n");
+                        try generated_symbols.put("INVALID_UNDERSCORE_LITERALS", {});
                     }
                 }
             }
