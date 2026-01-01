@@ -180,9 +180,38 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
         break :blk null;
     } else null;
 
+    // CHECK: Skip generating relative @import for files inside a package that's imported as a module
+    // This prevents Zig 0.15 "file exists in multiple modules" errors
+    // e.g., When numpy/_core/numeric.py imports numpy as a module, don't generate
+    // @import("./multiarray.zig") because numpy._core.__init__.zig already imports it
+    const skip_relative_imports = skip_check: {
+        if (self.source_file_path) |sfp| {
+            // Only applies to files inside site-packages (external packages)
+            if (std.mem.indexOf(u8, sfp, "site-packages") != null) {
+                // Check if any imported module is an ancestor package of this file
+                // e.g., file is numpy/_core/numeric.py and "numpy" is imported
+                for (self.imported_modules.keys()) |mod_name| {
+                    // Check if module name appears in the source path
+                    // e.g., "numpy" in ".../numpy/_core/numeric.py"
+                    if (std.mem.indexOf(u8, sfp, mod_name) != null) {
+                        // Verify it's actually a directory component, not just a substring
+                        const mod_in_path = std.fmt.allocPrint(self.allocator, "/{s}/", .{mod_name}) catch break :skip_check false;
+                        defer self.allocator.free(mod_in_path);
+                        if (std.mem.indexOf(u8, sfp, mod_in_path) != null) {
+                            break :skip_check true;
+                        }
+                    }
+                }
+            }
+        }
+        break :skip_check false;
+    };
+
     // PHASE 0.5: Handle "from . import X" pattern (dots-only module)
     // When module is just dots (e.g., "."), the names list contains submodule names
-    for (self.from_imports.items) |from_imp| {
+    // Skip if inside a package that's imported as a module (prevents Zig module conflicts)
+    if (!skip_relative_imports) {
+        for (self.from_imports.items) |from_imp| {
         // Check if module is dots-only (e.g., ".", "..", "...")
         if (from_imp.module.len == 0) continue;
 
@@ -289,10 +318,13 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
             try imported_submodules.put(name, {});
         }
+        }
     }
 
     // PHASE 1: Handle "from .module import X" pattern
-    for (self.from_imports.items) |from_imp| {
+    // Skip if inside a package that's imported as a module (prevents Zig module conflicts)
+    if (!skip_relative_imports) {
+        for (self.from_imports.items) |from_imp| {
         if (from_imp.module.len > 0 and from_imp.module[0] == '.') {
             if (self.mode != .module) continue;
 
@@ -356,6 +388,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             const ident_copy = try self.arena.allocator().dupe(u8, ident_name);
             try self.imported_modules.put(ident_copy, {});
         }
+        }
     }
 
     // PHASE 2: Generate re-exports for relative imports
@@ -365,6 +398,8 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
         if (from_imp.module.len > 0 and from_imp.module[0] == '.') {
             // Skip for scripts (mode != .module)
             if (self.mode != .module) continue;
+            // Skip if inside a package that's imported as a module (prevents Zig module conflicts)
+            if (skip_relative_imports) continue;
 
             // Get module name without leading dots (e.g., ".version" -> "version")
             var dots: usize = 0;

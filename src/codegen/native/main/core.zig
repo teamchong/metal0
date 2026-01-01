@@ -363,6 +363,10 @@ pub const NativeCodegen = struct {
     // Module name (for module mode)
     module_name: ?[]const u8,
 
+    // Whether this is a dependency module (imported, not main entry)
+    // Dependencies don't emit _metal0_module_marker to avoid symbol collisions
+    is_dependency: bool,
+
     // Symbol table for scope-aware variable tracking
     symbol_table: *SymbolTable,
 
@@ -1068,6 +1072,7 @@ pub const NativeCodegen = struct {
             .indent_level = 0,
             .mode = .script,
             .module_name = null,
+            .is_dependency = false,
             .symbol_table = sym_table,
             .class_registry = cls_registry,
             .try_helper_counter = 0,

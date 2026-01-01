@@ -147,7 +147,22 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: [
     defer codegen.deinit();
 
     codegen.mode = .module;
-    codegen.module_name = null; // No struct wrapper - export functions at top level
+    codegen.is_dependency = true; // This is an imported module, not the main entry
+    // Set module_name for self-import detection
+    // For __init__.py files, use parent directory name as module name
+    const basename = std.fs.path.basename(module_path);
+    const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+    if (std.mem.eql(u8, stem, "__init__")) {
+        // Package: use parent directory name
+        if (std.fs.path.dirname(module_path)) |parent| {
+            codegen.module_name = std.fs.path.basename(parent);
+        } else {
+            codegen.module_name = null;
+        }
+    } else {
+        // Regular module: use filename without extension
+        codegen.module_name = stem;
+    }
 
     // Build call graph for unified function analysis
     if (tree == .module) {
