@@ -1598,9 +1598,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 const attr_name = assign.targets[0].name.id;
 
                 // Skip type attributes (handled above as functions)
+                // Also skip when referencing module-level variable with same name
+                // (Python: `class Foo: dry_run = dry_run` where dry_run is module-level)
+                // This would generate `pub const dry_run = dry_run;` which is ambiguous
                 if (assign.value.* == .name) {
-                    const type_name = assign.value.name.id;
-                    if (PyBuiltinTypes.has(type_name)) continue;
+                    const ref_name = assign.value.name.id;
+                    if (PyBuiltinTypes.has(ref_name)) continue;
+                    // Skip if attr_name == ref_name AND ref_name is module-level variable
+                    if (std.mem.eql(u8, ref_name, attr_name) and self.module_level_vars.contains(ref_name)) continue;
                 }
 
                 // Skip None attributes (handled below as stub methods)

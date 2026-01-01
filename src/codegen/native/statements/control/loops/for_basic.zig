@@ -303,7 +303,7 @@ pub fn varUsedInBody(body: []ast.Node, var_name: []const u8) bool {
 
 /// Check if a variable is reassigned in a list of statements
 /// This is used to determine if tuple unpacking should use `var` instead of `const`
-fn varIsReassignedInBody(body: []ast.Node, var_name: []const u8) bool {
+pub fn varIsReassignedInBody(body: []ast.Node, var_name: []const u8) bool {
     for (body) |stmt| {
         if (varIsReassignedInStmt(stmt, var_name)) return true;
     }
@@ -400,26 +400,28 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         return error.UnsupportedSyntax; // Tuple unpacking requires at least one variable
     }
 
-    // Extract variable names - handle nested unpacking by using placeholder
+    // Extract variable names - handle nested unpacking with proper tracking
     var var_names = try self.allocator.alloc([]const u8, target_elts.len);
     defer self.allocator.free(var_names);
-    var has_nested = false;
+
+    // Track nested tuple elements: index -> slice of nested variable names
+    const NestedInfo = struct { idx: usize, elts: []ast.Node };
+    var nested_tuples = std.ArrayListUnmanaged(NestedInfo){};
+    defer nested_tuples.deinit(self.allocator);
+
     for (target_elts, 0..) |elt, i| {
         if (elt == .name) {
             var_names[i] = elt.name.id;
-        } else {
-            // Nested tuple unpacking (e.g., for a, (b, c) in items) - not fully supported
-            // Use placeholder and emit warning comment
+        } else if (elt == .tuple or elt == .list) {
+            // Nested tuple unpacking (e.g., for a, (b, c) in items)
+            // Mark with placeholder and track for later unpacking
             var_names[i] = "_nested";
-            has_nested = true;
+            const nested_elts = if (elt == .tuple) elt.tuple.elts else elt.list.elts;
+            try nested_tuples.append(self.allocator, .{ .idx = i, .elts = nested_elts });
+        } else {
+            // Unsupported nested type - just discard
+            var_names[i] = "_";
         }
-    }
-
-    // If there's nested unpacking, we need to unpack in the loop body
-    // For now, emit a warning that nested unpacking uses flat iteration
-    if (has_nested) {
-        try self.emitIndent();
-        try self.emit("// Note: Nested tuple unpacking - inner tuples accessed via indices\n");
     }
 
     // Check if this is a lazy class attribute access (e.g., self.STRINGS where STRINGS is lazy)
@@ -534,6 +536,71 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
     // If a variable is later reassigned in the body, use `var` instead of `const`
     for (var_names, 0..) |var_name, i| {
         try self.emitIndent();
+
+        // Check if this is a nested tuple that needs unpacking
+        const nested_info: ?NestedInfo = for (nested_tuples.items) |info| {
+            if (info.idx == i) break info;
+        } else null;
+
+        if (nested_info) |info| {
+            // Nested tuple unpacking: assign to temp variable, then unpack elements
+            // e.g., for cost, (x, y), con_sets in results:
+            //   const __nested_1 = __tuple_N__.@"1";
+            //   const x = __nested_1.@"0";
+            //   const y = __nested_1.@"1";
+            try self.emitFmt("const __nested_{d} = __tuple_{d}__.@\"{d}\";\n", .{ i, unique_id, i });
+
+            // Unpack nested elements
+            for (info.elts, 0..) |nested_elt, j| {
+                try self.emitIndent();
+                if (nested_elt == .name) {
+                    const nested_var_name = nested_elt.name.id;
+                    const nested_is_used = varUsedInBody(body, nested_var_name);
+                    if (std.mem.eql(u8, nested_var_name, "_") or !nested_is_used) {
+                        // Discard pattern or unused
+                        try self.emitFmt("_ = __nested_{d}.@\"{d}\";\n", .{ i, j });
+                    } else {
+                        const nested_is_reassigned = varIsReassignedInBody(body, nested_var_name);
+                        const nested_is_hoisted = self.hoisted_vars.contains(nested_var_name);
+
+                        if (nested_is_hoisted) {
+                            try self.emitVarName(nested_var_name);
+                        } else {
+                            // Check for shadowing
+                            const shadows_outer = self.isDeclared(nested_var_name) or
+                                self.module_level_funcs.contains(nested_var_name) or self.imported_modules.contains(nested_var_name);
+                            if (shadows_outer and !self.var_renames.contains(nested_var_name)) {
+                                const renamed = try self.name_gen.local(nested_var_name);
+                                try self.var_renames.put(nested_var_name, renamed);
+                            }
+                            const actual_nested_name = self.var_renames.get(nested_var_name) orelse nested_var_name;
+
+                            if (nested_is_reassigned) {
+                                try self.emit("var ");
+                            } else {
+                                try self.emit("const ");
+                            }
+                            try self.emitIdent(actual_nested_name);
+                        }
+                        try self.emitFmt(" = __nested_{d}.@\"{d}\";\n", .{ i, j });
+
+                        // Emit discard to prevent unused variable errors
+                        try self.emitIndent();
+                        try self.emit("_ = &");
+                        const actual_nested_name = self.var_renames.get(nested_var_name) orelse nested_var_name;
+                        try self.emitIdent(actual_nested_name);
+                        try self.emit(";\n");
+
+                        if (!nested_is_hoisted) try self.declareVar(nested_var_name);
+                    }
+                } else {
+                    // Nested element is not a name (e.g., deeply nested tuple) - discard for now
+                    try self.emitFmt("_ = __nested_{d}.@\"{d}\";\n", .{ i, j });
+                }
+            }
+            continue; // Skip the rest of the loop since we've handled this element
+        }
+
         // Check if this variable is used in the loop body (AST-based check)
         const is_used = varUsedInBody(body, var_name);
         if (std.mem.eql(u8, var_name, "_") or !is_used) {
@@ -1415,12 +1482,23 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id_pyval });
         }
 
+        // Track loop capture variable for shadowing detection
+        // When Python code does `col = col.strip()` inside `for col in items:`,
+        // we need to rename the new variable to avoid shadowing the immutable Zig capture
+        if (tuple_var_used) {
+            try self.loop_capture_vars.put(var_name, {});
+        }
+
         // Register loop variable type as pyvalue (element of PyValue list)
         try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .pyvalue);
 
         for (for_stmt.body) |stmt| {
             try self.generateStmt(stmt);
         }
+
+        // Clean up loop capture tracking when exiting loop
+        _ = self.loop_capture_vars.swapRemove(var_name);
+        _ = self.var_renames.swapRemove(var_name);
 
         self.popScope();
         self.dedent();
@@ -2125,8 +2203,11 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     try self.emit(" < ");
     if (stop_is_pyvalue) {
         // Extract integer from PyValue for loop comparison
+        // Wrap with PyValue.from() first since the expression type may be uncertain
+        // (e.g., attribute access like sys.maxunicode returns .int but needs conversion)
+        try self.emit("runtime.PyValue.from(");
         try self.emitParens(stop_expr);
-        try self.emit(".asInt()");
+        try self.emit(").asInt()");
     } else {
         try self.genExpr(stop_expr);
     }
@@ -2244,6 +2325,12 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    // Add discard to prevent "unused local constant" error if loop var is unused
+    try self.emitIndent();
+    try self.emit("_ = ");
+    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+    try self.emit(";\n");
 
     // Declare the variable for type inference
     try self.declareVar(var_name);

@@ -397,7 +397,9 @@ fn killAfterTimeout(child: *std.process.Child, timeout_ns: u64, done: *std.atomi
 }
 
 /// Compile Zig source code to shared library (.so/.dylib)
-pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8) !void {
+/// source_dir: Optional directory where the generated .zig submodules are (for relative import resolution)
+///             If null, uses the output_path directory
+pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, output_path: []const u8, c_libraries: []const []const u8, source_dir: ?[]const u8) !void {
     // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -405,13 +407,14 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
 
     try build_dirs.init();
 
-    // Write Zig code to temporary file in the SAME DIRECTORY as the output binary
+    // Write Zig code to temporary file in the SAME DIRECTORY as the generated submodules
     // This is critical for relative imports like @import("./version.zig") to work correctly
-    // (previously wrote to build_dir which broke relative import resolution)
-    const out_dir = std.fs.path.dirname(output_path) orelse ".";
+    // source_dir is where the generated .zig files are (e.g., .metal0/gen/venv/.../numpy/)
+    // output_path is where the binary goes (may be different, e.g., .venv/.../numpy/.metal0/)
+    const src_dir = source_dir orelse (std.fs.path.dirname(output_path) orelse ".");
     const out_basename = std.fs.path.basename(output_path);
     const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ out_dir, out_stem, std.time.milliTimestamp() });
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ src_dir, out_stem, std.time.milliTimestamp() });
 
     const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
     defer tmp_file.close();

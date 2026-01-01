@@ -336,6 +336,20 @@ pub const PyValue = union(enum) {
         // Generate __eq__ wrapper if the type has it
         if (@hasDecl(T, "__eq__")) {
             const EqWrapper = struct {
+                // Helper to call __eq__ with either single value or slice based on method signature
+                fn callEq(self: *T, arg: anytype) PyValue {
+                    const fn_info = @typeInfo(@TypeOf(T.__eq__)).@"fn";
+                    if (fn_info.params.len >= 2) {
+                        const second_param = fn_info.params[1].type orelse PyValue;
+                        if (@typeInfo(second_param) == .pointer and @typeInfo(second_param).pointer.size == .slice) {
+                            // Method takes slice - wrap single value in array
+                            const args = [_]PyValue{PyValue.from(arg)};
+                            return wrapCompResult(self.__eq__(&args));
+                        }
+                    }
+                    return wrapCompResult(self.__eq__(arg));
+                }
+
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
                     // Try to unwrap PyValue based on variant type
@@ -351,18 +365,18 @@ pub const PyValue = union(enum) {
                             const other_class = if (other_obj.vtable.class_name) |cn| cn else "";
                             if (self_class.len > 0 and std.mem.eql(u8, self_class, other_class)) {
                                 const other_t: *T = @ptrCast(@alignCast(other_obj.ptr));
-                                return wrapCompResult(self.__eq__(other_t));
+                                return callEq(self, other_t);
                             }
                             // Different class - pass PyValue and let __eq__ return NotImplemented
-                            return wrapCompResult(self.__eq__(other));
+                            return callEq(self, other);
                         },
                         // Extract primitive values so isinstance checks work
-                        .int => |v| return wrapCompResult(self.__eq__(v)),
-                        .float => |v| return wrapCompResult(self.__eq__(v)),
-                        .bool => |v| return wrapCompResult(self.__eq__(v)),
-                        .string => |v| return wrapCompResult(self.__eq__(v)),
+                        .int => |v| return callEq(self, v),
+                        .float => |v| return callEq(self, v),
+                        .bool => |v| return callEq(self, v),
+                        .string => |v| return callEq(self, v),
                         // For other types, pass PyValue directly
-                        else => return wrapCompResult(self.__eq__(other)),
+                        else => return callEq(self, other),
                     }
                 }
             };
@@ -374,6 +388,16 @@ pub const PyValue = union(enum) {
             const NeWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
+                    // Check if __ne__ takes a slice (varargs style: def __ne__(*args))
+                    const fn_info = @typeInfo(@TypeOf(T.__ne__)).@"fn";
+                    if (fn_info.params.len >= 2) {
+                        const second_param = fn_info.params[1].type orelse PyValue;
+                        if (@typeInfo(second_param) == .pointer and @typeInfo(second_param).pointer.size == .slice) {
+                            // Method takes slice - wrap single value in array
+                            const args = [_]PyValue{other};
+                            return wrapCompResult(self.__ne__(&args));
+                        }
+                    }
                     return wrapCompResult(self.__ne__(other));
                 }
             };
@@ -385,6 +409,15 @@ pub const PyValue = union(enum) {
             const LtWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
+                    // Check if __lt__ takes a slice (varargs style: def __lt__(*args))
+                    const fn_info = @typeInfo(@TypeOf(T.__lt__)).@"fn";
+                    if (fn_info.params.len >= 2) {
+                        const second_param = fn_info.params[1].type orelse PyValue;
+                        if (@typeInfo(second_param) == .pointer and @typeInfo(second_param).pointer.size == .slice) {
+                            const args = [_]PyValue{other};
+                            return wrapCompResult(self.__lt__(&args));
+                        }
+                    }
                     return wrapCompResult(self.__lt__(other));
                 }
             };
@@ -396,6 +429,15 @@ pub const PyValue = union(enum) {
             const LeWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
+                    // Check if __le__ takes a slice (varargs style: def __le__(*args))
+                    const fn_info = @typeInfo(@TypeOf(T.__le__)).@"fn";
+                    if (fn_info.params.len >= 2) {
+                        const second_param = fn_info.params[1].type orelse PyValue;
+                        if (@typeInfo(second_param) == .pointer and @typeInfo(second_param).pointer.size == .slice) {
+                            const args = [_]PyValue{other};
+                            return wrapCompResult(self.__le__(&args));
+                        }
+                    }
                     return wrapCompResult(self.__le__(other));
                 }
             };
@@ -407,6 +449,15 @@ pub const PyValue = union(enum) {
             const GtWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
+                    // Check if __gt__ takes a slice (varargs style: def __gt__(*args))
+                    const fn_info = @typeInfo(@TypeOf(T.__gt__)).@"fn";
+                    if (fn_info.params.len >= 2) {
+                        const second_param = fn_info.params[1].type orelse PyValue;
+                        if (@typeInfo(second_param) == .pointer and @typeInfo(second_param).pointer.size == .slice) {
+                            const args = [_]PyValue{other};
+                            return wrapCompResult(self.__gt__(&args));
+                        }
+                    }
                     return wrapCompResult(self.__gt__(other));
                 }
             };
@@ -418,6 +469,15 @@ pub const PyValue = union(enum) {
             const GeWrapper = struct {
                 fn call(ptr: *anyopaque, other: PyValue) PyValue {
                     const self: *T = @ptrCast(@alignCast(ptr));
+                    // Check if __ge__ takes a slice (varargs style: def __ge__(*args))
+                    const fn_info = @typeInfo(@TypeOf(T.__ge__)).@"fn";
+                    if (fn_info.params.len >= 2) {
+                        const second_param = fn_info.params[1].type orelse PyValue;
+                        if (@typeInfo(second_param) == .pointer and @typeInfo(second_param).pointer.size == .slice) {
+                            const args = [_]PyValue{other};
+                            return wrapCompResult(self.__ge__(&args));
+                        }
+                    }
                     return wrapCompResult(self.__ge__(other));
                 }
             };
@@ -1843,12 +1903,13 @@ pub const PyValue = union(enum) {
     }
 
     /// Modulo two PyValues (Python %)
-    /// Uses Python floored modulo semantics for floats (result has same sign as divisor)
+    /// Uses Python floored modulo semantics (result has same sign as divisor)
     pub fn mod(self: PyValue, other: PyValue) PyValue {
         const float_arith = @import("../runtime/float_ops/arithmetic.zig");
+        const operator_ops = @import("../runtime/operator_ops.zig");
         return switch (self) {
             .int => |a| switch (other) {
-                .int => |b| if (b != 0) .{ .int = @mod(a, b) } else .{ .none = {} },
+                .int => |b| if (b != 0) .{ .int = operator_ops.pyFlooredModInt(a, b) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = float_arith.pyFloatMod(@as(f64, @floatFromInt(a)), b) } else .{ .none = {} },
                 .bool => |b| if (b) .{ .int = 0 } else .{ .none = {} },
                 else => .{ .none = {} },
@@ -1860,7 +1921,7 @@ pub const PyValue = union(enum) {
                 else => .{ .none = {} },
             },
             .bool => |a| switch (other) {
-                .int => |b| if (b != 0) .{ .int = @mod(@as(i64, @intFromBool(a)), b) } else .{ .none = {} },
+                .int => |b| if (b != 0) .{ .int = operator_ops.pyFlooredModInt(@as(i64, @intFromBool(a)), b) } else .{ .none = {} },
                 .float => |b| if (b != 0.0) .{ .float = float_arith.pyFloatMod(@as(f64, if (a) 1.0 else 0.0), b) } else .{ .none = {} },
                 .bool => |b| if (b) .{ .int = 0 } else .{ .none = {} },
                 else => .{ .none = {} },
