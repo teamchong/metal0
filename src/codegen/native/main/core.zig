@@ -890,6 +890,11 @@ pub const NativeCodegen = struct {
     // This allows errors to propagate to except handlers
     inside_try_body: bool,
 
+    // Track if we're inside a try block that catches NameError (or bare except)
+    // When true, undefined variable names emit runtime.exceptions.raiseNameError()
+    // instead of bare identifiers that would cause Zig compilation errors
+    in_nameerror_context: bool,
+
     // Track if we're inside a try block that has a finally block (but no exception handlers)
     // When true, raise statements store exception to __pending_exception_N instead of returning
     // This ensures finally block runs before exception propagates
@@ -1209,6 +1214,7 @@ pub const NativeCodegen = struct {
             .emit_logic_table_exports = false,
             .current_function_returns_pyvalue = false,
             .inside_try_body = false,
+            .in_nameerror_context = false,
             .inside_try_with_finally = false,
             .current_try_finally_id = 0,
             .target_wasm_browser = false,

@@ -808,7 +808,16 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     try self.emit("const ");
                     try self.emit(tmp_name);
                     try self.emit(" = ");
+                    // At module level, we need to wrap any try expressions in catch unreachable
+                    // since 'try' is not allowed outside function scope
+                    const needs_error_handling = stmt.assign.value.* == .call;
+                    if (needs_error_handling) {
+                        try self.emit("(");
+                    }
                     try expressions.genExpr(self, stmt.assign.value.*);
+                    if (needs_error_handling) {
+                        try self.emit(") catch unreachable");
+                    }
                     try self.emit(";\n");
 
                     // Generate pub const for each target (skip if already declared - reassignment)

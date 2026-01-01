@@ -227,6 +227,31 @@ const ExceptionMap = std.StaticStringMap([]const u8).initComptime(.{
     .{ "EncodingWarning", "EncodingWarning" },
 });
 
+/// Check if any handler in the try block catches NameError (or a base class like Exception)
+/// Returns true for:
+///   - except NameError:
+///   - except NameError as e:
+///   - except:  (bare except catches everything)
+///   - except BaseException:  (catches everything)
+///   - except Exception:  (catches NameError since it's a subclass)
+/// Note: handler.type is ?[]const u8 (just the exception type name as string)
+fn catchesNameError(handlers: []const ast.Node.ExceptHandler) bool {
+    for (handlers) |handler| {
+        // Bare except catches everything
+        if (handler.type == null) return true;
+
+        const type_name = handler.type.?;
+        // NameError, BaseException, Exception all catch NameError
+        if (std.mem.eql(u8, type_name, "NameError") or
+            std.mem.eql(u8, type_name, "BaseException") or
+            std.mem.eql(u8, type_name, "Exception"))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Check if a variable name is used in any statement within a list of statements
 fn isNameUsedInStmts(stmts: []ast.Node, name: []const u8, allocator: std.mem.Allocator) bool {
     var vars = FnvVoidMap.init(allocator);
@@ -1431,16 +1456,24 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         const saved_returns_pyvalue = self.current_function_returns_pyvalue;
         self.current_function_returns_pyvalue = false;
 
+        // Set in_nameerror_context if this try block catches NameError (or bare except/Exception)
+        // This enables emitting runtime.raiseNameError() for undefined variables
+        const saved_in_nameerror_context = self.in_nameerror_context;
+        if (catchesNameError(try_node.handlers)) {
+            self.in_nameerror_context = true;
+        }
+
         // Generate try block body with renamed variables
         for (try_node.body) |stmt| {
             try self.generateStmt(stmt);
         }
 
-        // Restore inside_try_body, current_function_returns_pyvalue, and control_flow_terminated
+        // Restore in_nameerror_context, inside_try_body, current_function_returns_pyvalue, and control_flow_terminated
         // IMMEDIATELY after try body. Must do this before generating else/finally/handlers.
         // NOTE: in_assert_raises_context is NOT restored here - it must stay false until
         // the TryHelper struct closes, because except handlers run inside the struct and
         // labeled breaks cannot cross function boundaries in Zig.
+        self.in_nameerror_context = saved_in_nameerror_context;
         self.inside_try_body = saved_inside_try_body;
         // self.in_assert_raises_context restored AFTER TryHelper closes (see below)
         self.current_function_returns_pyvalue = saved_returns_pyvalue;
@@ -1899,10 +1932,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         const saved_inside_try_body = self.inside_try_body;
         const saved_inside_try_with_finally = self.inside_try_with_finally;
         const saved_try_finally_id = self.current_try_finally_id;
+        const saved_in_nameerror_context = self.in_nameerror_context;
         self.inside_try_body = true;
         if (needs_try_finally_tracking) {
             self.inside_try_with_finally = true;
             self.current_try_finally_id = @intCast(helper_id);
+        }
+        // Set in_nameerror_context if this try block catches NameError
+        if (catchesNameError(try_node.handlers)) {
+            self.in_nameerror_context = true;
         }
 
         for (try_node.body) |stmt| {
@@ -1912,6 +1950,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         self.inside_try_body = saved_inside_try_body;
         self.inside_try_with_finally = saved_inside_try_with_finally;
         self.current_try_finally_id = saved_try_finally_id;
+        self.in_nameerror_context = saved_in_nameerror_context;
 
         // Pop finally context BEFORE generating inline finally code
         // CRITICAL: This must happen before inline finally generation to avoid infinite recursion.

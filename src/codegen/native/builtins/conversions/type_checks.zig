@@ -48,13 +48,23 @@ pub fn genType(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else if (args.len == 3) {
         // 3-argument form: type(name, bases, dict) - dynamic class creation
         // Generate: runtime.dynamicType(name, bases, dict)
-        try self.emit("(try runtime.dynamicType(__global_allocator, ");
+        // At module level, 'try' is invalid - use catch unreachable instead
+        const at_module_level = self.current_function_name == null;
+        if (at_module_level) {
+            try self.emit("(runtime.dynamicType(__global_allocator, ");
+        } else {
+            try self.emit("(try runtime.dynamicType(__global_allocator, ");
+        }
         try self.genExpr(args[0]); // name
         try self.emit(", ");
         try self.genExpr(args[1]); // bases tuple
         try self.emit(", ");
         try self.genExpr(args[2]); // dict
-        try self.emit("))");
+        if (at_module_level) {
+            try self.emit(") catch unreachable)");
+        } else {
+            try self.emit("))");
+        }
     } else {
         // 0 args, 2 args, or 4+ args - TypeError in Python
         // Emit an expression that returns an error for assertRaises testing

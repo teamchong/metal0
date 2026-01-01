@@ -869,9 +869,14 @@ fn isUnittestMethod(method_name: []const u8) bool {
 
 /// Infer return type from lambda body expression
 fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8 {
-    // Check for unittest assertion calls
+    // Check for unittest assertion calls and iterator next() calls
     if (body == .call) {
         const call = body.call;
+        // Special case: iterator next() call returns error union
+        // next() can raise StopIteration, returns void for unknown iterator types
+        if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "next")) {
+            return "anyerror!void";
+        }
         if (call.func.* == .attribute) {
             const attr = call.func.attribute;
             if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {

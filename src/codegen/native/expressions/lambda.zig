@@ -730,6 +730,15 @@ fn inferReturnType(self: *NativeCodegen, body: ast.Node) CodegenError![]const u8
     // PyCallable.fromAny() handles type erasure via extractBytes(), so lambdas
     // can return their natural types (array structs, etc.) and the wrapper extracts bytes
 
+    // Special case: iterator next() call returns error union
+    // next() can raise StopIteration, returns void for unknown iterator types
+    if (body == .call) {
+        const call = body.call;
+        if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "next")) {
+            return "anyerror!void";
+        }
+    }
+
     // Special case: closure (lambda returning lambda)
     if (body == .lambda) {
         // Generate closure name to match what will be generated

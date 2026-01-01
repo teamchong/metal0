@@ -21,13 +21,14 @@ pub fn genNestedFunctionDef(
     // Use captured variables from AST (pre-computed by closure analyzer)
     const captured_vars = func.captured_vars;
 
-    // Check if this is a recursive function
+    // Check if this is a recursive function or self-referential (e.g., f.x accesses f itself)
     const is_recursive = var_tracking.isRecursiveFunction(func.name, func.body);
+    const is_self_referential = var_tracking.isSelfReferential(func.name, func.body);
 
-    // Recursive functions need special handling (even with zero captures)
-    // because the function name must be defined before the body is generated
-    if (is_recursive) {
-        // Recursive closures need special handling - generate as a struct with
+    // Both patterns need special handling because the function name must be defined
+    // before the body is generated (to allow f() calls or f.x attribute access)
+    if (is_recursive or is_self_referential) {
+        // Recursive/self-referential closures need special handling - generate as a struct with
         // the function name defined at struct scope level (accessible during body generation)
         try recursive.genRecursiveClosure(self, func, captured_vars);
         return;

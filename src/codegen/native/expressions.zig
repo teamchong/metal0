@@ -10,6 +10,37 @@ const type_traits = @import("../../analysis/traits/type_traits.zig");
 const string_traits = @import("../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../analysis/traits/container_traits.zig");
 
+/// Check if a name is defined in any known scope
+/// Returns true if the name is a known variable, builtin, import, or type
+fn isNameDefined(self: *NativeCodegen, name: []const u8) bool {
+    // Check function local variables
+    if (self.func_local_vars.contains(name)) return true;
+    // Check var_renames (parameters, shadows, etc.)
+    if (self.var_renames.contains(name)) return true;
+    // Check hoisted classes
+    if (self.hoisted_local_classes.contains(name)) return true;
+    if (self.nested_class_aliases.contains(name)) return true;
+    // Check Python builtins and types
+    if (PyTypeNames.get(name) != null) return true;
+    if (isPythonExceptionType(name)) return true;
+    if (isBuiltinFunction(name)) return true;
+    // Check closure variables
+    if (self.closure_vars.contains(name)) return true;
+    // Check imported modules
+    if (self.imported_modules.contains(name)) return true;
+    if (self.local_from_imports.contains(name)) return true;
+    // Check nested class names
+    if (self.nested_class_names.contains(name)) return true;
+    // Check if captured by current class
+    if (isCapturedByCurrentClass(self, name)) return true;
+    // Check type inference - if type is known, variable is defined
+    if (self.getVarType(name)) |_| return true;
+    // Check forward declared vars
+    if (self.forward_declared_vars.contains(name)) return true;
+    // Not found in any known scope
+    return false;
+}
+
 /// Helper: emit runtime.pyTruthy(expr) with guaranteed bracket matching
 fn emitPyTruthy(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     try self.emitCallCtx("runtime.pyTruthy", expr, struct {
@@ -166,6 +197,10 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_p_") != null) break :blk renamed;
                     // Also check for mutable param copies (__m*_v_*)
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_v_") != null) break :blk renamed;
+                    // Closure captures (__m*_c_*) - e.g., f -> __m7_c_f for nested function references
+                    if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_c_") != null) break :blk renamed;
+                    // Closure wrappers (__m*_closure_*) - e.g., f -> __m5_closure_f for zero-capture closures
+                    if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_closure_") != null) break :blk renamed;
                     // Shadow variables for type-changing assignments (__m*_s_*) - e.g., x /= 2 changes int to float
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_s_") != null) break :blk renamed;
                     // Local variable renames (__m*_l_*) - e.g., kwargs -> __m41_l_kwargs when local var is renamed to avoid shadowing
@@ -301,6 +336,13 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     // Nested class self-reference - also use @This()
                     try self.emit("@This()");
                 } else {
+                    // Check for undefined variable in NameError-catching context
+                    // If in try block that catches NameError and variable is undefined,
+                    // emit error return instead of bare identifier (which would cause Zig compile error)
+                    if (self.in_nameerror_context and !isNameDefined(self, name_to_use)) {
+                        try self.emit("return error.NameError");
+                        return;
+                    }
                     // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
                     if (self.imported_modules.contains(name_to_use)) {
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
@@ -312,6 +354,13 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     }
                 }
             } else {
+                // Check for undefined variable in NameError-catching context
+                // If in try block that catches NameError and variable is undefined,
+                // emit error return instead of bare identifier (which would cause Zig compile error)
+                if (self.in_nameerror_context and !isNameDefined(self, name_to_use)) {
+                    try self.emit("return error.NameError");
+                    return;
+                }
                 // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
                 // This ensures consistency with module import generation in generator.zig
                 if (self.imported_modules.contains(name_to_use)) {

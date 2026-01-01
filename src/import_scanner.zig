@@ -60,6 +60,11 @@ pub const ImportGraph = struct {
     /// Source file cache - prevents re-reading files during compilation
     /// Key: file path, Value: file contents
     source_cache: hashmap_helper.StringHashMap([]const u8),
+    /// C extension modules (.so files) - MUST NOT SKIP THESE
+    /// Key: module name (e.g., "numpy._core._multiarray_umath")
+    /// Value: path to .so file
+    /// These are loaded via dlopen and linked against our c_interop C API reimplementation
+    c_extensions: hashmap_helper.StringHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) ImportGraph {
         return .{
@@ -68,6 +73,7 @@ pub const ImportGraph = struct {
             .registry = null,
             .unresolved = hashmap_helper.StringHashMap(void).init(allocator),
             .source_cache = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .c_extensions = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -79,6 +85,7 @@ pub const ImportGraph = struct {
             .registry = reg,
             .unresolved = hashmap_helper.StringHashMap(void).init(allocator),
             .source_cache = hashmap_helper.StringHashMap([]const u8).init(allocator),
+            .c_extensions = hashmap_helper.StringHashMap([]const u8).init(allocator),
         };
     }
 
@@ -143,6 +150,13 @@ pub const ImportGraph = struct {
             self.allocator.free(entry.value_ptr.*);
         }
         self.source_cache.deinit();
+        // Free c_extensions (keys and values)
+        var ext_iter = self.c_extensions.iterator();
+        while (ext_iter.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.c_extensions.deinit();
     }
 
     /// Get list of unresolved (external) packages
@@ -303,8 +317,15 @@ pub const ImportGraph = struct {
                 std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);
                 try self.scanRecursiveWithName(resolved, import_name, visited);
+            } else if (try import_resolver.resolveImport(import_name, dir, self.allocator)) |so_path| {
+                // MUST NOT SKIP .so files - they are C extensions loaded via dlopen
+                // Our c_interop provides 2443 CPython C API symbols reimplemented in Zig
+                // The .so links against our C API, no libpython needed
+                std.debug.print("  Found C extension: {s} -> {s}\n", .{ import_name, so_path });
+                const mod_key = try self.allocator.dupe(u8, import_name);
+                try self.c_extensions.put(mod_key, so_path);
             } else {
-                std.debug.print("  Skipped import (external): {s}\n", .{import_name});
+                std.debug.print("  Skipped import (not found): {s}\n", .{import_name});
                 // Track as unresolved for potential auto-install
                 // Get base package name (e.g., "mypackage.module" -> "mypackage")
                 const base_name = if (std.mem.indexOf(u8, import_name, ".")) |idx|

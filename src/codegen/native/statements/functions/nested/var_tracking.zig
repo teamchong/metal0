@@ -881,6 +881,117 @@ pub fn isRecursiveFunction(func_name: []const u8, stmts: []ast.Node) bool {
     return false;
 }
 
+/// Check if a function is self-referential (accesses itself via attribute, e.g., f.x)
+/// This requires the recursive closure pattern because the function name must be
+/// defined before the body can access it.
+pub fn isSelfReferential(func_name: []const u8, stmts: []ast.Node) bool {
+    for (stmts) |stmt| {
+        if (isSelfReference(func_name, stmt)) return true;
+    }
+    return false;
+}
+
+/// Check if a node contains a self-reference to func_name (via attribute access)
+fn isSelfReference(func_name: []const u8, node: ast.Node) bool {
+    return switch (node) {
+        .attribute => |a| blk: {
+            // Check if the attribute's object is the function name (e.g., f.x where f is func_name)
+            if (a.value.* == .name and std.mem.eql(u8, a.value.name.id, func_name)) {
+                break :blk true;
+            }
+            // Recurse into the value
+            break :blk isSelfReference(func_name, a.value.*);
+        },
+        .call => |c| blk: {
+            // Check the function expression
+            if (isSelfReference(func_name, c.func.*)) break :blk true;
+            // Check arguments
+            for (c.args) |arg| {
+                if (isSelfReference(func_name, arg)) break :blk true;
+            }
+            break :blk false;
+        },
+        .if_stmt => |i| blk: {
+            for (i.body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            for (i.else_body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .for_stmt => |f| blk: {
+            for (f.body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            if (f.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isSelfReference(func_name, s)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .while_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            if (w.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (isSelfReference(func_name, s)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .try_stmt => |t| blk: {
+            for (t.body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            for (t.handlers) |h| {
+                for (h.body) |s| {
+                    if (isSelfReference(func_name, s)) break :blk true;
+                }
+            }
+            for (t.else_body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            for (t.finalbody) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .with_stmt => |w| blk: {
+            for (w.body) |s| {
+                if (isSelfReference(func_name, s)) break :blk true;
+            }
+            break :blk false;
+        },
+        .match_stmt => |m| blk: {
+            for (m.cases) |case| {
+                for (case.body) |s| {
+                    if (isSelfReference(func_name, s)) break :blk true;
+                }
+            }
+            break :blk false;
+        },
+        .expr_stmt => |e| isSelfReference(func_name, e.value.*),
+        .return_stmt => |r| if (r.value) |v| isSelfReference(func_name, v.*) else false,
+        .assign => |a| isSelfReference(func_name, a.value.*),
+        .aug_assign => |a| isSelfReference(func_name, a.value.*),
+        .binop => |b| isSelfReference(func_name, b.left.*) or isSelfReference(func_name, b.right.*),
+        .unaryop => |u| isSelfReference(func_name, u.operand.*),
+        .if_expr => |ie| isSelfReference(func_name, ie.condition.*) or
+            isSelfReference(func_name, ie.body.*) or
+            isSelfReference(func_name, ie.orelse_value.*),
+        .list => |l| blk: {
+            for (l.elts) |elt| {
+                if (isSelfReference(func_name, elt)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
 /// Check if a node contains a recursive call to func_name
 fn isRecursiveCall(func_name: []const u8, node: ast.Node) bool {
     return switch (node) {
@@ -1006,7 +1117,12 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             // Also check targets for subscript/attribute assignments (e.g., d['b'] = 5 uses d)
             for (assign.targets) |target| {
                 if (target == .subscript) {
+                    // Check the subscript value (e.g., b in b[i])
                     if (isParamUsedInNode(param_name, target.subscript.value.*)) break :blk true;
+                    // Also check the subscript index (e.g., i in b[i])
+                    if (target.subscript.slice == .index) {
+                        if (isParamUsedInNode(param_name, target.subscript.slice.index.*)) break :blk true;
+                    }
                 } else if (target == .attribute) {
                     if (isParamUsedInNode(param_name, target.attribute.value.*)) break :blk true;
                 }

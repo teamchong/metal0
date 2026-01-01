@@ -1495,6 +1495,28 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         saved_hoisted_keys.deinit(self.allocator);
     }
 
+    // Save parent's var_renames when generating nested class methods inside a function
+    // Nested functions (like `def f():` before `class C:`) add var_renames that must be
+    // preserved after the nested class methods are generated.
+    // e.g., def f(): pass; class C: def m(): pass; callables = [f, C.m] - f's rename must survive C.m
+    const VarRenameEntry = struct { key: []const u8, value: []const u8 };
+    var saved_var_renames = std.ArrayListUnmanaged(VarRenameEntry){};
+    if (is_nested_class_in_function) {
+        var iter2 = self.var_renames.iterator();
+        while (iter2.next()) |entry| {
+            try saved_var_renames.append(self.allocator, .{ .key = entry.key_ptr.*, .value = entry.value_ptr.* });
+        }
+    }
+    // Restore parent's var_renames when this method completes (using defer)
+    defer {
+        if (is_nested_class_in_function) {
+            for (saved_var_renames.items) |entry| {
+                self.var_renames.put(entry.key, entry.value) catch {};
+            }
+        }
+        saved_var_renames.deinit(self.allocator);
+    }
+
     self.hoisted_vars.clearRetainingCapacity();
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
