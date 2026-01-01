@@ -185,10 +185,33 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 try self.emit(";\n");
             }
         } else if (target == .subscript) {
-            // Handle subscript targets: rshape[n], lslices[n] = big, small
-            // Generate: target[idx] = __unpack_tmp_N.@"i";
+            // Handle subscript targets: a[0], a[-1] = big, small
+            // Generate proper subscript assignment using .items[] syntax or __setitem__
+            const subscript = target.subscript;
             try self.emitIndent();
-            try self.genExpr(target);
+
+            // Generate the container (e.g., "a" in "a[0]")
+            try self.genExpr(subscript.value.*);
+
+            // Generate the index part - use .items[] for array access
+            if (subscript.slice == .index) {
+                try self.emit(".items[@as(usize, @intCast(");
+                try self.genExpr(subscript.slice.index.*);
+                try self.emit("))]");
+            } else {
+                // Slice assignment - use slice syntax
+                try self.emit("[");
+                if (subscript.slice.slice.lower) |lower| {
+                    try self.genExpr(lower.*);
+                }
+                try self.emit("..");
+                if (subscript.slice.slice.upper) |upper| {
+                    try self.genExpr(upper.*);
+                }
+                try self.emit("]");
+            }
+
+            // Generate the value assignment
             if (is_pyvalue_type) {
                 // PyValue from VM fallback - use .listItems()[i]
                 try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
@@ -355,14 +378,20 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                         const var_name = target.name.id;
                         const orig_class_info = factory_info.returned_classes[j];
 
-                        // Create a new TestClassInfo with the module-level variable name
+                        // Create a new TestClassInfo with the renamed module-level variable name
+                        // Use getVarDeclName to get the potentially renamed version (e.g., __m75_TestClass)
+                        // Mark as factory-returned since it comes from tuple unpacking of factory call
+                        // Preserve original_class_name and factory_name so lifecycle.zig can use the actual struct
                         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
-                            .class_name = var_name,
+                            .class_name = self.getVarDeclName(var_name),
                             .test_methods = orig_class_info.test_methods,
                             .has_setUp = orig_class_info.has_setUp,
                             .has_tearDown = orig_class_info.has_tearDown,
                             .has_setup_class = orig_class_info.has_setup_class,
                             .has_teardown_class = orig_class_info.has_teardown_class,
+                            .is_factory_returned = true,
+                            .original_class_name = orig_class_info.class_name,
+                            .factory_name = func_name,
                         });
                     }
                 }
@@ -381,6 +410,9 @@ pub fn genTupleUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_tupl
                 // Skip variables that were not declared (unused in tuple unpacking)
                 // These were discarded earlier and never declared, so we can't reference them
                 if (self.isVarUnused(var_name)) continue;
+                // Skip variables that have renames (e.g., inside TryHelper where variables
+                // are captured as pointer parameters like p_order1_1.*)
+                if (self.var_renames.contains(var_name)) continue;
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
@@ -521,9 +553,33 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                 try self.emit(";\n");
             }
         } else if (target == .subscript) {
-            // Handle subscript targets: rshape[n], lslices[n] = big, small
+            // Handle subscript targets: a[0], a[-1] = big, small
+            // Generate proper subscript assignment using .items[] syntax
+            const subscript = target.subscript;
             try self.emitIndent();
-            try self.genExpr(target);
+
+            // Generate the container (e.g., "a" in "a[0]")
+            try self.genExpr(subscript.value.*);
+
+            // Generate the index part - use .items[] for array access
+            if (subscript.slice == .index) {
+                try self.emit(".items[@as(usize, @intCast(");
+                try self.genExpr(subscript.slice.index.*);
+                try self.emit("))]");
+            } else {
+                // Slice assignment - use slice syntax
+                try self.emit("[");
+                if (subscript.slice.slice.lower) |lower| {
+                    try self.genExpr(lower.*);
+                }
+                try self.emit("..");
+                if (subscript.slice.slice.upper) |upper| {
+                    try self.genExpr(upper.*);
+                }
+                try self.emit("]");
+            }
+
+            // Generate the value assignment
             if (is_pyvalue_type) {
                 // PyValue from VM fallback - use .listItems()[i]
                 try self.output.writer(self.allocator).print(" = {s}.listItems()[{d}];\n", .{ tmp_name, i });
@@ -608,14 +664,20 @@ pub fn genListUnpack(self: *NativeCodegen, assign: ast.Node.Assign, target_list:
                         const var_name = target.name.id;
                         const orig_class_info = factory_info.returned_classes[j];
 
-                        // Create a new TestClassInfo with the module-level variable name
+                        // Create a new TestClassInfo with the renamed module-level variable name
+                        // Use getVarDeclName to get the potentially renamed version (e.g., __m75_TestClass)
+                        // Mark as factory-returned since it comes from list unpacking of factory call
+                        // Preserve original_class_name and factory_name so lifecycle.zig can use the actual struct
                         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
-                            .class_name = var_name,
+                            .class_name = self.getVarDeclName(var_name),
                             .test_methods = orig_class_info.test_methods,
                             .has_setUp = orig_class_info.has_setUp,
                             .has_tearDown = orig_class_info.has_tearDown,
                             .has_setup_class = orig_class_info.has_setup_class,
                             .has_teardown_class = orig_class_info.has_teardown_class,
+                            .is_factory_returned = true,
+                            .original_class_name = orig_class_info.class_name,
+                            .factory_name = func_name,
                         });
                     }
                 }
@@ -837,8 +899,11 @@ pub fn emitVarDeclaration(
         break :blk false;
     } else false;
 
+    // Check if containers (dict, list, tuple) also need wrapping when variable is uncertain
+    const is_container = is_dict or is_dict_type or is_list or is_tuple;
     const needs_pyvalue_wrap = !expr_produces_pyvalue and !is_string_concat and !is_anytype_init_call and (type_traits.isUnknown(value_type) or
-        (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)));
+        (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)) or
+        (is_container and self.shouldUsePyValue(var_name)));
     if (needs_pyvalue_wrap) {
         try self.emit(": runtime.PyValue = runtime.PyValue.from(");
         return true; // Wrapper opened - caller must close with ")"
@@ -965,10 +1030,14 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
         else
             type_buf.items;
         try self.emit(type_str);
+        // Always close with ){};\n - caller MUST NOT add extra closing
+        // because append statements follow immediately
+        try self.emit("){}");
         if (wrapper_opened) {
-            try self.emit("){}");  // No semicolon - caller will close wrapper and add semicolon
+            // Close the PyValue.from() wrapper and end statement
+            try self.emit(");\n");
         } else {
-            try self.emit("){};\n");
+            try self.emit(";\n");
         }
     }
 
@@ -1109,7 +1178,8 @@ fn genCallableElement(self: *NativeCodegen, elem: ast.Node, elem_type: anytype) 
 }
 
 /// Generate string concatenation with multiple parts
-pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []const u8, is_first_assignment: bool) CodegenError!void {
+/// If wrapper_opened is true, the caller has opened a PyValue.from() wrapper and we close it before the semicolon
+pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: []const u8, is_first_assignment: bool, wrapper_opened: bool) CodegenError!void {
     // Collect all parts of the concatenation
     var parts = std.ArrayListUnmanaged(ast.Node){};
     defer parts.deinit(self.allocator);
@@ -1134,10 +1204,15 @@ pub fn genStringConcat(self: *NativeCodegen, assign: ast.Node.Assign, var_name: 
         try self.genExpr(part);
     }
     if (at_module_level) {
-        try self.emit(" }) catch unreachable);\n");
+        try self.emit(" }) catch unreachable)");
     } else {
-        try self.emit(" });\n");
+        try self.emit(" })");
     }
+    // Close PyValue.from() wrapper if it was opened
+    if (wrapper_opened) {
+        try self.emit(")");
+    }
+    try self.emit(";\n");
 
     // Add defer cleanup
     try deferCleanup.emitStringConcatDefer(self, var_name, is_first_assignment);

@@ -179,13 +179,16 @@ fn addPackageDepFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const
         // Only add package if it's actually imported in the generated code
         var import_pattern_buf: [128]u8 = undefined;
         const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{mod_name}) catch continue;
+
         if (std.mem.indexOf(u8, zig_code, import_pattern) == null) {
             continue; // Skip this package - not used
         }
 
         // Add --dep for main to depend on this package
         try args.append(allocator, "--dep");
-        try args.append(allocator, mod_name);
+        // IMPORTANT: Allocate a copy since mod_name is a slice into a stack buffer
+        const mod_name_copy = try allocator.dupe(u8, mod_name);
+        try args.append(allocator, mod_name_copy);
     }
 }
 
@@ -507,11 +510,6 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try args.append(aa, output_flag);
 
     const argv = try args.toOwnedSlice(aa);
-
-    // Debug: print full command line
-    std.debug.print("Zig command: ", .{});
-    for (argv) |arg| std.debug.print("{s} ", .{arg});
-    std.debug.print("\n", .{});
 
     const result = try std.process.Child.run(.{
         .allocator = aa,
