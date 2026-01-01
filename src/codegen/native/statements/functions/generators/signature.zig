@@ -63,13 +63,35 @@ fn getTypeFromCallSiteOrScope(self: *NativeCodegen, func: ast.Node.FunctionDef, 
             const qualified_name = std.fmt.bufPrint(&buf, "{s}.{s}", .{ class_name, func.name }) catch func.name;
             if (self.type_inferrer.function_call_args.get(qualified_name)) |call_arg_types| {
                 if (try getTypeFromCallArgs(self, call_arg_types, arg, call_idx)) |result| {
+                    // IMPORTANT: For method parameters, if the inferred type is a simple type (string, int, float)
+                    // but the actual codegen might wrap in PyValue.from() due to uncertain sources,
+                    // we should use runtime.PyValue instead. This handles the mismatch between
+                    // type inference (sees: string * int = string) and codegen (produces: PyValue.mul(...))
+                    // For safety in the Two-Flow system, use PyValue for methods with simple types
+                    if (std.mem.eql(u8, result, "[]const u8") or
+                        std.mem.eql(u8, result, "i64") or
+                        std.mem.eql(u8, result, "f64"))
+                    {
+                        self.allocator.free(result);
+                        return try self.allocator.dupe(u8, "runtime.PyValue");
+                    }
                     return result;
                 }
             }
+            // For methods: if qualified name lookup fails, DON'T fall back to simple name
+            // The simple name might be polluted by nested functions with the same name
+            // Use PyValue as safe fallback for methods without qualified name call site info
+            return try self.allocator.dupe(u8, "runtime.PyValue");
         }
     }
 
-    // Try direct function name lookup (for regular functions, or fallback for methods)
+    // For methods without current_class_name, use PyValue as safe fallback
+    // This handles cases where class context is not available during signature generation
+    if (is_method) {
+        return try self.allocator.dupe(u8, "runtime.PyValue");
+    }
+
+    // Try direct function name lookup (for regular functions only, NOT methods)
     if (self.type_inferrer.function_call_args.get(func.name)) |call_arg_types| {
         if (try getTypeFromCallArgs(self, call_arg_types, arg, call_idx)) |result| {
             return result;
@@ -85,7 +107,15 @@ fn getTypeFromCallArgs(self: *NativeCodegen, call_arg_types: []const NativeType,
     if (call_idx < call_arg_types.len) {
         const call_type = call_arg_types[call_idx];
         const call_type_tag = @as(std.meta.Tag(NativeType), call_type);
-        if (call_type_tag != .unknown and call_type_tag != .int) {
+
+        // When call site type is unknown, use PyValue as a safe fallback
+        // This handles cases like `check('1' * maxdigits)` where maxdigits is from a stdlib call
+        // Better to use PyValue than fall through to body analysis which might be wrong
+        if (call_type_tag == .unknown) {
+            return try self.allocator.dupe(u8, "runtime.PyValue");
+        }
+
+        if (call_type_tag != .int) {
             // For dict types with =None default, use anytype since different call sites
             // may pass dicts with different value types (e.g., {"x": [1]} vs {"y": [1,2,3]})
             // This is a common Python pattern for optional dict parameters
@@ -125,7 +155,18 @@ fn getMethodTypeFromCallSite(self: *NativeCodegen, class_name: []const u8, metho
                         return null;
                     }
                 }
-                return try self.nativeTypeToZigType(call_type);
+                // For simple types that might be polymorphic (passed as PyValue or native type
+                // at different call sites), use anytype to accept both.
+                // e.g., check(i) could receive PyValue (from string * int) or []u8 (from allocPrint)
+                const zig_type = try self.nativeTypeToZigType(call_type);
+                if (std.mem.eql(u8, zig_type, "[]const u8") or
+                    std.mem.eql(u8, zig_type, "i64") or
+                    std.mem.eql(u8, zig_type, "f64"))
+                {
+                    self.allocator.free(zig_type);
+                    return try self.allocator.dupe(u8, "anytype");
+                }
+                return zig_type;
             }
         }
     }
@@ -143,7 +184,16 @@ fn getMethodTypeFromCallSite(self: *NativeCodegen, class_name: []const u8, metho
                         return null;
                     }
                 }
-                return try self.nativeTypeToZigType(call_type);
+                // For simple types that might be polymorphic, use anytype
+                const zig_type = try self.nativeTypeToZigType(call_type);
+                if (std.mem.eql(u8, zig_type, "[]const u8") or
+                    std.mem.eql(u8, zig_type, "i64") or
+                    std.mem.eql(u8, zig_type, "f64"))
+                {
+                    self.allocator.free(zig_type);
+                    return try self.allocator.dupe(u8, "anytype");
+                }
+                return zig_type;
             }
         }
     }
@@ -184,6 +234,8 @@ const MagicMethodReturnTypes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "__le__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
     .{ "__gt__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
     .{ "__ge__", "runtime.PyValue" }, // Can return NotImplemented for rich comparison protocol
+    // NOTE: __floordiv__/__rfloordiv__/__mod__/__rmod__ are NOT in this map because they're handled
+    // specially in generateMethodReturnType() with anytype param detection (lines 2050+)
     // __new__ should return the class instance type, but in Zig we can't determine
     // the type at compile time, especially for metaclasses. Default to i64.
     .{ "__new__", "i64" },
@@ -238,7 +290,8 @@ fn hasPolymorphicReturnPattern(method: ast.Node.FunctionDef, anytype_params: any
 }
 
 /// Check if a method returns a value derived from calling an anytype parameter
-/// Pattern: def foo(self, wrapper, ...): x = wrapper(func); return x
+/// Pattern 1: def foo(self, wrapper, ...): x = wrapper(func); return x
+/// Pattern 2: def foo(self, op): return op(a, b)  (direct return of call)
 /// This requires runtime.PyValue return type because the result depends on runtime type
 fn returnsAnytypeParamCall(method: ast.Node.FunctionDef, anytype_params: anytype) bool {
     if (anytype_params.count() == 0) return false;
@@ -282,23 +335,65 @@ fn returnsAnytypeParamCall(method: ast.Node.FunctionDef, anytype_params: anytype
         }
     }
 
-    if (result_var_count == 0) return false;
+    // Recursively check returns in all nested blocks
+    return checkReturnsAnytypeCallInBody(method.body, anytype_params, anytype_result_vars[0..result_var_count]);
+}
 
-    // Check if method returns any of these variables
-    for (method.body) |stmt| {
-        if (stmt == .return_stmt) {
-            if (stmt.return_stmt.value) |val| {
-                if (val.* == .name) {
-                    for (anytype_result_vars[0..result_var_count]) |var_name| {
-                        if (std.mem.eql(u8, val.name.id, var_name)) {
-                            return true;
+/// Helper to recursively check if body returns a call to an anytype param
+fn checkReturnsAnytypeCallInBody(body: []const ast.Node, anytype_params: anytype, anytype_result_vars: []const []const u8) bool {
+    for (body) |stmt| {
+        switch (stmt) {
+            .return_stmt => |ret| {
+                if (ret.value) |val| {
+                    // Pattern 1: return x where x was assigned from anytype call
+                    if (val.* == .name) {
+                        for (anytype_result_vars) |var_name| {
+                            if (std.mem.eql(u8, val.name.id, var_name)) {
+                                return true;
+                            }
+                        }
+                    }
+                    // Pattern 2: return op(a, b) where op is an anytype param
+                    if (val.* == .call) {
+                        const call = val.call;
+                        if (call.func.* == .name) {
+                            if (anytype_params.contains(call.func.name.id)) {
+                                return true;
+                            }
                         }
                     }
                 }
-            }
+            },
+            .if_stmt => |if_stmt| {
+                if (checkReturnsAnytypeCallInBody(if_stmt.body, anytype_params, anytype_result_vars)) return true;
+                if (checkReturnsAnytypeCallInBody(if_stmt.else_body, anytype_params, anytype_result_vars)) return true;
+            },
+            .for_stmt => |for_stmt| {
+                if (checkReturnsAnytypeCallInBody(for_stmt.body, anytype_params, anytype_result_vars)) return true;
+                if (for_stmt.orelse_body) |orelse_body| {
+                    if (checkReturnsAnytypeCallInBody(orelse_body, anytype_params, anytype_result_vars)) return true;
+                }
+            },
+            .while_stmt => |while_stmt| {
+                if (checkReturnsAnytypeCallInBody(while_stmt.body, anytype_params, anytype_result_vars)) return true;
+                if (while_stmt.orelse_body) |orelse_body| {
+                    if (checkReturnsAnytypeCallInBody(orelse_body, anytype_params, anytype_result_vars)) return true;
+                }
+            },
+            .try_stmt => |try_stmt| {
+                if (checkReturnsAnytypeCallInBody(try_stmt.body, anytype_params, anytype_result_vars)) return true;
+                if (checkReturnsAnytypeCallInBody(try_stmt.else_body, anytype_params, anytype_result_vars)) return true;
+                if (checkReturnsAnytypeCallInBody(try_stmt.finalbody, anytype_params, anytype_result_vars)) return true;
+                for (try_stmt.handlers) |handler| {
+                    if (checkReturnsAnytypeCallInBody(handler.body, anytype_params, anytype_result_vars)) return true;
+                }
+            },
+            .with_stmt => |with_stmt| {
+                if (checkReturnsAnytypeCallInBody(with_stmt.body, anytype_params, anytype_result_vars)) return true;
+            },
+            else => {},
         }
     }
-
     return false;
 }
 
@@ -318,6 +413,74 @@ pub fn pythonTypeToZig(type_hint: ?[]const u8) []const u8 {
 /// Import NativeType for pythonTypeToNativeType
 const core = @import("../../../../../analysis/native_types/core.zig");
 const NativeType = core.NativeType;
+
+/// Exception attributes that get converted to runtime.eval() and return PyValue
+const ExceptionAttrs = [_][]const u8{ "__traceback__", "__cause__", "__context__", "__suppress_context__" };
+
+/// Check if attribute name is an exception attribute that needs PyValue return type
+fn isExceptionAttr(attr_name: []const u8) bool {
+    for (ExceptionAttrs) |exc_attr| {
+        if (std.mem.eql(u8, attr_name, exc_attr)) return true;
+    }
+    return false;
+}
+
+/// Check if an expression contains eval() call or exception attribute access
+/// Both cases result in PyValue.from() wrapping in codegen
+fn exprNeedsPyValueReturn(expr: ast.Node) bool {
+    switch (expr) {
+        .call => |c| {
+            if (c.func.* == .name) {
+                if (std.mem.eql(u8, c.func.name.id, "eval")) return true;
+            }
+            for (c.args) |arg| {
+                if (exprNeedsPyValueReturn(arg)) return true;
+            }
+            return false;
+        },
+        .binop => |b| return exprNeedsPyValueReturn(b.left.*) or exprNeedsPyValueReturn(b.right.*),
+        .unaryop => |u| return exprNeedsPyValueReturn(u.operand.*),
+        .attribute => |a| {
+            // Check if this is an exception attribute like e.__traceback__
+            if (isExceptionAttr(a.attr)) return true;
+            return exprNeedsPyValueReturn(a.value.*);
+        },
+        else => return false,
+    }
+}
+
+/// Check if a statement needs PyValue return (contains eval() or exception attr)
+fn stmtNeedsPyValueReturn(stmt: ast.Node) bool {
+    switch (stmt) {
+        .expr_stmt => |e| return exprNeedsPyValueReturn(e.value.*),
+        .return_stmt => |r| {
+            if (r.value) |v| return exprNeedsPyValueReturn(v.*);
+            return false;
+        },
+        .assign => |a| return exprNeedsPyValueReturn(a.value.*),
+        .try_stmt => |t| {
+            for (t.body) |s| if (stmtNeedsPyValueReturn(s)) return true;
+            for (t.handlers) |h| {
+                for (h.body) |s| if (stmtNeedsPyValueReturn(s)) return true;
+            }
+            return false;
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| if (stmtNeedsPyValueReturn(s)) return true;
+            for (i.else_body) |s| if (stmtNeedsPyValueReturn(s)) return true;
+            return false;
+        },
+        else => return false,
+    }
+}
+
+/// Check if function body needs PyValue return (contains eval() or exception attr)
+fn funcNeedsPyValueReturn(body: []const ast.Node) bool {
+    for (body) |stmt| {
+        if (stmtNeedsPyValueReturn(stmt)) return true;
+    }
+    return false;
+}
 
 /// Get inferred return type string from type inferrer (DRY helper)
 /// Returns tuple: (type_string, needs_free)
@@ -986,7 +1149,9 @@ pub fn genFunctionSignature(
         // Note: When parameter shadows module-level function, body uses the renamed
         // version (e.g., indices__local), so we must check for that usage too
         // For generators, always mark params as used since yield body isn't properly generated
-        const is_used_directly = if (is_generator) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
+        // IMPORTANT: If locals() is used, ALL parameters must be accessible (can't discard any)
+        const uses_locals = param_analyzer.usesLocalsBuiltin(func.body);
+        const is_used_directly = if (is_generator or uses_locals) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
         const is_used = is_used_directly or is_captured or shadows_module_level or shadows_class_member or shadows_local_scope;
 
@@ -994,6 +1159,10 @@ pub fn genFunctionSignature(
         // "_name" still triggers unused warnings - only "_" fully ignores
         if (!is_used) {
             try self.emit("_: ");
+            // Mark this param as anonymous so body generation knows not to reference it
+            // Use "_" as the rename target - any code checking var_renames will see this
+            // and know the param was made anonymous
+            try self.var_renames.put(arg.name, "_");
             // Skip straight to type - no name, no suffix
         } else {
             // Check if this parameter was renamed (set up in generators.zig before signature generation)
@@ -1006,7 +1175,7 @@ pub fn genFunctionSignature(
                 }
             } else if (shadows_local_scope) {
                 // Parameter shadows local variable from outer scope - rename to avoid Zig error
-                const renamed = try std.fmt.allocPrint(self.allocator, "{s}__param", .{arg.name});
+                const renamed = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
                 try self.emit(renamed);
                 try self.var_renames.put(arg.name, renamed);
             } else {
@@ -1016,7 +1185,11 @@ pub fn genFunctionSignature(
                 //           zig keyword → @"" escaping (e.g., "type" → @"type")
                 const param_info = try zig_keywords.getZigParamName(self.allocator, arg.name, arg.default != null);
                 try self.emit(param_info.name);
-                // Note: No separate _param suffix needed - getZigParamName handles it
+                // Record the rename in var_renames so function body uses the same name
+                // (e.g., when "stop" is renamed to "stop_", body references must also use "stop_")
+                if (param_info.suffix != .none) {
+                    try self.var_renames.put(arg.name, param_info.name);
+                }
             }
             try self.emit(": ");
         }
@@ -1434,8 +1607,22 @@ fn genReturnType(self: *NativeCodegen, func: ast.Node.FunctionDef, needs_allocat
                 try self.emit("i64 {\n");
             }
         } else {
-            // Try to infer return type from func_return_types
-            try emitInferredReturnType(self, func.name, needs_error);
+            // Check if function needs PyValue return (eval() or exception attributes)
+            const needs_pyvalue = funcNeedsPyValueReturn(func.body);
+            if (needs_pyvalue) {
+                const inf_type = self.type_inferrer.func_return_types.get(func.name);
+                const is_unknown = if (inf_type) |t| @as(std.meta.Tag(NativeType), t) == .unknown else true;
+                if (is_unknown) {
+                    if (needs_error) try self.emit("!");
+                    try self.emit("runtime.PyValue {\n");
+                    self.current_function_returns_pyvalue = true;
+                } else {
+                    try emitInferredReturnType(self, func.name, needs_error);
+                }
+            } else {
+                // Try to infer return type from func_return_types
+                try emitInferredReturnType(self, func.name, needs_error);
+            }
         }
     } else {
         // Functions with allocator or errors but no return still need error union for void
@@ -1489,9 +1676,10 @@ pub fn genMethodSignatureWithSkip(
     const has_known_parent = self.getParentClassName(class_name) != null;
 
     // Generate "pub fn methodname(...)"
-    // Escape method name if it's a Zig keyword (e.g., "test" -> @"test")
+    // Use writeStructMethodName which renames "std" -> "std_" to avoid shadowing the std import
+    // Note: @"std" doesn't help because Zig treats it the same as "std"
     try self.emit("pub fn ");
-    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method.name);
+    try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), method.name);
     try self.emit("(");
 
     // For @staticmethod: no self/cls parameter at all
@@ -1682,8 +1870,14 @@ pub fn genMethodSignatureWithSkip(
         } else if (try getMethodTypeFromCallSite(self, class_name, method, arg, param_index)) |zig_type| {
             // Found type from call site analysis - use it
             defer self.allocator.free(zig_type);
-            if (arg.default != null) try self.emit("?");
-            try self.emit(zig_type);
+            if (std.mem.eql(u8, zig_type, "anytype")) {
+                // For polymorphic parameters, register in anytype_params
+                try self.emit("anytype");
+                try self.anytype_params.put(arg.name, {});
+            } else {
+                if (arg.default != null) try self.emit("?");
+                try self.emit(zig_type);
+            }
         } else if (arg.type_annotation) |_| {
             if (arg.default != null) {
                 try self.emit("?");
@@ -1924,6 +2118,38 @@ pub fn genMethodSignatureWithSkip(
         const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
         if (needs_error) try self.emit("!");
         try self.emit("runtime.PyValue");
+    } else if (std.mem.eql(u8, method.name, "__enter__")) {
+        // Context manager __enter__ - always returns error union for try compatibility
+        // with.zig calls __enter__() with try, so must return error union
+        // Check if method returns 'self' - common pattern for context managers
+        const returns_self = blk: {
+            for (method.body) |stmt| {
+                if (stmt == .return_stmt) {
+                    if (stmt.return_stmt.value) |val| {
+                        if (val.* == .name and std.mem.eql(u8, val.name.id, "self")) {
+                            break :blk true;
+                        }
+                    }
+                }
+            }
+            break :blk false;
+        };
+        try self.emit("!");
+        if (returns_self) {
+            if (mutates_self) {
+                try self.emit("*@This()");
+            } else {
+                try self.emit("@This()");
+            }
+        } else {
+            // Non-self __enter__ - use void
+            try self.emit("void");
+        }
+    } else if (std.mem.eql(u8, method.name, "__exit__")) {
+        // Context manager __exit__ - always returns error union for try compatibility
+        // with.zig calls __exit__() with catch, so must return error union
+        // __exit__ returns bool (True = suppress exception, False = propagate)
+        try self.emit("!bool");
     } else if (method.return_type != null) {
         // Determine return type (add error union if allocator needed or function can error)
         // Note: funcNeedsErrorUnion uses simple name lookup, which works for most methods
@@ -1940,6 +2166,15 @@ pub fn genMethodSignatureWithSkip(
             const zig_return_type = pythonTypeToZig(method.return_type);
             try self.emit(zig_return_type);
         }
+    } else if ((std.mem.eql(u8, method.name, "__mod__") or std.mem.eql(u8, method.name, "__rmod__")) and
+        self.anytype_params.count() > 0 and hasReturnWithValue(method.body))
+    {
+        // Special case for __mod__/__rmod__ with anytype params AND a return statement:
+        // When any parameter is anytype, body uses runtime.pyMod/pyModNumeric which returns f64
+        // When method just logs (no return), fall through to normal void handling
+        const needs_error = needs_allocator or self.funcNeedsErrorUnion(method.name);
+        if (needs_error) try self.emit("!");
+        try self.emit("f64");
     } else if (hasReturnWithValue(method.body)) {
         // Determine if error union is needed for methods without explicit return type
         // IMPORTANT: Use hasReturnWithValue() not hasReturnStatement() because functions

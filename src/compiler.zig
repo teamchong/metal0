@@ -108,6 +108,7 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     try addCSourceFiles(allocator, args);
 
     // 2. Main module with its deps (main depends on runtime, c_interop, hashmap_helper, allocator_helper)
+    // Main MUST be first -M flag in Zig 0.15 to be treated as root module
     try args.append(allocator, "--dep");
     try args.append(allocator, "runtime");
     try args.append(allocator, "--dep");
@@ -122,6 +123,8 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     // Pass zig_code to filter out unused packages (Zig 0.15 errors on unused modules)
     try addPackageModuleFlags(allocator, args, zig_code);
 
+    // In Zig 0.15, the generated code must have an export function to mark the module as "used"
+    // See genExportMarker() in codegen which adds: export fn _metal0_module_marker() callconv(.c) void {}
     const main_flag = try std.fmt.allocPrint(allocator, "-Mmain={s}", .{main_path});
     try args.append(allocator, main_flag);
 
@@ -401,12 +404,14 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     const aa = arena.allocator();
 
     try build_dirs.init();
-    const build_dir = build_dirs.CACHE;
 
-    // Write Zig code to temporary file (use output_path basename for uniqueness in parallel builds)
+    // Write Zig code to temporary file in the SAME DIRECTORY as the output binary
+    // This is critical for relative imports like @import("./version.zig") to work correctly
+    // (previously wrote to build_dir which broke relative import resolution)
+    const out_dir = std.fs.path.dirname(output_path) orelse ".";
     const out_basename = std.fs.path.basename(output_path);
     const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
-    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ build_dir, out_stem, std.time.milliTimestamp() });
+    const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ out_dir, out_stem, std.time.milliTimestamp() });
 
     const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
     defer tmp_file.close();

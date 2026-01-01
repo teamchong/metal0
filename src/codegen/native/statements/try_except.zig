@@ -268,6 +268,24 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                         if (target.subscript.value.* == .name) {
                             try vars.put(target.subscript.value.name.id, {});
                         }
+                    } else if (target == .tuple) {
+                        // Tuple unpacking: (a, b, c) = expr or a, b, c = expr
+                        for (target.tuple.elts) |elt| {
+                            if (elt == .name) {
+                                // Skip Python's discard pattern
+                                if (std.mem.eql(u8, elt.name.id, "_")) continue;
+                                try vars.put(elt.name.id, {});
+                            }
+                        }
+                    } else if (target == .list) {
+                        // List unpacking: [a, b, c] = expr
+                        for (target.list.elts) |elt| {
+                            if (elt == .name) {
+                                // Skip Python's discard pattern
+                                if (std.mem.eql(u8, elt.name.id, "_")) continue;
+                                try vars.put(elt.name.id, {});
+                            }
+                        }
                     }
                 }
             },
@@ -398,6 +416,21 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                 try findLocallyDeclaredVars(try_stmt.finalbody, vars);
             },
             .with_stmt => |with_stmt| {
+                // Add context manager variable as locally declared (e.g., 'f' in 'with open(...) as f:')
+                // This variable is created inside the try block by the with statement,
+                // not captured from outer scope
+                if (with_stmt.optional_vars) |target| {
+                    if (target.* == .name) {
+                        try vars.put(target.name.id, {});
+                    } else if (target.* == .tuple) {
+                        // Handle tuple unpacking: with cm as (a, b, c):
+                        for (target.tuple.elts) |elt| {
+                            if (elt == .name) {
+                                try vars.put(elt.name.id, {});
+                            }
+                        }
+                    }
+                }
                 try findLocallyDeclaredVars(with_stmt.body, vars);
             },
             .match_stmt => |match_stmt| {
@@ -525,6 +558,96 @@ fn containsControlFlow(stmts: []ast.Node) bool {
     return false;
 }
 
+/// Check if a statement list always terminates (raise or return on all paths).
+/// Used to determine if code after try-except is unreachable.
+fn stmtListAlwaysTerminates(stmts: []ast.Node) bool {
+    if (stmts.len == 0) return false;
+
+    // Check if last statement is a terminator
+    const last_stmt = stmts[stmts.len - 1];
+    switch (last_stmt) {
+        .raise_stmt => return true,
+        .return_stmt => return true,
+        .if_stmt => |if_stmt| {
+            // Both branches must terminate
+            if (if_stmt.else_body.len == 0) return false; // No else = may fall through
+            return stmtListAlwaysTerminates(if_stmt.body) and
+                stmtListAlwaysTerminates(if_stmt.else_body);
+        },
+        .try_stmt => |try_stmt| {
+            // Try body must terminate AND all handlers must terminate
+            if (!stmtListAlwaysTerminates(try_stmt.body)) return false;
+            for (try_stmt.handlers) |handler| {
+                if (!stmtListAlwaysTerminates(handler.body)) return false;
+            }
+            return true;
+        },
+        .match_stmt => |match_stmt| {
+            // All cases must terminate
+            for (match_stmt.cases) |case| {
+                if (!stmtListAlwaysTerminates(case.body)) return false;
+            }
+            return match_stmt.cases.len > 0;
+        },
+        // Loops don't guarantee termination (may run 0 times)
+        else => return false,
+    }
+}
+
+/// Recursively collect all exception names from nested try-except handlers.
+/// This ensures that when hoisting variables like `raised = exc`, we know
+/// `exc` is an exception variable even if it's from a nested inner handler.
+///
+/// Problem: `raised = exc` gets hoisted at OUTER try level, but `exc` comes from
+/// an INNER `except Exception as exc:`. Without pre-scanning, `raised` gets
+/// hoisted as PyValue instead of PyException, causing `raised.__context__` to fail.
+fn collectNestedExceptionNames(self: *NativeCodegen, stmts: []ast.Node) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .try_stmt => |try_stmt| {
+                // Collect exception names from THIS try statement's handlers
+                for (try_stmt.handlers) |handler| {
+                    if (handler.name) |exc_name| {
+                        try self.exception_vars.put(exc_name, {});
+                    }
+                    // Recursively scan handler body for deeper nesting
+                    try collectNestedExceptionNames(self, handler.body);
+                }
+                // Also scan try body, else body, and finally body
+                try collectNestedExceptionNames(self, try_stmt.body);
+                try collectNestedExceptionNames(self, try_stmt.else_body);
+                try collectNestedExceptionNames(self, try_stmt.finalbody);
+            },
+            .if_stmt => |if_stmt| {
+                try collectNestedExceptionNames(self, if_stmt.body);
+                try collectNestedExceptionNames(self, if_stmt.else_body);
+            },
+            .for_stmt => |for_stmt| {
+                try collectNestedExceptionNames(self, for_stmt.body);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try collectNestedExceptionNames(self, orelse_body);
+                }
+            },
+            .while_stmt => |while_stmt| {
+                try collectNestedExceptionNames(self, while_stmt.body);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try collectNestedExceptionNames(self, orelse_body);
+                }
+            },
+            .with_stmt => |with_stmt| {
+                try collectNestedExceptionNames(self, with_stmt.body);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try collectNestedExceptionNames(self, case.body);
+                }
+            },
+            // Don't recurse into function_def - those have their own scope
+            else => {},
+        }
+    }
+}
+
 pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Detect optional import pattern: try: import X except: X = None
     // If module X is unavailable, mark it as skipped so functions using it are skipped
@@ -591,6 +714,18 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 for (list.items) |existing| {
                     if (std.mem.eql(u8, existing.name, var_name)) return;
                 }
+                // Skip if variable name matches a nested function definition in the current function
+                // e.g., `def recurser(): ...; finally: recurser = None` - don't hoist 'recurser'
+                // because it's already defined as a struct
+                if (codegen.current_function_body) |func_body| {
+                    for (func_body) |stmt| {
+                        if (stmt == .function_def) {
+                            if (std.mem.eql(u8, stmt.function_def.name, var_name)) {
+                                return; // Skip - this is a nested function, not a regular variable
+                            }
+                        }
+                    }
+                }
                 try list.append(codegen.allocator, .{ .name = var_name, .value = value });
             }
         }
@@ -605,6 +740,25 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         for (assign.targets) |target| {
                             if (target == .name) {
                                 try addFn(list, codegen, target.name.id, assign.value.*);
+                            } else if (target == .tuple) {
+                                // Tuple unpacking: (a, b, c) = expr - each element needs hoisting
+                                // Use None as value since we can't determine individual element types
+                                for (target.tuple.elts) |elt| {
+                                    if (elt == .name) {
+                                        // Skip Python's discard pattern - no need to hoist _
+                                        if (std.mem.eql(u8, elt.name.id, "_")) continue;
+                                        try addFn(list, codegen, elt.name.id, .{ .constant = .{ .value = .{ .none = {} } } });
+                                    }
+                                }
+                            } else if (target == .list) {
+                                // List unpacking: [a, b, c] = expr - each element needs hoisting
+                                for (target.list.elts) |elt| {
+                                    if (elt == .name) {
+                                        // Skip Python's discard pattern - no need to hoist _
+                                        if (std.mem.eql(u8, elt.name.id, "_")) continue;
+                                        try addFn(list, codegen, elt.name.id, .{ .constant = .{ .value = .{ .none = {} } } });
+                                    }
+                                }
                             }
                         }
                     },
@@ -645,6 +799,19 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
     }.collect;
+
+    // CRITICAL: Pre-scan ALL nested try-except handlers to collect exception names FIRST.
+    // This must happen BEFORE hoisting type inference because:
+    //   - Outer try hoists `raised = exc` where `exc` is from an INNER handler
+    //   - Without pre-scan, `exc` isn't in exception_vars yet when hoisting decides types
+    //   - Result: `raised` becomes PyValue instead of PyException
+    //   - Causes: `raised.__context__` fails (PyValue has no __context__)
+    for (try_node.handlers) |handler| {
+        try collectNestedExceptionNames(self, handler.body);
+    }
+    try collectNestedExceptionNames(self, try_node.body);
+    try collectNestedExceptionNames(self, try_node.else_body);
+    try collectNestedExceptionNames(self, try_node.finalbody);
 
     // Collect from try body recursively
     try collectAssignedVarsRecursive(try_node.body, &declared_vars, self, addVarIfNeeded);
@@ -739,10 +906,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             }
         }
 
-        // Check if var_name would shadow a module-level import or function
+        // Check if var_name would shadow a module-level import, function, or variable
         // If so, use NameGen for consistent unique naming
         var actual_var_name = var_name;
-        const shadows_module_level = self.imported_modules.contains(var_name) or self.module_level_funcs.contains(var_name);
+        const shadows_module_level = self.imported_modules.contains(var_name) or
+            self.module_level_funcs.contains(var_name) or
+            self.module_level_vars.contains(var_name) or
+            self.module_level_from_imports.contains(var_name);
         if (shadows_module_level and !self.var_renames.contains(var_name)) {
             const prefixed_name = try self.name_gen.local(var_name);
             try self.var_renames.put(var_name, prefixed_name);
@@ -904,8 +1074,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // Also check var_renames - if variable has a rename, it exists (from outer helper)
                 // Note: var_types and lifetimes are NOT checked here because they contain semantic info
                 // but don't guarantee the variable was actually declared (e.g., unused var optimization may skip it)
+                // Note: Do NOT check func_local_vars - it contains variables that WILL be declared anywhere
+                // in the function, including inside this try block. We only care about variables that
+                // already EXIST before the try block.
                 const exists_in_outer = self.isDeclared(name) or
-                    self.func_local_vars.contains(name) or
                     self.hoisted_vars.contains(name) or
                     self.forward_declared_vars.contains(name) or
                     self.var_renames.contains(name);
@@ -917,6 +1089,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     // Variable doesn't exist yet - needs to be hoisted/declared
                     // Add to declared_vars so it gets declared before the try block
                     // Check if not already in declared_var_set to avoid duplicates
+                    // Skip Python's discard pattern - no need to hoist _
+                    if (std.mem.eql(u8, name, "_")) continue;
                     if (!declared_var_set.contains(name)) {
                         try declared_vars.append(self.allocator, .{
                             .name = name,
@@ -1173,24 +1347,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 _ = self.func_local_vars.swapRemove(var_name);
                 continue;
             }
-            // Check if variable is used in try body, exception handlers, or finally block
-            const is_used_in_try_body = variable_usage.isNameUsedInBody(try_node.body, var_name);
-            const is_used_in_finally = variable_usage.isNameUsedInBody(try_node.finalbody, var_name);
-            var is_used_in_handlers = false;
-            for (try_node.handlers) |handler| {
-                if (variable_usage.isNameUsedInBody(handler.body, var_name)) {
-                    is_used_in_handlers = true;
-                    break;
-                }
-            }
-            // Also check else_body
-            const is_used_in_else = variable_usage.isNameUsedInBody(try_node.else_body, var_name);
-
-            // Suppress unused parameter warning only if var is NOT used anywhere in try structure
-            if (!is_used_in_try_body and !is_used_in_finally and !is_used_in_handlers and !is_used_in_else) {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("_ = p_{s}_{d};\n", .{ var_name, helper_id });
-            }
+            // ALWAYS emit discard for written_outer_vars parameters.
+            // When nested try body always terminates (raise on all paths), we add unreachable; after catch,
+            // which makes code that would use these parameters unreachable. Without unconditional
+            // discard, we get "unused function parameter" errors.
+            // Use runtime.discard() to suppress both "unused" and "pointless discard" errors.
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("runtime.discard(p_{s}_{d});\n", .{ var_name, helper_id });
 
             // Add to rename map to use dereferenced pointer
             var buf = std.ArrayListUnmanaged(u8){};
@@ -1220,19 +1383,12 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // Create aliases for declared variables (dereference pointers)
         // Also suppress unused parameter warnings since these vars may only be set in except block
         for (declared_vars.items) |hoisted| {
-            // Check if variable is used in the try block body
-            const is_used_in_try_body = variable_usage.isNameUsedInBody(try_node.body, hoisted.name);
-
-            // Exception names are assigned in the catch handler, so we ALWAYS need the rename
-            // even if not used in try body (the assignment itself uses the renamed pointer)
-            // DON'T skip exception names - they always need the rename to be set
-
-            // Suppress unused parameter warning only if var is NOT used in try body
-            // Use runtime.discard() to suppress both "unused" and "pointless discard" errors
-            if (!is_used_in_try_body) {
-                try self.emitIndent();
-                try self.output.writer(self.allocator).print("runtime.discard(p_{s}_{d});\n", .{ hoisted.name, helper_id });
-            }
+            // ALWAYS emit discard for hoisted parameters.
+            // When try body always terminates (raise on all paths), we add unreachable; after catch,
+            // which makes code that would use these parameters unreachable. Without unconditional
+            // discard, we get "unused function parameter" errors.
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("runtime.discard(p_{s}_{d});\n", .{ hoisted.name, helper_id });
 
             // Add to rename map to use dereferenced pointer
             var buf = std.ArrayListUnmanaged(u8){};
@@ -1281,10 +1437,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.generateStmt(stmt);
         }
 
-        // Restore inside_try_body, in_assert_raises_context, current_function_returns_pyvalue, and control_flow_terminated
+        // Restore inside_try_body, current_function_returns_pyvalue, and control_flow_terminated
         // IMMEDIATELY after try body. Must do this before generating else/finally/handlers.
+        // NOTE: in_assert_raises_context is NOT restored here - it must stay false until
+        // the TryHelper struct closes, because except handlers run inside the struct and
+        // labeled breaks cannot cross function boundaries in Zig.
         self.inside_try_body = saved_inside_try_body;
-        self.in_assert_raises_context = saved_in_assert_raises;
+        // self.in_assert_raises_context restored AFTER TryHelper closes (see below)
         self.current_function_returns_pyvalue = saved_returns_pyvalue;
         self.control_flow_terminated = saved_control_flow_terminated;
 
@@ -1623,9 +1782,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 } else if (self.inside_defer) {
                     // Cannot return from defer - just re-raise the error
                     // The defer will complete and error will propagate naturally
+                    // Note: We don't emit _ = err_var because the error is already used
+                    // in the if condition check above
                     try self.output.writer(self.allocator).print("// Cannot return {s} from defer - error propagates after defer\n", .{err_var});
-                    try self.emitIndent();
-                    try self.output.writer(self.allocator).print("_ = {s}; // Acknowledge error\n", .{err_var});
                 } else {
                     try self.output.writer(self.allocator).print("return {s};\n", .{err_var});
                 }
@@ -1639,10 +1798,36 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.emitIndent();
         try self.emit("};\n");
 
+        // If try body always terminates (raise/return on all paths) AND all except handlers
+        // also terminate, the code after catch is unreachable.
+        // The TryHelper.run() will never return successfully - it always returns an error.
+        // AND the catch block will never fall through - it always returns/re-raises.
+        const try_body_always_terminates = stmtListAlwaysTerminates(try_node.body);
+        var all_handlers_terminate = true;
+        if (try_body_always_terminates) {
+            for (try_node.handlers) |handler| {
+                if (!stmtListAlwaysTerminates(handler.body)) {
+                    all_handlers_terminate = false;
+                    break;
+                }
+            }
+        }
+        if (try_body_always_terminates and all_handlers_terminate and try_node.handlers.len > 0) {
+            try self.emitIndent();
+            try self.emit("unreachable;\n");
+            // Mark control flow as terminated - skip else block, it's unreachable
+            self.control_flow_terminated = true;
+        }
+
+        // NOW restore in_assert_raises_context - TryHelper struct is closed, so labeled breaks
+        // in the outer scope (else block, finally block, etc.) can reach their targets.
+        self.in_assert_raises_context = saved_in_assert_raises;
+
         // Generate else block (runs only if NO exception was raised)
         // In Python's try/except/else, the else block executes only when no exception occurred.
         // We track this via __exception_caught_N flag set in the catch block.
-        if (try_node.else_body.len > 0) {
+        // Skip if try body always terminates - else is unreachable.
+        if (try_node.else_body.len > 0 and !try_body_always_terminates) {
             // Reset control_flow_terminated - raise in except handlers shouldn't skip else generation
             // The else block is runtime-conditional (only runs if no exception), but code must be generated
             self.control_flow_terminated = false;
@@ -1729,6 +1914,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         self.inside_try_with_finally = saved_inside_try_with_finally;
         self.current_try_finally_id = saved_try_finally_id;
 
+        // Pop finally context BEFORE generating inline finally code
+        // CRITICAL: This must happen before inline finally generation to avoid infinite recursion.
+        // If the finally block contains a `raise`, that raise's handler calls emitAllFinallyBlocks
+        // which would emit this same finally again if we haven't popped it yet.
+        if (has_finally) {
+            self.popFinallyContext();
+        }
+
         // Emit finally code at end of try body for normal fallthrough
         // (when try body doesn't terminate with break/continue/return)
         // The inline duplication before control flow handles early exits;
@@ -1744,11 +1937,6 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");
-        }
-
-        // Pop finally context after try body
-        if (has_finally) {
-            self.popFinallyContext();
         }
 
         // Also handle else_body when there are no exception handlers
