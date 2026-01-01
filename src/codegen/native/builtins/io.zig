@@ -32,8 +32,8 @@ fn emitStringExpr(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 /// Two-Flow: Extracts filename string from PyValue if uncertain
 pub fn genOpen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len < 1) {
-        const id = self.nextNameId();
-        try self.emitFmt("(__m{d}_open: {{ @panic(\"open() requires at least 1 argument\"); }})", .{id});
+        // Use unlabeled block to avoid "unused block label" error
+        try self.emit("undefined");
         return;
     }
 

@@ -224,8 +224,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const import_path = import_path_owned orelse continue;
 
         // Generate import statement (escape module name if it's a Zig keyword)
+        // Add comptime reference to suppress unused variable warnings for modules
+        // that may be used only via runtime.eval or dynamic imports
         const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
-        const import_stmt = try std.fmt.allocPrint(self.allocator, "const {s} = @import(\"{s}\");\n", .{ escaped_name, import_path });
+        const import_stmt = try std.fmt.allocPrint(self.allocator, "const {s} = @import(\"{s}\");\ncomptime {{ _ = &{s}; }}\n", .{ escaped_name, import_path, escaped_name });
         try inlined_modules.append(self.allocator, import_stmt);
 
         // Track that we've imported this root module
@@ -440,7 +442,15 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 false;
 
             if (!needs_runtime_import) {
-                // Pure codegen module - track as imported but don't generate import code
+                // Pure codegen module - emit empty placeholder for import aliases to reference
+                // e.g., `import bdb as _bdb` needs `const bdb = struct {};` for `const _bdb = bdb;`
+                try self.emit("const ");
+                if (std.mem.indexOfScalar(u8, mod_name, '.') != null) {
+                    try self.emitDottedIdent(mod_name);
+                } else {
+                    try self.emitIdent(mod_name);
+                }
+                try self.emit(" = struct {};\n");
                 const mod_copy = try self.arena.allocator().dupe(u8, mod_name);
                 try self.imported_modules.put(mod_copy, {});
                 try emitted_module_consts.put(mod_name, {});
@@ -701,6 +711,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try statements.genImportFrom(self, stmt.import_from);
         } else if (stmt == .class_def) {
             // Record debug line mapping for class definitions
+            std.debug.print("generate():     Processing class: {s}\n", .{stmt.class_def.name});
             self.recordLineMappingForName(stmt.class_def.name);
             try statements.genClassDef(self, stmt.class_def);
             try self.emit("\n");
@@ -823,6 +834,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                         const orig_class_info = factory_info.returned_classes[j];
 
                                         // Create a new TestClassInfo with the module-level variable name
+                                        // Mark as factory-returned since it comes from tuple unpacking of factory call
                                         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
                                             .class_name = var_name,
                                             .test_methods = orig_class_info.test_methods,
@@ -830,6 +842,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                             .has_tearDown = orig_class_info.has_tearDown,
                                             .has_setup_class = orig_class_info.has_setup_class,
                                             .has_teardown_class = orig_class_info.has_teardown_class,
+                                            .is_factory_returned = true,
                                         });
                                     }
                                 }
@@ -1812,6 +1825,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     if (target == .name) {
                         const var_name = target.name.id;
                         if (self.import_module_vars.contains(var_name)) {
+                            // Skip if this module was already emitted as a stub in import processing
+                            if (self.imported_modules.contains(var_name)) {
+                                // Still mark as declared so we skip in main()
+                                try self.declareVar(var_name);
+                                continue;
+                            }
                             // Emit: const ctypes_test = import_module("ctypes");
                             try self.emit("const ");
                             try self.emitIdent(var_name);
@@ -2160,6 +2179,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 std.fs.cwd().access(build_path, .{}) catch continue;
 
                 // Emit @import for compiled module
+                // Add comptime reference to suppress unused variable warnings
                 const escaped_name = try zig_keywords.escapeIfKeyword(self.allocator, root_mod_name);
                 defer if (escaped_name.ptr != root_mod_name.ptr) self.allocator.free(escaped_name);
                 try self.emit("const ");
@@ -2169,6 +2189,9 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 try self.emit(root_mod_name);
                 try self.emit(MODULE_EXT);
                 try self.emit("\");\n");
+                try self.emit("comptime { _ = &");
+                try self.emit(escaped_name);
+                try self.emit("; }\n");
 
                 try lambda_imported_roots.put(root_mod_name, {});
             }

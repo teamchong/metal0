@@ -569,6 +569,9 @@ pub fn genInitMethod(
     class_name: []const u8,
     init_def: ast.Node.FunctionDef,
 ) CodegenError!void {
+    // Clear anytype_params from previous method to avoid cross-method pollution
+    self.anytype_params.clearRetainingCapacity();
+
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
@@ -619,6 +622,8 @@ pub fn genInitMethod(
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
             try self.emit("_: ");
+            // Mark this param as anonymous so body generation knows not to reference it
+            try self.var_renames.put(arg.name, "_");
         } else if (shadows_class_member or shadows_module_level or shadows_local_assign) {
             // Rename parameter to avoid shadowing using NameGen
             const renamed = try self.name_gen.param(arg.name);
@@ -665,6 +670,11 @@ pub fn genInitMethod(
     }
     self.indent();
 
+    // Push a new scope for this init method to isolate variable declarations
+    // This prevents variables from one class's init leaking into another class's init
+    try self.pushScope();
+    defer self.popScope();
+
     // Note: allocator is always used for __dict__ initialization, so no discard needed
 
     // Add var_renames for parameters that were renamed to avoid shadowing
@@ -696,6 +706,43 @@ pub fn genInitMethod(
             try self.emit(";\n");
             // Mark as declared so assignment code doesn't try to redeclare
             try self.declareVar(entry.original);
+        }
+    }
+
+    // Analyze scope-escaping variables that need hoisting for __init__ body
+    // Variables first assigned in for/if/while/try blocks but used outside need hoisting
+    // Clear hoisted_vars first to avoid cross-pollution from previous class methods
+    self.hoisted_vars.clearRetainingCapacity();
+    const scope_analyzer = @import("../../scope_analyzer.zig");
+    const var_hoisting = @import("../../var_hoisting.zig");
+    var scope_analysis = try scope_analyzer.analyzeScopes(init_def.body, self.allocator);
+    defer scope_analysis.deinit();
+    // Mark all escaped vars as hoisted (so assignment skips declaration)
+    for (scope_analysis.escaped_vars.items) |escaped| {
+        try self.hoisted_vars.put(escaped.name, {});
+    }
+    // Emit hoisted variable declarations
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis.escaped_vars.items, init_def.args, init_def.body);
+
+    // Emit discards for anytype parameters that might only be used in VM fallback expressions
+    // When a param like `data` is used as `data.shape` but falls back to VM, it becomes
+    // `runtime.eval("data.shape")` where the param name is just a string, not a Zig identifier.
+    // This causes "unused function parameter" error in Zig.
+    for (init_def.args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) continue;
+        if (self.anytype_params.contains(arg.name)) {
+            // Skip params that have mutable copies - the parameter IS used to initialize the copy
+            // e.g., `var sign = __m65_p_sign;` - __m65_p_sign is used here
+            const has_mutable_copy = for (renamed_params.items) |entry| {
+                if (std.mem.eql(u8, entry.original, arg.name) and entry.needs_mutable_copy) break true;
+            } else false;
+            if (has_mutable_copy) continue;
+
+            // Use renamed parameter name if it was renamed during signature generation
+            const param_name = self.var_renames.get(arg.name) orelse arg.name;
+            // Skip if param was made anonymous ("_") - no identifier to discard
+            if (std.mem.eql(u8, param_name, "_")) continue;
+            try self.emitParamDiscard(param_name);
         }
     }
 
@@ -859,7 +906,6 @@ pub fn genInitMethod(
                                 if (std.mem.eql(u8, arg.name, value_name)) {
                                     // Try type annotation first
                                     var inferred = signature.pythonTypeToNativeType(arg.type_annotation);
-                                    std.debug.print("DEBUG class_methods: class={s} field={s} param={s} param_idx={d} annotation_type={}\n", .{ class_name, field_name, arg.name, param_idx, inferred });
                                     // Try keyword arg lookup (stored as "ClassName.param_name")
                                     if (type_traits.isUnknown(inferred)) {
                                         var kwarg_key_buf: [256]u8 = undefined;
@@ -867,7 +913,6 @@ pub fn genInitMethod(
                                         if (kwarg_key) |key| {
                                             if (self.type_inferrer.var_types.get(key)) |kwarg_type| {
                                                 inferred = kwarg_type;
-                                                std.debug.print("DEBUG class_methods: found kwarg type key={s} type={}\n", .{ key, kwarg_type });
                                             }
                                         }
                                     }
@@ -875,16 +920,11 @@ pub fn genInitMethod(
                                     if (type_traits.isUnknown(inferred)) {
                                         if (self.type_inferrer.class_constructor_args.get(class_name)) |arg_types| {
                                             const arg_idx = if (param_idx > 0) param_idx - 1 else 0;
-                                            std.debug.print("DEBUG class_methods: found constructor_args arg_idx={d} len={d}\n", .{ arg_idx, arg_types.len });
                                             if (arg_idx < arg_types.len) {
                                                 inferred = arg_types[arg_idx];
-                                                std.debug.print("DEBUG class_methods: using constructor_arg type={}\n", .{inferred});
                                             }
-                                        } else {
-                                            std.debug.print("DEBUG class_methods: NO constructor_args for class={s}\n", .{class_name});
                                         }
                                     }
-                                    std.debug.print("DEBUG class_methods: final inferred={}\n", .{inferred});
                                     break :blk inferred;
                                 }
                             }
@@ -989,6 +1029,9 @@ pub fn genInitMethodWithBuiltinBase(
     captured_vars: ?[][]const u8,
     class_body: []const ast.Node,
 ) CodegenError!void {
+    // Clear anytype_params from previous method to avoid cross-method pollution
+    self.anytype_params.clearRetainingCapacity();
+
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
@@ -1044,6 +1087,8 @@ pub fn genInitMethodWithBuiltinBase(
             if (!is_used) {
                 // Zig requires unused params to be named just "_", not "_name"
                 try self.emit("_: ");
+                // Mark this param as anonymous so body generation knows not to reference it
+                try self.var_renames.put(arg.name, "_");
             } else {
                 // Check if param would shadow a method in the class
                 const shadows_class_method = wouldShadowMethodInClass(arg.name, class_body);
@@ -1114,6 +1159,11 @@ pub fn genInitMethodWithBuiltinBase(
     }
     self.indent();
 
+    // Push a new scope for this init method to isolate variable declarations
+    // This prevents variables from one class's init leaking into another class's init
+    try self.pushScope();
+    defer self.popScope();
+
     // Save and restore control_flow_terminated for init method scope.
     // This is CRITICAL: hoisted local classes or prior method bodies may have set this flag.
     // Without this reset, the First pass loop would skip all statements.
@@ -1157,6 +1207,43 @@ pub fn genInitMethodWithBuiltinBase(
             try self.emit(";\n");
             // Mark as declared so assignment code doesn't try to redeclare
             try self.declareVar(entry.original);
+        }
+    }
+
+    // Analyze scope-escaping variables that need hoisting for __init__ body
+    // Variables first assigned in for/if/while/try blocks but used outside need hoisting
+    // Clear hoisted_vars first to avoid cross-pollution from previous class methods
+    self.hoisted_vars.clearRetainingCapacity();
+    const scope_analyzer = @import("../../scope_analyzer.zig");
+    const var_hoisting = @import("../../var_hoisting.zig");
+    var scope_analysis_init = try scope_analyzer.analyzeScopes(init.body, self.allocator);
+    defer scope_analysis_init.deinit();
+    // Mark all escaped vars as hoisted (so assignment skips declaration)
+    for (scope_analysis_init.escaped_vars.items) |escaped| {
+        try self.hoisted_vars.put(escaped.name, {});
+    }
+    // Emit hoisted variable declarations
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis_init.escaped_vars.items, init.args, init.body);
+
+    // Emit discards for anytype parameters that might only be used in VM fallback expressions
+    // When a param like `data` is used as `data.shape` but falls back to VM, it becomes
+    // `runtime.eval("data.shape")` where the param name is just a string, not a Zig identifier.
+    // This causes "unused function parameter" error in Zig.
+    for (init.args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) continue;
+        if (self.anytype_params.contains(arg.name)) {
+            // Skip params that have mutable copies - the parameter IS used to initialize the copy
+            // e.g., `var sign = __m65_p_sign;` - __m65_p_sign is used here
+            const has_mutable_copy = for (renamed_params.items) |entry| {
+                if (std.mem.eql(u8, entry.original, arg.name) and entry.needs_mutable_copy) break true;
+            } else false;
+            if (has_mutable_copy) continue;
+
+            // Use renamed parameter name if it was renamed during signature generation
+            const param_name = self.var_renames.get(arg.name) orelse arg.name;
+            // Skip if param was made anonymous ("_") - no identifier to discard
+            if (std.mem.eql(u8, param_name, "_")) continue;
+            try self.emitParamDiscard(param_name);
         }
     }
 
@@ -1593,6 +1680,9 @@ pub fn genInitMethodFromNew(
     captured_vars: ?[][]const u8,
     class_body: []const ast.Node,
 ) CodegenError!void {
+    // Clear anytype_params from previous method to avoid cross-method pollution
+    self.anytype_params.clearRetainingCapacity();
+
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
@@ -1694,6 +1784,11 @@ pub fn genInitMethodFromNew(
     }
     self.indent();
 
+    // Push a new scope for this init method to isolate variable declarations
+    // This prevents variables from one class's init leaking into another class's init
+    try self.pushScope();
+    defer self.popScope();
+
     // Set captured vars context for expression generation
     self.current_class_captures = captured_vars;
     self.inside_init_method = true;
@@ -1723,6 +1818,21 @@ pub fn genInitMethodFromNew(
         }
     }
 
+    // Analyze scope-escaping variables that need hoisting for __new__ body
+    // Variables first assigned in for/if/while/try blocks but used outside need hoisting
+    // Clear hoisted_vars first to avoid cross-pollution from previous class methods
+    self.hoisted_vars.clearRetainingCapacity();
+    const scope_analyzer_new = @import("../../scope_analyzer.zig");
+    const var_hoisting_new = @import("../../var_hoisting.zig");
+    var scope_analysis_new = try scope_analyzer_new.analyzeScopes(new_method.body, self.allocator);
+    defer scope_analysis_new.deinit();
+    // Mark all escaped vars as hoisted (so assignment skips declaration)
+    for (scope_analysis_new.escaped_vars.items) |escaped| {
+        try self.hoisted_vars.put(escaped.name, {});
+    }
+    // Emit hoisted variable declarations
+    try var_hoisting_new.emitHoistedDeclarations(self, scope_analysis_new.escaped_vars.items, new_method.args, new_method.body);
+
     // Emit discards for __new__ params that appear used in Python but may not be
     // used in generated init body (e.g., metaclass __new__ using dict param for dict['x'] = ...)
     // The codegen doesn't fully implement all metaclass patterns, so params may appear unused
@@ -1732,6 +1842,13 @@ pub fn genInitMethodFromNew(
         // Only emit discard if the param is named (not already anonymous "_:")
         // Check if it was used in Python source but with a pattern we don't fully codegen
         if (param_analyzer.isNameUsedInBody(new_method.body, arg.name)) {
+            // Skip params that have mutable copies - the parameter IS used to initialize the copy
+            // e.g., `var sign = __m65_p_sign;` - __m65_p_sign is used here
+            const has_mutable_copy = for (renamed_params.items) |entry| {
+                if (std.mem.eql(u8, entry.original, arg.name) and entry.needs_mutable_copy) break true;
+            } else false;
+            if (has_mutable_copy) continue;
+
             // Check if this param was renamed - use the renamed version for discard
             const param_name = blk: {
                 for (renamed_params.items) |entry| {
@@ -2329,6 +2446,309 @@ fn inheritMethodsFromClass(
             // (e.g., aug_test.__add__ returns aug_test(...) - when inherited to aug_test4,
             // the method body needs to know aug_test is a nested class for allocator handling)
             try body.genMethodBodyWithContext(self, parent_method, &[_][]const u8{parent.name});
+        }
+    }
+}
+
+/// ABC (Abstract Base Class) default methods from numbers module
+/// These are generated when a class inherits from numbers.Complex, numbers.Real, etc.
+/// but doesn't define these methods explicitly
+const ABCDefaultMethods = struct {
+    /// Default __sub__ for numbers.Complex: return self + (-other)
+    pub fn genComplexSub(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default __sub__ from numbers.Complex ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn __sub__(__self: *const @This(), __alloc: std.mem.Allocator, other: anytype) !*@This() {\n");
+        self.indent();
+        try self.emitIndent();
+        // Handle both __neg__() for user classes and .neg() for runtime.PyComplex
+        try self.emit("const OtherType = @TypeOf(other);\n");
+        try self.emitIndent();
+        try self.emit("const neg_other = if (comptime @hasDecl(OtherType, \"__neg__\")) try other.__neg__(__alloc) else other.neg();\n");
+        try self.emitIndent();
+        try self.emit("return try __self.__add__(__alloc, neg_other);\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default __rsub__ for numbers.Complex: return (-self) + other
+    pub fn genComplexRsub(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default __rsub__ from numbers.Complex ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn __rsub__(__self: *const @This(), __alloc: std.mem.Allocator, other: anytype) !*@This() {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const neg_self = try __self.__neg__(__alloc);\n");
+        try self.emitIndent();
+        try self.emit("return try neg_self.__add__(__alloc, other);\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default numerator for numbers.Integral: return +self (calls __pos__)
+    pub fn genIntegralNumerator(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default numerator from numbers.Integral ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn numerator(__self: *const @This()) i64 {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return __self.__pos__();\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default denominator for numbers.Integral: always returns 1
+    pub fn genIntegralDenominator(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default denominator from numbers.Integral ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn denominator(__self: *const @This()) i64 {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("_ = __self;\n");
+        try self.emitIndent();
+        try self.emit("return 1;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default real for numbers.Real: return +self (calls __pos__)
+    pub fn genRealReal(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default real from numbers.Real ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn real(__self: *const @This()) i64 {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return __self.__pos__();\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default imag for numbers.Real: always returns 0
+    pub fn genRealImag(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default imag from numbers.Real ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn imag(__self: *const @This()) i64 {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("_ = __self;\n");
+        try self.emitIndent();
+        try self.emit("return 0;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default conjugate for numbers.Real: return +self (calls __pos__)
+    pub fn genRealConjugate(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default conjugate from numbers.Real ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn conjugate(__self: *const @This()) i64 {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("return __self.__pos__();\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default __float__ for numbers.Rational: return numerator / denominator
+    pub fn genRationalFloat(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default __float__ from numbers.Rational ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn __float__(__self: *const @This()) f64 {\n");
+        self.indent();
+        try self.emitIndent();
+        try self.emit("const num: f64 = @floatFromInt(__self.numerator());\n");
+        try self.emitIndent();
+        try self.emit("const denom: f64 = @floatFromInt(__self.denominator());\n");
+        try self.emitIndent();
+        try self.emit("return num / denom;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default __float__ for numbers.Integral: return float(__int__())
+    pub fn genIntegralFloat(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default __float__ from numbers.Integral ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn __float__(__self: *const @This()) f64 {\n");
+        self.indent();
+        try self.emitIndent();
+        // __int__() may return an error union, so catch and return 0 on error
+        try self.emit("const int_val = __self.__int__() catch return 0.0;\n");
+        try self.emitIndent();
+        try self.emit("return @floatFromInt(int_val);\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default __bool__ for numbers.Complex: return self != 0
+    pub fn genComplexBool(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default __bool__ from numbers.Complex ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn __bool__(__self: *const @This()) bool {\n");
+        self.indent();
+        try self.emitIndent();
+        // Complex.__bool__: return self.real != 0 or self.imag != 0
+        try self.emit("return __self.real() != 0 or __self.imag() != 0;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+
+    /// Default __index__ for numbers.Integral: return int(self)
+    pub fn genIntegralIndex(self: *NativeCodegen) CodegenError!void {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.emit("// Default __index__ from numbers.Integral ABC\n");
+        try self.emitIndent();
+        try self.emit("pub fn __index__(__self: *const @This()) !i64 {\n");
+        self.indent();
+        try self.emitIndent();
+        // Integral.__index__: return int(self) - delegates to __int__
+        try self.emit("return __self.__int__();\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+    }
+};
+
+/// Generate default methods for classes inheriting from Python ABCs (Abstract Base Classes)
+/// from the numbers module (Complex, Real, Rational, Integral)
+pub fn genABCDefaultMethods(
+    self: *NativeCodegen,
+    base_names: []const []const u8,
+    defined_methods: []const []const u8,
+) CodegenError!void {
+    // Build a set of already-defined methods
+    var defined_set = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer defined_set.deinit();
+    for (defined_methods) |name| {
+        try defined_set.put(name, {});
+    }
+
+    // Check each base class for ABC default methods
+    for (base_names) |base_name| {
+        // numbers.Complex default methods
+        if (std.mem.eql(u8, base_name, "Complex") or std.mem.eql(u8, base_name, "numbers.Complex")) {
+            if (!defined_set.contains("__sub__")) {
+                try ABCDefaultMethods.genComplexSub(self);
+                try defined_set.put("__sub__", {});
+            }
+            if (!defined_set.contains("__rsub__")) {
+                try ABCDefaultMethods.genComplexRsub(self);
+                try defined_set.put("__rsub__", {});
+            }
+            if (!defined_set.contains("__bool__")) {
+                try ABCDefaultMethods.genComplexBool(self);
+                try defined_set.put("__bool__", {});
+            }
+        }
+
+        // numbers.Real default methods (inherits from Complex)
+        if (std.mem.eql(u8, base_name, "Real") or std.mem.eql(u8, base_name, "numbers.Real")) {
+            // Real inherits Complex defaults
+            if (!defined_set.contains("__sub__")) {
+                try ABCDefaultMethods.genComplexSub(self);
+                try defined_set.put("__sub__", {});
+            }
+            if (!defined_set.contains("__rsub__")) {
+                try ABCDefaultMethods.genComplexRsub(self);
+                try defined_set.put("__rsub__", {});
+            }
+            if (!defined_set.contains("__bool__")) {
+                try ABCDefaultMethods.genComplexBool(self);
+                try defined_set.put("__bool__", {});
+            }
+        }
+
+        // numbers.Rational and numbers.Integral also inherit these defaults
+        if (std.mem.eql(u8, base_name, "Rational") or std.mem.eql(u8, base_name, "numbers.Rational") or
+            std.mem.eql(u8, base_name, "Integral") or std.mem.eql(u8, base_name, "numbers.Integral"))
+        {
+            if (!defined_set.contains("__sub__")) {
+                try ABCDefaultMethods.genComplexSub(self);
+                try defined_set.put("__sub__", {});
+            }
+            if (!defined_set.contains("__rsub__")) {
+                try ABCDefaultMethods.genComplexRsub(self);
+                try defined_set.put("__rsub__", {});
+            }
+            if (!defined_set.contains("__bool__")) {
+                try ABCDefaultMethods.genComplexBool(self);
+                try defined_set.put("__bool__", {});
+            }
+        }
+
+        // numbers.Rational default __float__: return numerator / denominator
+        if (std.mem.eql(u8, base_name, "Rational") or std.mem.eql(u8, base_name, "numbers.Rational")) {
+            if (!defined_set.contains("__float__")) {
+                try ABCDefaultMethods.genRationalFloat(self);
+                try defined_set.put("__float__", {});
+            }
+        }
+
+        // numbers.Integral default properties and __float__
+        if (std.mem.eql(u8, base_name, "Integral") or std.mem.eql(u8, base_name, "numbers.Integral")) {
+            if (!defined_set.contains("numerator")) {
+                try ABCDefaultMethods.genIntegralNumerator(self);
+                try defined_set.put("numerator", {});
+            }
+            if (!defined_set.contains("denominator")) {
+                try ABCDefaultMethods.genIntegralDenominator(self);
+                try defined_set.put("denominator", {});
+            }
+            if (!defined_set.contains("__float__")) {
+                try ABCDefaultMethods.genIntegralFloat(self);
+                try defined_set.put("__float__", {});
+            }
+            if (!defined_set.contains("__index__")) {
+                try ABCDefaultMethods.genIntegralIndex(self);
+                try defined_set.put("__index__", {});
+            }
+        }
+
+        // numbers.Real default properties (imag, real, conjugate)
+        if (std.mem.eql(u8, base_name, "Real") or std.mem.eql(u8, base_name, "numbers.Real")) {
+            if (!defined_set.contains("real")) {
+                try ABCDefaultMethods.genRealReal(self);
+                try defined_set.put("real", {});
+            }
+            if (!defined_set.contains("imag")) {
+                try ABCDefaultMethods.genRealImag(self);
+                try defined_set.put("imag", {});
+            }
+            if (!defined_set.contains("conjugate")) {
+                try ABCDefaultMethods.genRealConjugate(self);
+                try defined_set.put("conjugate", {});
+            }
         }
     }
 }
