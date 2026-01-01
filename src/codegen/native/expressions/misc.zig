@@ -563,6 +563,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             // Track output length before dispatch to detect if anything was emitted
             const output_before = self.output.items.len;
             if (module_functions.tryDispatch(self, module_name, attr_name, fake_call) catch false) {
+                // Flush builder to output - dispatch handlers emit to builder, not output directly
+                try self.flushBuilder();
                 // Only return if something was actually emitted
                 // Some handlers check args.len == 0 and return early without emitting
                 if (self.output.items.len > output_before) {

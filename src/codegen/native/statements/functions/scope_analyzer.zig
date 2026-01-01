@@ -28,6 +28,8 @@ pub const EscapedVar = struct {
     for_iter_expr: ?*const ast.Node = null,
     /// For for-loop tuple unpacking: the index in the tuple (0, 1, 2, ...)
     tuple_index: ?usize = null,
+    /// True if this variable is assigned from an exception variable (e.g., `e = exc` where `exc` is from `except X as exc:`)
+    is_exception_assigned: bool = false,
 };
 
 /// Result of scope analysis
@@ -1097,7 +1099,17 @@ fn collectInnerScopeDecls(
                 try collectAssignments(decls, stmt, .try_except, allocator);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
-            // except handler variable: except ValueError as e
+
+            // First pass: collect all exception names from handlers
+            var exception_names = hashmap_helper.StringHashMap(void).init(allocator);
+            defer exception_names.deinit();
+            for (try_s.handlers) |handler| {
+                if (handler.name) |exc_name| {
+                    try exception_names.put(exc_name, {});
+                }
+            }
+
+            // Second pass: process handlers with exception name tracking
             for (try_s.handlers) |handler| {
                 if (handler.name) |exc_name| {
                     try decls.put(exc_name, .{
@@ -1107,7 +1119,8 @@ fn collectInnerScopeDecls(
                     });
                 }
                 for (handler.body) |stmt| {
-                    try collectAssignments(decls, stmt, .try_except, allocator);
+                    // Pass exception names so assignments like `e = exc` get marked
+                    try collectAssignmentsWithExceptionVars(decls, stmt, .try_except, &exception_names);
                     try collectInnerScopeDecls(decls, stmt, allocator);
                 }
             }
@@ -1210,10 +1223,30 @@ fn collectAssignments(
     source: EscapedSource,
     _: std.mem.Allocator,
 ) !void {
+    return collectAssignmentsWithExceptionVars(decls, node, source, null);
+}
+
+/// Collect assignments with optional exception variable tracking
+/// When exception_names is provided and the assignment's RHS is one of those names,
+/// sets is_exception_assigned = true on the created EscapedVar
+fn collectAssignmentsWithExceptionVars(
+    decls: *hashmap_helper.StringHashMap(EscapedVar),
+    node: ast.Node,
+    source: EscapedSource,
+    exception_names: ?*const hashmap_helper.StringHashMap(void),
+) !void {
     if (node == .assign) {
         const assign = node.assign;
         if (assign.targets.len > 0) {
             const target = assign.targets[0];
+            // Check if RHS is an exception variable name
+            const is_exc_assigned = if (exception_names) |exc_names| blk: {
+                if (assign.value.* == .name) {
+                    break :blk exc_names.contains(assign.value.name.id);
+                }
+                break :blk false;
+            } else false;
+
             if (target == .name) {
                 const var_name = target.name.id;
                 // Only add if not already declared
@@ -1225,6 +1258,7 @@ fn collectAssignments(
                         .name = var_name,
                         .init_expr = assign.value,
                         .source = source,
+                        .is_exception_assigned = is_exc_assigned,
                     });
                 }
             } else if (target == .tuple) {
@@ -1238,6 +1272,7 @@ fn collectAssignments(
                                 .name = var_name,
                                 .init_expr = assign.value, // Use the full tuple value for type inference
                                 .source = source,
+                                .is_exception_assigned = is_exc_assigned,
                             });
                         }
                     }
@@ -1252,6 +1287,7 @@ fn collectAssignments(
                                 .name = var_name,
                                 .init_expr = assign.value,
                                 .source = source,
+                                .is_exception_assigned = is_exc_assigned,
                             });
                         }
                     }

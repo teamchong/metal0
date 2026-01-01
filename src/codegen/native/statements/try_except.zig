@@ -371,6 +371,62 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
     }
 }
 
+/// Find variables that are assigned from exception variables (e.g., `e = exc` where `exc` is from `except X as exc:`)
+/// This is needed for proper type propagation - these variables should also be typed as PyException
+fn findExceptionAssignedVars(stmts: []ast.Node, exception_vars: *FnvVoidMap, result: *FnvVoidMap) !void {
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .assign => |assign| {
+                // Check if RHS is a name that's an exception variable
+                if (assign.value.* == .name) {
+                    const rhs_name = assign.value.name.id;
+                    if (exception_vars.contains(rhs_name)) {
+                        // Mark all LHS targets as exception-assigned
+                        for (assign.targets) |target| {
+                            if (target == .name) {
+                                try result.put(target.name.id, {});
+                            }
+                        }
+                    }
+                }
+            },
+            .if_stmt => |if_stmt| {
+                try findExceptionAssignedVars(if_stmt.body, exception_vars, result);
+                try findExceptionAssignedVars(if_stmt.else_body, exception_vars, result);
+            },
+            .while_stmt => |while_stmt| {
+                try findExceptionAssignedVars(while_stmt.body, exception_vars, result);
+                if (while_stmt.orelse_body) |orelse_body| {
+                    try findExceptionAssignedVars(orelse_body, exception_vars, result);
+                }
+            },
+            .for_stmt => |for_stmt| {
+                try findExceptionAssignedVars(for_stmt.body, exception_vars, result);
+                if (for_stmt.orelse_body) |orelse_body| {
+                    try findExceptionAssignedVars(orelse_body, exception_vars, result);
+                }
+            },
+            .try_stmt => |try_stmt| {
+                try findExceptionAssignedVars(try_stmt.body, exception_vars, result);
+                try findExceptionAssignedVars(try_stmt.else_body, exception_vars, result);
+                for (try_stmt.handlers) |handler| {
+                    try findExceptionAssignedVars(handler.body, exception_vars, result);
+                }
+                try findExceptionAssignedVars(try_stmt.finalbody, exception_vars, result);
+            },
+            .with_stmt => |with_stmt| {
+                try findExceptionAssignedVars(with_stmt.body, exception_vars, result);
+            },
+            .match_stmt => |match_stmt| {
+                for (match_stmt.cases) |case| {
+                    try findExceptionAssignedVars(case.body, exception_vars, result);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 fn findMutatingMethodCalls(expr: ast.Node, vars: *FnvVoidMap) !void {
     switch (expr) {
         .call => |call| {
@@ -884,6 +940,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         }
     }
 
+    // Find variables assigned from exception variables (e.g., `e = exc` where `exc` is exception var)
+    // These need to be typed as PyException even though they're not directly exception names
+    var exception_assigned_vars = FnvVoidMap.init(self.allocator);
+    defer exception_assigned_vars.deinit();
+    for (try_node.handlers) |handler| {
+        try findExceptionAssignedVars(handler.body, &self.exception_vars, &exception_assigned_vars);
+    }
+    try findExceptionAssignedVars(try_node.else_body, &self.exception_vars, &exception_assigned_vars);
+
     // Hoist variable declarations BEFORE the block (so they're accessible after try)
     for (declared_vars.items) |hoisted| {
         const var_name = hoisted.name;
@@ -899,6 +964,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         } else if (hoisted.value == .name and self.exception_vars.contains(hoisted.value.name.id)) {
             // Assigning from an exception variable - propagate PyException type
             // e.g., `exc1 = e` where `e` is from `except X as e:`
+            zig_type = "runtime.PyException";
+        } else if (exception_assigned_vars.contains(var_name)) {
+            // This variable is assigned from an exception variable somewhere in the handlers
+            // e.g., `e = exc` where `exc` is from `except ValueError as exc:`
             zig_type = "runtime.PyException";
         } else {
             var_type = self.type_inferrer.inferExpr(hoisted.value) catch null;

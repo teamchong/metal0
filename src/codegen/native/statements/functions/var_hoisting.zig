@@ -1001,10 +1001,20 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
 
     for (func_params) |param| {
         if (param.default != null) {
-            // Parameter has default - will be renamed to {name}_param in Zig
-            // The original name won't be available until const binding later
-            const zig_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{param.name});
-            try safe_vars.put(zig_name, {});
+            // Parameter has default value handling differs between functions and methods:
+            // - Functions: signature uses `{name}_param: ?Type`, body binds `const {name} = {name}_param orelse default`
+            // - Methods: signature uses `{name}: ?Type` directly, body uses `{name}` without binding
+            // Check if we're in a method context (current_class_body is set)
+            if (self.current_class_body == null) {
+                // Function context: rename to {name}_param
+                const zig_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{param.name});
+                try safe_vars.put(zig_name, {});
+                // Add to var_renames so all references to the Python name get translated
+                try self.var_renames.put(param.name, zig_name);
+            } else {
+                // Method context: use original name (signature uses `n: ?Type`)
+                try safe_vars.put(param.name, {});
+            }
         } else {
             // No default - Python name is used directly in Zig signature
             try safe_vars.put(param.name, {});
@@ -1103,7 +1113,11 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         // Note: actual_name already has method-shadowing suffix if needed
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
 
-        if (escaped.init_expr) |init| {
+        // Check for exception-assigned variables first (e.g., `e = exc` where `exc` is from `except X as exc:`)
+        // These need to be typed as PyException regardless of init expression
+        if (escaped.is_exception_assigned) {
+            try self.emit(": runtime.PyException");
+        } else if (escaped.init_expr) |init| {
             // Check for self-reference: `line = line.strip()` where init references the variable being declared
             // This would cause circular reference in @TypeOf - use fallback type instead
             const has_self_reference = exprContainsName(init, escaped.name);
