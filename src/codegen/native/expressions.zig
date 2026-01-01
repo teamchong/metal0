@@ -336,14 +336,12 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     // Nested class self-reference - also use @This()
                     try self.emit("@This()");
                 } else {
-                    // Check for undefined variable - emit runtime NameError
-                    // This handles: 1) try blocks catching NameError, 2) class methods (e.g., __exit__)
-                    // In Python, undefined names are runtime errors, not compile-time errors
-                    if (!isNameDefined(self, name_to_use)) {
-                        if (self.in_nameerror_context or self.current_class_name != null) {
-                            try self.emit("return error.NameError");
-                            return;
-                        }
+                    // Check for undefined variable in NameError-catching context
+                    // Only emit return error.NameError when inside a try block that catches NameError
+                    // This avoids breaking expressions when undefined name is part of larger expr
+                    if (self.in_nameerror_context and !isNameDefined(self, name_to_use)) {
+                        try self.emit("return error.NameError");
+                        return;
                     }
                     // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
                     if (self.imported_modules.contains(name_to_use)) {
@@ -356,14 +354,11 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     }
                 }
             } else {
-                // Check for undefined variable - emit runtime NameError
-                // This handles: 1) try blocks catching NameError, 2) class methods (e.g., __exit__)
-                // In Python, undefined names are runtime errors, not compile-time errors
-                if (!isNameDefined(self, name_to_use)) {
-                    if (self.in_nameerror_context or self.current_class_name != null) {
-                        try self.emit("return error.NameError");
-                        return;
-                    }
+                // Check for undefined variable in NameError-catching context
+                // Only emit return error.NameError when inside a try block that catches NameError
+                if (self.in_nameerror_context and !isNameDefined(self, name_to_use)) {
+                    try self.emit("return error.NameError");
+                    return;
                 }
                 // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
                 // This ensures consistency with module import generation in generator.zig
