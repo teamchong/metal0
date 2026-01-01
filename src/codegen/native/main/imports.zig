@@ -571,8 +571,9 @@ pub fn collectImports(
                 break :blk false;
             };
 
-            // Check if this module can be resolved to Python source
-            // If so, compile it instead of treating as C extension
+            // FIRST: Check if this module can be resolved to Python source
+            // Python source takes priority over C extension fallback
+            // This allows numpy's __init__.py to be compiled even though numpy has .so files
             const can_resolve_source = blk: {
                 const source = import_resolver.resolveImport(python_module, source_file_dir, self.allocator) catch null;
                 if (source) |sp| {
@@ -582,10 +583,36 @@ pub fn collectImports(
                 break :blk false;
             };
 
-            // If module has Python source, compile it instead of C extension path
+            // If module has Python source, compile it (even if parent package has C extensions)
             if (can_resolve_source) {
                 std.debug.print("Info: Package '{s}' has Python source, compiling to Zig\n", .{python_module});
                 try imports.append(self.allocator, python_module);
+                continue;
+            }
+
+            // Check if this is a C extension package (has .so files)
+            // Only used when NO Python source exists for the module
+            const is_c_extension = blk: {
+                // Get base package name (e.g., "numpy.matlib" -> "numpy")
+                const pkg_name = if (std.mem.indexOfScalar(u8, python_module, '.')) |dot_idx|
+                    python_module[0..dot_idx]
+                else
+                    python_module;
+                break :blk import_resolver.isCExtension(pkg_name, self.allocator);
+            };
+
+            // If it's a C extension with no Python source, use CPython interop
+            if (is_c_extension) {
+                std.debug.print("Info: C extension '{s}' (no Python source) will be loaded at runtime via c_interop\n", .{python_module});
+                // Mark as C extension - loaded at runtime via PyImport_ImportModule
+                var alias_name: []const u8 = python_module;
+                for (self.import_aliases.keys()) |alias| {
+                    if (std.mem.eql(u8, self.import_aliases.get(alias).?, python_module)) {
+                        alias_name = alias;
+                        break;
+                    }
+                }
+                try self.markCExtensionModule(python_module, alias_name);
                 continue;
             }
 

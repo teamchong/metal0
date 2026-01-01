@@ -27,14 +27,25 @@ pub const UnifiedInt = union(enum) {
         return .{ .small = value };
     }
 
-    /// Create from BigInt (takes ownership)
-    pub fn fromBigInt(big: *BigInt) Self {
-        // Try to demote to i64 if it fits
-        if (big.toInt64()) |small_val| {
-            big.deinit();
-            return .{ .small = small_val };
+    /// Create from BigInt (takes ownership), or passthrough if already UnifiedInt
+    /// Accepts *BigInt, BigInt value, or UnifiedInt (returns as-is)
+    pub fn fromBigInt(value: anytype) Self {
+        const T = @TypeOf(value);
+        // Already UnifiedInt - return as-is
+        if (T == Self) {
+            return value;
         }
-        return .{ .big = big };
+        // Handle *BigInt pointer
+        if (T == *BigInt) {
+            // Try to demote to i64 if it fits
+            if (value.toInt64()) |small_val| {
+                value.deinit();
+                return .{ .small = small_val };
+            }
+            return .{ .big = value };
+        }
+        // Compile error for unsupported types
+        @compileError("fromBigInt expects *BigInt or UnifiedInt, got " ++ @typeName(T));
     }
 
     /// Create from i128 (promotes to BigInt if needed)
@@ -82,8 +93,8 @@ pub const UnifiedInt = union(enum) {
         const str_data: []const u8 = blk: {
             const T = @TypeOf(str);
             const info = @typeInfo(T);
-            // Direct []const u8
-            if (T == []const u8) {
+            // Direct []const u8 or []u8 (mutable slice)
+            if (T == []const u8 or T == []u8) {
                 break :blk str;
             }
             // Pointer to array (e.g., *const [8:0]u8) - coerce to slice
@@ -98,7 +109,7 @@ pub const UnifiedInt = union(enum) {
             if (info == .@"struct" and @hasField(T, "data")) {
                 break :blk str.data;
             }
-            @compileError("parseUnicode: expected []const u8, *const [N]u8, or type with .data field, got " ++ @typeName(T));
+            @compileError("parseUnicode: expected []const u8, []u8, *const [N]u8, or type with .data field, got " ++ @typeName(T));
         };
         var big = try bigint_mod.parseBigIntUnicode(allocator, str_data, base);
         // Try to demote to i64 if it fits
@@ -267,8 +278,10 @@ pub const UnifiedInt = union(enum) {
             .small => |a| switch (other) {
                 .small => |b| {
                     if (b == 0) return error.DivisionByZero;
-                    // Python's modulo: result has same sign as divisor
-                    const r = @mod(a, b);
+                    // Python floored modulo: result has same sign as divisor
+                    // Formula: a - (a // b) * b, where // is floor division
+                    const quotient = @divFloor(a, b);
+                    const r = a - quotient * b;
                     return .{ .small = r };
                 },
                 .big => |b_big| {
@@ -563,6 +576,19 @@ pub const UnifiedInt = union(enum) {
         return switch (self) {
             .small => |v| v,
             .big => |b| b.toInt64(),
+        };
+    }
+
+    /// Get bit length (Python's int.bit_length())
+    /// Returns number of bits required to represent the absolute value
+    pub fn bit_length(self: Self) i64 {
+        return switch (self) {
+            .small => |v| {
+                if (v == 0) return 0;
+                const abs_val: u64 = if (v < 0) @bitCast(-v) else @intCast(v);
+                return @intCast(64 - @clz(abs_val));
+            },
+            .big => |b| b.bit_length(),
         };
     }
 

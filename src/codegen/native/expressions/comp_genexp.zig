@@ -25,6 +25,10 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // Track renamed variables for cleanup after genexp
+    var renamed_vars: std.ArrayListUnmanaged([]const u8) = .{};
+    defer renamed_vars.deinit(self.allocator);
+
     // Generate: (gen_N: { ... })
     try self.emit(try std.fmt.allocPrint(self.allocator, "(gen_{d}: {{\n", .{label_id}));
     self.indent();
@@ -43,9 +47,9 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
             std.mem.eql(u8, gen.iter.call.func.name.id, "range");
 
         if (is_range) {
-            try genGenExpRangeLoop(self, gen, label_id);
+            try genGenExpRangeLoop(self, gen, label_id, &renamed_vars);
         } else {
-            try genGenExpIterLoop(self, gen, gen_idx, label_id);
+            try genGenExpIterLoop(self, gen, gen_idx, label_id, &renamed_vars);
         }
 
         // Generate if conditions for this generator
@@ -83,6 +87,11 @@ pub fn genGenExp(self: *NativeCodegen, genexp: ast.Node.GenExp) CodegenError!voi
     self.dedent();
     try self.emitIndent();
     try self.emit("})");
+
+    // Clean up var_renames so outer scope sees original variable names
+    for (renamed_vars.items) |var_name| {
+        _ = self.var_renames.swapRemove(var_name);
+    }
 }
 
 /// Generate range loop for generator expression
@@ -90,6 +99,7 @@ fn genGenExpRangeLoop(
     self: *NativeCodegen,
     gen: ast.Node.Comprehension,
     _: usize, // label_id - unused
+    _: *std.ArrayListUnmanaged([]const u8), // renamed_vars - not used in range loops (no shadowing)
 ) CodegenError!void {
     const genExpr = @import("../expressions.zig").genExpr;
 
@@ -148,6 +158,7 @@ fn genGenExpIterLoop(
     gen: ast.Node.Comprehension,
     gen_idx: usize,
     label_id: usize,
+    renamed_vars: *std.ArrayListUnmanaged([]const u8),
 ) CodegenError!void {
     const genExpr = @import("../expressions.zig").genExpr;
 
@@ -189,7 +200,7 @@ fn genGenExpIterLoop(
     };
 
     if (is_tuple_target) {
-        try genGenExpTupleUnpack(self, gen, gen_idx, label_id);
+        try genGenExpTupleUnpack(self, gen, gen_idx, label_id, renamed_vars);
     } else {
         try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |", .{ label_id, gen_idx });
         const unique_id = self.nextLabelId();
@@ -197,11 +208,23 @@ fn genGenExpIterLoop(
         try self.emit("| {\n");
         self.indent();
 
+        // Emit discard for loop variable to handle cases where variable is used in eval strings
+        // (e.g., runtime.eval("input_sets[p]") where p is the loop variable)
+        if (gen.target.* == .name) {
+            const target_name = gen.target.name.id;
+            const actual_name = maybe_mangled orelse target_name;
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(actual_name);
+            try self.emit(";\n");
+        }
+
         // If loop target shadows an imported module, register the rename mapping
         if (maybe_mangled) |mangled_name| {
             if (gen.target.* == .name) {
                 const target_name = gen.target.name.id;
                 try self.var_renames.put(target_name, mangled_name);
+                try renamed_vars.append(self.allocator, target_name);
             }
         }
     }
@@ -213,6 +236,7 @@ fn genGenExpTupleUnpack(
     gen: ast.Node.Comprehension,
     gen_idx: usize,
     label_id: usize,
+    renamed_vars: *std.ArrayListUnmanaged([]const u8),
 ) CodegenError!void {
     try self.output.writer(self.allocator).print("for (__iter_{d}_{d}) |__tuple_{d}_{d}__| {{\n", .{ label_id, gen_idx, label_id, gen_idx });
     self.indent();
@@ -229,13 +253,21 @@ fn genGenExpTupleUnpack(
             if (std.mem.eql(u8, var_name, "_")) {
                 try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
             } else {
-                if (self.isDeclared(var_name)) {
+                const actual_name = if (self.isDeclared(var_name)) blk: {
                     const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
                     try self.var_renames.put(var_name, renamed);
+                    try renamed_vars.append(self.allocator, var_name);
                     try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
-                } else {
+                    break :blk renamed;
+                } else blk: {
                     try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
-                }
+                    break :blk var_name;
+                };
+                // Emit discard to handle cases where variable is used in eval strings
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(actual_name);
+                try self.emit(";\n");
             }
         }
     }

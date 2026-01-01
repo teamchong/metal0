@@ -114,6 +114,15 @@ pub fn toLower(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     return result;
 }
 
+/// Python str.replace(old, new) - replaces all occurrences of old with new
+pub fn replace(allocator: std.mem.Allocator, input: []const u8, old: []const u8, new: []const u8) ![]u8 {
+    // Handle empty old string - return copy of input (Python behavior)
+    if (old.len == 0) {
+        return try allocator.dupe(u8, input);
+    }
+    return try std.mem.replaceOwned(u8, allocator, input, old, new);
+}
+
 /// Python str.format() - replaces {key} or {} with argument values
 /// Handles keyword args as .{.{name, value}, ...} tuples
 pub fn pyStrFormat(allocator: std.mem.Allocator, template: []const u8, args: anytype) ![]u8 {

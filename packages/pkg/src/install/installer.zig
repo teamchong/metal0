@@ -419,81 +419,31 @@ pub const PackageInfo = struct {
     sha256: ?[]const u8,
 };
 
-/// Detect the best site-packages directory
-fn detectSitePackages(allocator: std.mem.Allocator) ![]const u8 {
-    // Check for virtual environment first
+/// Get metal0's package directory: ~/.metal0/packages/site-packages
+/// This is the ONLY package location metal0 uses - no dependency on system Python
+pub fn getMetal0PackageDir(allocator: std.mem.Allocator) ![]const u8 {
     // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
-    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
-        const path = try std.fmt.allocPrint(
-            allocator,
-            "{s}/lib/python3.11/site-packages",
-            .{venv},
-        );
-        if (dirExists(path)) return path;
+    const home = if (comptime builtin.os.tag == .windows)
+        "C:\\Users\\Public"
+    else
+        std.posix.getenv("HOME") orelse return error.NoHomeDir;
+
+    const path = try std.fmt.allocPrint(allocator, "{s}/.metal0/packages/site-packages", .{home});
+
+    // Create directory if it doesn't exist
+    std.fs.cwd().makePath(path) catch |err| {
         allocator.free(path);
+        return err;
+    };
 
-        // Try other Python versions
-        var version: u8 = 12;
-        while (version >= 8) : (version -= 1) {
-            const versioned_path = try std.fmt.allocPrint(
-                allocator,
-                "{s}/lib/python3.{d}/site-packages",
-                .{ venv, version },
-            );
-            if (dirExists(versioned_path)) return versioned_path;
-            allocator.free(versioned_path);
-        }
-    }
+    return path;
+}
 
-    // Check for local .venv
-    var version: u8 = 13;
-    while (version >= 8) : (version -= 1) {
-        const local_venv = try std.fmt.allocPrint(
-            allocator,
-            ".venv/lib/python3.{d}/site-packages",
-            .{version},
-        );
-        if (dirExists(local_venv)) return local_venv;
-        allocator.free(local_venv);
-    }
-
-    // macOS Framework Python
-    if (builtin.os.tag == .macos) {
-        version = 13;
-        while (version >= 8) : (version -= 1) {
-            const framework = try std.fmt.allocPrint(
-                allocator,
-                "/Library/Frameworks/Python.framework/Versions/3.{d}/lib/python3.{d}/site-packages",
-                .{ version, version },
-            );
-            if (dirExists(framework)) return framework;
-            allocator.free(framework);
-        }
-    }
-
-    // User site-packages
-    // Note: std.posix.getenv unavailable on Windows
-    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("HOME")) |home| {
-        version = 13;
-        while (version >= 8) : (version -= 1) {
-            const user_path = if (builtin.os.tag == .macos)
-                try std.fmt.allocPrint(
-                    allocator,
-                    "{s}/Library/Python/3.{d}/lib/python/site-packages",
-                    .{ home, version },
-                )
-            else
-                try std.fmt.allocPrint(
-                    allocator,
-                    "{s}/.local/lib/python3.{d}/site-packages",
-                    .{ home, version },
-                );
-            if (dirExists(user_path)) return user_path;
-            allocator.free(user_path);
-        }
-    }
-
-    return error.NoSitePackages;
+/// Detect the best site-packages directory
+/// Priority: 1) metal0's own directory, 2) virtualenv, 3) system Python
+fn detectSitePackages(allocator: std.mem.Allocator) ![]const u8 {
+    // ALWAYS use metal0's package directory - no dependency on system Python
+    return getMetal0PackageDir(allocator);
 }
 
 fn dirExists(path: []const u8) bool {

@@ -17,6 +17,7 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const zig_keywords = @import("utils.zig_keywords");
 const scope_analyzer = @import("scope_analyzer.zig");
 const container_traits = @import("../../../../analysis/traits/container_traits.zig");
+const method_categories = @import("../../dispatch/method_categories.zig");
 
 const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
@@ -761,16 +762,47 @@ pub fn inferFallbackType(init: ?*const ast.Node, source: scope_analyzer.EscapedS
         return switch (expr.*) {
             // Function calls - usually return PyValue or objects
             .call => |c| {
-                // Check for unittest context manager methods (self.assertRaises, etc.)
+                // Check for context manager methods and known attribute calls
                 if (c.func.* == .attribute) {
                     const attr = c.func.attribute;
                     const method_name = attr.attr;
-                    if (std.mem.eql(u8, method_name, "assertRaises") or
-                        std.mem.eql(u8, method_name, "assertRaisesRegex") or
-                        std.mem.eql(u8, method_name, "assertWarns") or
-                        std.mem.eql(u8, method_name, "assertWarnsRegex") or
-                        std.mem.eql(u8, method_name, "assertLogs"))
-                    {
+
+                    // Check for support.XXX() context managers
+                    // These need the __enter__ return type, not the context manager type
+                    if (attr.value.* == .name) {
+                        const module_name = attr.value.name.id;
+                        if (std.mem.eql(u8, module_name, "support")) {
+                            // support.CPUStopwatch().__enter__() returns CPUStopwatchResult
+                            if (std.mem.eql(u8, method_name, "CPUStopwatch")) {
+                                return "support.CPUStopwatchResult";
+                            }
+                            // support.adjust_int_max_str_digits().__enter__() returns void
+                            if (std.mem.eql(u8, method_name, "adjust_int_max_str_digits")) {
+                                return "void";
+                            }
+                        }
+                        // sys module functions that return i64
+                        if (std.mem.eql(u8, module_name, "sys")) {
+                            if (std.mem.eql(u8, method_name, "get_int_max_str_digits") or
+                                std.mem.eql(u8, method_name, "set_int_max_str_digits") or
+                                std.mem.eql(u8, method_name, "getrecursionlimit") or
+                                std.mem.eql(u8, method_name, "setrecursionlimit") or
+                                std.mem.eql(u8, method_name, "getswitchinterval") or
+                                std.mem.eql(u8, method_name, "setswitchinterval") or
+                                std.mem.eql(u8, method_name, "getsizeof"))
+                            {
+                                return "i64";
+                            }
+                        }
+                    }
+
+                    // Check for self.int_class() - typically int alias, returns UnifiedInt
+                    if (std.mem.eql(u8, method_name, "int_class")) {
+                        return "runtime.UnifiedInt";
+                    }
+
+                    // Check for unittest context manager methods (self.assertRaises, etc.)
+                    if (method_categories.isAssertContextManager(method_name)) {
                         return "runtime.unittest.ContextManager";
                     }
                 }
@@ -961,11 +993,22 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
     type_ctx.scanFunctionBody(func_body);
 
     // Build safe vars set from function parameters
+    // IMPORTANT: When a parameter has a default value, it's renamed to {name}_param in Zig
+    // and the original name is bound via `const {name} = {name}_param` AFTER hoisted declarations.
+    // So we must NOT add the Python name to safe_vars in this case - only the Zig name is safe.
     var safe_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer safe_vars.deinit();
 
     for (func_params) |param| {
-        try safe_vars.put(param.name, {});
+        if (param.default != null) {
+            // Parameter has default - will be renamed to {name}_param in Zig
+            // The original name won't be available until const binding later
+            const zig_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{param.name});
+            try safe_vars.put(zig_name, {});
+        } else {
+            // No default - Python name is used directly in Zig signature
+            try safe_vars.put(param.name, {});
+        }
     }
 
     // Also add module-level names as safe (they're always available)
@@ -1007,6 +1050,21 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         // but in Zig the function is already defined so we skip hoisting
         if (self.module_level_funcs.contains(escaped.name)) continue;
 
+        // Skip variables that will be assigned to a nested function definition
+        // Python: def recurser(): ...; recurser(x, y) - the function is called before definition
+        // But in the generated Zig, the nested function becomes a struct, so we can't hoist it
+        const is_nested_func = blk: {
+            for (func_body) |stmt| {
+                if (stmt == .function_def) {
+                    if (std.mem.eql(u8, stmt.function_def.name, escaped.name)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        };
+        if (is_nested_func) continue;
+
         // Also skip variables that are assigned a module-level function
         // e.g., `permutations = rpermutation` - can't hoist a function reference
         if (escaped.init_expr) |init| {
@@ -1030,7 +1088,8 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         }
         // Also track method-shadowing renames (e.g., "stop" -> "stop_")
         // This ensures body code uses the same renamed identifier
-        if (zig_keywords.wouldShadowMethod(actual_name)) {
+        // Check both method shadowing AND module shadowing (e.g., 'main' shadows pub fn main())
+        if (zig_keywords.wouldShadowMethod(actual_name) or zig_keywords.wouldShadowModule(actual_name)) {
             const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_", .{actual_name});
             if (!self.var_renames.contains(escaped.name)) {
                 try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), renamed);

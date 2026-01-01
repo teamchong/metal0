@@ -2,6 +2,7 @@
 const std = @import("std");
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
+const type_predicates = @import("../type_predicates.zig");
 
 /// Python error types
 pub const PythonError = error{
@@ -33,9 +34,9 @@ pub inline fn numToFloat(value: anytype) f64 {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
 
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return @floatCast(value);
-    } else if (info == .int or info == .comptime_int) {
+    } else if (type_predicates.isIntInfo(info)) {
         return @floatFromInt(value);
     } else if (T == BigInt) {
         return value.toFloat();
@@ -57,7 +58,7 @@ pub inline fn addNum(a: anytype, b: anytype) AddResultType(@TypeOf(a), @TypeOf(b
     const a_info = @typeInfo(A);
     const b_info = @typeInfo(B);
 
-    if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
+    if ((type_predicates.isIntInfo(a_info)) and (type_predicates.isIntInfo(b_info))) {
         const a_i64: i64 = if (a_info == .comptime_int) a else @intCast(a);
         const b_i64: i64 = if (b_info == .comptime_int) b else @intCast(b);
         return a_i64 + b_i64;
@@ -69,7 +70,7 @@ pub inline fn addNum(a: anytype, b: anytype) AddResultType(@TypeOf(a), @TypeOf(b
 fn AddResultType(comptime A: type, comptime B: type) type {
     const a_info = @typeInfo(A);
     const b_info = @typeInfo(B);
-    if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
+    if ((type_predicates.isIntInfo(a_info)) and (type_predicates.isIntInfo(b_info))) {
         return i64;
     }
     return f64;

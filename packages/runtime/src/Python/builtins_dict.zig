@@ -375,7 +375,7 @@ fn wrapPrint(allocator: std.mem.Allocator, args: []*PyObject) !*PyObject {
             _ = std.posix.write(std.posix.STDOUT_FILENO, str) catch {};
         } else if (cpython.PyBool_Check(arg)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(arg));
-            const str = if (bool_obj.ob_digit != 0) "True" else "False";
+            const str = if (bool_obj.getValue()) "True" else "False";
             _ = std.posix.write(std.posix.STDOUT_FILENO, str) catch {};
         } else if (arg == runtime.Py_None) {
             _ = std.posix.write(std.posix.STDOUT_FILENO, "None") catch {};
@@ -671,7 +671,7 @@ fn wrapChr(allocator: std.mem.Allocator, args: []*PyObject) !*PyObject {
     const codepoint: u32 = blk: {
         if (cpython.PyLong_Check(args[0])) {
             const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(args[0]));
-            break :blk @intCast(long_obj.ob_digit);
+            break :blk @intCast(long_obj.getValue());
         }
         return error.TypeError;
     };
@@ -786,7 +786,7 @@ fn wrapRepr(allocator: std.mem.Allocator, args: []*PyObject) !*PyObject {
 
     if (cpython.PyBool_Check(obj)) {
         const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
-        return runtime.PyString.create(allocator, if (bool_obj.ob_digit != 0) "True" else "False");
+        return runtime.PyString.create(allocator, if (bool_obj.getValue()) "True" else "False");
     }
 
     if (obj == runtime.Py_None) {

@@ -7,9 +7,21 @@ const CodegenError = h.CodegenError;
 const NativeCodegen = h.NativeCodegen;
 
 fn genRounding(comptime blt: []const u8) h.H {
+    // Map builtin to runtime helper name
+    const runtime_fn = comptime blk: {
+        if (std.mem.eql(u8, blt, "@trunc")) break :blk "truncCall";
+        if (std.mem.eql(u8, blt, "@ceil")) break :blk "ceilCall";
+        if (std.mem.eql(u8, blt, "@floor")) break :blk "floorCall";
+        break :blk "truncCall"; // fallback
+    };
     return struct { fn f(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         if (args.len > 0) {
             const t = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+            // Complex type - math.trunc/ceil/floor raises TypeError
+            if (t == .complex) {
+                try self.emit("(blk: { return error.TypeError; unreachable; })");
+                return;
+            }
             if (t == .float) {
                 try self.emit("@as(i64, @intFromFloat(" ++ blt ++ "(");
                 try self.genExpr(args[0]);
@@ -17,9 +29,20 @@ fn genRounding(comptime blt: []const u8) h.H {
             } else if (t == .int) {
                 try self.genExpr(args[0]);
             } else {
-                try self.emit("@as(i64, @intFromFloat(" ++ blt ++ "(@as(f64, ");
-                try self.genExpr(args[0]);
-                try self.emit("))))");
+                // Unknown type - use polymorphic runtime helper that handles complex
+                if (self.in_assert_raises_context) {
+                    try self.emit("(runtime.Lib.math." ++ runtime_fn ++ "(");
+                    try self.genExpr(args[0]);
+                    try self.emit("))");
+                } else if (self.inside_try_body) {
+                    try self.emit("(try runtime.Lib.math." ++ runtime_fn ++ "(");
+                    try self.genExpr(args[0]);
+                    try self.emit("))");
+                } else {
+                    try self.emit("(runtime.Lib.math." ++ runtime_fn ++ "(");
+                    try self.genExpr(args[0]);
+                    try self.emit(") catch 0)");
+                }
             }
         } else try self.emit("@as(i64, 0)");
     } }.f;
@@ -72,7 +95,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 
 const genFactorial = h.wrapBlk("fact", "var _n = @as(i64, @intCast(__v)); var _result: i64 = 1; while (_n > 1) : (_n -= 1) { _result *= _n; }", "_result", "@as(i64, 1)");
 
-const genGcd = h.wrap2Blk("gcd", "var _a = @abs(@as(i64, @intCast(__v0))); var _b = @abs(@as(i64, @intCast(__v1))); while (_b != 0) { const _t = _b; _b = @mod(_a, _b); _a = _t; }", "_a", "@as(i64, 0)");
+const genGcd = h.wrap2Blk("gcd", "var _a = @abs(@as(i64, @intCast(__v0))); var _b = @abs(@as(i64, @intCast(__v1))); while (_b != 0) { const _t = _b; _b = @mod(_a, _b); _a = _t; }", "@as(i64, @intCast(_a))", "@as(i64, 0)");
 const genLcm = h.wrap2Blk("lcm", "const _a = @abs(@as(i64, @intCast(__v0))); const _b = @abs(@as(i64, @intCast(__v1))); var _aa = _a; var _bb = _b; while (_bb != 0) { const _t = _bb; _bb = @mod(_aa, _bb); _aa = _t; }", "if (_a == 0 or _b == 0) @as(i64, 0) else @divExact(_a, _aa) * _b", "@as(i64, 0)");
 const genComb = h.wrap2Blk("comb", "const _n = @as(u64, @intCast(__v0)); const _k = @as(u64, @intCast(__v1)); var _result: u64 = 1; var _i: u64 = 0; while (_i < _k) : (_i += 1) { _result = _result * (_n - _i) / (_i + 1); }", "if (_k > _n) @as(i64, 0) else @as(i64, @intCast(_result))", "@as(i64, 0)");
 

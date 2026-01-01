@@ -1,5 +1,6 @@
 /// Format operations for Python str/repr/format
 const std = @import("std");
+const type_predicates = @import("type_predicates.zig");
 
 /// Format mode for formatInt
 pub const FormatMode = enum {
@@ -19,9 +20,9 @@ pub fn formatInt(value: anytype, mode: FormatMode) []const u8 {
     // Convert to unsigned int for formatting
     const int_val: u64 = if (info == .bool)
         @as(u64, if (value) 1 else 0)
-    else if (info == .int or info == .comptime_int)
+    else if (type_predicates.isIntInfo(info))
         @as(u64, @intCast(if (value < 0) @as(i64, value) +% @as(i64, @bitCast(@as(u64, std.math.maxInt(u64)))) +% 1 else @as(i64, value)))
-    else if (info == .float or info == .comptime_float)
+    else if (type_predicates.isFloatInfo(info))
         @as(u64, @intFromFloat(@abs(value)))
     else
         0;

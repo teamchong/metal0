@@ -105,8 +105,16 @@ pub fn powBig(base: BigInt, exp: BigInt, allocator: Allocator) BigInt {
 // Unary Operations
 // =============================================================================
 
-/// Negate a BigInt: -value (panics on OOM)
-pub fn neg(value: BigInt, allocator: Allocator) BigInt {
+/// Negate a BigInt or UnifiedInt: -value (panics on OOM)
+/// Accepts BigInt, *BigInt, or UnifiedInt
+pub fn neg(value: anytype, allocator: Allocator) @TypeOf(value) {
+    const T = @TypeOf(value);
+    const pyint = @import("../Objects/pyint.zig");
+    // Handle UnifiedInt - delegate to unified_int_ops
+    if (T == pyint.UnifiedInt) {
+        return value.neg(allocator) catch @panic("OOM");
+    }
+    // Handle BigInt
     var result = clone(value, allocator);
     result.negate();
     return result;

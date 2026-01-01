@@ -131,6 +131,82 @@ pub fn trunc(x: f64) f64 {
     return @trunc(x);
 }
 
+const PythonError = @import("../runtime/exceptions.zig").PythonError;
+const type_predicates = @import("../runtime/type_predicates.zig");
+
+/// Check if type looks like PyComplex (struct with real and imag f64 fields)
+fn isComplexLike(comptime T: type, comptime info: std.builtin.Type) bool {
+    if (info != .@"struct") return false;
+    if (!@hasField(T, "real") or !@hasField(T, "imag")) return false;
+    const RealType = @TypeOf(@field(@as(T, undefined), "real"));
+    const ImagType = @TypeOf(@field(@as(T, undefined), "imag"));
+    return (RealType == f64 or RealType == comptime_float) and
+        (ImagType == f64 or ImagType == comptime_float);
+}
+
+/// Polymorphic trunc for unknown types - raises TypeError for complex
+pub fn truncCall(first: anytype) PythonError!i64 {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+
+    // Check for PyComplex struct
+    if (isComplexLike(FirstType, first_info)) {
+        return PythonError.TypeError;
+    }
+
+    // Numeric types
+    if (type_predicates.isIntInfo(first_info)) {
+        return @as(i64, first);
+    }
+    if (type_predicates.isFloatInfo(first_info)) {
+        return @as(i64, @intFromFloat(@trunc(@as(f64, first))));
+    }
+
+    return PythonError.TypeError;
+}
+
+/// Polymorphic ceil for unknown types - raises TypeError for complex
+pub fn ceilCall(first: anytype) PythonError!i64 {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+
+    // Check for PyComplex struct
+    if (isComplexLike(FirstType, first_info)) {
+        return PythonError.TypeError;
+    }
+
+    // Numeric types
+    if (type_predicates.isIntInfo(first_info)) {
+        return @as(i64, first);
+    }
+    if (type_predicates.isFloatInfo(first_info)) {
+        return @as(i64, @intFromFloat(@ceil(@as(f64, first))));
+    }
+
+    return PythonError.TypeError;
+}
+
+/// Polymorphic floor for unknown types - raises TypeError for complex
+pub fn floorCall(first: anytype) PythonError!i64 {
+    const FirstType = @TypeOf(first);
+    const first_info = @typeInfo(FirstType);
+
+    // Check for PyComplex struct
+    if (isComplexLike(FirstType, first_info)) {
+        return PythonError.TypeError;
+    }
+
+    // Numeric types
+    if (type_predicates.isIntInfo(first_info)) {
+        return @as(i64, first);
+    }
+    if (type_predicates.isFloatInfo(first_info)) {
+        return @as(i64, @intFromFloat(@floor(@as(f64, first))));
+    }
+
+    return PythonError.TypeError;
+}
+
 /// Python-style banker's rounding (round half to even)
 pub fn round(x: f64) f64 {
     const floored = @floor(x);

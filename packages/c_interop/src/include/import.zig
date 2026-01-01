@@ -1,7 +1,7 @@
 /// CPython Import System
 ///
 /// Implements PyImport_* functions for loading Python modules and C extensions.
-/// This is the key to loading NumPy and other C extension modules.
+/// Uses dlopen for native C extension loading - NO Python subprocess calls.
 const std = @import("std");
 const builtin = @import("builtin");
 const cpython = @import("object.zig");
@@ -49,6 +49,11 @@ const static_module_registry: []const StaticModuleEntry = &[_]StaticModuleEntry{
 /// Initialize module system
 fn initModuleSystem() void {
     if (registry_initialized) return;
+
+    // CRITICAL: Initialize Python runtime first (type system, etc.)
+    // This is required before any C extension module can be loaded
+    const pylifecycle = @import("../python/pylifecycle.zig");
+    pylifecycle.Py_Initialize();
 
     // Create sys.modules dict
     module_dict = PyDict_New();
@@ -116,8 +121,7 @@ pub export fn PyImport_ImportModule(name: [*:0]const u8) callconv(.c) ?*cpython.
 
 /// Import a hierarchical module like "numpy.testing" by:
 /// 1. Importing the root module ("numpy")
-/// 2. For proxy modules: create a new proxy for the full submodule path
-/// 3. For native modules: traverse using attribute access
+/// 2. For native modules: traverse using attribute access
 fn importHierarchical(full_name: []const u8, first_dot: usize) ?*cpython.PyObject {
     // Get root module name (e.g., "numpy" from "numpy.testing")
     const root_name = full_name[0..first_dot];
@@ -131,43 +135,7 @@ fn importHierarchical(full_name: []const u8, first_dot: usize) ?*cpython.PyObjec
     // Import root module (recursive call handles caching)
     const root_module = PyImport_ImportModule(@ptrCast(&root_buf)) orelse return null;
 
-    // If root is a proxy module, create a new proxy for the full submodule path
-    // This handles pure Python submodules of C extensions (like numpy.testing)
-    if (isProxyModule(root_module)) {
-        // Verify the full submodule can be imported via subprocess
-        var check_buf: [512]u8 = undefined;
-        const check_code = std.fmt.bufPrint(&check_buf, "import {s}", .{full_name}) catch return null;
-
-        const check_result = std.process.Child.run(.{
-            .allocator = allocator,
-            .argv = &[_][]const u8{ "python3", "-c", check_code },
-        }) catch return null;
-        defer allocator.free(check_result.stdout);
-        defer allocator.free(check_result.stderr);
-
-        // Check if import succeeded
-        switch (check_result.term) {
-            .Exited => |code| if (code != 0) return null,
-            else => return null,
-        }
-
-        // Create a proxy module for the full submodule path
-        const submodule = createProxyModule(full_name) orelse return null;
-
-        // Cache in sys.modules
-        if (module_dict) |mod_dict| {
-            var name_buf: [512:0]u8 = undefined;
-            if (full_name.len < name_buf.len) {
-                @memcpy(name_buf[0..full_name.len], full_name);
-                name_buf[full_name.len] = 0;
-                _ = PyDict_SetItemString(mod_dict, @ptrCast(&name_buf), submodule);
-            }
-        }
-
-        return submodule;
-    }
-
-    // For non-proxy modules, traverse using attribute access
+    // Traverse using attribute access
     var current_module = root_module;
     var remaining = full_name[first_dot + 1 ..];
 
@@ -742,16 +710,8 @@ fn loadExtensionModule(name: []const u8) ?*cpython.PyObject {
         }
     }
 
-    // Strategy 5: Use subprocess Python for top-level packages only (numpy, pandas, etc.)
-    // These require Python's full import machinery and have symbol conflicts with our stubs
-    // For submodules like "numpy.testing", we don't try subprocess here - let the caller
-    // use hierarchical import (import root, then get attribute)
-    if (parts.items.len == 1) {
-        if (importViaSubprocess(top_level)) |module| {
-            return module;
-        }
-    }
-
+    // C extension not found via dlopen - return null
+    // NO subprocess fallback - we don't depend on Python runtime
     return null;
 }
 
@@ -897,38 +857,6 @@ fn initLoadedLibs() void {
     if (loaded_libs_initialized) return;
     loaded_libs = std.StringHashMap(std.DynLib).init(allocator);
     loaded_libs_initialized = true;
-}
-
-/// Get site-packages paths by querying Python's sys.path
-/// This is the proper way - ask Python itself where its packages are
-fn getSitePackagesPaths(alloc: std.mem.Allocator) ![][]const u8 {
-    // Run: python3 -c "import sys; print('\\n'.join(sys.path))"
-    const result = try std.process.Child.run(.{
-        .allocator = alloc,
-        .argv = &[_][]const u8{
-            "python3",
-            "-c",
-            "import sys; print('\\n'.join(p for p in sys.path if p))",
-        },
-    });
-    defer alloc.free(result.stdout);
-    defer alloc.free(result.stderr);
-
-    switch (result.term) {
-        .Exited => |code| if (code != 0) return error.PythonNotFound,
-        else => return error.PythonNotFound,
-    }
-
-    // Parse the output - each line is a path
-    var paths: std.ArrayList([]const u8) = .{};
-    var iter = std.mem.splitScalar(u8, result.stdout, '\n');
-    while (iter.next()) |line| {
-        if (line.len > 0) {
-            try paths.append(alloc, try alloc.dupe(u8, line));
-        }
-    }
-
-    return paths.toOwnedSlice(alloc);
 }
 
 /// Try loading extension from package path
@@ -1078,427 +1006,54 @@ fn loadSharedLibraryWithName(path: [:0]const u8, init_name: []const u8) ?*cpytho
 }
 
 // ============================================================================
-// LIBPYTHON FALLBACK
+// STUB FUNCTIONS (for API compatibility - subprocess support removed)
 // ============================================================================
+// These functions were used for subprocess-based Python imports.
+// That approach has been removed - we now use only dlopen for C extensions.
 
-/// Global state for libpython loading
-var libpython_handle: ?std.DynLib = null;
-var libpython_initialized: bool = false;
-
-/// Function pointers from libpython
-var Py_Initialize_fn: ?*const fn () callconv(.c) void = null;
-var PyImport_ImportModule_fn: ?*const fn ([*:0]const u8) callconv(.c) ?*cpython.PyObject = null;
-var Py_IsInitialized_fn: ?*const fn () callconv(.c) c_int = null;
-
-/// Find and load libpython.dylib/.so
-fn loadLibPython() bool {
-    if (libpython_initialized) {
-        return libpython_handle != null;
-    }
-    libpython_initialized = true;
-
-    // Python versions to try
-    const python_versions = [_][]const u8{ "3.13", "3.12", "3.11", "3.10" };
-
-    // Get HOME directory
-    const home = if (comptime builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/root");
-
-    // Try common libpython locations
-    var path_buf: [512]u8 = undefined;
-
-    // mise/asdf paths
-    const minor_versions = [_][]const u8{ ".0", ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9", ".10", ".11", ".12" };
-    for (python_versions) |ver| {
-        for (minor_versions) |minor| {
-            const lib_path = std.fmt.bufPrintZ(&path_buf, "{s}/.local/share/mise/installs/python/{s}{s}/lib/libpython{s}.dylib", .{ home, ver, minor, ver }) catch continue;
-            if (std.DynLib.open(lib_path)) |lib| {
-                libpython_handle = lib;
-                return initLibPythonFunctions();
-            } else |_| {}
-        }
-    }
-
-    // Homebrew paths (macOS)
-    if (comptime builtin.os.tag == .macos) {
-        for (python_versions) |ver| {
-            const brew_path = std.fmt.bufPrintZ(&path_buf, "/opt/homebrew/Cellar/python@{s}/*/Frameworks/Python.framework/Versions/{s}/lib/libpython{s}.dylib", .{ ver, ver, ver }) catch continue;
-            if (std.DynLib.open(brew_path)) |lib| {
-                libpython_handle = lib;
-                return initLibPythonFunctions();
-            } else |_| {}
-        }
-    }
-
-    // System paths (Linux)
-    if (comptime builtin.os.tag == .linux) {
-        for (python_versions) |ver| {
-            const sys_path = std.fmt.bufPrintZ(&path_buf, "/usr/lib/x86_64-linux-gnu/libpython{s}.so.1", .{ver}) catch continue;
-            if (std.DynLib.open(sys_path)) |lib| {
-                libpython_handle = lib;
-                return initLibPythonFunctions();
-            } else |_| {}
-
-            const sys_path2 = std.fmt.bufPrintZ(&path_buf, "/usr/lib/libpython{s}.so.1", .{ver}) catch continue;
-            if (std.DynLib.open(sys_path2)) |lib| {
-                libpython_handle = lib;
-                return initLibPythonFunctions();
-            } else |_| {}
-        }
-    }
-
-    return false;
-}
-
-/// Stored Python home path (needs to persist for lifetime of Python)
-var python_home_buf: [512:0]u8 = undefined;
-var python_home_set: bool = false;
-
-/// Initialize function pointers from libpython
-fn initLibPythonFunctions() bool {
-    var lib = libpython_handle orelse return false;
-
-    Py_Initialize_fn = lib.lookup(*const fn () callconv(.c) void, "Py_Initialize");
-    Py_IsInitialized_fn = lib.lookup(*const fn () callconv(.c) c_int, "Py_IsInitialized");
-    PyImport_ImportModule_fn = lib.lookup(*const fn ([*:0]const u8) callconv(.c) ?*cpython.PyObject, "PyImport_ImportModule");
-
-    if (Py_Initialize_fn == null or PyImport_ImportModule_fn == null) {
-        return false;
-    }
-
-    // Set PYTHONHOME environment variable before initializing
-    if (!python_home_set) {
-        // Find the Python prefix from the library path
-        const home = if (comptime builtin.os.tag == .windows) "C:\\Users\\Public" else (std.posix.getenv("HOME") orelse "/root");
-        const python_versions = [_][]const u8{ "3.13", "3.12", "3.11", "3.10" };
-        const minor_versions = [_][]const u8{ ".0", ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9", ".10", ".11", ".12" };
-
-        for (python_versions) |ver| {
-            for (minor_versions) |minor| {
-                const prefix_len = std.fmt.bufPrint(&python_home_buf, "{s}/.local/share/mise/installs/python/{s}{s}", .{ home, ver, minor }) catch continue;
-
-                // Check if this is the right prefix by looking for lib/python3.x
-                var check_buf: [600]u8 = undefined;
-                const check_path = std.fmt.bufPrint(&check_buf, "{s}/lib/python{s}", .{ prefix_len, ver }) catch continue;
-                if (std.fs.cwd().access(check_path, .{})) |_| {
-                    // Set PYTHONHOME using C library setenv
-                    python_home_buf[prefix_len.len] = 0;
-                    const setenv_fn = @extern(*const fn ([*:0]const u8, [*:0]const u8, c_int) callconv(.c) c_int, .{ .name = "setenv" });
-                    _ = setenv_fn("PYTHONHOME", &python_home_buf, 1);
-                    python_home_set = true;
-                    break;
-                } else |_| {}
-            }
-            if (python_home_set) break;
-        }
-    }
-
-    // Initialize Python if not already done
-    if (Py_IsInitialized_fn) |is_init| {
-        if (is_init() == 0) {
-            Py_Initialize_fn.?();
-        }
-    } else {
-        Py_Initialize_fn.?();
-    }
-
-    return true;
-}
-
-/// Import a module using a subprocess Python call
-/// This avoids symbol conflicts by running Python in a separate process.
-/// We create a wrapper module object that delegates attribute access to subprocess.
-fn importViaSubprocess(name: []const u8) ?*cpython.PyObject {
-    // First verify the module can be imported by Python
-    var check_buf: [256]u8 = undefined;
-    const check_code = std.fmt.bufPrint(&check_buf, "import {s}", .{name}) catch return null;
-
-    const check_result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "python3", "-c", check_code },
-    }) catch return null;
-    defer allocator.free(check_result.stdout);
-    defer allocator.free(check_result.stderr);
-
-    // Check if import succeeded
-    switch (check_result.term) {
-        .Exited => |code| if (code != 0) return null,
-        else => return null,
-    }
-
-    // Create a proxy module object that will delegate to subprocess
-    const module = createProxyModule(name) orelse return null;
-
-    // Add to sys.modules
-    initModuleSystem();
-    if (module_dict) |mod_dict| {
-        const name_z = allocator.dupeZ(u8, name) catch return module;
-        defer allocator.free(name_z);
-        _ = PyDict_SetItemString(mod_dict, name_z, module);
-    }
-
-    return module;
-}
-
-/// Create a proxy module for subprocess-based imports
-fn createProxyModule(name: []const u8) ?*cpython.PyObject {
-    const name_z = allocator.dupeZ(u8, name) catch return null;
-
-    // Allocate PyModuleDef on heap to avoid use-after-free
-    // PyModule_Create2 stores a pointer to this, so it must outlive the module
-    const module_def = allocator.create(cpython.PyModuleDef) catch return null;
-    module_def.* = .{
-        .m_base = undefined,
-        .m_name = name_z,
-        .m_doc = null,
-        .m_size = -1,
-        .m_methods = null,
-        .m_slots = null,
-        .m_traverse = null,
-        .m_clear = null,
-        .m_free = null,
-    };
-
-    const module = PyModule_Create2(module_def, 0) orelse {
-        allocator.destroy(module_def);
-        return null;
-    };
-
-    // Store the module name in the dict for later retrieval
-    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
-    if (mod_obj.md_dict) |dict| {
-        const proxy_name = @import("unicodeobject.zig").PyUnicode_FromString("__subprocess_proxy__") orelse return module;
-        const name_obj = @import("unicodeobject.zig").PyUnicode_FromString(name_z) orelse return module;
-        _ = PyDict_SetItemString(dict, "__subprocess_proxy__", proxy_name);
-        _ = PyDict_SetItemString(dict, "__proxy_module_name__", name_obj);
-    }
-
-    return module;
-}
-
-/// Get an attribute from a subprocess-based proxy module
-/// This is called by c_interop.getAttr when it detects a proxy module
+/// Stub: Get proxy attribute (subprocess support removed)
+/// Always returns null - no subprocess Python calls
 pub fn getProxyAttr(module: *cpython.PyObject, attr_name: [*:0]const u8) ?*cpython.PyObject {
-    // First verify this is actually a module object
-    if (cpython_module.PyModule_Check(module) == 0) {
-        return null; // Not a module, can't get proxy attributes
-    }
-
-    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
-    const dict = mod_obj.md_dict orelse return null;
-
-    // Check if this is a proxy module
-    const proxy_marker = PyDict_GetItemString(dict, "__subprocess_proxy__");
-    if (proxy_marker == null) return null;
-
-    // Get the module name
-    const name_obj = PyDict_GetItemString(dict, "__proxy_module_name__") orelse return null;
-    const name_str = PyUnicode_AsUTF8(name_obj) orelse return null;
-    const module_name = std.mem.span(name_str);
-
-    // Run subprocess to get the attribute
-    const attr_str = std.mem.span(attr_name);
-    return getAttrViaSubprocess(module_name, attr_str);
+    _ = module;
+    _ = attr_name;
+    return null; // Subprocess support removed
 }
 
-/// Get an attribute value via subprocess
-/// Uses getattr() first, then falls back to importlib.import_module() for internal submodules
-/// like numpy._core._multiarray_tests that require direct import rather than attribute access
-fn getAttrViaSubprocess(module_name: []const u8, attr_name: []const u8) ?*cpython.PyObject {
-    var code_buf: [768]u8 = undefined;
-    const py_code = std.fmt.bufPrint(&code_buf,
-        \\import {s}
-        \\import importlib
-        \\val = getattr({s}, '{s}', None)
-        \\if val is None:
-        \\    try:
-        \\        val = importlib.import_module('{s}.{s}')
-        \\    except ImportError:
-        \\        pass
-        \\print(repr(val))
-    , .{ module_name, module_name, attr_name, module_name, attr_name }) catch return null;
-
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "python3", "-c", py_code },
-    }) catch return null;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-
-    switch (result.term) {
-        .Exited => |exit_code| if (exit_code != 0) return null,
-        else => return null,
-    }
-
-    // Parse the output and create appropriate PyObject
-    const output = std.mem.trimRight(u8, result.stdout, "\n\r");
-    if (output.len == 0) return null;
-
-    return parseSubprocessOutput(output);
-}
-
-/// Check if a proxy module has an attribute via subprocess
-/// Returns true if the attribute exists, false otherwise
+/// Stub: Check proxy attribute (subprocess support removed)
+/// Always returns false - no subprocess Python calls
 pub fn hasattrProxy(module: *cpython.PyObject, attr_name: [*:0]const u8) bool {
-    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(module));
-    const dict = mod_obj.md_dict orelse return false;
-
-    // Check if this is a proxy module
-    const proxy_marker = PyDict_GetItemString(dict, "__subprocess_proxy__");
-    if (proxy_marker == null) return false;
-
-    // Get the module name
-    const name_obj = PyDict_GetItemString(dict, "__proxy_module_name__") orelse return false;
-    const name_str = PyUnicode_AsUTF8(name_obj) orelse return false;
-    const module_name = std.mem.span(name_str);
-
-    // Run subprocess to check hasattr
-    const attr_str = std.mem.span(attr_name);
-    return hasattrViaSubprocess(module_name, attr_str);
+    _ = module;
+    _ = attr_name;
+    return false; // Subprocess support removed
 }
 
-/// Check if a module has an attribute via subprocess
+/// Stub: Check attribute via subprocess (subprocess support removed)
+/// Always returns false - no subprocess Python calls
 pub fn hasattrViaSubprocess(module_name: []const u8, attr_name: []const u8) bool {
-    var code_buf: [512]u8 = undefined;
-    const py_code = std.fmt.bufPrint(&code_buf,
-        \\import {s}
-        \\print(hasattr({s}, '{s}'))
-    , .{ module_name, module_name, attr_name }) catch return false;
-
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "python3", "-c", py_code },
-    }) catch return false;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-
-    switch (result.term) {
-        .Exited => |exit_code| if (exit_code != 0) return false,
-        else => return false,
-    }
-
-    const output = std.mem.trimRight(u8, result.stdout, "\n\r");
-    return std.mem.eql(u8, output, "True");
+    _ = module_name;
+    _ = attr_name;
+    return false; // Subprocess support removed
 }
 
-/// Decode Python escape sequences in a string
-/// Handles: \n, \r, \t, \\, \', \"
-fn decodePythonEscapes(alloc: std.mem.Allocator, input: []const u8) ?[]u8 {
-    var result = alloc.alloc(u8, input.len) catch return null;
-    var out_pos: usize = 0;
-    var i: usize = 0;
-    while (i < input.len) : (i += 1) {
-        if (input[i] == '\\' and i + 1 < input.len) {
-            const decoded: u8 = switch (input[i + 1]) {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '\\' => '\\',
-                '\'' => '\'',
-                '"' => '"',
-                else => {
-                    // Unknown escape - keep both characters
-                    result[out_pos] = input[i];
-                    out_pos += 1;
-                    continue;
-                },
-            };
-            result[out_pos] = decoded;
-            out_pos += 1;
-            i += 1; // Skip the escape character
-        } else {
-            result[out_pos] = input[i];
-            out_pos += 1;
-        }
-    }
-    return result[0..out_pos];
-}
-
-/// Parse subprocess output and create a PyObject
+/// Stub: Parse subprocess output (subprocess support removed)
+/// Always returns null - no subprocess Python calls
 pub fn parseSubprocessOutput(output: []const u8) ?*cpython.PyObject {
-    // Module: <module 'xxx' from '...'>
-    // When we get a module attribute, create a proxy module for it
-    if (std.mem.startsWith(u8, output, "<module '")) {
-        // Extract module name from <module 'xxx' from '...'>
-        const name_start = "<module '".len;
-        if (std.mem.indexOfScalarPos(u8, output, name_start, '\'')) |name_end| {
-            const module_name = output[name_start..name_end];
-            return createProxyModule(module_name);
-        }
-    }
-
-    // String: starts and ends with ' or "
-    if ((output.len >= 2 and output[0] == '\'' and output[output.len - 1] == '\'') or
-        (output.len >= 2 and output[0] == '"' and output[output.len - 1] == '"'))
-    {
-        const str_content = output[1 .. output.len - 1];
-        // Decode Python escape sequences before creating the string
-        const decoded = decodePythonEscapes(allocator, str_content) orelse return null;
-        defer allocator.free(decoded);
-        const str_z = allocator.dupeZ(u8, decoded) catch return null;
-        return @import("unicodeobject.zig").PyUnicode_FromString(str_z);
-    }
-
-    // Integer
-    if (std.fmt.parseInt(i64, output, 10)) |int_val| {
-        return @import("../objects/longobject.zig").PyLong_FromLongLong(int_val);
-    } else |_| {}
-
-    // Float
-    if (std.fmt.parseFloat(f64, output)) |float_val| {
-        return @import("../objects/floatobject.zig").PyFloat_FromDouble(float_val);
-    } else |_| {}
-
-    // None
-    if (std.mem.eql(u8, output, "None")) {
-        return @import("../objects/noneobject.zig").Py_None();
-    }
-
-    // True/False
-    if (std.mem.eql(u8, output, "True")) {
-        return @import("../objects/boolobject.zig").Py_True();
-    }
-    if (std.mem.eql(u8, output, "False")) {
-        return @import("../objects/boolobject.zig").Py_False();
-    }
-
-    // Default: return as string
-    const str_z = allocator.dupeZ(u8, output) catch return null;
-    return @import("unicodeobject.zig").PyUnicode_FromString(str_z);
+    _ = output;
+    return null; // Subprocess support removed
 }
 
-/// Check if a module is a subprocess proxy
-/// Returns false for non-module objects (safe to call on any PyObject)
+/// Stub: Check if module is proxy (subprocess support removed)
+/// Always returns false - no proxy modules exist without subprocess support
 pub fn isProxyModule(obj: *cpython.PyObject) bool {
-    // SAFETY: Must check if it's actually a module before casting
-    if (cpython_module.PyModule_Check(obj) == 0) {
-        return false;
-    }
-    const mod_obj: *cpython_module.PyModuleObject = @ptrCast(@alignCast(obj));
-    const dict = mod_obj.md_dict orelse return false;
-    return PyDict_GetItemString(dict, "__subprocess_proxy__") != null;
+    _ = obj;
+    return false; // Subprocess support removed - no proxy modules
 }
 
-/// Check if a PyObject is a subprocess proxy representation (non-callable string)
-/// This detects objects that were created from subprocess output like "<function ...>"
-/// These cannot be called directly and need special handling
+/// Stub: Check if object is subprocess proxy (subprocess support removed)
+/// Always returns false - no subprocess proxies exist without subprocess support
 pub fn isSubprocessProxy(obj: *cpython.PyObject) bool {
-    // Use the correct unicode module that handles CPython's internal layout
-    const pyunicode = @import("../objects/unicodeobject.zig");
-    if (!pyunicode.isUnicode(obj)) {
-        return false; // Not a string, so not a proxy representation
-    }
-
-    // Get the string value using the correct function that handles CPython layout
-    const str_ptr = pyunicode.asUTF8(obj) orelse return false;
-    const str = std.mem.span(str_ptr);
-
-    // Check if it looks like a Python repr (starts with '<' and ends with '>')
-    // This catches: <function ...>, <class ...>, <method ...>, <builtin_function_or_method ...>
-    if (str.len >= 2 and str[0] == '<' and str[str.len - 1] == '>') {
-        return true;
-    }
-
-    return false;
+    _ = obj;
+    return false; // Subprocess support removed - no proxy objects
 }
 
 /// Get platform-specific extension suffixes (kept for compatibility)

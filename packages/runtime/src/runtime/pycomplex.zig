@@ -12,10 +12,28 @@ pub const PyComplex = struct {
 
     pub fn fromValue(value: anytype) PyComplex {
         const T = @TypeOf(value);
-        return switch (@typeInfo(T)) {
+        const info = @typeInfo(T);
+        return switch (info) {
             .int, .comptime_int => .{ .real = @floatFromInt(value), .imag = 0.0 },
             .float, .comptime_float => .{ .real = value, .imag = 0.0 },
             .bool => .{ .real = if (value) 1.0 else 0.0, .imag = 0.0 },
+            .pointer => |ptr_info| blk: {
+                // Handle class instances with __float__ or __complex__ method
+                const ChildType = ptr_info.child;
+                if (@typeInfo(ChildType) == .@"struct") {
+                    // Prefer __complex__ if available
+                    if (@hasDecl(ChildType, "__complex__")) {
+                        const result = value.__complex__() catch break :blk .{ .real = 0.0, .imag = 0.0 };
+                        break :blk result;
+                    }
+                    // Fall back to __float__ for Real/Rational/Integral types
+                    if (@hasDecl(ChildType, "__float__")) {
+                        const float_val = value.__float__() catch break :blk .{ .real = 0.0, .imag = 0.0 };
+                        break :blk .{ .real = float_val, .imag = 0.0 };
+                    }
+                }
+                break :blk .{ .real = 0.0, .imag = 0.0 };
+            },
             else => .{ .real = 0.0, .imag = 0.0 },
         };
     }

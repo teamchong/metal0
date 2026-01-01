@@ -65,16 +65,18 @@ fn emitToBool(self: *NativeCodegen, cond: ast.Node) CodegenError!void {
 
 /// Emit a for-loop target variable name (raw identifier, no closure transformation)
 /// For-loop targets create new local bindings, not references to captured variables
-/// Checks for shadowing against imported modules and uses unique names if needed
+/// Checks for shadowing against imported modules and function parameters, uses unique names if needed
 /// Returns the mangled name if shadowing occurred, null otherwise
 pub fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node, unique_id: usize) CodegenError!?[]const u8 {
     switch (target) {
         .name => |n| {
             const var_name = n.id;
-            // Check if this name shadows an imported module
+            // Check if this name shadows an imported module or a declared variable (like function params)
+            // In Zig, for-loop captures cannot shadow outer scope variables
             const shadows_import = self.imported_modules.contains(var_name);
-            if (shadows_import) {
-                // Use unique capture name to avoid shadowing imported module
+            const shadows_param = self.isDeclared(var_name);
+            if (shadows_import or shadows_param) {
+                // Use unique capture name to avoid shadowing imported module or function parameter
                 const mangled_name = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}__", .{ var_name, unique_id });
                 try self.emit(mangled_name);
                 return mangled_name;

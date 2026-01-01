@@ -52,7 +52,7 @@ pub const Repr = struct {
         if (T == []const u8 or T == []u8) {
             return self.repr_string(obj);
         } else if (@typeInfo(T) == .pointer) {
-            if (@typeInfo(T).pointer.size == .Slice) {
+            if (@typeInfo(T).pointer.size == .slice) {
                 return self.repr_list(obj, level);
             }
         } else if (@typeInfo(T) == .int) {

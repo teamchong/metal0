@@ -314,9 +314,11 @@ pub fn genModOp(self: *NativeCodegen, binop: ast.Node.BinOp, left_type: NativeTy
             try emitBinaryRuntimeCall(self, "runtime.pyFloatMod", binop.left.*, binop.right.*, false);
         },
         .zig_native => {
+            // Python uses floored modulo, not Zig's truncated @mod
+            // -10 % 3 = 2 in Python (floored), not -1 (truncated)
             const left_is_bool = type_traits.isBoolean(left_type);
             const right_is_bool = type_traits.isBoolean(right_type);
-            try b.emitRaw("@mod(");
+            try b.emitRaw("runtime.pyFlooredModInt(");
             try emitExprBoolCoerced(self, binop.left.*, left_is_bool);
             try b.emitRaw(", ");
             try emitExprBoolCoerced(self, binop.right.*, right_is_bool);

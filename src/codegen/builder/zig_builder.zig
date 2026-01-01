@@ -46,6 +46,8 @@ const TupleValue = @import("zig_value.zig").TupleValue;
 const DictValue = @import("zig_value.zig").DictValue;
 const SetValue = @import("zig_value.zig").SetValue;
 
+const zig_keywords = @import("utils.zig_keywords");
+
 const ZigType = @import("zig_type.zig").ZigType;
 const TypePool = @import("zig_type.zig").TypePool;
 
@@ -124,6 +126,58 @@ const UnicodeNames = std.StaticStringMap(u21).initComptime(.{
 /// Import NameGen for unified ID generation
 const name_gen_mod = @import("codegen.name_gen");
 pub const NameGen = name_gen_mod.NameGen;
+
+/// Check if a string looks like a simple identifier (only letters, digits, underscore)
+/// This does NOT check if it's a valid Zig identifier (may be a keyword).
+/// Used to determine if a raw expression might need keyword escaping.
+fn isSimpleIdentifierFormat(s: []const u8) bool {
+    if (s.len == 0) return false;
+    // Cannot start with digit
+    const first = s[0];
+    if (first >= '0' and first <= '9') return false;
+    // Check all characters are valid identifier chars
+    for (s) |c| {
+        const is_alpha = (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+        const is_digit = (c >= '0' and c <= '9');
+        const is_underscore = (c == '_');
+        if (!is_alpha and !is_digit and !is_underscore) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Zig primitive types and literals that should NOT be escaped
+/// even though they're technically keywords.
+const zig_primitives = std.StaticStringMap(void).initComptime(.{
+    // Literals
+    .{ "true", {} }, .{ "false", {} }, .{ "null", {} }, .{ "undefined", {} },
+    // Boolean
+    .{ "bool", {} },
+    // Integer types (signed) - include all bit widths from zig_keywords.zig
+    .{ "i0", {} }, .{ "i1", {} }, .{ "i2", {} }, .{ "i3", {} },
+    .{ "i4", {} }, .{ "i5", {} }, .{ "i6", {} }, .{ "i7", {} },
+    .{ "i8", {} }, .{ "i16", {} }, .{ "i32", {} }, .{ "i64", {} }, .{ "i128", {} },
+    // Integer types (unsigned) - include all bit widths from zig_keywords.zig
+    .{ "u0", {} }, .{ "u1", {} }, .{ "u2", {} }, .{ "u3", {} },
+    .{ "u4", {} }, .{ "u5", {} }, .{ "u6", {} }, .{ "u7", {} },
+    .{ "u8", {} }, .{ "u16", {} }, .{ "u32", {} }, .{ "u64", {} }, .{ "u128", {} },
+    // Float types
+    .{ "f16", {} }, .{ "f32", {} }, .{ "f64", {} }, .{ "f128", {} },
+    // Size types
+    .{ "usize", {} }, .{ "isize", {} },
+    // C compatibility types
+    .{ "c_int", {} }, .{ "c_uint", {} }, .{ "c_long", {} }, .{ "c_ulong", {} },
+    .{ "c_longlong", {} }, .{ "c_ulonglong", {} }, .{ "c_short", {} }, .{ "c_ushort", {} }, .{ "c_char", {} },
+    // Special types
+    .{ "void", {} }, .{ "type", {} }, .{ "anyerror", {} }, .{ "anyframe", {} },
+    .{ "anytype", {} }, .{ "noreturn", {} }, .{ "comptime_int", {} }, .{ "comptime_float", {} },
+});
+
+/// Check if a name is a Zig literal or primitive type that should NOT be escaped
+fn isZigLiteralOrType(name: []const u8) bool {
+    return zig_primitives.has(name);
+}
 
 /// Main builder struct for Zig code generation
 pub const ZigBuilder = struct {
@@ -629,7 +683,9 @@ pub const ZigBuilder = struct {
             .none => try self.write("{}"),
             .local => |idx| {
                 if (self.locals.getName(idx)) |name| {
-                    try self.write(name);
+                    // Escape Zig keywords like 'const', 'type', 'test', etc.
+                    const escaped = try zig_keywords.escapeIfKeyword(self.allocator, name);
+                    try self.write(escaped);
                 } else {
                     try self.writeFmt("__local_{d}", .{idx});
                 }
@@ -637,12 +693,18 @@ pub const ZigBuilder = struct {
             .local_ref => |idx| {
                 try self.write("&");
                 if (self.locals.getName(idx)) |name| {
-                    try self.write(name);
+                    // Escape Zig keywords like 'const', 'type', 'test', etc.
+                    const escaped = try zig_keywords.escapeIfKeyword(self.allocator, name);
+                    try self.write(escaped);
                 } else {
                     try self.writeFmt("__local_{d}", .{idx});
                 }
             },
-            .named => |name| try self.write(name),
+            .named => |name| {
+                // Escape Zig keywords like 'const', 'type', 'test', etc.
+                const escaped = try zig_keywords.escapeIfKeyword(self.allocator, name);
+                try self.write(escaped);
+            },
             .param => |idx| try self.writeFmt("__param_{d}", .{idx}),
             .certain_int => |v| try self.writeFmt("{d}", .{v}),
             .certain_float => |v| {
@@ -682,8 +744,31 @@ pub const ZigBuilder = struct {
                 _ = info;
                 try self.write("runtime.PyValue{ .none = {} }");
             },
-            .raw_expr => |expr| try self.write(expr),
-            .typed_raw => |t| try self.write(t.raw),
+            .raw_expr => |expr| {
+                // Check if this is a simple identifier that might be a Zig keyword
+                // Exclude Zig literals (true/false/null/undefined) and primitive types (bool, i64, etc.)
+                // These are valid Zig built-ins that should NOT be escaped
+                if (isSimpleIdentifierFormat(expr) and zig_keywords.isZigKeyword(expr) and
+                    !isZigLiteralOrType(expr))
+                {
+                    // Escape keyword: align -> @"align"
+                    try self.writeFmt("@\"{s}\"", .{expr});
+                } else {
+                    try self.write(expr);
+                }
+            },
+            .typed_raw => |t| {
+                // Check if this is a simple identifier that might be a Zig keyword
+                // Exclude Zig literals (true/false/null/undefined) and primitive types (bool, i64, etc.)
+                if (isSimpleIdentifierFormat(t.raw) and zig_keywords.isZigKeyword(t.raw) and
+                    !isZigLiteralOrType(t.raw))
+                {
+                    // Escape keyword: align -> @"align"
+                    try self.writeFmt("@\"{s}\"", .{t.raw});
+                } else {
+                    try self.write(t.raw);
+                }
+            },
             .bigint => |_| try self.write("runtime.BigInt.zero()"), // TODO: proper BigInt emission
             .unified_int => |_| try self.write("runtime.UnifiedInt{ .small = 0 }"), // TODO
             .array => |arr| {

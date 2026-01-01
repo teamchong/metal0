@@ -2,6 +2,7 @@
 const std = @import("std");
 const cpython = @import("../../cpython.zig");
 const PyValue = @import("../../Objects/object.zig").PyValue;
+const type_predicates = @import("../type_predicates.zig");
 
 /// PyBytes - Wrapper for Python bytes type
 /// Preserves type information for repr() to correctly output b'...' format
@@ -341,12 +342,12 @@ pub fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     }
 
     // Integer
-    if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+    if (type_predicates.isInt(T)) {
         return std.fmt.allocPrint(allocator, "{d}", .{value});
     }
 
     // Float
-    if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+    if (type_predicates.isFloat(T)) {
         return pythonFloatRepr(allocator, value);
     }
 
@@ -367,10 +368,10 @@ pub fn valueRepr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
             return pythonFloatRepr(allocator, float_obj.ob_fval);
         } else if (cpython.PyLong_Check(value)) {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(value));
-            return std.fmt.allocPrint(allocator, "{d}", .{int_obj.ob_digit});
+            return std.fmt.allocPrint(allocator, "{d}", .{int_obj.getValue()});
         } else if (cpython.PyBool_Check(value)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(value));
-            return if (bool_obj.ob_digit != 0) "True" else "False";
+            return if (bool_obj.getValue()) "True" else "False";
         } else if (cpython.PyUnicode_Check(value)) {
             const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(value));
             const len: usize = @intCast(str_obj.length);
@@ -502,12 +503,12 @@ pub fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
     }
 
     // Integer
-    if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+    if (type_predicates.isInt(T)) {
         return std.fmt.allocPrint(allocator, "{d}", .{value});
     }
 
     // Float
-    if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+    if (type_predicates.isFloat(T)) {
         return pythonFloatRepr(allocator, value);
     }
 

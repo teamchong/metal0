@@ -99,24 +99,20 @@ pub fn genStr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     } else false;
 
-    var em = self.exprEmitter();
-    const str_label_id = em.reserveLabelId();
-
-    if (arg_type == .bigint) {
-        // BigInt needs special formatting via toDecimalString
-        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-        try self.emitFmt("break :str_{d} (", .{str_label_id});
-        try self.genExpr(args[0]);
-        try self.emitFmt(").toDecimalString({s}) catch unreachable;\n}}", .{alloc_name});
+    // Check if this is a PyValue (uncertain type from inference-codegen mismatch)
+    // PyValue needs runtime conversion since actual type is unknown at compile time
+    // Also check if the variable was hoisted as PyValue (from with blocks, try-except, etc.)
+    const is_pyvalue_var = if (args[0] == .name) self.pyvalue_hoisted_vars.contains(args[0].name.id) else false;
+    if (arg_type == .pyvalue or is_pyvalue_var) {
+        try emitTryRuntimeCall(self, "builtins.pyStr", alloc_name, args[0]);
         return;
-    } else if (type_traits.isIntegral(arg_type)) {
-        // FAST PATH: Use stack buffer for int->str conversion (common in hot loops)
-        // Stack buffer: i64 max is 19 digits + sign + null = 21 bytes, use 32 for safety
-        try self.emitFmt("str_{d}: {{\n", .{str_label_id});
-        try self.emitFmt("var __str_stack_{d}: [32]u8 = undefined;\n", .{str_label_id});
-        try self.emitFmt("break :str_{d} std.fmt.bufPrint(&__str_stack_{d}, \"{{}}\", .{{", .{ str_label_id, str_label_id });
-        try self.genExpr(args[0]);
-        try self.emit("}) catch unreachable;\n}");
+    }
+
+    if (arg_type == .bigint or arg_type == .unified_int or type_traits.isIntegral(arg_type)) {
+        // All integer types: Use pyStr which safely handles i64, BigInt, UnifiedInt, and PyValue
+        // Type inference may return .int when actual runtime type is UnifiedInt (for large numbers)
+        // Using pyStr is safer and handles all cases correctly
+        try emitTryRuntimeCall(self, "builtins.pyStr", alloc_name, args[0]);
         return;
     } else if (type_traits.isFloating(arg_type) and !is_float_error_union) {
         // Use runtime formatFloat which handles NaN/Inf properly (Python: str(nan) == "nan" not "-nan")
@@ -402,17 +398,9 @@ pub fn genRepr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For bigint, use toDecimalString method
-    if (arg_type == .bigint) {
-        var em = self.exprEmitter();
-        const repr_num_label_id = em.reserveLabelId();
-        try self.emitFmt("repr_num_{d}: {{\n", .{repr_num_label_id});
-        try self.emitFmt("var __repr_num_buf_{d} = std.ArrayListUnmanaged(u8){{}};\n", .{repr_num_label_id});
-        try self.emitFmt("try __repr_num_buf_{d}.appendSlice({s}, try (", .{ repr_num_label_id, alloc_name });
-        try self.genExpr(args[0]);
-        try self.emitFmt(").toDecimalString({s}));\n", .{alloc_name});
-        try self.emitFmt("break :repr_num_{d} try __repr_num_buf_{d}.toOwnedSlice({s});\n", .{ repr_num_label_id, repr_num_label_id, alloc_name });
-        try self.emit("}");
+    // For bigint/unified_int, use pyRepr which safely handles both BigInt and PyValue
+    if (arg_type == .bigint or arg_type == .unified_int) {
+        try emitTryRuntimeCall(self, "builtins.pyRepr", alloc_name, args[0]);
         return;
     }
 
@@ -486,7 +474,7 @@ pub fn genFormat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else {
             try self.emit("std.fmt.allocPrint(");
             try self.emit(alloc_name);
-            try self.emit(", \"{any}\", .{");
+            try self.emit(", \"{}\", .{");
             try self.genExpr(args[0]);
             try self.emit("}) catch \"\"");
         }

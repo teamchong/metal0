@@ -529,31 +529,42 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
 
     if (tree != .module) return error.InvalidAST;
 
-    // Scan for local imports and compile them as modules
-    // This is needed so imported modules have pub functions
-    // Use ImportGraph's isRegistryModule to check if module is handled by runtime
+    // Recursively scan and compile all imports (including site-packages like numpy)
     var registry = try import_registry.createDefaultRegistry(aa);
     var import_graph = import_scanner.ImportGraph.initWithRegistry(aa, &registry);
     defer import_graph.deinit();
 
-    const source_dir = std.fs.path.dirname(input_file) orelse ".";
-    for (tree.module.body) |stmt| {
-        if (stmt == .import_stmt) {
-            const module_name = stmt.import_stmt.module;
-            // Skip stdlib modules (handled by runtime) using ImportGraph's registry check
-            if (import_graph.registry) |reg| {
-                if (reg.lookup(module_name) != null) continue;
-            }
-            // Check if local .py file exists
-            const local_path = std.fmt.allocPrint(aa, "{s}/{s}.py", .{ source_dir, module_name }) catch continue;
-            if (std.fs.cwd().access(local_path, .{})) |_| {
-                // Compile as module (with pub functions)
-                compileModule(aa, local_path, module_name) catch |err| {
-                    std.debug.print("ERROR: Failed to compile local module '{s}': {}\n", .{ module_name, err });
-                    std.debug.print("  File: {s}\n", .{local_path});
-                    return err;
-                };
-            } else |_| {}
+    var visited = hashmap_helper.StringHashMap(void).init(aa);
+    defer {
+        for (visited.keys()) |key| aa.free(key);
+        visited.deinit();
+    }
+
+    // Scan all imports recursively
+    import_graph.scanRecursive(input_file, &visited) catch |err| {
+        std.debug.print("Warning: Import scanning failed: {}\n", .{err});
+    };
+
+    // Compile all discovered modules
+    for (import_graph.modules.values()) |mod_info| {
+        // Skip main file
+        if (std.mem.eql(u8, mod_info.path, input_file)) continue;
+
+        // Get output path
+        const zig_out_path = build_dirs.projectZigPath(aa, project_root.?.path, mod_info.path) catch continue;
+        defer aa.free(zig_out_path);
+
+        // Check if needs compilation
+        const needs_compile = blk: {
+            const zig_stat = std.fs.cwd().statFile(zig_out_path) catch break :blk true;
+            const source_stat = std.fs.cwd().statFile(mod_info.path) catch break :blk false;
+            break :blk source_stat.mtime > zig_stat.mtime;
+        };
+
+        if (needs_compile) {
+            compileModule(aa, mod_info.path, mod_info.module_name) catch |err| {
+                std.debug.print("Warning: Failed to compile '{s}': {}\n", .{ mod_info.module_name, err });
+            };
         }
     }
 
@@ -613,6 +624,10 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const aa = arena.allocator();
+
+    // Detect project root (walks up looking for pyproject.toml, setup.py, .git)
+    // Needed for determining where generated .zig files go (.metal0/gen/...)
+    const project_root = try build_dirs.findProjectRoot(aa, opts.input_file);
 
     // Read source file
     const source = try std.fs.cwd().readFileAlloc(aa, opts.input_file, 10 * 1024 * 1024); // 10MB max
@@ -897,7 +912,19 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const is_wasm_target = opts.wasm or opts.target == .wasm_browser or opts.target == .wasm_edge;
     if (!opts.binary and !is_wasm_target and std.mem.eql(u8, opts.mode, "build")) {
         native_gen.mode = .module;
-        native_gen.module_name = output.getBaseName(opts.input_file);
+        // For packages (__init__.py), use the package name (parent dir), not "__init__"
+        // e.g., "numpy/__init__.py" -> module_name = "numpy"
+        const basename = output.getBaseName(opts.input_file);
+        if (std.mem.eql(u8, basename, "__init__")) {
+            // Get parent directory name as package name
+            if (std.fs.path.dirname(opts.input_file)) |dir| {
+                native_gen.module_name = std.fs.path.basename(dir);
+            } else {
+                native_gen.module_name = basename;
+            }
+        } else {
+            native_gen.module_name = basename;
+        }
     }
 
     // Pass import context to codegen
@@ -948,7 +975,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         return;
     } else if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
         std.debug.print("Compiling to shared library...\n", .{});
-        try compiler.compileZigSharedLib(aa, zig_code, bin_path, c_libs);
+        // Get the directory where generated .zig submodules are located
+        // This is critical for relative imports like @import("./version.zig") to resolve correctly
+        // Uses projectZigPath which puts files in .metal0/gen/... (matching where submodules are generated)
+        const root_path = if (project_root) |r| r.path else ".";
+        const gen_zig_path = try build_dirs.projectZigPath(aa, root_path, opts.input_file);
+        const source_dir = std.fs.path.dirname(gen_zig_path);
+        try compiler.compileZigSharedLib(aa, zig_code, bin_path, c_libs, source_dir);
     } else {
         // Try fast path: link against precompiled .o files
         const incremental = @import("compile/incremental.zig");

@@ -47,15 +47,18 @@ fn initIntCache() void {
 
     for (0..INT_CACHE_SIZE) |idx| {
         const value: i64 = @as(i64, @intCast(idx)) + INT_CACHE_START;
+        // Determine sign: 0=positive, 1=zero, 2=negative
+        const sign: usize = if (value == 0) 1 else if (value < 0) 2 else 0;
+        const abs_val: u32 = if (value < 0) @intCast(-value) else @intCast(value);
         int_cache_storage[idx] = .{
             .ob_base = .{
-                .ob_base = .{
-                    .ob_refcnt = 1, // Never freed
-                    .ob_type = &runtime.cpython.PyLong_Type,
-                },
-                .ob_size = 1,
+                .ob_refcnt = 1, // Never freed
+                .ob_type = &runtime.cpython.PyLong_Type,
             },
-            .ob_digit = value,
+            .long_value = .{
+                .lv_tag = (1 << runtime.cpython._PyLong_NON_SIZE_BITS) | sign,
+                .ob_digit = .{abs_val},
+            },
         };
     }
     int_cache_initialized = true;
@@ -224,15 +227,18 @@ fn parseNumber(data: []const u8, pos: usize, arena: *JsonArena) JsonError!ParseR
 
             // Not in cache - allocate CPython-compatible PyLongObject from arena
             const long_obj = arena.alloc(runtime.PyLongObject) catch return JsonError.OutOfMemory;
+            // Determine sign: 0=positive, 1=zero, 2=negative
+            const sign: usize = if (int_value == 0) 1 else if (int_value < 0) 2 else 0;
+            const abs_val: u32 = if (int_value < 0) @intCast(-int_value) else @intCast(int_value);
             long_obj.* = .{
                 .ob_base = .{
-                    .ob_base = .{
-                        .ob_refcnt = 1,
-                        .ob_type = &runtime.cpython.PyLong_Type,
-                    },
-                    .ob_size = 1,
+                    .ob_refcnt = 1,
+                    .ob_type = &runtime.cpython.PyLong_Type,
                 },
-                .ob_digit = int_value,
+                .long_value = .{
+                    .lv_tag = (1 << runtime.cpython._PyLong_NON_SIZE_BITS) | sign,
+                    .ob_digit = .{abs_val},
+                },
             };
             return ParseResult(*runtime.PyObject).init(@ptrCast(long_obj), result.consumed);
         },

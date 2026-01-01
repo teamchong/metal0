@@ -714,14 +714,33 @@ pub const externs = struct {
         .ob_refcnt = 1,
         .ob_type = undefined, // Will be set on first use
     };
-    var _Py_TrueStruct: cpython.PyLongObject = .{
-        .ob_base = .{ .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined }, .ob_size = 1 },
-        .ob_digit = .{1},
-    };
-    var _Py_FalseStruct: cpython.PyLongObject = .{
-        .ob_base = .{ .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined }, .ob_size = 0 },
-        .ob_digit = .{0},
-    };
+
+    // PyLongObject layout is version-dependent (3.12+ uses lv_tag, older uses ob_size)
+    const version = @import("../include/version.zig");
+    var _Py_TrueStruct: cpython.PyLongObject = if (version.hasLvTag(cpython.PYTHON_VERSION))
+        // Python 3.12+: lv_tag encoding (1 digit, positive sign = (1 << 3) | 0 = 8)
+        .{
+            .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
+            .long_value = .{ .lv_tag = 8, .ob_digit = .{1} },
+        }
+    else
+        // Python 3.10-3.11: ob_size encoding
+        .{
+            .ob_base = .{ .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined }, .ob_size = 1 },
+            .ob_digit = .{1},
+        };
+    var _Py_FalseStruct: cpython.PyLongObject = if (version.hasLvTag(cpython.PYTHON_VERSION))
+        // Python 3.12+: lv_tag encoding (zero = sign mask 1)
+        .{
+            .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined },
+            .long_value = .{ .lv_tag = 1, .ob_digit = .{0} },
+        }
+    else
+        // Python 3.10-3.11: ob_size encoding
+        .{
+            .ob_base = .{ .ob_base = .{ .ob_refcnt = 1, .ob_type = undefined }, .ob_size = 0 },
+            .ob_digit = .{0},
+        };
 
     pub fn Py_None() *cpython.PyObject {
         return &_Py_NoneStruct;

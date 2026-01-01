@@ -37,6 +37,7 @@ const zig_statement = @import("zig_statement.zig");
 const zig_expr = @import("zig_expr.zig");
 const zig_value = @import("zig_value.zig");
 const zig_type = @import("zig_type.zig");
+const zig_keywords = @import("utils.zig_keywords");
 
 pub const ZigBuilder = zig_builder.ZigBuilder;
 pub const ZigStatement = zig_statement.ZigStatement;
@@ -385,7 +386,11 @@ pub const StatementBuilder = struct {
     pub fn emitExpr(self: *StatementBuilder, expr: ZigExpr) !void {
         switch (expr) {
             .value => |v| try self.builder.emitValueCore(v),
-            .name => |n| try self.builder.write(n),
+            .name => |n| {
+                // Escape Zig keywords like 'const', 'type', 'test', etc.
+                const escaped = try zig_keywords.escapeIfKeyword(self.arena.allocator(), n);
+                try self.builder.write(escaped);
+            },
             .raw => |r| try self.builder.write(r),
             .binary => |b| try self.emitBinary(b),
             .unary => |u| try self.emitUnary(u),

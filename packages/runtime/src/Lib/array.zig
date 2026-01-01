@@ -298,7 +298,7 @@ pub fn array(allocator: std.mem.Allocator, typecode: []const u8, initializer: an
     if (typecode.len != 1) return error.InvalidTypeCode;
 
     const T = @TypeOf(initializer);
-    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .Slice) {
+    if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .slice) {
         return Array.fromSlice(allocator, typecode[0], initializer);
     }
 

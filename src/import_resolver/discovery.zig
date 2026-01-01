@@ -1,9 +1,14 @@
 /// Python path discovery - Find site-packages and stdlib directories
+/// NOTE: This is only for finding pure Python modules for type analysis.
+/// C extension modules are loaded via dlopen at runtime, not here.
 const std = @import("std");
 const builtin = @import("builtin");
 
 /// Discover Python site-packages directories for Python 3.8-3.13
 /// Returns owned slice of directory paths (caller must free)
+/// Priority: 1) virtualenv, 2) system Python
+/// IMPORTANT: If .venv exists, ONLY use .venv paths to avoid incompatible dependencies
+/// from different Python versions in user site-packages.
 pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
     var paths = std.ArrayList([]const u8){};
     errdefer {
@@ -11,7 +16,9 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
         paths.deinit(allocator);
     }
 
-    // Check for virtual environment first (VIRTUAL_ENV env var)
+    var found_venv = false;
+
+    // Check for virtual environment (VIRTUAL_ENV env var)
     // Note: std.posix.getenv unavailable on Windows (uses WTF-16)
     if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("VIRTUAL_ENV")) |venv| {
         var venv_version: u8 = 8;
@@ -21,6 +28,12 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
                 "{s}/lib/python3.{d}/site-packages",
                 .{ venv, venv_version },
             ) catch continue;
+            // Check if path exists before adding
+            std.fs.cwd().access(venv_path, .{}) catch {
+                allocator.free(venv_path);
+                continue;
+            };
+            found_venv = true;
             paths.append(allocator, venv_path) catch allocator.free(venv_path);
         }
     }
@@ -33,26 +46,19 @@ pub fn discoverSitePackages(allocator: std.mem.Allocator) ![][]const u8 {
             ".venv/lib/python3.{d}/site-packages",
             .{local_venv_version},
         ) catch continue;
+        // Check if path exists before adding
+        std.fs.cwd().access(local_venv, .{}) catch {
+            allocator.free(local_venv);
+            continue;
+        };
+        found_venv = true;
         paths.append(allocator, local_venv) catch allocator.free(local_venv);
     }
 
-    // Check for GitHub Actions Python installation (pythonLocation env var)
-    // actions/setup-python sets this to /opt/hostedtoolcache/Python/3.X.Y/x64
-    if (if (comptime builtin.os.tag == .windows) @as(?[]const u8, null) else std.posix.getenv("pythonLocation")) |python_loc| {
-        var gha_version: u8 = 8;
-        while (gha_version <= 13) : (gha_version += 1) {
-            const gha_path = std.fmt.allocPrint(
-                allocator,
-                "{s}/lib/python3.{d}/site-packages",
-                .{ python_loc, gha_version },
-            ) catch continue;
-            // Only add if directory exists
-            std.fs.cwd().access(gha_path, .{}) catch {
-                allocator.free(gha_path);
-                continue;
-            };
-            paths.append(allocator, gha_path) catch allocator.free(gha_path);
-        }
+    // If we found a venv, ONLY use venv paths to avoid pulling in
+    // incompatible modules from different Python versions in system/user site-packages
+    if (found_venv) {
+        return paths.toOwnedSlice(allocator);
     }
 
     switch (builtin.os.tag) {

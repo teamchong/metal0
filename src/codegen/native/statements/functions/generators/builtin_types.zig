@@ -99,6 +99,40 @@ pub fn getComplexParentInfo(base_name: []const u8) ?ComplexParentInfo {
     return complex_parents.get(base_name);
 }
 
+/// Check if base_name is an ABC (Abstract Base Class) from standard library modules
+/// These don't have Zig vtables since they're abstract interfaces (from numbers, collections.abc, etc.)
+pub fn isABCType(base_name: []const u8) bool {
+    return abc_types.has(base_name);
+}
+
+const abc_types = std.StaticStringMap(void).initComptime(.{
+    // numbers module ABCs (Python abstract base classes for numeric types)
+    .{ "Complex", {} },
+    .{ "Real", {} },
+    .{ "Rational", {} },
+    .{ "Integral", {} },
+    .{ "Number", {} },
+    // collections.abc ABCs (common abstract base classes)
+    .{ "Hashable", {} },
+    .{ "Iterable", {} },
+    .{ "Iterator", {} },
+    .{ "Reversible", {} },
+    .{ "Generator", {} },
+    .{ "Container", {} },
+    .{ "Collection", {} },
+    .{ "Callable", {} },
+    .{ "Sized", {} },
+    .{ "Sequence", {} },
+    .{ "MutableSequence", {} },
+    .{ "Set", {} },
+    .{ "MutableSet", {} },
+    .{ "Mapping", {} },
+    .{ "MutableMapping", {} },
+    // abc module base types
+    .{ "ABC", {} },
+    .{ "ABCMeta", {} },
+});
+
 const C = ComplexParentInfo;
 const complex_parents = std.StaticStringMap(C).initComptime(.{
     .{ "array.array", C{

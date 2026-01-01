@@ -696,7 +696,7 @@ pub fn compileWithPrecompiledObjects(allocator: std.mem.Allocator, zig_code: []c
 
     // NOTE: Do NOT add C sources here - they're already compiled into gzip.o
 
-    // Main module with deps
+    // Main module with deps (must declare deps BEFORE the module that uses them)
     try args.append(aa, "--dep");
     try args.append(aa, "runtime");
     try args.append(aa, "--dep");
@@ -705,10 +705,17 @@ pub fn compileWithPrecompiledObjects(allocator: std.mem.Allocator, zig_code: []c
     try args.append(aa, "utils.allocator_helper");
     try args.append(aa, "--dep");
     try args.append(aa, "c_interop");
+
+    // Add package module deps for main BEFORE -Mmain (numpy, pytest, etc.)
+    try addPackageModuleDeps(aa, &args, zig_code);
+
     try args.append(aa, try std.fmt.allocPrint(aa, "-Mmain={s}", .{tmp_path}));
 
     // Module definitions (needed for type info even though .o has the code)
     try addRuntimeModuleFlagsNew(aa, &args);
+
+    // Add package module definitions (-M flags) AFTER runtime modules
+    try addPackageModuleDefs(aa, &args, zig_code);
 
     // Cache and optimization
     try args.append(aa, "--cache-dir");
@@ -1278,6 +1285,98 @@ pub fn batchCompileWithZigBuild(allocator: std.mem.Allocator, jobs: usize) !stru
     }
 
     return .{ .success = count, .total = total };
+}
+
+/// Add package module --dep flags for main (called BEFORE -Mmain)
+/// This makes main depend on external packages like numpy, pytest
+fn addPackageModuleDeps(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), zig_code: []const u8) !void {
+    const manifest_path = build_dirs.CACHE ++ "/package_modules.txt";
+
+    const file = std.fs.cwd().openFile(manifest_path, .{}) catch {
+        return; // No manifest - that's fine, no external packages
+    };
+    defer file.close();
+
+    var buf: [256 * 1024]u8 = undefined;
+    const content_len = file.readAll(&buf) catch return;
+    const content = buf[0..content_len];
+
+    // Parse manifest: each line is "module_name:absolute_path"
+    // Use indexOf to find first colon (path may contain colons on non-Windows)
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+
+        // Find first colon separator
+        const colon_idx = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const mod_name = line[0..colon_idx];
+        const mod_path = line[colon_idx + 1 ..];
+
+        if (mod_name.len == 0 or mod_path.len == 0) continue;
+
+        // Only add package if it's actually imported in the generated code
+        var import_pattern_buf: [128]u8 = undefined;
+        const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{mod_name}) catch continue;
+        if (std.mem.indexOf(u8, zig_code, import_pattern) == null) {
+            continue; // Skip this package - not used
+        }
+
+        // Add --dep for main to depend on this package
+        // IMPORTANT: mod_name is a slice of stack buffer, must dupe for args list
+        try args.append(allocator, "--dep");
+        try args.append(allocator, try allocator.dupe(u8, mod_name));
+    }
+}
+
+/// Add package module -M definitions (called AFTER -Mmain and runtime modules)
+/// Each package also gets deps on runtime, c_interop, etc.
+fn addPackageModuleDefs(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), zig_code: []const u8) !void {
+    const manifest_path = build_dirs.CACHE ++ "/package_modules.txt";
+
+    const file = std.fs.cwd().openFile(manifest_path, .{}) catch {
+        return; // No manifest - that's fine, no external packages
+    };
+    defer file.close();
+
+    var buf: [256 * 1024]u8 = undefined;
+    const content_len = file.readAll(&buf) catch return;
+    const content = buf[0..content_len];
+
+    // Parse manifest: each line is "module_name:absolute_path"
+    // Use indexOfScalar to find first colon (path may contain colons on non-Windows)
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+
+        // Find first colon separator
+        const colon_idx = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const mod_name = line[0..colon_idx];
+        const mod_path = line[colon_idx + 1 ..];
+
+        if (mod_name.len == 0 or mod_path.len == 0) continue;
+
+        // Only add package if it's actually imported in the generated code
+        var import_pattern_buf: [128]u8 = undefined;
+        const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{mod_name}) catch continue;
+        if (std.mem.indexOf(u8, zig_code, import_pattern) == null) {
+            continue; // Skip this package - not used
+        }
+
+        // Package modules need runtime and c_interop dependencies
+        // Deps must come BEFORE -M for the module
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "runtime");
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "c_interop");
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "utils.hashmap_helper");
+        try args.append(allocator, "--dep");
+        try args.append(allocator, "utils.allocator_helper");
+
+        // -Mname=path
+        const m_flag = try std.fmt.allocPrint(allocator, "-M{s}={s}", .{ mod_name, mod_path });
+        try args.append(allocator, m_flag);
+    }
 }
 
 /// Check if batch build.zig exists and copy if needed

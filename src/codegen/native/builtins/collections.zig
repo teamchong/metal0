@@ -43,20 +43,32 @@ const TypeConvResultTypes = std.StaticStringMap([]const u8).initComptime(.{
 const TypeConvPatterns = std.StaticStringMap([]const u8).initComptime(.{
     .{ "int", "const __mapped = std.fmt.parseInt(i64, __map_item, 10) catch 0;\n" },
     .{ "float", "const __mapped = std.fmt.parseFloat(f64, __map_item) catch 0.0;\n" },
-    .{ "str", "const __mapped = std.fmt.allocPrint(__global_allocator, \"{any}\", .{__map_item}) catch \"\";\n" },
+    .{ "str", "const __mapped = std.fmt.allocPrint(__global_allocator, \"{}\", .{__map_item}) catch \"\";\n" },
 });
 
 /// Generate code for range(stop) or range(start, stop) or range(start, stop, step)
 /// Returns an iterable range object (PyObject list)
 pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    // Check if we're at module level where try is not allowed
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+
     if (args.len == 0) {
-        try self.emit("(try runtime.builtins.range(__global_allocator, 0, 0, 1))");
+        if (cannot_use_try) {
+            try self.emit("(runtime.builtins.range(__global_allocator, 0, 0, 1) catch unreachable)");
+        } else {
+            try self.emit("(try runtime.builtins.range(__global_allocator, 0, 0, 1))");
+        }
         return;
     }
 
     // Generate runtime.builtins.range(allocator, start, stop, step)
     // Wrap each arg in @as(i64, @intCast(...)) to handle usize loop variables
-    try self.emit("(try runtime.builtins.range(__global_allocator, ");
+    if (cannot_use_try) {
+        try self.emit("(runtime.builtins.range(__global_allocator, ");
+    } else {
+        try self.emit("(try runtime.builtins.range(__global_allocator, ");
+    }
     if (args.len == 1) {
         // range(stop) -> range(0, stop, 1)
         try self.emit("0, @as(i64, @intCast(");
@@ -79,7 +91,11 @@ pub fn genRange(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[2]);
         try self.emit("))");
     }
-    try self.emit("))");
+    if (cannot_use_try) {
+        try self.emit(") catch unreachable)");
+    } else {
+        try self.emit("))");
+    }
 }
 
 /// Generate code for enumerate(iterable)

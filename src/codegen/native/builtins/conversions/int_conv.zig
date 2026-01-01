@@ -287,12 +287,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
         if (base_needs_runtime_check and self.in_assert_raises_context) {
             // In assertRaises with potentially invalid base - use runtime validation
-            // Must use 'try' since intWithBase returns error union and we're in an error-returning context
-            try self.emit("(try runtime.builtins.intWithBase(__global_allocator, ");
+            // DON'T use 'try' - return error union for expectError to check
+            try self.emit("runtime.builtins.intWithBase(__global_allocator, ");
             try self.genExpr(args[0]);
             try self.emit(", ");
             try self.genExpr(args[1]);
-            try self.emit("))");
+            try self.emit(")");
             return;
         }
 
@@ -314,11 +314,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         // In assertRaises context with non-string first arg, use runtime intWithBase
         // This handles cases like int(class_instance, base) which should raise TypeError
         if (self.in_assert_raises_context and !first_arg_is_string) {
-            try self.emit("(try runtime.builtins.intWithBase(__global_allocator, ");
+            // DON'T use 'try' - return error union for expectError to check
+            try self.emit("runtime.builtins.intWithBase(__global_allocator, ");
             try self.genExpr(args[0]);
             try self.emit(", ");
             try self.genExpr(args[1]);
-            try self.emit("))");
+            try self.emit(")");
             return;
         }
 
@@ -377,6 +378,12 @@ pub fn genInt(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // Already an int - just return it
     if (type_traits.isIntegral(arg_type)) {
         try self.genExpr(args[0]);
+        return;
+    }
+
+    // Complex type - int(complex) raises TypeError in Python
+    if (type_traits.isComplex(arg_type)) {
+        try self.emit("(blk: { return error.TypeError; unreachable; })");
         return;
     }
 

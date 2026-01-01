@@ -11,8 +11,10 @@ pub fn import_module(comptime name: []const u8) ?type {
 
 /// Import a fresh (non-cached) copy of a module
 /// In AOT compilation, modules are statically linked - returns null (stub)
-pub fn import_fresh_module(comptime name: []const u8) ?type {
+/// Optional blocked parameter specifies modules to block (e.g., C implementations)
+pub fn import_fresh_module(comptime name: []const u8, blocked: anytype) ?type {
     _ = name;
+    _ = blocked;
     return null; // Stub - no module caching in AOT
 }
 

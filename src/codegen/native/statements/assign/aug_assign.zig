@@ -76,6 +76,57 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 };
 
                 if (is_static) {
+                    // Check if field type is PyValue - if so, use PyValue methods
+                    // Also check parent classes for inherited fields
+                    const is_pyvalue_field = blk: {
+                        if (self.current_class_name) |class_name| {
+                            // Check own class fields first
+                            if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                                if (class_info.fields.get(attr.attr)) |field_type| {
+                                    break :blk field_type == .pyvalue or field_type == .unknown;
+                                }
+                            }
+                            // Check parent class fields for inherited fields
+                            if (self.nested_class_bases.get(class_name)) |parent_name| {
+                                if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                                    if (parent_info.fields.get(attr.attr)) |field_type| {
+                                        break :blk field_type == .pyvalue or field_type == .unknown;
+                                    }
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+
+                    if (is_pyvalue_field) {
+                        // PyValue field: use PyValue methods instead of raw operators
+                        const PyValueAugMethods = std.StaticStringMap([]const u8).initComptime(.{
+                            .{ "Add", "add" },
+                            .{ "Sub", "sub" },
+                            .{ "Mult", "mul" },
+                            .{ "Div", "div" },
+                            .{ "FloorDiv", "floordiv" },
+                            .{ "Mod", "mod" },
+                        });
+
+                        if (PyValueAugMethods.get(@tagName(aug.op))) |method_name| {
+                            // self.val = self.val.method(runtime.PyValue.from(value))
+                            try self.emit(self_name);
+                            try self.emit(".");
+                            try self.emit(attr.attr);
+                            try self.emit(" = ");
+                            try self.emit(self_name);
+                            try self.emit(".");
+                            try self.emit(attr.attr);
+                            try self.emit(".");
+                            try self.emit(method_name);
+                            try self.emit("(runtime.PyValue.from(");
+                            try self.genExpr(aug.value.*);
+                            try self.emit("));\n");
+                            return;
+                        }
+                    }
+
                     // Static field: direct field access assignment
                     try self.emit(self_name);
                     try self.emit(".");

@@ -520,6 +520,27 @@ fn emitCallableInvocation(
         return;
     }
 
+    // Handle call to getattr - produces labeled block that can't be called directly
+    // Pattern: assertRaises(TypeError, getattr(obj, name))
+    // getattr(obj, name) returns a callable that needs to be extracted before calling
+    if (callable == .call) {
+        const inner_call = callable.call;
+        if (inner_call.func.* == .name and std.mem.eql(u8, inner_call.func.name.id, "getattr")) {
+            // Extract getattr result to variable, then call it
+            const label = try self.emitInlineBlockStart("ar_func");
+            try self.emit("const __ar_func = ");
+            try parent.genExpr(self, callable);
+            try self.emitFmt("; break :{s} __ar_func(", .{label});
+            for (call_args, 0..) |arg, i| {
+                if (i > 0) try self.emit(", ");
+                try parent.genExpr(self, arg);
+            }
+            try self.emit("); ");
+            try self.emitInlineBlockEnd();
+            return;
+        }
+    }
+
     // Fallback: simple callable expression - use builder pattern
     const b = try self.getBuilder();
     const callable_val = try self.captureExpr(callable);

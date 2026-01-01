@@ -9,26 +9,27 @@ pub const PyBoolObject = runtime.PyBoolObject;
 pub const PyBool_Type = &runtime.cpython.PyBool_Type;
 
 // Bool singletons (like CPython's Py_True and Py_False)
+// Python 3.12+ layout: PyObject + _PyLongValue
 var _Py_TrueStruct: PyBoolObject = .{
     .ob_base = .{
-        .ob_base = .{
-            .ob_refcnt = 1, // Immortal
-            .ob_type = PyBool_Type,
-        },
-        .ob_size = 1,
+        .ob_refcnt = 1, // Immortal
+        .ob_type = PyBool_Type,
     },
-    .ob_digit = 1,
+    .long_value = .{
+        .lv_tag = (1 << runtime.cpython._PyLong_NON_SIZE_BITS) | 0, // 1 digit, positive sign
+        .ob_digit = .{1},
+    },
 };
 
 var _Py_FalseStruct: PyBoolObject = .{
     .ob_base = .{
-        .ob_base = .{
-            .ob_refcnt = 1, // Immortal
-            .ob_type = PyBool_Type,
-        },
-        .ob_size = 0,
+        .ob_refcnt = 1, // Immortal
+        .ob_type = PyBool_Type,
     },
-    .ob_digit = 0,
+    .long_value = .{
+        .lv_tag = (1 << runtime.cpython._PyLong_NON_SIZE_BITS) | 1, // 1 digit, zero sign
+        .ob_digit = .{0},
+    },
 };
 
 pub const Py_True: *PyObject = @ptrCast(&_Py_TrueStruct);
@@ -50,7 +51,7 @@ pub const PyBool = struct {
     pub fn getValue(obj: *PyObject) bool {
         std.debug.assert(runtime.PyBool_Check(obj));
         const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
-        return bool_obj.ob_digit != 0;
+        return bool_obj.getValue();  // Delegates to PyBoolObject.getValue()
     }
 
     /// Convert bool to string representation

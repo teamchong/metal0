@@ -76,6 +76,14 @@ const zig_keywords = std.StaticStringMap(void).initComptime(.{
     // Special identifiers that require @"" syntax
     .{ "_", {} }, // Underscore for discarding values
 
+    // Common imports that conflict with Python method names
+    // Note: 'std' is NOT here - it's handled specially in writeStructMethodName which renames to "std_"
+    // because @"std" is still treated as "std" by Zig (escaping doesn't help)
+    .{ "runtime", {} },
+    .{ "hashmap_helper", {} },
+    .{ "allocator_helper", {} },
+    .{ "string_utils", {} },
+
     // Zig primitive types (name shadows primitive error)
     .{ "i0", {} },
     .{ "i1", {} },
@@ -268,6 +276,32 @@ fn containsSpecialChars(name: []const u8) bool {
         if (c == '.' or c == '-' or c == ' ') return true;
     }
     return false;
+}
+
+/// Write struct method name, renaming if it would shadow the std import
+/// Use this specifically for struct method declarations (pub fn xxx)
+/// Unlike writeEscapedIdent which just escapes with @"", this RENAMES to avoid shadowing
+/// e.g., "std" -> "std_" because @"std" is still treated as "std" by Zig
+pub fn writeStructMethodName(writer: anytype, name: []const u8) !void {
+    // Handle bare underscore
+    if (name.len == 1 and name[0] == '_') {
+        try writer.writeAll("@\"_\"");
+        return;
+    }
+
+    // Struct method named "std" shadows the module-level import `const std = @import("std")`
+    // Even @"std" is treated as "std" by Zig, so we must RENAME it
+    if (std.mem.eql(u8, name, "std")) {
+        try writer.writeAll("std_");
+        return;
+    }
+
+    // For other keywords, @"" escaping is fine (they're actual keywords, not import names)
+    if (isZigKeyword(name) or containsNonAscii(name) or containsSpecialChars(name)) {
+        try writer.print("@\"{s}\"", .{name});
+    } else {
+        try writer.writeAll(name);
+    }
 }
 
 /// This avoids allocation by writing directly

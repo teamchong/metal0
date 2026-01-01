@@ -245,7 +245,7 @@ const CallableTypeNames = std.StaticStringMap(core.CallableReturnKind).initCompt
     .{ "int", .fixed_int },
     .{ "float", .fixed_float },
     .{ "bool", .fixed_bool },
-    .{ "complex", .unknown }, // complex() returns complex, but no fixed_complex variant
+    .{ "complex", .fixed_complex },
     .{ "list", .unknown }, // Can't know element type
     .{ "dict", .unknown },
     .{ "set", .unknown },

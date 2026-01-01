@@ -35,7 +35,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "hexversion", h.I64(0x030c00f0) }, .{ "api_version", h.I64(1013) },
     .{ "copyright", h.c("\"Copyright (c) 2024 metal0 project\"") },
     .{ "builtin_module_names", h.c("&[_][]const u8{\"sys\", \"builtins\", \"io\", \"os\", \"json\", \"re\", \"math\", \"random\", \"time\", \"datetime\"}") },
-    .{ "displayhook", h.debugPrint("", "{any}", "{}") }, .{ "excepthook", h.c("{}") }, .{ "settrace", h.c("{}") }, .{ "gettrace", h.c("null") },
+    .{ "displayhook", h.debugPrint("", "{}", "{}") }, .{ "excepthook", h.c("{}") }, .{ "settrace", h.c("{}") }, .{ "gettrace", h.c("null") },
     .{ "setprofile", h.c("{}") }, .{ "getprofile", h.c("null") },
     .{ "get_int_max_str_digits", h.c("(try sys.get_int_max_str_digits(__global_allocator))") },
     .{ "set_int_max_str_digits", h.wrap("_ = (try sys.set_int_max_str_digits(__global_allocator, ", "))", "_ = (try sys.set_int_max_str_digits(__global_allocator, 0))") },

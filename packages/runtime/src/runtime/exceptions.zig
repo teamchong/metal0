@@ -507,7 +507,8 @@ pub const Exception = struct {
     pub const name = "Exception";
     args: []const PyValue,
     allocator: std.mem.Allocator,
-    __class__: type = Exception,
+    // Note: Removed __class__: type = Exception as it was comptime-only and blocked runtime usage.
+    // Use Exception.name for type identification at runtime.
 
     pub fn init(allocator: std.mem.Allocator) !*Exception {
         const self = try allocator.create(Exception);

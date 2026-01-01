@@ -5,6 +5,7 @@ const cpython = @import("../../cpython.zig");
 
 const PyObject = runtime_core.PyObject;
 const PyValue = @import("../../Objects/object.zig").PyValue;
+const type_predicates = @import("../type_predicates.zig");
 
 /// Check if a type is a PyObject by looking for CPython struct fields
 fn isPyObjectType(comptime T: type) bool {
@@ -93,7 +94,7 @@ pub fn hash(obj: anytype) i64 {
     } else if (comptime isPyObjectType(T)) {
         const pyobj: *cpython.PyObject = @ptrCast(@alignCast(obj));
         return @intCast(runtime_core.pyHash(pyobj));
-    } else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+    } else if (type_predicates.isInt(T)) {
         return @intCast(obj);
     } else if (T == []const u8 or T == []u8) {
         var h: u64 = 0;

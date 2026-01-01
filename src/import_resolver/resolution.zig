@@ -38,11 +38,26 @@ pub fn isBuiltinModule(module_name: []const u8) bool {
     return false;
 }
 
+/// Convert module name with dots to filesystem path
+/// e.g., "numpy.matlib" -> "numpy/matlib"
+fn moduleToPath(allocator: std.mem.Allocator, module_name: []const u8) ![]const u8 {
+    // Replace dots with path separators
+    const result = try allocator.alloc(u8, module_name.len);
+    for (module_name, 0..) |c, i| {
+        result[i] = if (c == '.') '/' else c;
+    }
+    return result;
+}
+
 /// Find module in site-packages or stdlib directories
 pub fn findInSitePackages(
     module_name: []const u8,
     allocator: std.mem.Allocator,
 ) !?[]const u8 {
+    // Convert dots to path separators (numpy.matlib -> numpy/matlib)
+    const module_path = try moduleToPath(allocator, module_name);
+    defer allocator.free(module_path);
+
     // Try site-packages first (for third-party packages)
     const site_packages = try discovery.discoverSitePackages(allocator);
     defer {
@@ -51,21 +66,21 @@ pub fn findInSitePackages(
     }
 
     for (site_packages) |site_dir| {
-        // Try direct module file: site-packages/module.py
+        // Try direct module file: site-packages/numpy/matlib.py
         const module_file = try std.fmt.allocPrint(
             allocator,
             "{s}/{s}.py",
-            .{ site_dir, module_name },
+            .{ site_dir, module_path },
         );
 
         std.fs.cwd().access(module_file, .{}) catch {
             allocator.free(module_file);
 
-            // Try package __init__.py: site-packages/module/__init__.py
+            // Try package __init__.py: site-packages/numpy/matlib/__init__.py
             const package_init = try std.fmt.allocPrint(
                 allocator,
                 "{s}/{s}/__init__.py",
-                .{ site_dir, module_name },
+                .{ site_dir, module_path },
             );
 
             std.fs.cwd().access(package_init, .{}) catch {
@@ -87,21 +102,21 @@ pub fn findInSitePackages(
     }
 
     for (stdlib_dirs) |stdlib_dir| {
-        // Try direct module file: lib/python3.X/module.py
+        // Try direct module file: lib/python3.X/os/path.py
         const module_file = try std.fmt.allocPrint(
             allocator,
             "{s}/{s}.py",
-            .{ stdlib_dir, module_name },
+            .{ stdlib_dir, module_path },
         );
 
         std.fs.cwd().access(module_file, .{}) catch {
             allocator.free(module_file);
 
-            // Try package __init__.py: lib/python3.X/module/__init__.py
+            // Try package __init__.py: lib/python3.X/os/path/__init__.py
             const package_init = try std.fmt.allocPrint(
                 allocator,
                 "{s}/{s}/__init__.py",
-                .{ stdlib_dir, module_name },
+                .{ stdlib_dir, module_path },
             );
 
             std.fs.cwd().access(package_init, .{}) catch {
@@ -148,12 +163,17 @@ fn resolveImportInternal(
     allocator: std.mem.Allocator,
     check_compiled: bool,
 ) !?[]const u8 {
-    // Try different search paths in order of priority:
+    // Convert dots to path separators (numpy.matlib -> numpy/matlib)
+    const module_path = try moduleToPath(allocator, module_name);
+    defer allocator.free(module_path);
+
+    // Try different search paths in order of priority (CPython-compatible):
     // 0. Compiled modules in build/lib.{platform}/ (if check_compiled)
     // 1. Same directory as source file (if provided, or from metal0_SOURCE_DIR env)
-    // 2. Current working directory
-    // 3. examples/ directory (for backward compatibility)
-    // 4. Site-packages directories
+    // 2. PYTHONPATH entries (CPython compatibility)
+    // 3. Current working directory
+    // 4. examples/ directory (for backward compatibility)
+    // 5. Site-packages directories
 
     // Check metal0_SOURCE_DIR env var for runtime eval subprocess
     // This allows eval() subprocess to use same import paths as main compilation
@@ -168,8 +188,8 @@ fn resolveImportInternal(
             .aarch64 => "arm64",
             else => "unknown",
         };
-        const path1 = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}.cpython-312-darwin.so", .{ arch, module_name });
-        const path2 = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}/__init__.cpython-312-darwin.so", .{ arch, module_name });
+        const path1 = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}.cpython-312-darwin.so", .{ arch, module_path });
+        const path2 = try std.fmt.allocPrint(allocator, "build/lib.macosx-11.0-{s}/{s}/__init__.cpython-312-darwin.so", .{ arch, module_path });
 
         // Check path1
         if (std.fs.cwd().access(path1, .{})) |_| {
@@ -195,6 +215,19 @@ fn resolveImportInternal(
         try search_paths.append(allocator, dir);
     }
 
+    // Add PYTHONPATH entries (CPython compatibility)
+    // Note: std.posix.getenv is not available on Windows (uses WTF-16)
+    if (comptime builtin.os.tag != .windows) {
+        if (std.posix.getenv("PYTHONPATH")) |pythonpath| {
+            var iter = std.mem.splitScalar(u8, pythonpath, ':');
+            while (iter.next()) |entry| {
+                if (entry.len > 0) {
+                    try search_paths.append(allocator, entry);
+                }
+            }
+        }
+    }
+
     // Add current directory
     try search_paths.append(allocator, ".");
 
@@ -203,22 +236,22 @@ fn resolveImportInternal(
 
     // Try each search path
     for (search_paths.items) |search_dir| {
-        // Try module.py first
+        // Try numpy/matlib.py first
         const py_path = try std.fmt.allocPrint(
             allocator,
             "{s}/{s}.py",
-            .{ search_dir, module_name },
+            .{ search_dir, module_path },
         );
 
         // Check if file exists
         std.fs.cwd().access(py_path, .{}) catch {
             allocator.free(py_path);
 
-            // Try package/__init__.py
+            // Try numpy/matlib/__init__.py
             const pkg_path = try std.fmt.allocPrint(
                 allocator,
                 "{s}/{s}/__init__.py",
-                .{ search_dir, module_name },
+                .{ search_dir, module_path },
             );
 
             std.fs.cwd().access(pkg_path, .{}) catch {

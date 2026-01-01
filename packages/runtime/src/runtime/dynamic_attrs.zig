@@ -3,6 +3,7 @@
 /// Instead, we use hashmaps keyed by object address for dynamic attributes.
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
+const type_predicates = @import("type_predicates.zig");
 
 /// PyValue represents any Python value at runtime
 pub const PyValue = union(enum) {
@@ -293,9 +294,9 @@ fn structGetattrImpl(comptime T: type, obj: T, name: []const u8) ?@import("../Ob
                     return PyValueObj{ .string = v };
                 }
                 return PyValueObj.none;
-            } else if (field_info == .int or field_info == .comptime_int) {
+            } else if (type_predicates.isIntInfo(field_info)) {
                 return PyValueObj{ .int = @intCast(value) };
-            } else if (field_info == .float or field_info == .comptime_float) {
+            } else if (type_predicates.isFloatInfo(field_info)) {
                 return PyValueObj{ .float = @floatCast(value) };
             } else if (FieldT == bool) {
                 return PyValueObj{ .boolean = value };
@@ -370,4 +371,82 @@ fn getTypeAttrs(comptime T: type) []const []const u8 {
 
     // Default: return empty list
     return &[_][]const u8{};
+}
+
+/// Dynamic attribute access for anytype parameters
+/// Handles primitives (i64, f64) with synthetic real/imag, and structs with field/method dispatch
+pub fn getAttrDynamic(obj: anytype, comptime name: []const u8) f64 {
+    const T = @TypeOf(obj);
+    const info = @typeInfo(T);
+
+    // For primitives, handle synthetic "real" and "imag" attributes
+    // (Python numeric protocol: int/float have .real/.imag properties)
+    if (info == .int or info == .comptime_int) {
+        if (comptime std.mem.eql(u8, name, "real")) {
+            return @floatFromInt(obj);
+        } else if (comptime std.mem.eql(u8, name, "imag")) {
+            return 0.0;
+        }
+    }
+    if (info == .float or info == .comptime_float) {
+        if (comptime std.mem.eql(u8, name, "real")) {
+            return @floatCast(obj);
+        } else if (comptime std.mem.eql(u8, name, "imag")) {
+            return 0.0;
+        }
+    }
+
+    // For structs, check if it's a method or field
+    if (info == .@"struct") {
+        // First check for method (declaration)
+        if (@hasDecl(T, name)) {
+            const method = @field(T, name);
+            // If it's a method, call it with obj as self
+            if (@typeInfo(@TypeOf(method)) == .@"fn") {
+                const result = @call(.auto, method, .{obj});
+                return convertToF64(result);
+            }
+        }
+        // Then check for field
+        if (@hasField(T, name)) {
+            const val = @field(obj, name);
+            return convertToF64(val);
+        }
+    }
+
+    // For pointers to structs, dereference and recurse
+    if (info == .pointer and info.pointer.size == .one) {
+        const Child = info.pointer.child;
+        if (@typeInfo(Child) == .@"struct") {
+            if (@hasDecl(Child, name)) {
+                const method = @field(Child, name);
+                if (@typeInfo(@TypeOf(method)) == .@"fn") {
+                    // Methods expect *const @This(), so pass the pointer (obj) not dereferenced value
+                    const result = @call(.auto, method, .{obj});
+                    return convertToF64(result);
+                }
+            }
+            if (@hasField(Child, name)) {
+                const val = @field(obj.*, name);
+                return convertToF64(val);
+            }
+        }
+    }
+
+    // Default: attribute not found, return 0
+    return 0.0;
+}
+
+/// Convert various types to f64 for attribute return
+fn convertToF64(val: anytype) f64 {
+    const V = @TypeOf(val);
+    const vinfo = @typeInfo(V);
+    if (vinfo == .int or vinfo == .comptime_int) {
+        return @floatFromInt(val);
+    }
+    if (vinfo == .float or vinfo == .comptime_float) {
+        return @floatCast(val);
+    }
+    // Default
+    return 0.0;
 }

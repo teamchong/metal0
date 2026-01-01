@@ -75,12 +75,82 @@ fn isAlreadyPyValue(expr: ast.Node) bool {
     }
 }
 
+/// Generate test execution code for factory-returned test classes
+/// This runs tests inside the factory function where captured variables are accessible
+fn genFactoryTestExecution(self: *NativeCodegen) CodegenError!void {
+    // Check if we're inside a factory function
+    const func_name = self.current_function_name orelse return;
+    const factory_info = self.test_factories.get(func_name) orelse return;
+
+    // Generate test execution for each test class in the factory
+    try self.emit("\n    // Factory test execution - run tests before returning\n");
+
+    for (factory_info.returned_classes, 0..) |class_info, class_idx| {
+        const class_name = class_info.class_name;
+
+        // Use labeled block for each class so we can skip on init failure
+        try self.output.writer(self.allocator).print("    __factory_class_{d}: {{\n", .{class_idx});
+
+        // Create instance
+        try self.output.writer(self.allocator).print("        var __test_instance_{s} = {s}.init(__global_allocator", .{ class_name, class_name });
+
+        // Add captured variable arguments if the class has them in nested_class_captures
+        if (self.nested_class_captures.get(class_name)) |captures| {
+            for (captures) |cap| {
+                try self.output.writer(self.allocator).print(", &{s}", .{cap});
+            }
+        }
+
+        try self.output.writer(self.allocator).print(") catch {{ break :__factory_class_{d}; }};\n", .{class_idx});
+
+        // Run setUp if exists
+        if (class_info.has_setUp) {
+            try self.output.writer(self.allocator).print("        __test_instance_{s}.setUp(__global_allocator) catch {{}};\n", .{class_name});
+        }
+
+        // Run each test method
+        for (class_info.test_methods, 0..) |method_info, test_idx| {
+            if (method_info.skip_reason != null) continue;
+
+            // Use labeled block for each test so we can skip on failure
+            try self.output.writer(self.allocator).print("        __factory_test_{d}_{d}: {{\n", .{ class_idx, test_idx });
+            try self.output.writer(self.allocator).print("            runtime.print(\"test_{s}_{s} ... \", .{{}});\n", .{ class_name, method_info.name });
+
+            if (method_info.returns_error) {
+                try self.output.writer(self.allocator).print("            __test_instance_{s}.{s}(__global_allocator) catch |err| {{\n", .{ class_name, method_info.name });
+                try self.emit("                runtime.print(\"FAIL: {any}\\n\", .{err});\n");
+                // Run tearDown on failure
+                if (class_info.has_tearDown) {
+                    try self.output.writer(self.allocator).print("                __test_instance_{s}.tearDown();\n", .{class_name});
+                }
+                try self.output.writer(self.allocator).print("                break :__factory_test_{d}_{d};\n", .{ class_idx, test_idx });
+                try self.emit("            };\n");
+            } else {
+                try self.output.writer(self.allocator).print("            __test_instance_{s}.{s}();\n", .{ class_name, method_info.name });
+            }
+
+            // Run tearDown on success
+            if (class_info.has_tearDown) {
+                try self.output.writer(self.allocator).print("            __test_instance_{s}.tearDown();\n", .{class_name});
+            }
+
+            try self.emit("            runtime.print(\"ok\\n\", .{});\n");
+            try self.emit("        }\n"); // close test block
+        }
+
+        try self.emit("    }\n"); // close class block
+    }
+}
+
 /// Generate return statement with tail-call optimization
 pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
     // Emit pending discards BEFORE the return statement
     // This handles unused local variables in closures that return early
     // e.g., def f(): msg = "..."; return self.assertRaisesRegex(...) -> msg unused
     try self.emitPendingDiscards();
+
+    // Run factory tests before returning if this is a test factory function
+    try genFactoryTestExecution(self);
 
     // Mark control flow as terminated on any exit path
     defer self.control_flow_terminated = true;
@@ -137,7 +207,7 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         } else {
             try b2.write("return;\n");
         }
-        const output2 = b2.getBody();
+        const output2 = try b2.getBodyDupe();
         try self.output.appendSlice(self.allocator, output2);
         return;
     }
@@ -253,8 +323,13 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             // For top-level classes, dereference to return @This() value
             const self_name = if (self.method_nesting_depth > 0) "__self" else "self";
             const current_class_is_nested = if (self.current_class_name) |ccn| self.nested_class_names.contains(ccn) else false;
-            if (current_class_is_nested) {
-                // Nested class: return pointer directly
+            // __enter__ returns *@This() (pointer), so don't dereference
+            const is_enter_method = if (self.current_function_name) |fn_name|
+                std.mem.eql(u8, fn_name, "__enter__")
+            else
+                false;
+            if (current_class_is_nested or is_enter_method) {
+                // Nested class or __enter__: return pointer directly
                 try b.emitRaw(self_name);
             } else {
                 // Top-level class: dereference to get value

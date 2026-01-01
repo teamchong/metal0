@@ -112,6 +112,18 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
             if (self.anytype_params.contains(base_name)) {
                 return false; // Anytype attribute access is NOT uncertain
             }
+            // Check for type-narrowed params (e.g., inside comptime `if __T == @This()` branch)
+            if (self.narrowed_type_params.contains(base_name)) {
+                // Param is narrowed to current class - check current class field types
+                if (self.current_class_name) |class_name| {
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr.attr)) |field_type| {
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
+                    }
+                }
+                return false; // Field not found but narrowed - assume not uncertain
+            }
             // Also check for "_converted" suffix variables derived from anytype params
             // e.g., other_converted is created from anytype param "other" during comptime type dispatch
             if (std.mem.endsWith(u8, base_name, "_converted")) {
@@ -124,16 +136,36 @@ fn isOperandUncertainLeaf(self: *NativeCodegen, expr: ast.Node) bool {
 
         // For self.xxx access in class methods, check if the field has a known type
         // from the class field registry. If so, use the field type, not inference.
-        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+        // Note: Class methods use "__self" as parameter name (not "self") due to Zig keyword escaping
+        if (attr.value.* == .name and (std.mem.eql(u8, attr.value.name.id, "self") or
+            std.mem.eql(u8, attr.value.name.id, "__self"))) {
             if (self.current_class_name) |class_name| {
+                // Check own class fields first
                 if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                     if (class_info.fields.get(attr.attr)) |field_type| {
                         // Field has a known type - only uncertain if pyvalue/unknown
                         return field_type == .pyvalue or field_type == .unknown;
                     }
                 }
-                // If we're in a class context but field not found, assume it's NOT uncertain
-                // (self.xxx access in class methods should use native types)
+                // Check parent class fields for inherited fields using current_class_parent
+                // (set by genClassMethods when there's a base class)
+                if (self.current_class_parent) |parent_name| {
+                    if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                        if (parent_info.fields.get(attr.attr)) |field_type| {
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
+                    }
+                }
+                // Also try nested_class_bases as fallback for local classes
+                if (self.nested_class_bases.get(class_name)) |parent_name| {
+                    if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                        if (parent_info.fields.get(attr.attr)) |field_type| {
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
+                    }
+                }
+                // If we're in a class context but field not found in own or parent,
+                // return false (assume native type) - this matches existing behavior
                 return false;
             }
         }
@@ -243,13 +275,31 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
 
             // For self.xxx in class methods - check field type rather than marking all as uncertain
             // Only mark as uncertain if the field type is actually unknown/pyvalue
-            if (std.mem.eql(u8, base_name, "self")) {
+            // Note: Class methods use "__self" as parameter name due to Zig keyword escaping
+            if (std.mem.eql(u8, base_name, "self") or std.mem.eql(u8, base_name, "__self")) {
                 if (self.current_class_name) |class_name| {
+                    // Check own class fields first
                     if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                         if (class_info.fields.get(attr.attr)) |field_type| {
                             // Field has a known type - only uncertain if pyvalue/unknown
                             const is_unc = field_type == .pyvalue or field_type == .unknown;
                             return is_unc;
+                        }
+                    }
+                    // Check parent class fields for inherited fields using current_class_parent
+                    if (self.current_class_parent) |parent_name| {
+                        if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                            if (parent_info.fields.get(attr.attr)) |field_type| {
+                                return field_type == .pyvalue or field_type == .unknown;
+                            }
+                        }
+                    }
+                    // Also try nested_class_bases as fallback for local classes
+                    if (self.nested_class_bases.get(class_name)) |parent_name| {
+                        if (self.type_inferrer.class_fields.get(parent_name)) |parent_info| {
+                            if (parent_info.fields.get(attr.attr)) |field_type| {
+                                return field_type == .pyvalue or field_type == .unknown;
+                            }
                         }
                     }
                     // Field not found in registry - assume NOT uncertain (use native ops)
@@ -289,8 +339,25 @@ pub fn isOperandUncertain(self: *NativeCodegen, expr: ast.Node) bool {
                         }
                     }
                 }
-                // No concrete type and no matching field - stay uncertain
-                return true;
+                // For anytype params without concrete type, getAttrDynamic handles polymorphism
+                // and returns f64 for numeric attributes like real/imag. NOT uncertain.
+                return false;
+            }
+
+            // Check for type-narrowed params (e.g., inside comptime `if __T == @This()` branch)
+            // The param is removed from anytype_params but added to narrowed_type_params
+            // to indicate it's known to be the same type as @This()
+            if (self.narrowed_type_params.contains(base_name)) {
+                // Param is narrowed to current class - check current class field types
+                if (self.current_class_name) |class_name| {
+                    if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                        if (class_info.fields.get(attr.attr)) |field_type| {
+                            return field_type == .pyvalue or field_type == .unknown;
+                        }
+                    }
+                }
+                // Field not found but narrowed - assume not uncertain
+                return false;
             }
 
             // Also check for "_converted" suffix variables derived from anytype params

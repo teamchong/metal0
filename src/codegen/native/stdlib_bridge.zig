@@ -25,7 +25,14 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
                 return;
             }
 
-            try self.emit("try " ++ spec.runtime_path ++ "(");
+            // Check if at module scope - can't use try outside functions
+            const at_module_scope = self.current_function_name == null and self.indent_level == 0;
+
+            if (at_module_scope) {
+                try self.emit(spec.runtime_path ++ "(");
+            } else {
+                try self.emit("try " ++ spec.runtime_path ++ "(");
+            }
             if (spec.needs_allocator) {
                 // Always use __global_allocator since method allocator param may be discarded as "_"
                 try self.emit("__global_allocator");
@@ -39,7 +46,11 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
                 try self.genExpr(args[i]);
             }
 
-            try self.emit(")");
+            if (at_module_scope) {
+                try self.emit(") catch unreachable");
+            } else {
+                try self.emit(")");
+            }
         }
     }.handler;
 }
@@ -59,12 +70,23 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
                 return;
             }
 
-            try self.emit("try " ++ spec.runtime_path ++ "(");
+            // Check if at module scope - can't use try outside functions
+            const at_module_scope = self.current_function_name == null and self.indent_level == 0;
+
+            if (at_module_scope) {
+                try self.emit(spec.runtime_path ++ "(");
+            } else {
+                try self.emit("try " ++ spec.runtime_path ++ "(");
+            }
             if (spec.needs_allocator) {
                 // Always use __global_allocator since method allocator param may be discarded as "_"
                 try self.emit("__global_allocator");
             }
-            try self.emit(")");
+            if (at_module_scope) {
+                try self.emit(") catch unreachable");
+            } else {
+                try self.emit(")");
+            }
         }
     }.handler;
 }
@@ -87,7 +109,14 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
                 return;
             }
 
-            try self.emit("try " ++ spec.runtime_path ++ "(");
+            // Check if at module scope - can't use try outside functions
+            const at_module_scope = self.current_function_name == null and self.indent_level == 0;
+
+            if (at_module_scope) {
+                try self.emit(spec.runtime_path ++ "(");
+            } else {
+                try self.emit("try " ++ spec.runtime_path ++ "(");
+            }
             if (spec.needs_allocator) {
                 // Always use __global_allocator since method allocator param may be discarded as "_"
                 try self.emit("__global_allocator");
@@ -101,7 +130,11 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
                 try self.genExpr(arg);
             }
 
-            try self.emit(")");
+            if (at_module_scope) {
+                try self.emit(") catch unreachable");
+            } else {
+                try self.emit(")");
+            }
         }
     }.handler;
 }

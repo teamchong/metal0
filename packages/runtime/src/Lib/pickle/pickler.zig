@@ -2,6 +2,7 @@
 const std = @import("std");
 const opcodes = @import("opcodes.zig");
 const types = @import("types.zig");
+const type_predicates = @import("../../runtime/type_predicates.zig");
 
 const Opcode = opcodes.Opcode;
 const PickleValue = types.PickleValue;
@@ -132,13 +133,13 @@ pub const Pickler = struct {
             return;
         }
 
-        if (info == .int or info == .comptime_int) {
+        if (type_predicates.isIntInfo(info)) {
             const i: i64 = @intCast(value);
             try self.serializeInt(i);
             return;
         }
 
-        if (info == .float or info == .comptime_float) {
+        if (type_predicates.isFloatInfo(info)) {
             const f: f64 = @floatCast(value);
             if (self.protocol >= 1) {
                 try self.writeByte(Opcode.BINFLOAT);

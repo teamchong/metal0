@@ -10,9 +10,12 @@ const producesBlockExpression = expressions.producesBlockExpression;
 const emitObjExpr = expressions.emitObjExpr;
 
 /// Helper: emit runtime.pySetAddPV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
+/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitPySetAddPV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, e: ast.Node };
-    try self.emitCallCtx("try runtime.pySetAddPV", Ctx{ .o = obj, .e = elem }, struct {
+    try self.emitCallCtx("runtime.pySetAddPV", Ctx{ .o = obj, .e = elem }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emit("__global_allocator, &");
             try s.genExpr(ctx.o);
@@ -23,12 +26,16 @@ fn emitPySetAddPV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenEr
             }.inner);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.pySetRemovePV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
+/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitPySetRemovePV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, e: ast.Node };
-    try self.emitCallCtx("try runtime.pySetRemovePV", Ctx{ .o = obj, .e = elem }, struct {
+    try self.emitCallCtx("runtime.pySetRemovePV", Ctx{ .o = obj, .e = elem }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emit("__global_allocator, &");
             try s.genExpr(ctx.o);
@@ -39,6 +46,7 @@ fn emitPySetRemovePV(self: *NativeCodegen, obj: ast.Node, elem: ast.Node) Codege
             }.inner);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.pySetDiscardPV(__global_allocator, &obj, runtime.PyValue.from(elem)) with bracket matching
@@ -68,13 +76,17 @@ fn emitPySetClearPV(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
 }
 
 /// Helper: emit try runtime.pySetPopPVFunc(__global_allocator, &obj) with bracket matching
+/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitPySetPopPVFunc(self: *NativeCodegen, obj: ast.Node) CodegenError!void {
-    try self.emitCallCtx("try runtime.pySetPopPVFunc", obj, struct {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
+    try self.emitCallCtx("runtime.pySetPopPVFunc", obj, struct {
         pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
             try s.emit("__global_allocator, &");
             try s.genExpr(o);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 // isSetUncertain replaced by self.isExprUncertain() (DRY consolidation)
@@ -120,8 +132,11 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     // Use runtime helper to avoid comptime explosion from @hasDecl/@TypeOf inline checks
     // runtime.set_ops.SetOps(KeyType).remove(&set, key) handles AutoHashMap vs ArrayHashMap
+    // Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, a: ast.Node };
-    try self.emitCallCtx("try runtime.set_ops.SetOps", Ctx{ .o = obj, .a = args[0] }, struct {
+    try self.emitCallCtx("runtime.set_ops.SetOps", Ctx{ .o = obj, .a = args[0] }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emitCallCtx("@TypeOf", ctx.a, struct {
                 pub fn g(s2: *NativeCodegen, e: ast.Node) CodegenError!void {
@@ -134,6 +149,7 @@ pub fn genRemove(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
             try s.genExpr(ctx.a);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Generate code for set.discard(elem)
@@ -199,7 +215,10 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
 
     // Use runtime helper to avoid comptime explosion
     // Get key type from set's KV struct
-    try self.emitCallCtx("try runtime.set_ops.SetOps", obj, struct {
+    // Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
+    try self.emitCallCtx("runtime.set_ops.SetOps", obj, struct {
         pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
             try s.emit("std.meta.fieldInfo(");
             try s.emitCallCtx("@TypeOf", o, struct {
@@ -211,6 +230,7 @@ pub fn genPop(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErro
             try emitObjExpr(s, o);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Generate code for set.copy()
@@ -242,7 +262,12 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{iter});
     self.indent_level += 1;
     try self.emitIndent();
-    try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, {{}});\n", .{copy});
+    // Check inside_defer - can't use try inside defer blocks
+    if (self.inside_defer) {
+        try self.output.writer(self.allocator).print("{s}.put(entry.key_ptr.*, {{}}) catch {{}};\n", .{copy});
+    } else {
+        try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, {{}});\n", .{copy});
+    }
     self.indent_level -= 1;
     try self.emitIndent();
     try self.emit("}\n");
@@ -289,9 +314,15 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.output.writer(self.allocator).print("while ({s}.next()) |entry| {{\n", .{other_iter});
         self.indent_level += 1;
         try self.emitIndent();
-        try self.emit("try ");
-        try emitObjExpr(self, obj);
-        try self.emit(".put(entry.key_ptr.*, {});\n");
+        // Check inside_defer - can't use try inside defer blocks
+        if (self.inside_defer) {
+            try emitObjExpr(self, obj);
+            try self.emit(".put(entry.key_ptr.*, {}) catch {};\n");
+        } else {
+            try self.emit("try ");
+            try emitObjExpr(self, obj);
+            try self.emit(".put(entry.key_ptr.*, {});\n");
+        }
         self.indent_level -= 1;
         try self.emitIndent();
         try self.emit("}\n");

@@ -31,32 +31,33 @@ fn genNamespace(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
 }
 
 fn genFileType(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("r"), builder_mod.EmitConfig.forExpression());
+    // Use direct emit to self.output so the dispatch check in genAttribute works
+    try self.emit("\"r\"");
 }
 
 fn genRemainder(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("..."), builder_mod.EmitConfig.forExpression());
+    // Use direct emit to self.output so the dispatch check in genAttribute works
+    try self.emit("\"...\"");
 }
 
 fn genSuppress(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("==SUPPRESS=="), builder_mod.EmitConfig.forExpression());
+    // Use direct emit to self.output so the dispatch check in genAttribute works
+    // This is the Python sentinel value for argparse.SUPPRESS
+    try self.emit("\"==SUPPRESS==\"");
 }
 
 fn genOptional(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("?"), builder_mod.EmitConfig.forExpression());
+    // Use direct emit to self.output so the dispatch check in genAttribute works
+    try self.emit("\"?\"");
 }
 
 fn genZeroOrMore(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("*"), builder_mod.EmitConfig.forExpression());
+    // Use direct emit to self.output so the dispatch check in genAttribute works
+    try self.emit("\"*\"");
 }
 
 fn genOneOrMore(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
-    const b = try self.getBuilder();
-    try b.emitValue(builder_mod.ZigValue.string("+"), builder_mod.EmitConfig.forExpression());
+    // Use direct emit to self.output so the dispatch check in genAttribute works
+    try self.emit("\"+\"");
 }
 

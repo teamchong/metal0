@@ -9,6 +9,7 @@ const shared = @import("../../shared_maps.zig");
 const ExceptionTypes = shared.RuntimeExceptions;
 const var_hoisting = @import("../functions/var_hoisting.zig");
 const hashmap_helper = @import("utils.hashmap_helper");
+const method_categories = @import("../../dispatch/method_categories.zig");
 
 /// Check if a variable name is used in an expression
 fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
@@ -290,6 +291,51 @@ fn canUseLabeledBlock(stmts: []const ast.Node) bool {
     return false;
 }
 
+/// Check if an expr_stmt is an assertion call (assertEqual, assertIs, etc.)
+/// Assertions generate if-return statements and should be emitted directly without wrapping
+fn isAssertionExprStmt(stmt: ast.Node) bool {
+    if (stmt != .expr_stmt) return false;
+    if (stmt.expr_stmt.value.* == .call) {
+        const call = stmt.expr_stmt.value.call;
+        if (call.func.* == .attribute) {
+            const method_name = call.func.attribute.attr;
+            if (std.mem.startsWith(u8, method_name, "assert") or
+                std.mem.startsWith(u8, method_name, "fail"))
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Check if body contains only assertion calls and assignments (no error-catching needed)
+/// If true, we shouldn't use labeled blocks since assertions return directly
+fn allExprsAreAssertions(stmts: []const ast.Node) bool {
+    var has_expr = false;
+    for (stmts) |stmt| {
+        switch (stmt) {
+            .expr_stmt => {
+                has_expr = true;
+                if (!isAssertionExprStmt(stmt)) return false;
+            },
+            .raise_stmt => return false, // raise needs break to labeled block
+            .with_stmt => |with_node| {
+                if (isUnittestContextManager(with_node.context_expr.*)) {
+                    if (!allExprsAreAssertions(with_node.body)) return false;
+                } else {
+                    return false; // Non-unittest context manager needs block
+                }
+            },
+            // Compound statements might contain nested context managers that need blocks
+            .if_stmt, .for_stmt, .while_stmt, .try_stmt, .match_stmt => return false,
+            // Other statements like assign are fine
+            else => {},
+        }
+    }
+    return has_expr;
+}
+
 /// Legacy function for compatibility - returns true if body contains any expr_stmt or raise_stmt
 /// even if nested in compound statements. Used for `inside_try_body` context.
 fn containsRaiseOrExprStmt(stmts: []const ast.Node) bool {
@@ -345,6 +391,8 @@ fn containsRaiseOrExprStmt(stmts: []const ast.Node) bool {
 /// Check if with expression is a unittest context manager that should be skipped
 /// Check if context manager is assertRaises or assertRaisesRegex (needs error handling)
 /// Also handles tuples of context managers (e.g., with (assertRaises(), Stopwatch()) as ...)
+/// NOTE: This is specifically for assertRaises/assertRaisesRegex which need special error-catching
+/// treatment. Other context managers like subTest, assertWarns, assertLogs should NOT go here.
 fn isAssertRaisesContext(expr: ast.Node) bool {
     // Direct call to self.assertRaises or self.assertRaisesRegex
     if (expr == .call) {
@@ -355,6 +403,8 @@ fn isAssertRaisesContext(expr: ast.Node) bool {
                 const obj_name = attr.value.name.id;
                 if (std.mem.eql(u8, obj_name, "self")) {
                     const method_name = attr.attr;
+                    // ONLY assertRaises and assertRaisesRegex need special error-catching
+                    // Do NOT include subTest, assertWarns, assertLogs here!
                     if (std.mem.eql(u8, method_name, "assertRaises") or
                         std.mem.eql(u8, method_name, "assertRaisesRegex"))
                     {
@@ -390,12 +440,7 @@ fn isUnittestContextManager(expr: ast.Node) bool {
                 if (std.mem.eql(u8, obj_name, "self")) {
                     // Check for unittest context manager methods
                     const method_name = attr.attr;
-                    if (std.mem.eql(u8, method_name, "assertWarns") or
-                        std.mem.eql(u8, method_name, "assertRaises") or
-                        std.mem.eql(u8, method_name, "assertRaisesRegex") or
-                        std.mem.eql(u8, method_name, "assertLogs") or
-                        std.mem.eql(u8, method_name, "subTest"))
-                    {
+                    if (method_categories.isAssertContextManager(method_name)) {
                         return true;
                     }
                 }
@@ -834,7 +879,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
 
             // Check recursively if body contains raise or expr statements
             // Must be recursive because the statement might be nested inside other blocks (if, with, for, etc.)
-            const needs_labeled_block = canUseLabeledBlock(with_node.body);
+            // Skip labeled blocks if all expr_stmts are assertions (they return directly, never break)
+            const needs_labeled_block = canUseLabeledBlock(with_node.body) and !allExprsAreAssertions(with_node.body);
 
             // Generate a labeled block only if we have expression statements that might error
             const block_id = self.assert_raises_block_id;
@@ -863,28 +909,57 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 // For expression statements, wrap to catch errors
                 // The expression is assigned to __ar_val, then if it's an error union or error set, catch it
                 if (stmt == .expr_stmt) {
-                    try b.writeIndent();
-                    try b.emitRaw("{\n");
-                    b.indent();
-                    try b.writeIndent();
-                    try b.emitRaw("const __ar_val = ");
-                    const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
-                    // Use .ignore error mode so error unions are passed directly to expectError
-                    // without try unwrapping them first
-                    try b.emitValue(expr_val, .{ .error_mode = .ignore });
-                    try b.emitRaw(";\n");
-                    try b.writeIndent();
-                    // Use unittest.expectError() which handles both error and non-error types
-                    // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
-                    // If error raised, capture exception info and break; otherwise fall through
-                    if (cm_var_name) |cm_name| {
-                        try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ {s}.captureException(); break :__ar_blk_{d} {{}}; }}\n", .{ cm_name, block_id });
+                    // Check if this is an assertion call (self.assertEqual, self.assertIs, etc.)
+                    // Assertions generate if-return statements and should be emitted directly,
+                    // not wrapped with `const __ar_val = ` which creates invalid code
+                    const is_assertion_call = blk: {
+                        if (stmt.expr_stmt.value.* == .call) {
+                            const call = stmt.expr_stmt.value.call;
+                            if (call.func.* == .attribute) {
+                                const method_name = call.func.attribute.attr;
+                                if (std.mem.startsWith(u8, method_name, "assert") or
+                                    std.mem.startsWith(u8, method_name, "fail"))
+                                {
+                                    break :blk true;
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+
+                    if (is_assertion_call) {
+                        // For assertions, emit directly without wrapping - they handle their own control flow
+                        try self.generateStmt(stmt);
                     } else {
-                        try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                        try b.writeIndent();
+                        try b.emitRaw("{\n");
+                        b.indent();
+                        try b.writeIndent();
+                        try b.emitRaw("const __ar_val = ");
+                        const expr_val = try self.captureExpr(stmt.expr_stmt.value.*);
+                        // Use .ignore error mode so error unions are passed directly to expectError
+                        // without try unwrapping them first
+                        try b.emitValue(expr_val, .{ .error_mode = .ignore });
+                        try b.emitRaw(";\n");
+                        try b.writeIndent();
+                        // Use unittest.expectError() which handles both error and non-error types
+                        // internally via @typeInfo branching (avoids Zig type-checking unreachable branches)
+                        // If error raised, capture exception info and break; otherwise fall through
+                        // Only use break if labeled block was created (needs_labeled_block=true)
+                        if (needs_labeled_block) {
+                            if (cm_var_name) |cm_name| {
+                                try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ {s}.captureException(); break :__ar_blk_{d} {{}}; }}\n", .{ cm_name, block_id });
+                            } else {
+                                try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                            }
+                        } else {
+                            // No labeled block - return error directly if exception not raised
+                            try b.emitRaw("if (!runtime.unittest.expectError(__ar_val)) { return error.ExpectedExceptionNotRaised; }\n");
+                        }
+                        b.dedent();
+                        try b.writeIndent();
+                        try b.emitRaw("}\n");
                     }
-                    b.dedent();
-                    try b.writeIndent();
-                    try b.emitRaw("}\n");
                 } else if (stmt == .with_stmt) {
                     // Nested with statement (e.g., `with assertRaises(), assertWarns(): ...`)
                     // Multiple with items are parsed as nested with_stmt
@@ -898,26 +973,53 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                             if (self.control_flow_terminated) break;
 
                             if (nested_stmt == .expr_stmt) {
-                                // Wrap expression in error-catching code
-                                try b.writeIndent();
-                                try b.emitRaw("{\n");
-                                b.indent();
-                                try b.writeIndent();
-                                try b.emitRaw("const __ar_val = ");
-                                const expr_val = try self.captureExpr(nested_stmt.expr_stmt.value.*);
-                                // Use .ignore error mode so error unions are passed directly to expectError
-                                try b.emitValue(expr_val, .{ .error_mode = .ignore });
-                                try b.emitRaw(";\n");
-                                try b.writeIndent();
-                                // If error raised, capture exception info and break
-                                if (cm_var_name) |cm_name| {
-                                    try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ {s}.captureException(); break :__ar_blk_{d} {{}}; }}\n", .{ cm_name, block_id });
+                                // Check if this is an assertion call (same pattern as above)
+                                const is_assertion_call = blk: {
+                                    if (nested_stmt.expr_stmt.value.* == .call) {
+                                        const call = nested_stmt.expr_stmt.value.call;
+                                        if (call.func.* == .attribute) {
+                                            const method_name = call.func.attribute.attr;
+                                            if (std.mem.startsWith(u8, method_name, "assert") or
+                                                std.mem.startsWith(u8, method_name, "fail"))
+                                            {
+                                                break :blk true;
+                                            }
+                                        }
+                                    }
+                                    break :blk false;
+                                };
+
+                                if (is_assertion_call) {
+                                    // For assertions, emit directly without wrapping
+                                    try self.generateStmt(nested_stmt);
                                 } else {
-                                    try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                                    // Wrap expression in error-catching code
+                                    try b.writeIndent();
+                                    try b.emitRaw("{\n");
+                                    b.indent();
+                                    try b.writeIndent();
+                                    try b.emitRaw("const __ar_val = ");
+                                    const expr_val = try self.captureExpr(nested_stmt.expr_stmt.value.*);
+                                    // Use .ignore error mode so error unions are passed directly to expectError
+                                    try b.emitValue(expr_val, .{ .error_mode = .ignore });
+                                    try b.emitRaw(";\n");
+                                    try b.writeIndent();
+                                    // If error raised, capture exception info and break
+                                    // Only use break if labeled block was created (needs_labeled_block=true)
+                                    if (needs_labeled_block) {
+                                        if (cm_var_name) |cm_name| {
+                                            try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ {s}.captureException(); break :__ar_blk_{d} {{}}; }}\n", .{ cm_name, block_id });
+                                        } else {
+                                            try b.writeFmt("if (!runtime.unittest.expectError(__ar_val)) {{ break :__ar_blk_{d} {{}}; }}\n", .{block_id});
+                                        }
+                                    } else {
+                                        // No labeled block - return error directly if exception not raised
+                                        try b.emitRaw("if (!runtime.unittest.expectError(__ar_val)) { return error.ExpectedExceptionNotRaised; }\n");
+                                    }
+                                    b.dedent();
+                                    try b.writeIndent();
+                                    try b.emitRaw("}\n");
                                 }
-                                b.dedent();
-                                try b.writeIndent();
-                                try b.emitRaw("}\n");
                             } else if (nested_stmt == .with_stmt) {
                                 // Another level of nesting - process recursively
                                 // For now, just generate the with statement normally
@@ -1064,11 +1166,11 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try b.emitRaw(";\n");
                 // Defer __exit__ before calling __enter__ (Python semantics)
                 try b.writeIndent();
-                try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{cm_name});
                 // Call __enter__() and assign result to target variable
                 try b.writeIndent();
                 try b.emitRaw(var_name);
-                try b.writeFmt(" = try {s}.__enter__(__global_allocator);\n", .{cm_name});
+                try b.writeFmt(" = try {s}.__enter__();\n", .{cm_name});
             }
         } else if (target.* == .tuple or target.* == .list) {
             // Tuple/list unpacking target: `with ctx() as (a, b):`
@@ -1101,7 +1203,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{cm_name});
             } else {
-                try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{cm_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{cm_name});
             }
 
             // Call __enter__() to get the value to unpack
@@ -1110,7 +1212,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("const {s} = {s};\n", .{ val_name, cm_name });
             } else {
-                try b.writeFmt("const {s} = try {s}.__enter__(__global_allocator);\n", .{ val_name, cm_name });
+                try b.writeFmt("const {s} = try {s}.__enter__();\n", .{ val_name, cm_name });
             }
 
             // Unpack tuple elements from __enter__()'s return value
@@ -1153,9 +1255,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
             } else {
-                try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{ctx_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{ctx_name});
                 try b.writeIndent();
-                try b.writeFmt("_ = try {s}.__enter__(__global_allocator);\n", .{ctx_name});
+                try b.writeFmt("_ = try {s}.__enter__();\n", .{ctx_name});
             }
         }
     } else {
@@ -1207,9 +1309,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 if (cm_type == .file) {
                     try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
                 } else {
-                    try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{ctx_name});
+                    try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{ctx_name});
                     try b.writeIndent();
-                    try b.writeFmt("_ = try {s}.__enter__(__global_allocator);\n", .{ctx_name});
+                    try b.writeFmt("_ = try {s}.__enter__();\n", .{ctx_name});
                 }
             }
         } else {
@@ -1234,9 +1336,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
             } else {
-                try b.writeFmt("defer {{ _ = {s}.__exit__(__global_allocator, null, null, null) catch {{}}; }}\n", .{ctx_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{ctx_name});
                 try b.writeIndent();
-                try b.writeFmt("_ = try {s}.__enter__(__global_allocator);\n", .{ctx_name});
+                try b.writeFmt("_ = try {s}.__enter__();\n", .{ctx_name});
             }
         }
     }

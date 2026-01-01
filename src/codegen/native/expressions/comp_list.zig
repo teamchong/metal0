@@ -316,19 +316,7 @@ pub fn genListCompImpl(self: *NativeCodegen, listcomp: ast.Node.ListComp) Codege
     var renamed_vars: std.ArrayListUnmanaged([]const u8) = .{};
     defer renamed_vars.deinit(self.allocator);
 
-    // Check if any generator iterates over PyValue - if so, skip the entire comprehension
-    for (listcomp.generators) |gen| {
-        const is_range = gen.iter.* == .call and gen.iter.call.func.* == .name and
-            std.mem.eql(u8, gen.iter.call.func.name.id, "range");
-        if (!is_range) {
-            const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
-            if (iter_type == .pyvalue) {
-                // PyValue iteration - emit empty PyValue list directly
-                try self.emit("std.ArrayListUnmanaged(runtime.PyValue){}\n");
-                return;
-            }
-        }
-    }
+    // Note: PyValue iteration is now handled in genIterLoop using .listItems()
 
     // Generate: (comp_N: { ... })
     try self.emit(try std.fmt.allocPrint(self.allocator, "(comp_{d}: {{\n", .{label_id}));
@@ -521,7 +509,7 @@ fn determineElementType(self: *NativeCodegen, listcomp: ast.Node.ListComp, lambd
         } else if (call.func.* == .attribute) {
             const method_name = call.func.attribute.attr;
             if (comp_utils.isStringReturningMethod(method_name)) {
-                return "[]u8";
+                return "[]const u8";
             }
         }
     } else if (listcomp.elt.* == .constant) {
@@ -536,7 +524,7 @@ fn determineElementType(self: *NativeCodegen, listcomp: ast.Node.ListComp, lambd
             return "f64";
         }
     } else if (listcomp.elt.* == .fstring) {
-        return "[]u8";
+        return "[]const u8";
     } else if (listcomp.elt.* == .binop) {
         const b = listcomp.elt.binop;
         // Check if binop produces a string (e.g., "prefix" + var)
@@ -545,12 +533,12 @@ fn determineElementType(self: *NativeCodegen, listcomp: ast.Node.ListComp, lambd
             const left_type = self.type_inferrer.inferExpr(b.left.*) catch .unknown;
             const right_type = self.type_inferrer.inferExpr(b.right.*) catch .unknown;
             if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
-                return "[]u8"; // std.mem.concat returns []u8
+                return "[]const u8"; // string concatenation stored as const
             }
         }
         const elt_type = self.type_inferrer.inferExpr(listcomp.elt.*) catch .unknown;
         if (string_traits.isString(elt_type)) {
-            return "[]u8"; // std.mem.concat returns []u8
+            return "[]const u8"; // string stored as const
         } else if (type_traits.isFloating(elt_type)) {
             return "f64";
         } else if (type_traits.isBoolean(elt_type)) {
@@ -686,11 +674,24 @@ fn genIterLoop(
         break :blk false;
     };
 
+    // Check if iterating over PyValue (needs .listItems() instead of .items)
+    const is_pyvalue_iter = blk: {
+        const iter_type = self.type_inferrer.inferExpr(gen.iter.*) catch .unknown;
+        break :blk iter_type == .pyvalue;
+    };
+
     try self.emitIndent();
     if (is_direct_iterable) {
         try self.output.writer(self.allocator).print("const __iter_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
         try self.emit(";\n");
+    } else if (is_pyvalue_iter) {
+        // PyValue iteration - use .listItems() to get slice of items
+        try self.output.writer(self.allocator).print("const __pyval_{d}_{d} = ", .{ label_id, gen_idx });
+        try genExpr(self, gen.iter.*);
+        try self.emit(";\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __iter_{d}_{d} = __pyval_{d}_{d}.listItems();\n", .{ label_id, gen_idx, label_id, gen_idx });
     } else {
         try self.output.writer(self.allocator).print("const __list_{d}_{d} = ", .{ label_id, gen_idx });
         try genExpr(self, gen.iter.*);
@@ -779,14 +780,22 @@ fn genTupleUnpack(
             if (std.mem.eql(u8, var_name, "_")) {
                 try self.output.writer(self.allocator).print("_ = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx });
             } else {
-                if (self.isDeclared(var_name)) {
+                const actual_name = if (self.isDeclared(var_name)) blk: {
                     const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
                     try self.var_renames.put(var_name, renamed);
                     try renamed_vars.append(self.allocator, var_name);
                     try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
-                } else {
+                    break :blk renamed;
+                } else blk: {
                     try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
-                }
+                    break :blk var_name;
+                };
+                // Emit discard to handle cases where variable is used in eval strings
+                // or when only some tuple elements are actually used (e.g., for k, v in dict.items() using only k)
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try self.emit(actual_name);
+                try self.emit(";\n");
             }
         }
     }

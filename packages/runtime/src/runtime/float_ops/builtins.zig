@@ -5,6 +5,7 @@ const parsing = @import("parsing.zig");
 const parseFloatWithUnicode = parsing.parseFloatWithUnicode;
 const parseFloatBytes = parsing.parseFloatBytes;
 const PyValue = @import("../../Objects/object.zig").PyValue;
+const type_predicates = @import("../type_predicates.zig");
 
 /// Python error types
 pub const PythonError = error{
@@ -83,10 +84,10 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
         return PythonError.TypeError;
     }
 
-    if (first_info == .int or first_info == .comptime_int) {
+    if (type_predicates.isIntInfo(first_info)) {
         return @as(f64, @floatFromInt(first));
     }
-    if (first_info == .float or first_info == .comptime_float) {
+    if (type_predicates.isFloatInfo(first_info)) {
         return @as(f64, first);
     }
     if (first_info == .pointer) {
@@ -100,7 +101,7 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                 if (result_info == .error_union) {
                     return result catch return PythonError.ValueError;
                 }
-                if (result_info == .float or result_info == .comptime_float) {
+                if (type_predicates.isFloatInfo(result_info)) {
                     return result;
                 }
                 return PythonError.TypeError;
@@ -109,10 +110,10 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                 const base_value = first.__base_value__;
                 const BaseType = @TypeOf(base_value);
                 const base_info = @typeInfo(BaseType);
-                if (base_info == .float or base_info == .comptime_float) {
+                if (type_predicates.isFloatInfo(base_info)) {
                     return @as(f64, base_value);
                 }
-                if (base_info == .int or base_info == .comptime_int) {
+                if (type_predicates.isIntInfo(base_info)) {
                     return @as(f64, @floatFromInt(base_value));
                 }
                 if (base_info == .pointer or base_info == .array) {
@@ -127,7 +128,7 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                     const unwrapped = result catch return PythonError.ValueError;
                     return @as(f64, @floatFromInt(unwrapped));
                 }
-                if (result_info == .int or result_info == .comptime_int) {
+                if (type_predicates.isIntInfo(result_info)) {
                     return @as(f64, @floatFromInt(result));
                 }
             }
@@ -154,7 +155,7 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
             if (result_info == .error_union) {
                 return result catch return PythonError.ValueError;
             }
-            if (result_info == .float or result_info == .comptime_float) {
+            if (type_predicates.isFloatInfo(result_info)) {
                 return result;
             }
             return PythonError.TypeError;
@@ -167,7 +168,7 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
                 const unwrapped = result catch return PythonError.ValueError;
                 return @as(f64, @floatFromInt(unwrapped));
             }
-            if (result_info == .int or result_info == .comptime_int) {
+            if (type_predicates.isIntInfo(result_info)) {
                 return @as(f64, @floatFromInt(result));
             }
         }
@@ -175,10 +176,10 @@ pub fn floatBuiltinCall(first: anytype, rest: anytype) PythonError!f64 {
             const base_value = first.__base_value__;
             const BaseType = @TypeOf(base_value);
             const base_info = @typeInfo(BaseType);
-            if (base_info == .float or base_info == .comptime_float) {
+            if (type_predicates.isFloatInfo(base_info)) {
                 return @as(f64, base_value);
             }
-            if (base_info == .int or base_info == .comptime_int) {
+            if (type_predicates.isIntInfo(base_info)) {
                 return @as(f64, @floatFromInt(base_value));
             }
             if (base_info == .pointer or base_info == .array) {
@@ -232,10 +233,10 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
     if (first_info == .bool) {
         return first;
     }
-    if (first_info == .int or first_info == .comptime_int) {
+    if (type_predicates.isIntInfo(first_info)) {
         return first != 0;
     }
-    if (first_info == .float or first_info == .comptime_float) {
+    if (type_predicates.isFloatInfo(first_info)) {
         return first != 0.0;
     }
     if (first_info == .pointer and first_info.pointer.size == .slice) {
@@ -276,8 +277,8 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
                 const BaseType = @TypeOf(base_value);
                 const base_info = @typeInfo(BaseType);
                 if (base_info == .bool) return base_value;
-                if (base_info == .int or base_info == .comptime_int) return base_value != 0;
-                if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
+                if (type_predicates.isIntInfo(base_info)) return base_value != 0;
+                if (type_predicates.isFloatInfo(base_info)) return base_value != 0.0;
                 if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
             }
         }
@@ -308,8 +309,8 @@ pub fn boolBuiltinCall(first: anytype, rest: anytype) PythonError!bool {
             const BaseType = @TypeOf(base_value);
             const base_info = @typeInfo(BaseType);
             if (base_info == .bool) return base_value;
-            if (base_info == .int or base_info == .comptime_int) return base_value != 0;
-            if (base_info == .float or base_info == .comptime_float) return base_value != 0.0;
+            if (type_predicates.isIntInfo(base_info)) return base_value != 0;
+            if (type_predicates.isFloatInfo(base_info)) return base_value != 0.0;
             if (base_info == .pointer and base_info.pointer.size == .slice) return base_value.len > 0;
         }
     }

@@ -29,9 +29,12 @@ fn emitPyListAppendPV(self: *NativeCodegen, obj: ast.Node, item: ast.Node, use_t
 }
 
 /// Helper: emit runtime.pyListExtendPV(__global_allocator, &obj, runtime.PyValue.from(arg)) with bracket matching
+/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitPyListExtendPV(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, a: ast.Node };
-    try self.emitCallCtx("try runtime.pyListExtendPV", Ctx{ .o = obj, .a = arg }, struct {
+    try self.emitCallCtx("runtime.pyListExtendPV", Ctx{ .o = obj, .a = arg }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emit("__global_allocator, &");
             try emitObjExpr(s, ctx.o);
@@ -42,12 +45,16 @@ fn emitPyListExtendPV(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) Codege
             }.inner);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.pyListInsertPV(__global_allocator, &obj, idx, runtime.PyValue.from(item)) with bracket matching
+/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitPyListInsertPV(self: *NativeCodegen, obj: ast.Node, idx: ast.Node, item: ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, idx: ast.Node, i: ast.Node };
-    try self.emitCallCtx("try runtime.pyListInsertPV", Ctx{ .o = obj, .idx = idx, .i = item }, struct {
+    try self.emitCallCtx("runtime.pyListInsertPV", Ctx{ .o = obj, .idx = idx, .i = item }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emit("__global_allocator, &");
             try emitObjExpr(s, ctx.o);
@@ -60,12 +67,16 @@ fn emitPyListInsertPV(self: *NativeCodegen, obj: ast.Node, idx: ast.Node, item: 
             }.inner);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.listExtendIterable(__global_allocator, &obj, arg) with bracket matching
+/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitListExtendIterable(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, a: ast.Node };
-    try self.emitCallCtx("try runtime.listExtendIterable", Ctx{ .o = obj, .a = arg }, struct {
+    try self.emitCallCtx("runtime.listExtendIterable", Ctx{ .o = obj, .a = arg }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.emit("__global_allocator, &");
             try emitObjExpr(s, ctx.o);
@@ -73,6 +84,7 @@ fn emitListExtendIterable(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) Co
             try s.genExpr(ctx.a);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 // emitObjExpr imported from expressions.zig (DRY consolidation)

@@ -265,7 +265,7 @@ pub fn truth(a: anytype) bool {
     if (@typeInfo(T) == .float) return a != 0.0;
     if (@typeInfo(T) == .optional) return a != null;
     if (@typeInfo(T) == .pointer) {
-        if (@typeInfo(T).pointer.size == .Slice) return a.len > 0;
+        if (@typeInfo(T).pointer.size == .slice) return a.len > 0;
     }
     return true;
 }
@@ -353,7 +353,7 @@ pub fn delitem(comptime T: type, seq: []const T, idx: usize, allocator: std.mem.
 pub fn length_hint(seq: anytype) usize {
     const T = @TypeOf(seq);
     if (@typeInfo(T) == .pointer) {
-        if (@typeInfo(T).pointer.size == .Slice) return seq.len;
+        if (@typeInfo(T).pointer.size == .slice) return seq.len;
     }
     return 0;
 }

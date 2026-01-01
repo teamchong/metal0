@@ -157,16 +157,18 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     // Check if item variable is used in body - if item_is_tuple, we always need it for unpacking
     const item_var_used = item_is_tuple or param_analyzer.isNameUsedInBody(body, item_var);
 
-    // Check if loop variable shadows an imported module
+    // Check if loop variable shadows an imported module or hoisted variable
     const shadows_import = self.imported_modules.contains(item_var);
+    const shadows_hoisted = self.hoisted_vars.contains(item_var);
+    const shadows_something = shadows_import or shadows_hoisted;
     var em = self.exprEmitter();
     const enum_unique_capture_id = em.peekLabelId();
-    if (shadows_import and item_var_used) _ = em.reserveLabelId();
+    if (shadows_something and item_var_used) _ = em.reserveLabelId();
 
     if (!item_var_used) {
         try self.emit(") |_| {\n");
-    } else if (shadows_import) {
-        // Use unique capture name to avoid shadowing module import
+    } else if (shadows_something) {
+        // Use unique capture name to avoid shadowing module import or hoisted variable
         try self.emitFmt(") |__loop_{s}_{d}__| {{\n", .{ item_var, enum_unique_capture_id });
     } else {
         const b = try self.getBuilder();
@@ -183,7 +185,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     try self.pushScope();
 
     // If we used a unique capture name due to shadowing, add var_renames for body generation
-    if (shadows_import and item_var_used) {
+    if (shadows_something and item_var_used) {
         // Register the renamed variable so body uses __loop_X_N__ instead of X
         const renamed = try std.fmt.allocPrint(self.allocator, "__loop_{s}_{d}__", .{ item_var, enum_unique_capture_id });
         try self.var_renames.put(item_var, renamed);
@@ -193,20 +195,36 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     // AST-based usage analysis and actual codegen (e.g., class field assignments
     // that get optimized away during class codegen)
     if (item_var_used) {
-        if (shadows_import) {
+        if (shadows_something) {
             try emitIndentFmt(self, "_ = &__loop_{s}_{d}__;\n", .{ item_var, enum_unique_capture_id });
         } else {
             try emitIndentWithIdent(self, "_ = &", item_var, ";\n");
+        }
+        // Track loop capture variable for shadowing detection
+        // When Python code does `name = f"f{j}"` inside the loop body,
+        // we need to rename the new variable to avoid shadowing the immutable Zig capture
+        try self.loop_capture_vars.put(item_var, {});
+
+        // Check if the loop variable is reassigned anywhere in the body (including nested blocks)
+        // If so, we need to pre-declare a mutable variable at this scope level to avoid
+        // the issue where the renamed variable is declared inside a nested block but used outside
+        if (for_basic.varIsReassignedInBody(body, item_var)) {
+            const renamed = self.name_gen.loopVar(item_var) catch item_var;
+            // Pre-declare the renamed variable at for-loop scope (before nested blocks)
+            try emitIndentFmt(self, "var {s}: []const u8 = \"\";\n", .{renamed});
+            // Mark as declared so assign.zig won't try to declare it again
+            try self.declareVar(renamed);
+            // Add to var_renames so all references use the renamed name
+            try self.var_renames.put(item_var, renamed);
         }
     }
 
     // Generate: const idx = __enum_idx_N;
     try emitIndentWithIdentFmt(self, "const ", idx_var, " = __enum_idx_{d};\n", .{unique_id});
 
-    // Suppress unused warning only if idx_var is NOT used in body
-    if (!param_analyzer.isNameUsedInBody(body, idx_var)) {
-        try emitIndentWithIdent(self, "_ = ", idx_var, ";\n");
-    }
+    // Always emit discard to handle cases where variable is used in eval strings
+    // (e.g., runtime.eval("sh[cnum]") where cnum is the enum index)
+    try emitIndentWithIdent(self, "_ = &", idx_var, ";\n");
 
     // Generate: __enum_idx_N += 1;
     try emitIndentFmt(self, "__enum_idx_{d} += 1;\n", .{unique_id});
@@ -241,9 +259,13 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     // Pop scope when exiting loop
     self.popScope();
 
-    // Clean up var_renames for shadowed imports
-    if (shadows_import and item_var_used) {
+    // Clean up var_renames for shadowed imports and loop capture reassignment
+    if (item_var_used) {
+        // This removes var_renames entries added for both:
+        // 1. Shadowed imports: item_var -> __loop_X_N__
+        // 2. Reassigned loop captures: item_var -> __mN_lv_name
         _ = self.var_renames.swapRemove(item_var);
+        _ = self.loop_capture_vars.swapRemove(item_var);
     }
 
     self.dedent();

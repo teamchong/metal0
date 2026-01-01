@@ -5,6 +5,14 @@ const std = @import("std");
 /// Default test filename for temp files
 pub const TESTFN = "/tmp/metal0_test";
 
+/// Undecodable test filename (contains invalid UTF-8 bytes)
+pub const TESTFN_UNDECODABLE: ?[]const u8 = null; // Not supported in AOT
+
+/// Get a temporary directory path
+pub fn temp_dir() []const u8 {
+    return "/tmp";
+}
+
 /// Environment variable context manager
 /// Used to temporarily set/unset environment variables in tests
 pub const EnvironmentVarGuard = struct {

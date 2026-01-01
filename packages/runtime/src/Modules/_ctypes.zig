@@ -151,6 +151,25 @@ pub fn sizeof(comptime T: type) usize {
     return @sizeOf(T);
 }
 
+// Base ctypes classes (stubs for compatibility)
+/// _SimpleCData - base class for simple ctypes data types
+pub const _SimpleCData = struct {
+    _b_base_: ?*anyopaque = null,
+    _b_needsfree_: bool = false,
+
+    pub fn init() _SimpleCData {
+        return .{};
+    }
+};
+
+/// PyCSimpleType - metaclass for simple ctypes types
+pub const PyCSimpleType = struct {
+    pub fn init() PyCSimpleType {
+        return .{};
+    }
+};
+
+
 /// alignment - get alignment of type
 pub fn alignment(comptime T: type) usize {
     return @alignOf(T);

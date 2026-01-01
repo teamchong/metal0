@@ -332,3 +332,106 @@ pub fn getNameId(node: ast.Node) ?[]const u8 {
     }
     return null;
 }
+
+// ============================================================================
+// Base Type Classification
+// For class inheritance analysis and builtin subclass detection
+// ============================================================================
+
+/// Collection types that can be subclassed (need allocator for PyValue conversion)
+pub const CollectionBaseTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "list", {} },
+    .{ "dict", {} },
+    .{ "tuple", {} },
+    .{ "set", {} },
+    .{ "frozenset", {} },
+});
+
+/// Numeric types that can be subclassed
+pub const NumericBaseTypes = std.StaticStringMap(void).initComptime(.{
+    .{ "int", {} },
+    .{ "float", {} },
+    .{ "complex", {} },
+});
+
+/// All builtin types that can be subclassed
+pub const BuiltinBaseTypes = std.StaticStringMap(void).initComptime(.{
+    // Numeric
+    .{ "int", {} },
+    .{ "float", {} },
+    .{ "bool", {} },
+    .{ "complex", {} },
+    // Sequence/Collection
+    .{ "list", {} },
+    .{ "tuple", {} },
+    .{ "set", {} },
+    .{ "frozenset", {} },
+    .{ "dict", {} },
+    // String-like
+    .{ "str", {} },
+    .{ "bytes", {} },
+});
+
+/// Check if base class is a collection type (list, dict, tuple, set, frozenset)
+pub fn isCollectionBase(base: []const u8) bool {
+    return CollectionBaseTypes.has(base);
+}
+
+/// Check if base class is a numeric type (int, float, complex)
+pub fn isNumericBase(base: []const u8) bool {
+    return NumericBaseTypes.has(base);
+}
+
+/// Check if base class is a builtin type that can be subclassed
+pub fn isBuiltinBase(base: []const u8) bool {
+    return BuiltinBaseTypes.has(base);
+}
+
+// ============================================================================
+// Dunder Method Trait Classification
+// For class trait analysis - mapping dunder names to DunderOverrides fields
+// ============================================================================
+
+/// Dunder method kinds for class trait analysis
+pub const DunderTraitKind = enum {
+    float, // __float__
+    int, // __int__
+    str, // __str__
+    repr, // __repr__
+    bool_, // __bool__
+    index, // __index__
+    hash, // __hash__
+    len, // __len__
+    iter, // __iter__
+    next, // __next__
+    call, // __call__
+    new, // __new__
+    init, // __init__
+};
+
+/// Map dunder method names to their kind
+pub const DunderTraitMethods = std.StaticStringMap(DunderTraitKind).initComptime(.{
+    .{ "__float__", .float },
+    .{ "__int__", .int },
+    .{ "__str__", .str },
+    .{ "__repr__", .repr },
+    .{ "__bool__", .bool_ },
+    .{ "__index__", .index },
+    .{ "__hash__", .hash },
+    .{ "__len__", .len },
+    .{ "__iter__", .iter },
+    .{ "__next__", .next },
+    .{ "__call__", .call },
+    .{ "__new__", .new },
+    .{ "__init__", .init },
+});
+
+/// Get the dunder trait kind for a method name, or null if not a trait dunder
+pub fn getDunderTraitKind(name: []const u8) ?DunderTraitKind {
+    return DunderTraitMethods.get(name);
+}
+
+/// Check if a method name is a dunder that affects class traits
+pub fn isDunderTraitMethod(name: []const u8) bool {
+    return DunderTraitMethods.has(name);
+}

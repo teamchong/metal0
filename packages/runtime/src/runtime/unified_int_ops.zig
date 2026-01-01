@@ -21,9 +21,74 @@ const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
 // Conversion Helpers
 // =============================================================================
 
-/// Create UnifiedInt from i64 (no allocation, always fast path)
-pub fn fromI64(value: i64) UnifiedInt {
-    return UnifiedInt.fromI64(value);
+/// Create UnifiedInt from any integer type (no allocation for small values)
+/// For runtime u64 values > i64 max, uses thread-local allocator to create BigInt
+pub fn fromI64(value: anytype) UnifiedInt {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    if (info == .int or info == .comptime_int) {
+        // Check if value fits in i64
+        if (info == .comptime_int) {
+            // Comptime int - check at comptime
+            if (value >= std.math.minInt(i64) and value <= std.math.maxInt(i64)) {
+                return .{ .small = @intCast(value) };
+            }
+            @panic("comptime value too large for UnifiedInt.fromI64 - use fromI64WithAlloc");
+        }
+        // For signed types, direct cast works
+        if (info.int.signedness == .signed and info.int.bits <= 64) {
+            return .{ .small = @intCast(value) };
+        }
+        // For unsigned types, check if value fits
+        if (info.int.signedness == .unsigned) {
+            if (value <= std.math.maxInt(i64)) {
+                return .{ .small = @intCast(value) };
+            }
+            // Value > i64 max - promote to BigInt using page allocator
+            // This is rare (u64 > 9223372036854775807) but we handle it gracefully
+            const BigInt = @import("bigint").BigInt;
+            const allocator = std.heap.page_allocator;
+            const big = allocator.create(BigInt) catch @panic("OOM in fromI64");
+            big.* = BigInt.fromInt128(allocator, @as(i128, value)) catch @panic("OOM in fromI64");
+            return .{ .big = big };
+        }
+    }
+    @compileError("fromI64 expects an integer type");
+}
+
+/// Create UnifiedInt from any integer type with allocator (promotes to BigInt for large values)
+pub fn fromI64WithAlloc(allocator: Allocator, value: anytype) UnifiedInt {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    if (info == .int or info == .comptime_int) {
+        // Check if value fits in i64
+        if (info == .comptime_int) {
+            if (value >= std.math.minInt(i64) and value <= std.math.maxInt(i64)) {
+                return .{ .small = @intCast(value) };
+            }
+            // Promote to BigInt for large comptime int
+            const BigInt = @import("bigint").BigInt;
+            const big = allocator.create(BigInt) catch @panic("OOM");
+            big.* = BigInt.fromInt128(allocator, @as(i128, value)) catch @panic("OOM");
+            return .{ .big = big };
+        }
+        // For signed types up to 64 bits, direct cast works
+        if (info.int.signedness == .signed and info.int.bits <= 64) {
+            return .{ .small = @intCast(value) };
+        }
+        // For unsigned types, check if value fits
+        if (info.int.signedness == .unsigned) {
+            if (value <= std.math.maxInt(i64)) {
+                return .{ .small = @intCast(value) };
+            }
+            // Promote to BigInt for values > i64 max
+            const BigInt = @import("bigint").BigInt;
+            const big = allocator.create(BigInt) catch @panic("OOM");
+            big.* = BigInt.fromInt128(allocator, @as(i128, value)) catch @panic("OOM");
+            return .{ .big = big };
+        }
+    }
+    @compileError("fromI64WithAlloc expects an integer type");
 }
 
 /// Create UnifiedInt from usize (for index conversions)
@@ -31,14 +96,30 @@ pub fn fromUsize(value: usize) UnifiedInt {
     return UnifiedInt.fromI64(@intCast(value));
 }
 
-/// Create UnifiedInt from u64
+/// Create UnifiedInt from u64 (promotes to BigInt for values > i64 max)
 pub fn fromU64(value: u64) UnifiedInt {
     if (value <= std.math.maxInt(i64)) {
-        return UnifiedInt.fromI64(@intCast(value));
+        return .{ .small = @intCast(value) };
     }
-    // Value too large for i64 - would need BigInt
-    // For now, panic since this is rare
-    @panic("u64 value too large for UnifiedInt.fromI64");
+    // Value > i64 max - promote to BigInt using page allocator
+    const BigInt = @import("bigint").BigInt;
+    const allocator = std.heap.page_allocator;
+    const big = allocator.create(BigInt) catch @panic("OOM in fromU64");
+    big.* = BigInt.fromInt128(allocator, @as(i128, value)) catch @panic("OOM in fromU64");
+    return .{ .big = big };
+}
+
+/// Create UnifiedInt from u64 with allocator (promotes to BigInt for values > i64 max)
+pub fn fromU64WithAlloc(allocator: Allocator, value: u64) UnifiedInt {
+    if (value <= std.math.maxInt(i64)) {
+        return .{ .small = @intCast(value) };
+    }
+    // Promote to BigInt for values > i64 max
+    const BigInt = @import("bigint").BigInt;
+    const big = allocator.create(BigInt) catch @panic("OOM");
+    // Use i128 since u64 fits in i128
+    big.* = BigInt.fromInt128(allocator, @as(i128, value)) catch @panic("OOM");
+    return .{ .big = big };
 }
 
 /// Create UnifiedInt from BigInt value (allocates on heap)

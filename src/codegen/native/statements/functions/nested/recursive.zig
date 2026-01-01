@@ -5,6 +5,8 @@ const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
 const hashmap_helper = @import("utils.hashmap_helper");
 const var_tracking = @import("var_tracking.zig");
+const scope_analyzer = @import("../scope_analyzer.zig");
+const var_hoisting = @import("../var_hoisting.zig");
 
 /// Generate a recursive closure using Y-combinator style pattern
 /// For recursive closures, we use a struct with a function that receives itself via @This()
@@ -36,6 +38,13 @@ pub fn genRecursiveClosure(
 
     // Static capture variables (prefixed with __c_ to avoid shadowing)
     for (captured_vars) |var_name| {
+        // Skip capturing the function's own name - recursive calls use call() directly
+        // e.g., `def recurser(): recurser(...)` - don't emit `var __c_recurser: @TypeOf(recurser)`
+        // because `recurser` is the struct being defined (circular reference)
+        if (std.mem.eql(u8, var_name, func.name)) {
+            continue;
+        }
+
         const b2 = try self.getBuilder();
         try b2.writeIndent();
         // Use @TypeOf to get the correct type from the outer variable
@@ -120,6 +129,17 @@ pub fn genRecursiveClosure(
     const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
     try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
+    // Analyze scope-escaping variables that need hoisting for nested function body
+    // Variables first assigned in for/if/while/try blocks but used outside need hoisting
+    var scope_analysis = try scope_analyzer.analyzeScopes(func.body, self.allocator);
+    defer scope_analysis.deinit();
+    // Mark all escaped vars as hoisted (so assignment skips declaration)
+    for (scope_analysis.escaped_vars.items) |escaped| {
+        try self.hoisted_vars.put(escaped.name, {});
+    }
+
+    // Note: hoisted variable declarations will be emitted AFTER parameter renames are set up
+
     // Save outer scope renames for captured variables (to restore later)
     var saved_outer_renames = std.ArrayList(?[]const u8){};
     defer saved_outer_renames.deinit(self.allocator);
@@ -186,6 +206,9 @@ pub fn genRecursiveClosure(
         }
     }
 
+    // Emit hoisted variable declarations for nested function body (AFTER param renames are set up)
+    try var_hoisting.emitHoistedDeclarations(self, scope_analysis.escaped_vars.items, func.args, func.body);
+
     // Rename the function name itself to just 'call' for recursive calls
     try self.var_renames.put(func.name, "call");
 
@@ -242,6 +265,11 @@ pub fn genRecursiveClosure(
     // Initialize the capture variables (use __c_ prefix)
     // Now var_renames has been restored so outer scope renames work
     for (captured_vars) |var_name| {
+        // Skip the function's own name - it doesn't need self-initialization
+        if (std.mem.eql(u8, var_name, func.name)) {
+            continue;
+        }
+
         const b7 = try self.getBuilder();
         try b7.writeIndent();
         try b7.writeFmt("{s}.__c_{s} = ", .{ func.name, var_name });

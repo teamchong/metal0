@@ -179,7 +179,7 @@ pub const Sized = struct {
     pub fn isSized(comptime T: type) bool {
         if (@hasDecl(T, "__len__") or @hasDecl(T, "len")) return true;
         const info = @typeInfo(T);
-        return info == .array or (info == .pointer and info.pointer.size == .Slice);
+        return info == .array or (info == .pointer and info.pointer.size == .slice);
     }
 };
 
@@ -217,7 +217,7 @@ pub const Sequence = struct {
     pub fn isSequence(comptime T: type) bool {
         if (@hasDecl(T, "__getitem__") and @hasDecl(T, "__len__")) return true;
         const info = @typeInfo(T);
-        return info == .array or (info == .pointer and info.pointer.size == .Slice);
+        return info == .array or (info == .pointer and info.pointer.size == .slice);
     }
 };
 

@@ -297,14 +297,20 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
     };
     defer dir.close();
 
-    var iter = dir.iterate();
-    while (iter.next() catch null) |entry| {
-        if (entry.kind == .file and std.mem.startsWith(u8, entry.name, "test_") and std.mem.endsWith(u8, entry.name, ".py")) {
+    // Use recursive walker to find tests in subdirectories (e.g., tests/numpy/_core/)
+    var walker = dir.walk(allocator) catch {
+        printError("Cannot walk test directory: {s}", .{test_dir});
+        return;
+    };
+    defer walker.deinit();
+
+    while (walker.next() catch null) |entry| {
+        if (entry.kind == .file and std.mem.startsWith(u8, entry.basename, "test_") and std.mem.endsWith(u8, entry.basename, ".py")) {
             // Check file patterns (e.g., "bool" matches "test_bool.py")
             if (file_patterns.items.len > 0) {
                 var matched = false;
                 for (file_patterns.items) |pattern| {
-                    if (std.mem.indexOf(u8, entry.name, pattern) != null) {
+                    if (std.mem.indexOf(u8, entry.basename, pattern) != null) {
                         matched = true;
                         break;
                     }
@@ -312,7 +318,7 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 if (!matched) continue;
             }
 
-            const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, entry.name });
+            const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ test_dir, entry.path });
             try test_files.append(allocator, path);
         }
     }
@@ -614,6 +620,8 @@ pub fn cmdTest(allocator: std.mem.Allocator, args: []const []const u8) !void {
         const needs_compile = blk: {
             const zig_stat = std.fs.cwd().statFile(zig_path) catch break :blk true;
             const bin_stat = std.fs.cwd().statFile(bin_path) catch break :blk true;
+            // Empty binary means previous compilation failed - must recompile
+            if (bin_stat.size == 0) break :blk true;
             if (bin_stat.mtime < zig_stat.mtime) break :blk true;
             if (compiler_mtime > 0 and bin_stat.mtime < compiler_mtime) break :blk true;
             // Also check if runtime archive was rebuilt (needs relinking)

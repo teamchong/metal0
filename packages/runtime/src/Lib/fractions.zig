@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
+const type_predicates = @import("../runtime/type_predicates.zig");
 
 // ============================================================================
 // Fraction type
@@ -48,7 +49,7 @@ pub const Fraction = struct {
     fn toI64(v: anytype) i64 {
         const T = @TypeOf(v);
         const info = @typeInfo(T);
-        if (info == .int or info == .comptime_int) {
+        if (type_predicates.isIntInfo(info)) {
             return @as(i64, @intCast(v));
         }
         // Handle UnifiedInt - has toI64() method

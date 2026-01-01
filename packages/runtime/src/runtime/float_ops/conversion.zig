@@ -1,6 +1,7 @@
 /// Float type conversion and property operations
 const std = @import("std");
 const rounding = @import("rounding.zig");
+const type_predicates = @import("../type_predicates.zig");
 const IntResult = rounding.IntResult;
 const FloorCeilResult = rounding.FloorCeilResult;
 
@@ -54,9 +55,9 @@ pub fn floatIsInteger(value: anytype) bool {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
-    const f: f64 = if (type_info == .float or type_info == .comptime_float)
+    const f: f64 = if (type_predicates.isFloatInfo(type_info))
         @as(f64, value)
-    else if (type_info == .int or type_info == .comptime_int)
+    else if (type_predicates.isIntInfo(type_info))
         @as(f64, @floatFromInt(value))
     else if (type_info == .@"struct" and @hasField(T, "__base_value__"))
         @as(f64, value.__base_value__)
@@ -80,7 +81,7 @@ pub fn pyFloat(value: anytype) f64 {
     if (T == f32) return @floatCast(value);
     if (info == .comptime_float) return @as(f64, value);
 
-    if (info == .int or info == .comptime_int) return @floatFromInt(value);
+    if (type_predicates.isIntInfo(info)) return @floatFromInt(value);
 
     if (info == .@"union" and info.@"union".tag_type != null) {
         if (@hasField(T, "float_val") and @hasField(T, "complex_val")) {
@@ -117,11 +118,11 @@ pub fn toFloat(value: anytype) f64 {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
-    if (type_info == .float or type_info == .comptime_float) {
+    if (type_predicates.isFloatInfo(type_info)) {
         return @as(f64, value);
     }
 
-    if (type_info == .int or type_info == .comptime_int) {
+    if (type_predicates.isIntInfo(type_info)) {
         return @as(f64, @floatFromInt(value));
     }
 

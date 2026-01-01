@@ -19,6 +19,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
 fn genABC(self: *h.NativeCodegen, _: []ast.Node) h.CodegenError!void {
     const b = try self.getBuilder();
     try b.emitValue(builder_mod.ZigValue.raw("struct { _is_abc: bool = true }{}"), builder_mod.EmitConfig.forExpression());
+    try self.flushBuilder();
 }
 
 fn genABCMeta(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -27,6 +28,7 @@ fn genABCMeta(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
     if (args.len == 0) return error.UnsupportedSyntax;
     const b = try self.getBuilder();
     try b.emitValue(builder_mod.ZigValue.string("ABCMeta"), builder_mod.EmitConfig.forExpression());
+    try self.flushBuilder();
 }
 
 fn genAbstractmethod(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -35,6 +37,7 @@ fn genAbstractmethod(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!vo
         try self.genExpr(args[0]);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("struct { _is_abstract: bool = true }{}"), builder_mod.EmitConfig.forExpression());
+        try self.flushBuilder();
     }
 }
 
@@ -44,6 +47,7 @@ fn genGetCacheToken(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!voi
     if (args.len == 0) return error.UnsupportedSyntax;
     const b = try self.getBuilder();
     try b.emitValue(builder_mod.ZigValue.raw("@as(i64, 0)"), builder_mod.EmitConfig.forExpression());
+    try self.flushBuilder();
 }
 
 fn genUpdateAbstractmethods(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
@@ -52,5 +56,6 @@ fn genUpdateAbstractmethods(self: *h.NativeCodegen, args: []ast.Node) h.CodegenE
         try self.genExpr(args[0]);
     } else {
         try b.emitValue(builder_mod.ZigValue.raw("void{}"), builder_mod.EmitConfig.forExpression());
+        try self.flushBuilder();
     }
 }

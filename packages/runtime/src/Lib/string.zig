@@ -108,7 +108,7 @@ pub const Formatter = struct {
         const T = @TypeOf(value);
         if (T == []const u8 or T == []u8) {
             try result.appendSlice(allocator, value);
-        } else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .One) {
+        } else if (@typeInfo(T) == .pointer and @typeInfo(T).pointer.size == .one) {
             // Pointer to array (string literal)
             try result.appendSlice(allocator, value);
         } else if (@typeInfo(T) == .int) {

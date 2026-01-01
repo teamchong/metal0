@@ -41,6 +41,35 @@ pub const ScopeAnalysis = struct {
     }
 };
 
+/// Collect variable names from an assignment target (handles name, tuple, and list targets)
+fn collectNamesFromTarget(vars: *hashmap_helper.StringHashMap(void), target: ast.Node) error{OutOfMemory}!void {
+    switch (target) {
+        .name => |name| {
+            try vars.put(name.id, {});
+        },
+        .tuple => |tuple| {
+            // Handle tuple unpacking: a, b = 1, 2
+            for (tuple.elts) |elt| {
+                try collectNamesFromTarget(vars, elt);
+            }
+        },
+        .list => |list| {
+            // Handle list unpacking: [a, b] = [1, 2]
+            for (list.elts) |elt| {
+                try collectNamesFromTarget(vars, elt);
+            }
+        },
+        .starred => |starred| {
+            // Handle starred unpacking: a, *b, c = [1, 2, 3, 4]
+            try collectNamesFromTarget(vars, starred.value.*);
+        },
+        else => {
+            // Skip other targets like subscripts (x[0] = ...) or attributes (x.y = ...)
+            // These don't declare new variables
+        },
+    }
+}
+
 /// Analyze a function body for scope-escaping variables
 pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !ScopeAnalysis {
     var result = ScopeAnalysis{
@@ -92,10 +121,26 @@ pub fn analyzeScopes(body: []const ast.Node, allocator: std.mem.Allocator) !Scop
     // Fourth pass: detect cross-block escapes (var declared in if/for/while block A, used in sibling block B)
     try detectCrossBlockEscapes(body, &declared_in_inner, &used_at_outer, allocator);
 
+    // Fifth pass: detect cross-branch escapes within if/else (var declared in if body, used in else body or vice versa)
+    try detectCrossBranchEscapes(body, &declared_in_inner, &used_at_outer, allocator);
+
+    // Collect nested function names - these shouldn't be hoisted
+    var nested_func_names = hashmap_helper.StringHashMap(void).init(allocator);
+    defer nested_func_names.deinit();
+    for (body) |stmt| {
+        if (stmt == .function_def) {
+            try nested_func_names.put(stmt.function_def.name, {});
+        }
+    }
+
     // Find variables that are declared inner but used outer
     var iter = declared_in_inner.iterator();
     while (iter.next()) |entry| {
         if (used_at_outer.contains(entry.key_ptr.*)) {
+            // Skip variables that match nested function names - they're defined as structs, not hoisted vars
+            // e.g., `def recurser(): ...; finally: recurser = None` - don't hoist recurser
+            if (nested_func_names.contains(entry.key_ptr.*)) continue;
+
             var escaped_var = entry.value_ptr.*;
             // If the variable has a function-level assignment, use THAT init_expr
             // This fixes type inference for patterns like `dot = 0.0; for: dot = dot + x`
@@ -296,6 +341,205 @@ fn detectCrossBlockEscapes(
             }
         }
     }
+
+    // Recursively check for cross-block escapes inside each block's body
+    // This handles cases like: if X: { if A: { decl v } ... if B: { use v } }
+    for (body) |stmt| {
+        switch (stmt) {
+            .if_stmt => |if_s| {
+                try detectCrossBlockEscapes(if_s.body, declared, used_at_outer, allocator);
+                try detectCrossBlockEscapes(if_s.else_body, declared, used_at_outer, allocator);
+            },
+            .for_stmt => |for_s| {
+                try detectCrossBlockEscapes(for_s.body, declared, used_at_outer, allocator);
+                if (for_s.orelse_body) |orelse_body| {
+                    try detectCrossBlockEscapes(orelse_body, declared, used_at_outer, allocator);
+                }
+            },
+            .while_stmt => |while_s| {
+                try detectCrossBlockEscapes(while_s.body, declared, used_at_outer, allocator);
+                if (while_s.orelse_body) |orelse_body| {
+                    try detectCrossBlockEscapes(orelse_body, declared, used_at_outer, allocator);
+                }
+            },
+            .try_stmt => |try_s| {
+                try detectCrossBlockEscapes(try_s.body, declared, used_at_outer, allocator);
+                for (try_s.handlers) |h| {
+                    try detectCrossBlockEscapes(h.body, declared, used_at_outer, allocator);
+                }
+                try detectCrossBlockEscapes(try_s.else_body, declared, used_at_outer, allocator);
+                try detectCrossBlockEscapes(try_s.finalbody, declared, used_at_outer, allocator);
+            },
+            .with_stmt => |with_s| {
+                try detectCrossBlockEscapes(with_s.body, declared, used_at_outer, allocator);
+            },
+            .match_stmt => |match_s| {
+                for (match_s.cases) |case| {
+                    try detectCrossBlockEscapes(case.body, declared, used_at_outer, allocator);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+/// Detect variables that escape across branches within the same if/else statement
+/// e.g., variable declared in if-body used in else-body, or vice versa
+fn detectCrossBranchEscapes(
+    body: []const ast.Node,
+    declared: *hashmap_helper.StringHashMap(EscapedVar),
+    used_at_outer: *hashmap_helper.StringHashMap(void),
+    allocator: std.mem.Allocator,
+) !void {
+    for (body) |stmt| {
+        switch (stmt) {
+            .if_stmt => |if_s| {
+                // Collect declarations from if body
+                var if_decls = hashmap_helper.StringHashMap(void).init(allocator);
+                defer if_decls.deinit();
+                for (if_s.body) |s| {
+                    try collectAllDeclsInStmt(&if_decls, s, allocator);
+                }
+
+                // Collect declarations from else body
+                var else_decls = hashmap_helper.StringHashMap(void).init(allocator);
+                defer else_decls.deinit();
+                for (if_s.else_body) |s| {
+                    try collectAllDeclsInStmt(&else_decls, s, allocator);
+                }
+
+                // Collect uses from if body
+                var if_uses = hashmap_helper.StringHashMap(void).init(allocator);
+                defer if_uses.deinit();
+                for (if_s.body) |s| {
+                    try collectAllVarRefsInStmt(&if_uses, s, allocator);
+                }
+
+                // Collect uses from else body
+                var else_uses = hashmap_helper.StringHashMap(void).init(allocator);
+                defer else_uses.deinit();
+                for (if_s.else_body) |s| {
+                    try collectAllVarRefsInStmt(&else_uses, s, allocator);
+                }
+
+                // Check if if-body declarations are used in else-body
+                var if_iter = if_decls.iterator();
+                while (if_iter.next()) |entry| {
+                    const var_name = entry.key_ptr.*;
+                    if (else_uses.contains(var_name)) {
+                        try used_at_outer.put(var_name, {});
+                        if (!declared.contains(var_name)) {
+                            try declared.put(var_name, .{
+                                .name = var_name,
+                                .init_expr = null,
+                                .source = .if_stmt,
+                            });
+                        }
+                    }
+                }
+
+                // Check if else-body declarations are used in if-body
+                var else_iter = else_decls.iterator();
+                while (else_iter.next()) |entry| {
+                    const var_name = entry.key_ptr.*;
+                    if (if_uses.contains(var_name)) {
+                        try used_at_outer.put(var_name, {});
+                        if (!declared.contains(var_name)) {
+                            try declared.put(var_name, .{
+                                .name = var_name,
+                                .init_expr = null,
+                                .source = .if_stmt,
+                            });
+                        }
+                    }
+                }
+
+                // Also check if same variable is declared in both branches (needs hoisting)
+                var if_iter2 = if_decls.iterator();
+                while (if_iter2.next()) |entry| {
+                    const var_name = entry.key_ptr.*;
+                    if (else_decls.contains(var_name)) {
+                        try used_at_outer.put(var_name, {});
+                        if (!declared.contains(var_name)) {
+                            try declared.put(var_name, .{
+                                .name = var_name,
+                                .init_expr = null,
+                                .source = .if_stmt,
+                            });
+                        }
+                    }
+                }
+
+                // Recursively check nested control flow statements
+                try recurseCrossBranchDetection(if_s.body, declared, used_at_outer, allocator);
+                try recurseCrossBranchDetection(if_s.else_body, declared, used_at_outer, allocator);
+            },
+            .with_stmt => |with_s| {
+                // Check for if/else inside with blocks
+                try recurseCrossBranchDetection(with_s.body, declared, used_at_outer, allocator);
+            },
+            .for_stmt => |for_s| {
+                // Check for if/else inside for loops
+                try recurseCrossBranchDetection(for_s.body, declared, used_at_outer, allocator);
+                if (for_s.orelse_body) |orelse_body| {
+                    try recurseCrossBranchDetection(orelse_body, declared, used_at_outer, allocator);
+                }
+            },
+            .while_stmt => |while_s| {
+                // Check for if/else inside while loops
+                try recurseCrossBranchDetection(while_s.body, declared, used_at_outer, allocator);
+                if (while_s.orelse_body) |orelse_body| {
+                    try recurseCrossBranchDetection(orelse_body, declared, used_at_outer, allocator);
+                }
+            },
+            .try_stmt => |try_s| {
+                // Check for if/else inside try blocks
+                try recurseCrossBranchDetection(try_s.body, declared, used_at_outer, allocator);
+                for (try_s.handlers) |h| {
+                    try recurseCrossBranchDetection(h.body, declared, used_at_outer, allocator);
+                }
+                try recurseCrossBranchDetection(try_s.else_body, declared, used_at_outer, allocator);
+                try recurseCrossBranchDetection(try_s.finalbody, declared, used_at_outer, allocator);
+            },
+            else => {},
+        }
+    }
+}
+
+/// Helper to recurse into control flow statements for cross-branch detection
+fn recurseCrossBranchDetection(
+    body: []const ast.Node,
+    declared: *hashmap_helper.StringHashMap(EscapedVar),
+    used_at_outer: *hashmap_helper.StringHashMap(void),
+    allocator: std.mem.Allocator,
+) ScopeAnalysisError!void {
+    for (body) |s| {
+        switch (s) {
+            .if_stmt => try detectCrossBranchEscapes(&.{s}, declared, used_at_outer, allocator),
+            .with_stmt => |with_s| try recurseCrossBranchDetection(with_s.body, declared, used_at_outer, allocator),
+            .for_stmt => |for_s| {
+                try recurseCrossBranchDetection(for_s.body, declared, used_at_outer, allocator);
+                if (for_s.orelse_body) |orelse_body| {
+                    try recurseCrossBranchDetection(orelse_body, declared, used_at_outer, allocator);
+                }
+            },
+            .while_stmt => |while_s| {
+                try recurseCrossBranchDetection(while_s.body, declared, used_at_outer, allocator);
+                if (while_s.orelse_body) |orelse_body| {
+                    try recurseCrossBranchDetection(orelse_body, declared, used_at_outer, allocator);
+                }
+            },
+            .try_stmt => |try_s| {
+                try recurseCrossBranchDetection(try_s.body, declared, used_at_outer, allocator);
+                for (try_s.handlers) |h| {
+                    try recurseCrossBranchDetection(h.body, declared, used_at_outer, allocator);
+                }
+                try recurseCrossBranchDetection(try_s.else_body, declared, used_at_outer, allocator);
+                try recurseCrossBranchDetection(try_s.finalbody, declared, used_at_outer, allocator);
+            },
+            else => {},
+        }
+    }
 }
 
 /// Collect ALL variable declarations in a statement recursively (for-loop targets, assignments)
@@ -307,9 +551,7 @@ fn collectAllDeclsInStmt(
     switch (node) {
         .assign => |assign| {
             for (assign.targets) |target| {
-                if (target == .name) {
-                    try vars.put(target.name.id, {});
-                }
+                try collectNamesFromTarget(vars, target);
             }
         },
         .aug_assign => |aug| {
@@ -415,9 +657,7 @@ fn collectAssignmentsInStmt(
     switch (node) {
         .assign => |assign| {
             for (assign.targets) |target| {
-                if (target == .name) {
-                    try vars.put(target.name.id, {});
-                }
+                try collectNamesFromTarget(vars, target);
             }
         },
         .aug_assign => |aug| {
@@ -751,6 +991,12 @@ fn collectAllVarRefsInStmt(
     switch (node) {
         .assign => |assign| {
             try collectVarRefs(uses, assign.value.*, allocator);
+        },
+        .aug_assign => |aug| {
+            // Handle augmented assignment (e.g., subscripts += "->" + output_sub.replace(...))
+            // Collect refs from both target (in case of subscript/attribute) and value
+            try collectVarRefs(uses, aug.target.*, allocator);
+            try collectVarRefs(uses, aug.value.*, allocator);
         },
         .expr_stmt => |expr| {
             try collectVarRefs(uses, expr.value.*, allocator);

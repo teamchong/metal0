@@ -5,6 +5,33 @@ const std = @import("std");
 const PyValue = @import("../Objects/object.zig").PyValue;
 const equality = @import("equality.zig");
 
+/// Check if a type is string-like ([]const u8, []u8, or pointer to u8 array)
+/// Used to properly compare string literals (*const [N:0]u8) with slices ([]const u8)
+fn isStringLike(comptime T: type) bool {
+    if (T == []const u8 or T == []u8) return true;
+    const info = @typeInfo(T);
+    // Check for pointer to array of u8 (includes sentinel-terminated like *const [3:0]u8)
+    if (info == .pointer) {
+        if (info.pointer.size == .one) {
+            const child_info = @typeInfo(info.pointer.child);
+            if (child_info == .array and child_info.array.child == u8) return true;
+        }
+    }
+    return false;
+}
+
+/// Convert string-like value to slice - handles both slices and pointer-to-array
+fn toStringSlice(comptime T: type, val: T) []const u8 {
+    const info = @typeInfo(T);
+    if (info == .pointer and info.pointer.size == .one) {
+        // Pointer to array (e.g., *const [3:0]u8) - convert to slice
+        // Just slice the whole array - this works for both sentinel and non-sentinel
+        return val[0..];
+    }
+    // Already a slice
+    return val;
+}
+
 /// Compare two containers for equality - handles arrays, slices, and structs with .items
 /// This is the unified comparison function for assertEqual on sequences
 /// Takes pointers to avoid by-value copying of arrays
@@ -280,9 +307,14 @@ pub fn contains(comptime T: type, container: T, value: anytype) bool {
         inline for (info.@"struct".fields) |field| {
             const field_val = @field(container, field.name);
             const FieldT = @TypeOf(field_val);
-            // Use std.mem.eql for string comparison ([]const u8)
-            if (FieldT == []const u8 and V == []const u8) {
-                if (std.mem.eql(u8, field_val, value)) return true;
+            // Check if both are string-like types (handles []const u8 vs *const [N:0]u8)
+            const field_is_str = comptime isStringLike(FieldT);
+            const value_is_str = comptime isStringLike(V);
+            if (field_is_str and value_is_str) {
+                // Convert both to slices for comparison
+                const field_slice = toStringSlice(FieldT, field_val);
+                const value_slice = toStringSlice(V, value);
+                if (std.mem.eql(u8, field_slice, value_slice)) return true;
             } else if (FieldT == V) {
                 // Same-type comparison with NaN handling for floats
                 if (@typeInfo(V) == .float) {
@@ -319,35 +351,70 @@ pub fn notContains(comptime T: type, container: T, value: anytype) bool {
     return !contains(T, container, value);
 }
 
-/// String substring containment check - for 'in' operator with strings
-/// Python: 'abc' in 'abcdef' -> True (substring search)
-/// Handles both optional and non-optional strings
+/// String containment check - for 'in' operator
+/// Handles two cases:
+/// 1. String substring: 'abc' in 'abcdef' -> True (substring search)
+/// 2. String in list: 'name' in dir(obj) -> True (list membership)
+/// Handles both optional and non-optional inputs
 pub fn stringContains(haystack: anytype, needle: anytype) bool {
-    // Unwrap optionals - if either is null, return false (Python semantics: None doesn't contain anything)
-    const h: []const u8 = if (@typeInfo(@TypeOf(haystack)) == .optional)
-        haystack orelse return false
-    else
-        haystack;
+    const H = @TypeOf(haystack);
+    const h_info = @typeInfo(H);
+
+    // Unwrap needle (the search target)
     const n: []const u8 = if (@typeInfo(@TypeOf(needle)) == .optional)
         needle orelse return false
     else
         needle;
+
+    // Check if haystack is a list of strings (e.g., from dir())
+    if (h_info == .pointer and h_info.pointer.size == .slice) {
+        const child_info = @typeInfo(h_info.pointer.child);
+        // If it's []const []const u8 (list of strings), use list containment
+        if (child_info == .pointer and child_info.pointer.size == .slice) {
+            return stringListContains(haystack, n);
+        }
+    }
+
+    // Otherwise, treat haystack as a single string for substring search
+    const h: []const u8 = if (h_info == .optional)
+        haystack orelse return false
+    else
+        haystack;
     return std.mem.indexOf(u8, h, n) != null;
 }
 
-/// String substring NOT containment check - for 'not in' operator with strings
-/// Handles both optional and non-optional strings
+/// String NOT containment check - for 'not in' operator
+/// Handles two cases:
+/// 1. String substring: 'xyz' not in 'abcdef' -> True
+/// 2. String in list: 'name' not in dir(obj) -> True
+/// Handles both optional and non-optional inputs
 pub fn stringNotContains(haystack: anytype, needle: anytype) bool {
-    // Unwrap optionals - if either is null, return true (needle not found in null)
-    const h: []const u8 = if (@typeInfo(@TypeOf(haystack)) == .optional)
-        haystack orelse return true
-    else
-        haystack;
-    const n: []const u8 = if (@typeInfo(@TypeOf(needle)) == .optional)
-        needle orelse return true
-    else
-        needle;
-    return std.mem.indexOf(u8, h, n) == null;
+    return !stringContains(haystack, needle);
+}
+
+/// Check if a string exists in a list of strings
+/// Used for: "name" in dir(obj) where dir() returns []const []const u8
+pub fn stringListContains(list: anytype, needle: []const u8) bool {
+    const T = @TypeOf(list);
+    const info = @typeInfo(T);
+
+    // Handle slice of strings
+    if (info == .pointer and info.pointer.size == .slice) {
+        const child_info = @typeInfo(info.pointer.child);
+        // Check if it's []const []const u8 or similar
+        if (child_info == .pointer and child_info.pointer.size == .slice) {
+            for (list) |item| {
+                if (std.mem.eql(u8, item, needle)) return true;
+            }
+            return false;
+        }
+    }
+
+    // Fallback: try iterating directly
+    for (list) |item| {
+        if (std.mem.eql(u8, item, needle)) return true;
+    }
+    return false;
 }
 
 /// Check if type is a slice - for identity comparison

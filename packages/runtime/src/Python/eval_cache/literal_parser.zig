@@ -123,19 +123,22 @@ fn tryParseFloatLiteral(s: []const u8) ?f64 {
 }
 
 /// Validate underscore placement in int literal (after base prefix)
+/// Note: In Python, underscore CAN appear right after base prefix (0b_0, 0x_f, 0o_5)
+/// So we only check: no trailing underscore, no consecutive underscores, must have digits
 fn validateIntUnderscores(s: []const u8) bool {
     if (s.len == 0) return true;
-    // Can't start with underscore
-    if (s[0] == '_') return false;
     // Can't end with underscore
     if (s[s.len - 1] == '_') return false;
-    // Check for consecutive underscores
+    // Check for consecutive underscores and ensure at least one digit
     var prev: u8 = 0;
+    var has_digit = false;
     for (s) |c| {
         if (c == '_' and prev == '_') return false;
+        if (c != '_') has_digit = true;
         prev = c;
     }
-    return true;
+    // Must have at least one digit
+    return has_digit;
 }
 
 /// Parse int literal with underscore support

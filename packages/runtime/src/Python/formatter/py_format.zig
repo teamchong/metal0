@@ -422,7 +422,16 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
     const F = @TypeOf(format);
     const V = @TypeOf(value);
 
-    const format_str: []const u8 = if (F == []const u8 or F == [:0]const u8) format else @as([]const u8, format);
+    const format_str: []const u8 = blk: {
+        if (F == []const u8 or F == [:0]const u8 or F == []u8) {
+            break :blk format;
+        }
+        // Handle PyBytes or other struct with .data field
+        if (@typeInfo(F) == .@"struct" and @hasField(F, "data")) {
+            break :blk format.data;
+        }
+        break :blk @as([]const u8, format);
+    };
 
     var result = std.ArrayListUnmanaged(u8){};
     var i: usize = 0;
@@ -477,7 +486,13 @@ pub fn pyStringFormat(allocator: std.mem.Allocator, format: anytype, value: anyt
                 }
                 i = j + 1;
             } else if (spec == 'd' or spec == 'i') {
-                if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
+                if (@typeInfo(V) == .bool) {
+                    // Python: "%d" % True -> "1", "%d" % False -> "0"
+                    const int_val: i64 = if (value) 1 else 0;
+                    if (sign_flag == '+') try result.append(allocator, '+');
+                    if (sign_flag == ' ') try result.append(allocator, ' ');
+                    try result.writer(allocator).print("{d}", .{int_val});
+                } else if (@typeInfo(V) == .int or @typeInfo(V) == .comptime_int) {
                     if (sign_flag == '+' and value >= 0) try result.append(allocator, '+');
                     if (sign_flag == ' ' and value >= 0) try result.append(allocator, ' ');
                     try result.writer(allocator).print("{d}", .{value});

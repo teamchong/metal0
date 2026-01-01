@@ -361,13 +361,13 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("_string", .zig_runtime, null, null); // Uses string module
     // CPython test infrastructure modules
     // _testcapi: Provides constants and functions to test our Python C API implementation (415 Zig files)
-    try registry.register("_testcapi", .zig_runtime, "runtime.Lib._testcapi", "runtime.Lib._testcapi");
+    try registry.registerDirect("_testcapi", .zig_runtime, "runtime.Lib._testcapi", "runtime.Lib._testcapi", null);
     // _testinternalcapi: Internal CPython testing API (dispatched through module_functions.zig)
     try registry.register("_testinternalcapi", .zig_runtime, null, null);
     // _testconsole: Windows console testing (stubs on non-Windows, raises error at runtime)
-    try registry.register("_testconsole", .zig_runtime, "runtime.Lib._testconsole", "runtime.Lib._testconsole");
+    try registry.registerDirect("_testconsole", .zig_runtime, "runtime.Lib._testconsole", "runtime.Lib._testconsole", null);
     // _testexternalinspection: External process inspection testing (stubs, not implemented)
-    try registry.register("_testexternalinspection", .zig_runtime, "runtime.Lib._testexternalinspection", "runtime.Lib._testexternalinspection");
+    try registry.registerDirect("_testexternalinspection", .zig_runtime, "runtime.Lib._testexternalinspection", "runtime.Lib._testexternalinspection", null);
     // _testbuffer: Not yet implemented (less commonly used)
     try registry.register("_testbuffer", .unsupported, null, null);
 

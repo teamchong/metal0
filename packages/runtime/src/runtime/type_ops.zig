@@ -10,6 +10,7 @@ const PyTypeObject = pyobject.PyTypeObject;
 // Import numbers ABC for numeric hierarchy checks
 const numbers_abc = @import("numbers_abc.zig");
 pub const NumbersABC = numbers_abc.NumbersABC;
+const type_predicates = @import("type_predicates.zig");
 
 // ============================================================================
 // Global ABC Registry for Virtual Subclasses
@@ -106,9 +107,9 @@ pub fn istype(comptime T: type, comptime type_name: []const u8) bool {
     const info = @typeInfo(T);
 
     if (comptime std.mem.eql(u8, type_name, "int")) {
-        return info == .int or info == .comptime_int or T == bool;
+        return type_predicates.isIntInfo(info) or T == bool;
     } else if (comptime std.mem.eql(u8, type_name, "float")) {
-        return info == .float or info == .comptime_float;
+        return type_predicates.isFloatInfo(info);
     } else if (comptime std.mem.eql(u8, type_name, "bool")) {
         return T == bool;
     } else if (comptime std.mem.eql(u8, type_name, "str")) {
@@ -217,7 +218,27 @@ pub fn isSubclass(cls: anytype, base: anytype) bool {
 
     // For runtime values that are type objects, compare directly
     // This handles cases where types are passed as runtime values
-    return cls == base;
+    // But only if they're the same type - otherwise we can't compare
+    if (ClsType == BaseType) {
+        return cls == base;
+    }
+
+    // Handle Zig primitive types against null ABC pointers
+    // When base is ?*anyopaque = null (imported ABC like Integral, Real, etc.),
+    // and cls is a Zig type, check the Python numbers hierarchy
+    // NOTE: This case shouldn't be reached - codegen should use isBuiltinSubclassOfNumbersABC
+    // for checks against ABC types. But we handle it defensively here.
+    if (@typeInfo(ClsType) == .type and BaseType == ?*anyopaque) {
+        // base is null - we can't determine which ABC it represents at runtime
+        // This path is reached when codegen generates: isSubclass(i64, Integral)
+        // where Integral is defined as: const Integral: ?*anyopaque = null;
+        // Since we can't distinguish which ABC null represents, return false.
+        // The fix needs to be in codegen to use isBuiltinSubclassOfNumbersABC.
+        return false;
+    }
+
+    // Incompatible types can't be subclasses
+    return false;
 }
 
 /// Check if cls is a subclass of any of the types in the tuple
@@ -319,10 +340,10 @@ pub fn isNumbersSubclassType(comptime T: type, abc: NumbersABC) bool {
     if (T == bool) {
         return numbers_abc.isBuiltinSubclassOfABC("bool", abc);
     }
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return numbers_abc.isBuiltinSubclassOfABC("int", abc);
     }
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return numbers_abc.isBuiltinSubclassOfABC("float", abc);
     }
 

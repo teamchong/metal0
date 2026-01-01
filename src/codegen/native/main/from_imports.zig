@@ -5,7 +5,6 @@ const CodegenError = core.CodegenError;
 const hashmap_helper = @import("utils.hashmap_helper");
 const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("utils.zig_keywords");
-const build_dirs = @import("../../../build_dirs.zig");
 
 /// Parse __all__ list from a Python source file
 /// Returns a list of exported symbol names, or null if __all__ not found
@@ -254,9 +253,14 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 try self.emitFmt("pub const {s} = @import(\"./{s}{s}\");\n", .{
                     name, name, import_suffix.?,
                 });
+                // Track this import so local variables don't shadow it
+                const name_copy = try self.arena.allocator().dupe(u8, name);
+                try self.imported_modules.put(name_copy, {});
                 // If aliased, create an alias constant
                 if (has_alias) {
                     try self.emitFmt("pub const {s} = {s};\n", .{ alias_name.?, name });
+                    const alias_copy = try self.arena.allocator().dupe(u8, alias_name.?);
+                    try self.imported_modules.put(alias_copy, {});
                 }
             } else {
                 // Multi-level: from .. import X -> "../{name}{suffix}"
@@ -272,26 +276,20 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 try self.emitFmt("pub const {s} = @import(\"{s}\");\n", .{
                     name, fbs.getWritten(),
                 });
+                // Track this import so local variables don't shadow it
+                const name_copy = try self.arena.allocator().dupe(u8, name);
+                try self.imported_modules.put(name_copy, {});
                 // If aliased, create an alias constant
                 if (has_alias) {
                     try self.emitFmt("pub const {s} = {s};\n", .{ alias_name.?, name });
+                    const alias_copy = try self.arena.allocator().dupe(u8, alias_name.?);
+                    try self.imported_modules.put(alias_copy, {});
                 }
             }
 
             try imported_submodules.put(name, {});
         }
     }
-
-    // Get the generated zig directory for checking if submodules were compiled (for PHASE 1)
-    const gen_dir: ?[]const u8 = if (self.source_file_path) |sfp| blk: {
-        const zig_path = build_dirs.projectZigPath(self.allocator, ".", sfp) catch break :blk null;
-        defer self.allocator.free(zig_path);
-        if (std.mem.lastIndexOfScalar(u8, zig_path, '/')) |idx| {
-            break :blk self.allocator.dupe(u8, zig_path[0..idx]) catch null;
-        }
-        break :blk null;
-    } else null;
-    defer if (gen_dir) |d| self.allocator.free(d);
 
     // PHASE 1: Handle "from .module import X" pattern
     for (self.from_imports.items) |from_imp| {
@@ -305,8 +303,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
             // Sanitize identifier: replace dots with double underscores
             // e.g., "lib._arraypad_impl" -> "lib___arraypad_impl"
-            const ident_name = std.mem.replaceOwned(u8, self.allocator, submodule_name, ".", "__") catch continue;
+            var ident_name = std.mem.replaceOwned(u8, self.allocator, submodule_name, ".", "__") catch continue;
             defer self.allocator.free(ident_name);
+
+            // Check if module name conflicts with a function/class defined in this module
+            // e.g., "from .printoptions import format_options" + "def printoptions(): ..."
+            // In this case, rename the module import to "{module}_module"
+            if (self.module_level_funcs.contains(ident_name)) {
+                const suffixed = std.fmt.allocPrint(self.allocator, "{s}_module", .{ident_name}) catch continue;
+                self.allocator.free(ident_name);
+                ident_name = suffixed;
+            }
 
             if (imported_submodules.contains(submodule_name)) continue;
 
@@ -314,37 +321,40 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             if (zig_keywords.wouldShadowModule(ident_name)) continue;
             if (zig_keywords.isZigKeyword(ident_name)) continue;
 
-            // Determine correct import path by checking what exists in generated output
-            // Check for: {gen_dir}/{submodule}.zig or {gen_dir}/{submodule}/__init__.zig
-            // Also check if the file/directory actually exists before emitting
-            const import_info: ?struct { suffix: []const u8, exists: bool } = suffix_check: {
-                if (gen_dir) |dir| {
-                    // Check for single-file module first: {dir}/{submodule}.zig
-                    const file_path = std.fmt.allocPrint(self.allocator, "{s}/{s}.zig", .{ dir, submodule_name }) catch break :suffix_check null;
+            // Determine correct import path by checking what exists in Python source
+            // Check for: {source_dir}/{submodule}.py or {source_dir}/{submodule}/__init__.py
+            // NOTE: Check Python source (not generated Zig) because parallel codegen may not have
+            // generated the .zig file yet. If Python source exists, .zig will be generated.
+            const import_suffix: ?[]const u8 = suffix_check: {
+                if (source_dir) |dir| {
+                    // Check for single-file module first: {dir}/{submodule}.py
+                    const file_path = std.fmt.allocPrint(self.allocator, "{s}/{s}.py", .{ dir, submodule_name }) catch break :suffix_check null;
                     defer self.allocator.free(file_path);
                     if (std.fs.cwd().access(file_path, .{})) |_| {
-                        break :suffix_check .{ .suffix = ".zig", .exists = true };
+                        break :suffix_check ".zig"; // Python module -> .zig
                     } else |_| {}
 
-                    // Check for package directory: {dir}/{submodule}/__init__.zig
-                    const dir_path = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.zig", .{ dir, submodule_name }) catch break :suffix_check null;
+                    // Check for package directory: {dir}/{submodule}/__init__.py
+                    const dir_path = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.py", .{ dir, submodule_name }) catch break :suffix_check null;
                     defer self.allocator.free(dir_path);
                     if (std.fs.cwd().access(dir_path, .{})) |_| {
-                        break :suffix_check .{ .suffix = "/__init__.zig", .exists = true };
+                        break :suffix_check "/__init__.zig"; // Python package -> __init__.zig
                     } else |_| {}
                 }
                 break :suffix_check null;
             };
 
-            // Skip if the submodule doesn't exist (not compiled)
-            if (import_info == null) continue;
-            const import_suffix = import_info.?.suffix;
+            // Skip if the submodule doesn't exist (C extension or not found)
+            if (import_suffix == null) continue;
 
             // Generate import statement using emitFmt
             try self.emitFmt("const {s} = @import(\"./{s}{s}\");\n", .{
-                ident_name, submodule_name, import_suffix,
+                ident_name, submodule_name, import_suffix.?,
             });
             try imported_submodules.put(submodule_name, {});
+            // Track this import so local variables don't shadow it
+            const ident_copy = try self.arena.allocator().dupe(u8, ident_name);
+            try self.imported_modules.put(ident_copy, {});
         }
     }
 
@@ -364,12 +374,53 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             // Skip if empty (from . import X has no module name)
             if (submodule_name.len == 0) continue;
 
-            // Skip if submodule was filtered out (reserved name or not compiled)
-            if (!imported_submodules.contains(submodule_name)) continue;
+            // Check if submodule was already imported in Phase 1
+            const submodule_imported = imported_submodules.contains(submodule_name);
 
             // Sanitize identifier: replace dots with double underscores (same as PHASE 1)
-            const ident_name = std.mem.replaceOwned(u8, self.allocator, submodule_name, ".", "__") catch continue;
+            var ident_name = std.mem.replaceOwned(u8, self.allocator, submodule_name, ".", "__") catch continue;
             defer self.allocator.free(ident_name);
+
+            // Apply same suffix as PHASE 1 if module name conflicts with function/class
+            if (self.module_level_funcs.contains(ident_name)) {
+                const suffixed = std.fmt.allocPrint(self.allocator, "{s}_module", .{ident_name}) catch continue;
+                self.allocator.free(ident_name);
+                ident_name = suffixed;
+            }
+
+            // Determine import path suffix for direct imports
+            // Build the relative import path based on number of dots
+            var import_path_buf: [512]u8 = undefined;
+            var import_path_fbs = std.io.fixedBufferStream(&import_path_buf);
+            const import_path_writer = import_path_fbs.writer();
+            for (0..dots - 1) |_| {
+                import_path_writer.writeAll("../") catch break;
+            }
+            import_path_writer.writeAll(submodule_name) catch {};
+            import_path_writer.writeAll(".zig") catch {};
+            const import_path = import_path_fbs.getWritten();
+
+            // Check if Python source exists (not generated .zig) to determine if it's a Python module
+            // NOTE: Check Python source because parallel codegen may not have generated the .zig yet.
+            // If Python source exists, .zig will eventually be generated.
+            const submodule_is_python: bool = exists_check: {
+                if (source_dir) |dir| {
+                    // Check for single-file module: {dir}/{submodule}.py
+                    const file_path = std.fmt.allocPrint(self.allocator, "{s}/{s}.py", .{ dir, submodule_name }) catch break :exists_check false;
+                    defer self.allocator.free(file_path);
+                    if (std.fs.cwd().access(file_path, .{})) |_| {
+                        break :exists_check true;
+                    } else |_| {}
+
+                    // Check for package directory: {dir}/{submodule}/__init__.py
+                    const dir_path = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.py", .{ dir, submodule_name }) catch break :exists_check false;
+                    defer self.allocator.free(dir_path);
+                    if (std.fs.cwd().access(dir_path, .{})) |_| {
+                        break :exists_check true;
+                    } else |_| {}
+                }
+                break :exists_check false;
+            };
 
             // Generate re-exports for each imported symbol
             // from .version import __version__ -> pub const __version__ = version.__version__;
@@ -404,9 +455,24 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                                 // Skip if already generated
                                 if (generated_symbols.contains(symbol)) continue;
 
-                                // Generate: pub const symbol = submodule.symbol;
-                                try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol, ident_name, symbol });
+                                // Skip if symbol name matches the module name
+                                // e.g., "from .memmap import *" where memmap exports 'memmap'
+                                // The module is already imported as 'const memmap = @import(...)'
+                                if (std.mem.eql(u8, symbol, submodule_name)) continue;
+
+                                if (submodule_imported) {
+                                    // Generate: pub const symbol = submodule.symbol;
+                                    try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol, ident_name, symbol });
+                                } else if (submodule_is_python) {
+                                    // Generate direct import: pub const symbol = @import("./submodule.zig").symbol;
+                                    try self.emitFmt("pub const {s} = @import(\"{s}\").{s};\n", .{ symbol, import_path, symbol });
+                                } else {
+                                    // Submodule is C extension - skip this import
+                                    continue;
+                                }
                                 try generated_symbols.put(symbol, {});
+                                // Track for local variable shadowing prevention
+                                try self.module_level_from_imports.put(symbol, {});
                             }
                         }
                     }
@@ -425,10 +491,25 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 // Skip if already generated
                 if (generated_symbols.contains(symbol_name)) continue;
 
-                // Generate: pub const symbol_name = submodule.symbol;
-                // Use sanitized ident_name for the module reference
-                try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol_name, ident_name, name });
+                // Skip if symbol name matches the module name
+                // e.g., "from .memmap import memmap" - module already imported as 'memmap'
+                if (std.mem.eql(u8, symbol_name, submodule_name)) continue;
+
+                if (submodule_imported) {
+                    // Generate: pub const symbol_name = submodule.symbol;
+                    // Use sanitized ident_name for the module reference
+                    try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol_name, ident_name, name });
+                } else if (submodule_is_python) {
+                    // Submodule is Python source - generate direct import
+                    // from ._ufunc_config import errstate -> const errstate = @import("./_ufunc_config.zig").errstate;
+                    try self.emitFmt("pub const {s} = @import(\"{s}\").{s};\n", .{ symbol_name, import_path, name });
+                } else {
+                    // Submodule is C extension - skip this import
+                    continue;
+                }
                 try generated_symbols.put(symbol_name, {});
+                // Track for local variable shadowing prevention
+                try self.module_level_from_imports.put(symbol_name, {});
             }
             continue;
         }
@@ -884,13 +965,13 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             for (from_imp.names) |name| {
                 if (std.mem.eql(u8, name, "VALID_UNDERSCORE_LITERALS")) {
                     if (!generated_symbols.contains("VALID_UNDERSCORE_LITERALS")) {
-                        // Use slice coercion for array - container_dispatch.getSlice handles arrays correctly
-                        try self.emit("const VALID_UNDERSCORE_LITERALS: []const []const u8 = &runtime.test_support.numbers.VALID_UNDERSCORE_LITERALS;\n");
+                        // Use the slice directly (it's already []const []const u8)
+                        try self.emit("const VALID_UNDERSCORE_LITERALS = runtime.test_support.numbers.VALID_UNDERSCORE_LITERALS;\n");
                         try generated_symbols.put("VALID_UNDERSCORE_LITERALS", {});
                     }
                 } else if (std.mem.eql(u8, name, "INVALID_UNDERSCORE_LITERALS")) {
                     if (!generated_symbols.contains("INVALID_UNDERSCORE_LITERALS")) {
-                        try self.emit("const INVALID_UNDERSCORE_LITERALS: []const []const u8 = &runtime.test_support.numbers.INVALID_UNDERSCORE_LITERALS;\n");
+                        try self.emit("const INVALID_UNDERSCORE_LITERALS = runtime.test_support.numbers.INVALID_UNDERSCORE_LITERALS;\n");
                         try generated_symbols.put("INVALID_UNDERSCORE_LITERALS", {});
                     }
                 }

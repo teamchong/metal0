@@ -180,7 +180,6 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len >= 2) {
         // eval(source, globals, [locals])
         // Generate: runtime.PyValue.from(try runtime.evalWithScope(...))
-        // Wrap result in PyValue since eval returns *PyObject
         try self.emitFmt("runtime.PyValue.from({s}runtime.evalWithScope(__global_allocator, ", .{try_expr});
         try genEvalSource(self, args[0]);
         try self.emit(", ");
@@ -195,7 +194,6 @@ pub fn genEval(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     } else {
         // eval(source) - no scope args
         // Generate: runtime.PyValue.from(try runtime.eval(...))
-        // Wrap result in PyValue since eval returns *PyObject
         try self.emitFmt("runtime.PyValue.from({s}runtime.eval(__global_allocator, ", .{try_expr});
         try genEvalSource(self, args[0]);
         try self.emitFmt("){s})", .{catch_expr});

@@ -5,7 +5,7 @@
 /// ## Implementation Status
 ///
 /// IMPLEMENTED (functional):
-/// - Py_Initialize/Py_InitializeEx: Sets initialized flag (no actual init needed for AOT)
+/// - Py_Initialize/Py_InitializeEx: Initializes type system and runtime state
 /// - Py_Finalize/Py_FinalizeEx: Clears initialized flag
 /// - Py_IsInitialized: Returns initialized status
 /// - Py_GetVersion/Platform/Copyright/etc: Return version info strings
@@ -22,8 +22,16 @@
 const std = @import("std");
 const cpython = @import("../include/object.zig");
 
+// Type system imports for initialization
+const typeobject = @import("../objects/typeobject.zig");
+const typeslots = @import("../include/typeslots.zig");
+const pydict = @import("../objects/dictobject.zig");
+
 // Global state
 var python_initialized: bool = false;
+
+// sys.modules cache - needed for PyImport_ImportModule
+pub var sys_modules: ?*cpython.PyObject = null;
 
 /// Initialize the Python interpreter
 /// Must be called before any Python API functions
@@ -33,19 +41,98 @@ pub export fn Py_Initialize() callconv(.c) void {
 
 /// Initialize Python with optional signal handling
 /// initsigs: 1 to install signal handlers, 0 to skip
-/// STATUS: IMPLEMENTED - sets initialized flag (actual init done at compile time)
+/// STATUS: IMPLEMENTED - initializes type system for C extension compatibility
 pub export fn Py_InitializeEx(initsigs: c_int) callconv(.c) void {
     if (python_initialized) return;
 
-    // metal0 AOT compiler: all types and modules are compiled statically
-    // No runtime initialization needed - just set flag for C extension compat
+    _ = initsigs;
 
-    if (initsigs != 0) {
-        // Signal handlers could be set up here if needed
-        // Currently no-op - Zig uses its own signal handling
-    }
+    // ==== CRITICAL: Initialize Type Hierarchy ====
+    // PyType_Type is self-referential (type of itself)
+    typeobject.PyType_Type.ob_base.ob_base.ob_type = &typeobject.PyType_Type;
+
+    // PyBaseObject_Type (object) has type = PyType_Type
+    typeslots.PyBaseObject_Type.ob_base.ob_base.ob_type = &typeobject.PyType_Type;
+
+    // ==== Initialize core types ====
+    // Make PyType_Type ready (it's its own metatype)
+    _ = typeslots.PyType_Ready(&typeobject.PyType_Type);
+
+    // Make object type ready
+    _ = typeslots.PyType_Ready(&typeslots.PyBaseObject_Type);
+
+    // ==== Initialize other builtin types ====
+    initBuiltinTypes();
+
+    // ==== Initialize sys.modules ====
+    sys_modules = pydict.PyDict_New();
 
     python_initialized = true;
+}
+
+/// Initialize builtin type objects (int, str, list, dict, etc.)
+/// Sets ob_type = &PyType_Type for all builtin types
+fn initBuiltinTypes() void {
+    const PyType_Type = &typeobject.PyType_Type;
+
+    // Import and initialize each builtin type
+    // Use @extern to get the exported symbols
+
+    // Dict type
+    pydict.PyDict_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pydict.PyDict_Type);
+
+    // List type
+    const pylist = @import("../objects/listobject.zig");
+    pylist.PyList_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pylist.PyList_Type);
+
+    // Tuple type
+    const pytuple = @import("../objects/tupleobject.zig");
+    pytuple.PyTuple_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pytuple.PyTuple_Type);
+
+    // Long/Int type
+    const pylong = @import("../objects/longobject.zig");
+    pylong.PyLong_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pylong.PyLong_Type);
+
+    // Float type
+    const pyfloat = @import("../objects/floatobject.zig");
+    pyfloat.PyFloat_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pyfloat.PyFloat_Type);
+
+    // Unicode/Str type
+    const pyunicode = @import("../objects/unicodeobject.zig");
+    pyunicode.PyUnicode_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pyunicode.PyUnicode_Type);
+
+    // Bytes type
+    const pybytes = @import("../objects/bytesobject.zig");
+    pybytes.PyBytes_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pybytes.PyBytes_Type);
+
+    // Bool type
+    const pybool = @import("../objects/boolobject.zig");
+    pybool.PyBool_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pybool.PyBool_Type);
+
+    // Set types
+    const pyset = @import("../objects/setobject.zig");
+    pyset.PySet_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pyset.PySet_Type);
+    pyset.PyFrozenSet_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pyset.PyFrozenSet_Type);
+
+    // Module type
+    const pymodule = @import("../include/moduleobject.zig");
+    pymodule.PyModule_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pymodule.PyModule_Type);
+
+    // None type
+    const pynone = @import("../objects/noneobject.zig");
+    pynone.PyNone_Type.ob_base.ob_base.ob_type = PyType_Type;
+    _ = typeslots.PyType_Ready(&pynone.PyNone_Type);
 }
 
 /// Finalize the Python interpreter
@@ -127,7 +214,8 @@ pub export fn Py_GetVersion() callconv(.c) [*:0]const u8 {
 /// Get platform identifier string
 /// Returns borrowed reference to platform string (e.g., "linux")
 pub export fn Py_GetPlatform() callconv(.c) [*:0]const u8 {
-    return @tagName(std.builtin.os.tag);
+    const builtin = @import("builtin");
+    return @tagName(builtin.os.tag);
 }
 
 /// Get copyright string
@@ -189,36 +277,13 @@ pub export fn Py_Exit(status: c_int) callconv(.c) noreturn {
 /// Fatal error handler
 /// Prints error message and aborts Python
 pub export fn Py_FatalError(message: [*:0]const u8) callconv(.c) noreturn {
-    _ = std.c.fprintf(std.c.stderr, "Fatal Python error: %s\n", message);
+    // Print to stderr using std.debug
+    std.debug.print("Fatal Python error: {s}\n", .{std.mem.span(message)});
     std.process.abort();
 }
 
 // ============================================================================
 // RECURSION LIMIT (for C extensions)
 // ============================================================================
-
-/// Maximum recursion depth
-const RECURSION_LIMIT: c_int = 1000;
-
-/// Thread-local recursion counter
-threadlocal var recursion_depth: c_int = 0;
-
-/// Enter a recursive call - check recursion limit
-/// Returns 0 on success, -1 if recursion limit exceeded
-pub export fn Py_EnterRecursiveCall(where: [*:0]const u8) callconv(.c) c_int {
-    _ = where;
-    recursion_depth += 1;
-    if (recursion_depth > RECURSION_LIMIT) {
-        recursion_depth -= 1;
-        // In CPython this sets RecursionError, but we just return -1
-        return -1;
-    }
-    return 0;
-}
-
-/// Leave a recursive call - decrement counter
-pub export fn Py_LeaveRecursiveCall() callconv(.c) void {
-    if (recursion_depth > 0) {
-        recursion_depth -= 1;
-    }
-}
+// NOTE: Py_EnterRecursiveCall and Py_LeaveRecursiveCall are defined in
+// sysmodule.zig to avoid symbol collisions.

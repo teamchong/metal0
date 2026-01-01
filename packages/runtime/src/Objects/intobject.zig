@@ -10,18 +10,21 @@ pub const PyLong_Type = &runtime.cpython.PyLong_Type;
 
 /// Python integer type - wrapper around CPython-compatible PyLongObject
 pub const PyInt = struct {
-    /// Create a new PyLongObject with the given value
+    /// Create a new PyLongObject with the given value (Python 3.12+ layout)
     pub fn create(allocator: std.mem.Allocator, val: i64) !*PyObject {
         const long_obj = try allocator.create(PyLongObject);
+        // Determine sign: 0=positive, 1=zero, 2=negative
+        const sign: usize = if (val == 0) 1 else if (val < 0) 2 else 0;
+        const abs_val: u32 = if (val < 0) @intCast(-val) else @intCast(val);
         long_obj.* = PyLongObject{
             .ob_base = .{
-                .ob_base = .{
-                    .ob_refcnt = 1,
-                    .ob_type = PyLong_Type,
-                },
-                .ob_size = 1, // Single digit (simplified)
+                .ob_refcnt = 1,
+                .ob_type = PyLong_Type,
             },
-            .ob_digit = val,
+            .long_value = .{
+                .lv_tag = (1 << runtime.cpython._PyLong_NON_SIZE_BITS) | sign,
+                .ob_digit = .{abs_val},
+            },
         };
         return @ptrCast(long_obj);
     }
@@ -30,7 +33,7 @@ pub const PyInt = struct {
     pub fn getValue(obj: *PyObject) i64 {
         std.debug.assert(runtime.PyLong_Check(obj));
         const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
-        return long_obj.ob_digit;
+        return long_obj.getValue();
     }
 
     /// Convert integer to string representation

@@ -121,6 +121,8 @@ pub fn pythonTypeHintToNative(type_hint: ?[]const u8, allocator: std.mem.Allocat
         if (std.mem.indexOf(u8, hint, "[")) |bracket_pos| {
             const base_type = hint[0..bracket_pos];
             const end_bracket = std.mem.lastIndexOf(u8, hint, "]") orelse return .unknown;
+            // Guard against malformed type hints where ] appears before [
+            if (end_bracket <= bracket_pos) return .unknown;
             const type_args_str = hint[bracket_pos + 1 .. end_bracket];
 
             // Handle tuple[T, U, ...]

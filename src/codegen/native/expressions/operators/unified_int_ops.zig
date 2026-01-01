@@ -41,14 +41,15 @@ fn emitAsUnifiedInt(self: *NativeCodegen, b: *ZigBuilder, operand: ZigValue, t: 
         try b.emitRaw(")");
     } else if (t == .int or t == .usize) {
         // i64/usize -> UnifiedInt.fromI64 (no allocation needed)
-        try b.emitRaw("runtime.unified_int_ops.fromI64(@as(i64, ");
+        // fromI64 accepts anytype, so no cast needed
+        try b.emitRaw("runtime.unified_int_ops.fromI64(");
         try self.emitZigValue(operand);
-        try b.emitRaw("))");
+        try b.emitRaw(")");
     } else {
-        // Unknown - try to convert as i64
-        try b.emitRaw("runtime.unified_int_ops.fromI64(@as(i64, ");
+        // Unknown - try to convert (fromI64 accepts any integer type)
+        try b.emitRaw("runtime.unified_int_ops.fromI64(");
         try self.emitZigValue(operand);
-        try b.emitRaw("))");
+        try b.emitRaw(")");
     }
 }
 

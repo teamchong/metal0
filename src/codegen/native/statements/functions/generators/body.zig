@@ -29,6 +29,7 @@ pub const genInitMethodFromNew = class_methods.genInitMethodFromNew;
 pub const genClassMethods = class_methods.genClassMethods;
 pub const genInheritedMethods = class_methods.genInheritedMethods;
 pub const genPolymorphicReturnHelpers = class_methods.genPolymorphicReturnHelpers;
+pub const genABCDefaultMethods = class_methods.genABCDefaultMethods;
 pub const hoistAllLocalClassesFromMethods = class_methods.hoistAllLocalClassesFromMethods;
 
 // Re-export mutation analysis functions

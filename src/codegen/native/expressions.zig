@@ -57,7 +57,7 @@ const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
     .{ "None", "null" },
     .{ "NoneType", "null" },
     .{ "NotImplemented", "runtime.NotImplemented" },
-    .{ "object", "*runtime.PyObject" },
+    .{ "object", "runtime.builtins.object" },
 });
 
 // Import submodules
@@ -166,6 +166,18 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_v_") != null) break :blk renamed;
                     // Shadow variables for type-changing assignments (__m*_s_*) - e.g., x /= 2 changes int to float
                     if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_s_") != null) break :blk renamed;
+                    // Local variable renames (__m*_l_*) - e.g., kwargs -> __m41_l_kwargs when local var is renamed to avoid shadowing
+                    if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_l_") != null) break :blk renamed;
+                    // Parameter renames with underscore suffix (e.g., stop -> stop_) for method/module shadowing
+                    // These MUST apply even for func_local_vars to maintain consistency with signature
+                    if (std.mem.endsWith(u8, renamed, "_") and renamed.len == n.id.len + 1) break :blk renamed;
+                    // Parameter renames with _param suffix (e.g., stop -> stop_param) for default params
+                    if (std.mem.endsWith(u8, renamed, "_param")) break :blk renamed;
+                }
+                // Check var_renames for "self" FIRST - explicit renames (e.g., self -> __ptr in deferred
+                // __init__ statements) take precedence over the automatic self -> __self transformation
+                if (std.mem.eql(u8, n.id, "self")) {
+                    if (self.var_renames.get("self")) |renamed| break :blk renamed;
                 }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
                 if (self.func_local_vars.contains(n.id)) break :blk n.id;
@@ -174,6 +186,7 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             };
 
             // Handle 'self' -> '__self' in nested class methods to avoid shadowing
+            // Only apply if var_renames doesn't have a more specific mapping
             if (std.mem.eql(u8, name_to_use, "self") and self.method_nesting_depth > 0) {
                 try self.emit("__self");
                 return;
@@ -690,6 +703,10 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     // For now, generate a compile-time concatenation if possible
     // or use std.fmt.allocPrint for runtime formatting
 
+    // Check if we're at module level (not inside a function)
+    // Module-level const initializers can't use 'try' - must use 'catch unreachable'
+    const at_module_level = self.current_function_name == null;
+
     // Check if all parts are literals (simple case)
     var all_literals = true;
     for (fstring.parts) |part| {
@@ -760,6 +777,9 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 self.output = std.ArrayList(u8){};
 
                 try genExpr(self, e.node.*);
+                // Flush builder to ensure any pending output from builder pattern
+                // (e.g., genSimpleBinOp) is written to self.output before capture
+                try self.flushBuilder();
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
 
                 self.output = saved_output;
@@ -768,7 +788,10 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 if (expr_type == .pyvalue) {
                     // For PyValue types, use runtime.builtins.pyStr to convert to string first
                     try format_buf.writer(self.allocator).writeAll("{s}");
-                    const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                    const new_expr = if (at_module_level)
+                        try std.fmt.allocPrint(self.allocator, "(runtime.builtins.pyStr(__global_allocator, {s}) catch unreachable)", .{expr_code})
+                    else
+                        try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
                     try args_list.append(self.allocator, new_expr);
                     self.allocator.free(expr_code);
                 } else if (expr_type == .int) {
@@ -781,12 +804,15 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                     try format_buf.writer(self.allocator).writeAll("{s}");
                     try args_list.append(self.allocator, expr_code);
                 } else if (expr_type == .bool) {
-                    try format_buf.writer(self.allocator).writeAll("{any}");
+                    try format_buf.writer(self.allocator).writeAll("{}");
                     try args_list.append(self.allocator, expr_code);
                 } else {
                     // For uncertain/other types, also use runtime.builtins.pyStr
                     try format_buf.writer(self.allocator).writeAll("{s}");
-                    const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                    const new_expr = if (at_module_level)
+                        try std.fmt.allocPrint(self.allocator, "(runtime.builtins.pyStr(__global_allocator, {s}) catch unreachable)", .{expr_code})
+                    else
+                        try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
                     try args_list.append(self.allocator, new_expr);
                     self.allocator.free(expr_code);
                 }
@@ -806,7 +832,11 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
 
-                try self.emit("(try runtime.pyFormat(__global_allocator, ");
+                if (at_module_level) {
+                    try self.emit("(runtime.pyFormat(__global_allocator, ");
+                } else {
+                    try self.emit("(try runtime.pyFormat(__global_allocator, ");
+                }
                 try genExpr(self, fe.expr.*);
                 try self.emit(", ");
 
@@ -814,7 +844,11 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 if (fe.format_spec_parts) |spec_parts| {
                     // Build format spec dynamically from parts
                     // We need to use type-appropriate format specifiers
-                    try self.emit("(try std.fmt.allocPrint(__global_allocator, \"");
+                    if (at_module_level) {
+                        try self.emit("(std.fmt.allocPrint(__global_allocator, \"");
+                    } else {
+                        try self.emit("(try std.fmt.allocPrint(__global_allocator, \"");
+                    }
                     // Build format string for the parts with type-aware specifiers
                     for (spec_parts) |spec_part| {
                         switch (spec_part) {
@@ -836,7 +870,7 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                                     .string => try self.emit("{s}"),
                                     .int => try self.emit("{d}"),
                                     .float => try self.emit("{d}"),
-                                    else => try self.emit("{any}"),
+                                    else => try self.emit("{}"),
                                 }
                             },
                         }
@@ -854,7 +888,11 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                             },
                         }
                     }
-                    try self.emit("}))");
+                    if (at_module_level) {
+                        try self.emit("}) catch unreachable)");
+                    } else {
+                        try self.emit("}))");
+                    }
                 } else {
                     // Simple format spec - use literal string
                     try self.emit("\"");
@@ -870,8 +908,14 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                     }
                     try self.emit("\"");
                 }
-                try self.emit("))");
+                if (at_module_level) {
+                    try self.emit(") catch unreachable)");
+                } else {
+                    try self.emit("))");
+                }
 
+                // Flush builder before capturing output
+                try self.flushBuilder();
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 try args_list.append(self.allocator, expr_code);
                 self.output = saved_output;
@@ -898,6 +942,8 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                 const saved_output = self.output;
                 self.output = std.ArrayList(u8){};
                 try genExpr(self, ce.expr.*);
+                // Flush builder before capturing output
+                try self.flushBuilder();
                 const expr_code = try self.output.toOwnedSlice(self.allocator);
                 self.output = saved_output;
 
@@ -940,18 +986,24 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
                         try format_buf.writer(self.allocator).print("{{{s}}}", .{format_spec});
                         try args_list.append(self.allocator, expr_code);
                     } else if (expr_type == .bool) {
-                        try format_buf.writer(self.allocator).writeAll("{any}");
+                        try format_buf.writer(self.allocator).writeAll("{}");
                         try args_list.append(self.allocator, expr_code);
                     } else if (expr_type == .pyvalue) {
                         // For PyValue types, use runtime.builtins.pyStr
                         try format_buf.writer(self.allocator).writeAll("{s}");
-                        const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                        const new_expr = if (at_module_level)
+                            try std.fmt.allocPrint(self.allocator, "(runtime.builtins.pyStr(__global_allocator, {s}) catch unreachable)", .{expr_code})
+                        else
+                            try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
                         try args_list.append(self.allocator, new_expr);
                         self.allocator.free(expr_code);
                     } else {
                         // For other uncertain types, use runtime.builtins.pyStr
                         try format_buf.writer(self.allocator).writeAll("{s}");
-                        const new_expr = try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
+                        const new_expr = if (at_module_level)
+                            try std.fmt.allocPrint(self.allocator, "(runtime.builtins.pyStr(__global_allocator, {s}) catch unreachable)", .{expr_code})
+                        else
+                            try std.fmt.allocPrint(self.allocator, "(try runtime.builtins.pyStr(__global_allocator, {s}))", .{expr_code});
                         try args_list.append(self.allocator, new_expr);
                         self.allocator.free(expr_code);
                     }
@@ -970,10 +1022,17 @@ fn genFString(self: *NativeCodegen, fstring: ast.Node.FString) CodegenError!void
     }
 
     // Generate std.fmt.allocPrint call wrapped in a comptime or runtime block
-    try self.output.writer(self.allocator).print(
-        "(try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{ {s} }}))",
-        .{ format_buf.items, args_buf.items },
-    );
+    if (at_module_level) {
+        try self.output.writer(self.allocator).print(
+            "(std.fmt.allocPrint(__global_allocator, \"{s}\", .{{ {s} }}) catch unreachable)",
+            .{ format_buf.items, args_buf.items },
+        );
+    } else {
+        try self.output.writer(self.allocator).print(
+            "(try std.fmt.allocPrint(__global_allocator, \"{s}\", .{{ {s} }}))",
+            .{ format_buf.items, args_buf.items },
+        );
+    }
 }
 
 const shared = @import("shared_maps.zig");

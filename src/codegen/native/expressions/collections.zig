@@ -306,6 +306,25 @@ pub fn genList(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
 /// Generate comptime-optimized list literal
 fn genListComptime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
+    // Check if we're at module level (not inside a function)
+    // Module-level const initializers can't use: comptime keyword (already comptime),
+    // inline for (invalid in comptime), or try (only valid in functions)
+    const at_module_level = self.current_function_name == null;
+
+    if (at_module_level) {
+        // At module level: generate a simple tuple literal that can be passed to anytype params
+        // This avoids the comptime/inline/try issues with ArrayList generation
+        try self.emit("&.{ ");
+        for (list.elts, 0..) |elem, i| {
+            if (i > 0) try self.emit(", ");
+            const operand = try self.captureExpr(elem);
+            try self.emitZigValue(operand);
+        }
+        try self.emit(" }");
+        return;
+    }
+
+    // Inside a function: use the full ArrayList generation with inline for
     // Generate unique names using NameGen to prevent shadowing
     const id = self.nextNameId();
 
@@ -386,6 +405,11 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Generate unique names using NameGen to prevent shadowing
     const id = self.nextNameId();
 
+    // Check if we're at module level (not inside a function) or in a const initializer
+    // Module-level const initializers can't use `try` - must use `catch unreachable`
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer or self.inside_const_init;
+
     try self.emitFmt("__list_rt_{d}: {{\n", .{id});
     self.indent();
     try self.emitIndent();
@@ -406,7 +430,11 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
     // Append each element (with type coercion if needed)
     for (list.elts) |elem| {
         try self.emitIndent();
-        try self.emitFmt("try __list_var_{d}.append(__global_allocator, ", .{id});
+        if (cannot_use_try) {
+            try self.emitFmt("__list_var_{d}.append(__global_allocator, ", .{id});
+        } else {
+            try self.emitFmt("try __list_var_{d}.append(__global_allocator, ", .{id});
+        }
 
         // Check if we need to cast this element
         const this_type = try self.type_inferrer.inferExpr(elem);
@@ -426,7 +454,11 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
             try self.emitZigValue(operand);
         }
 
-        try self.emit(");\n");
+        if (cannot_use_try) {
+            try self.emit(") catch unreachable;\n");
+        } else {
+            try self.emit(");\n");
+        }
     }
 
     try self.emitIndent();
@@ -438,6 +470,11 @@ fn genListRuntime(self: *NativeCodegen, list: ast.Node.List) CodegenError!void {
 
 /// Generate set literal as StringHashMap(void) for strings, AutoHashMap for others
 pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
+    // Check if we're at module level (not inside a function)
+    // Module-level const initializers can't use `try` - must use `catch unreachable`
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+
     // Empty sets shouldn't happen (parsed as empty dict), but handle it
     if (set_node.elts.len == 0) {
         try self.emit("hashmap_helper.StringHashMap(void).init(__global_allocator)");
@@ -473,7 +510,7 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         try self.emit(", void).init(__global_allocator);\n");
     }
 
-    // Add each element (use try for error handling)
+    // Add each element (use try for error handling, or catch unreachable at module level)
     for (set_node.elts) |elem| {
         // Capture element expression
         const operand = try self.captureExpr(elem);
@@ -481,13 +518,25 @@ pub fn genSet(self: *NativeCodegen, set_node: ast.Node.Set) CodegenError!void {
         try self.emitIndent();
         if (is_float) {
             // Convert float to bits for hashing
-            try self.emitFmt("try __set_{d}.put(@bitCast(", .{id});
-            try self.emitZigValue(operand);
-            try self.emit("), {});\n");
+            if (cannot_use_try) {
+                try self.emitFmt("__set_{d}.put(@bitCast(", .{id});
+                try self.emitZigValue(operand);
+                try self.emit("), {}) catch unreachable;\n");
+            } else {
+                try self.emitFmt("try __set_{d}.put(@bitCast(", .{id});
+                try self.emitZigValue(operand);
+                try self.emit("), {});\n");
+            }
         } else {
-            try self.emitFmt("try __set_{d}.put(", .{id});
-            try self.emitZigValue(operand);
-            try self.emit(", {});\n");
+            if (cannot_use_try) {
+                try self.emitFmt("__set_{d}.put(", .{id});
+                try self.emitZigValue(operand);
+                try self.emit(", {}) catch unreachable;\n");
+            } else {
+                try self.emitFmt("try __set_{d}.put(", .{id});
+                try self.emitZigValue(operand);
+                try self.emit(", {});\n");
+            }
         }
     }
 

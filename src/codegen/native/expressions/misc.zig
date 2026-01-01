@@ -242,6 +242,14 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
         // In Zig, types are not values, so we wrap with vtable pointer.
         if (elem == .name) {
             const name = elem.name.id;
+
+            // Handle 'object' builtin explicitly - it's the base class of all Python classes
+            // In MRO tuples like (D, A, B, object), 'object' needs to be runtime.builtins.object
+            if (std.mem.eql(u8, name, "object")) {
+                try self.emit("runtime.builtins.object");
+                continue;
+            }
+
             // Check all places where local class definitions are tracked:
             // 1. hoisted_local_classes - classes hoisted to module level
             // 2. nested_class_aliases - aliased class names
@@ -396,6 +404,43 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Handle .real, .imag, .numerator, .denominator on numeric expressions
+    // Python: int and float objects have these attributes
+    // - .real (returns self for int/float)
+    // - .imag (returns 0 for int, 0.0 for float)
+    // - .numerator (returns self for int)
+    // - .denominator (returns 1 for int)
+    const is_numeric_attr = std.mem.eql(u8, attr.attr, "real") or
+        std.mem.eql(u8, attr.attr, "imag") or
+        std.mem.eql(u8, attr.attr, "numerator") or
+        std.mem.eql(u8, attr.attr, "denominator");
+
+    if (is_numeric_attr) {
+        // Check if the value expression evaluates to a numeric type
+        const expr_type = self.type_inferrer.inferExpr(attr.value.*) catch null;
+        const is_numeric = expr_type != null and (type_traits.isNumeric(expr_type.?) or type_traits.isIntegral(expr_type.?) or type_traits.isFloating(expr_type.?));
+        if (is_numeric) {
+            if (std.mem.eql(u8, attr.attr, "real") or std.mem.eql(u8, attr.attr, "numerator")) {
+                // x.real -> x (the value itself)
+                // x.numerator -> x (for integers)
+                try genExpr(self, attr.value.*);
+                return;
+            } else if (std.mem.eql(u8, attr.attr, "imag")) {
+                // x.imag -> 0 (for int) or 0.0 (for float)
+                if (type_traits.isFloating(expr_type.?)) {
+                    try self.emit("@as(f64, 0.0)");
+                } else {
+                    try self.emit("0");
+                }
+                return;
+            } else if (std.mem.eql(u8, attr.attr, "denominator")) {
+                // x.denominator -> 1 (for integers)
+                try self.emit("1");
+                return;
+            }
+        }
+    }
+
     // Special case: type(x).__name__ -> runtime.pyTypeName(x)
     // runtime.pyTypeName already returns the type name as a string, so accessing .__name__ is redundant
     // This handles both regular Python types and PyPowResult (which returns "float" or "complex")
@@ -428,11 +473,35 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             try self.emitFmt("\") orelse @panic(\"Attribute '{s}' not found on C extension object\")))", .{attr.attr});
             return;
         }
+        // Check if this is an ABC property on a class instance - need method call
+        const abc_properties_block = [_][]const u8{ "real", "imag", "conjugate", "numerator", "denominator" };
+        const is_abc_property_block = for (abc_properties_block) |prop| {
+            if (std.mem.eql(u8, attr.attr, prop)) break true;
+        } else false;
+
+        // Check if this is a call to a class constructor (ClassName(args))
+        const is_class_call = blk: {
+            if (attr.value.* == .call) {
+                const call_func = attr.value.call.func.*;
+                if (call_func == .name) {
+                    const name = call_func.name.id;
+                    // Check if known class or looks like a class (starts with uppercase)
+                    if (self.type_inferrer.class_fields.get(name)) |_| break :blk true;
+                    if (name.len > 0 and name[0] >= 'A' and name[0] <= 'Z') break :blk true;
+                }
+            }
+            break :blk false;
+        };
+
         var em = self.exprEmitter();
         var block = try em.labeledBlock("attr", "__obj", attr.value.*);
         try block.emit("break :");
         try block.emitFmt("{s}_{d} __obj.", .{ block.prefix, block.label_id });
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+        // For ABC properties on class instances, call as method
+        if (is_abc_property_block and is_class_call) {
+            try self.emit("()");
+        }
         try block.close();
         return;
     }
@@ -600,6 +669,31 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         // Return a stub code object
         try self.emit("runtime.builtins.CodeObject{}");
         return;
+    }
+
+    // Check if this is an exception attribute access (e.__traceback__, e.__context__, etc.)
+    // Exception variables from `except X as e:` are typed as runtime.PyException
+    // and have direct field access for __traceback__, __context__, __cause__, args
+    if (attr.value.* == .name) {
+        const exc_var_name = attr.value.name.id;
+        if (self.exception_vars.contains(exc_var_name)) {
+            const exc_attrs = [_][]const u8{ "__traceback__", "__context__", "__cause__", "__suppress_context__", "args", "type_name", "message" };
+            for (exc_attrs) |exc_attr| {
+                if (std.mem.eql(u8, attr.attr, exc_attr)) {
+                    // Direct field access on PyException struct
+                    // IMPORTANT: Check var_renames first - inside TryHelper structs,
+                    // exception variables are renamed to pointer dereferences (e.g., p_exc_16.*)
+                    if (self.var_renames.get(exc_var_name)) |renamed| {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
+                    } else {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), exc_var_name);
+                    }
+                    try self.emit(".");
+                    try self.emit(attr.attr);
+                    return;
+                }
+            }
+        }
     }
 
     // Check if this is a file property access
@@ -809,6 +903,98 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
                 return;
             }
+        }
+
+        // Check if this is an attribute access on an anytype parameter
+        // For anytype params, we don't know if the attribute is a field or method at compile time
+        // Generate a comptime check: if @hasDecl then call as method(), else access as field
+        if (attr.value.* == .name) {
+            const param_name = attr.value.name.id;
+
+            // Check if param is type-narrowed (inside `if isClassName(param):` block)
+            // If so, and attr is a known field of that class, use direct field access
+            // This preserves the correct type (i64, f64, etc.) instead of f64 from getAttrDynamic
+            if (self.narrowed_type_params.get(param_name)) |class_name| {
+                if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
+                    if (class_info.fields.get(attr.attr)) |_| {
+                        // Known field of narrowed class - use direct field access
+                        try genExpr(self, attr.value.*);
+                        try self.emit(".");
+                        // Handle Python name mangling for private attributes
+                        const attr_name = blk: {
+                            if (std.mem.startsWith(u8, attr.attr, "__")) {
+                                break :blk attr.attr;
+                            }
+                            if (std.mem.startsWith(u8, attr.attr, "_") and attr.attr.len > 2) {
+                                if (std.mem.indexOf(u8, attr.attr[1..], "__")) |pos| {
+                                    break :blk attr.attr[1 + pos ..];
+                                }
+                            }
+                            break :blk attr.attr;
+                        };
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                        return;
+                    }
+                    // Not a known field - fall through to getAttrDynamic for methods
+                }
+            }
+
+            if (self.anytype_params.contains(param_name)) {
+                // Generate: runtime.getAttrDynamic(obj, "attr") which handles field/method/primitive
+                const id = self.nextNameId();
+                try self.emitFmt("(__m{d}_anytype_blk: {{ const __at_obj = ", .{id});
+                try genExpr(self, attr.value.*);
+                try self.emitFmt("; break :__m{d}_anytype_blk runtime.getAttrDynamic(__at_obj, \"{s}\"); }})", .{ id, attr.attr });
+                return;
+            }
+        }
+
+        // Check if this is an ABC property access on a class instance
+        // ABC properties (real, imag, conjugate, numerator, denominator) are methods, not fields
+        const abc_properties = [_][]const u8{ "real", "imag", "conjugate", "numerator", "denominator" };
+        const is_abc_property = for (abc_properties) |prop| {
+            if (std.mem.eql(u8, attr.attr, prop)) break true;
+        } else false;
+
+        // Detect class instance from value_type OR from call expression to known class
+        const is_class_instance = blk: {
+            if (value_type == .class_instance) break :blk true;
+            // Check if attr.value is a call to a class constructor: ClassName(args) -> ClassName.init(alloc, args)
+            if (attr.value.* == .call) {
+                const call_func = attr.value.call.func.*;
+                if (call_func == .name) {
+                    const class_name = call_func.name.id;
+                    // Check if this name is a known class
+                    if (self.type_inferrer.class_fields.get(class_name)) |_| {
+                        break :blk true;
+                    }
+                    // Also check nested_class_instances map for classes defined in current scope
+                    if (self.nested_class_instances.contains(class_name)) {
+                        break :blk true;
+                    }
+                    // Also check if this matches current class being generated (for nested classes)
+                    if (self.current_class_name) |current| {
+                        if (std.mem.eql(u8, class_name, current)) {
+                            break :blk true;
+                        }
+                    }
+                    // Heuristic: If the name starts with uppercase, it's likely a class constructor
+                    // This handles nested classes that aren't yet registered in class_fields
+                    if (class_name.len > 0 and class_name[0] >= 'A' and class_name[0] <= 'Z') {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        };
+
+        // If accessing an ABC property on a class instance, generate method call
+        if (is_abc_property and is_class_instance) {
+            try genExpr(self, attr.value.*);
+            try self.emit(".");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
+            try self.emit("()");
+            return;
         }
 
         // Known attribute: direct field access

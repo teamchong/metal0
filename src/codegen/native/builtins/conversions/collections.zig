@@ -491,6 +491,10 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         break :blk false;
     };
 
+    // Check if we're at module level (const initializers can't use 'try')
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer or self.inside_const_init;
+
     if (is_feature_macros) {
         // Generate set from FeatureMacros.keys()
         var em_feat = self.exprEmitter();
@@ -498,7 +502,11 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emitFmt("set_blk_{d}: {{\n", .{set_label_1});
         try self.emitFmt("var _set = hashmap_helper.StringHashMap(void).init({s});\n", .{alloc_name});
         try self.emit("for (runtime.FeatureMacros.keys()) |_item| {\n");
-        try self.emit("try _set.put(_item, {});\n");
+        if (cannot_use_try) {
+            try self.emit("_set.put(_item, {}) catch unreachable;\n");
+        } else {
+            try self.emit("try _set.put(_item, {});\n");
+        }
         try self.emit("}\n");
         try self.emitFmt("break :set_blk_{d} _set;\n", .{set_label_1});
         try self.emit("}");
@@ -520,7 +528,11 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit(".list.items;\n"); // Extract items slice from PyValue.list pointer
         try self.emitFmt("var _set = std.AutoHashMap(runtime.PyValue, void).init({s});\n", .{alloc_name});
         try self.emit("for (__pyval_iter) |_item| {\n");
-        try self.emit("try _set.put(_item, {});\n");
+        if (cannot_use_try) {
+            try self.emit("_set.put(_item, {}) catch unreachable;\n");
+        } else {
+            try self.emit("try _set.put(_item, {});\n");
+        }
         try self.emit("}\n");
         try self.emitFmt("break :set_pyval_{d} _set;\n", .{set_label});
         try self.emit("}");
@@ -598,7 +610,11 @@ pub fn genSet(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.genExpr(args[0]);
         try self.emit(") |_item| {\n");
     }
-    try self.emit("try _set.put(_item, {});\n");
+    if (cannot_use_try) {
+        try self.emit("_set.put(_item, {}) catch unreachable;\n");
+    } else {
+        try self.emit("try _set.put(_item, {});\n");
+    }
     try self.emit("}\n");
     try self.emitFmt("break :set_blk_{d} _set;\n", .{set_label_2});
     try self.emit("}");

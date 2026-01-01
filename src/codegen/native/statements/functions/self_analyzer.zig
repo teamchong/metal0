@@ -1,58 +1,13 @@
 /// Self-usage detection for method bodies
 const std = @import("std");
 const ast = @import("analysis.ast");
+const method_categories = @import("../../dispatch/method_categories.zig");
 
 /// unittest assertion methods that dispatch to runtime (self isn't used in generated code)
-/// Public so other modules can check against this list
-pub const unittest_assertion_methods = std.StaticStringMap(void).initComptime(.{
-    .{ "assertEqual", {} },
-    .{ "assertTrue", {} },
-    .{ "assertFalse", {} },
-    .{ "assertIsNone", {} },
-    .{ "assertGreater", {} },
-    .{ "assertLess", {} },
-    .{ "assertGreaterEqual", {} },
-    .{ "assertLessEqual", {} },
-    .{ "assertNotEqual", {} },
-    .{ "assertIs", {} },
-    .{ "assertIsNot", {} },
-    .{ "assertIsNotNone", {} },
-    .{ "assertIn", {} },
-    .{ "assertNotIn", {} },
-    .{ "assertAlmostEqual", {} },
-    .{ "assertNotAlmostEqual", {} },
-    .{ "assertCountEqual", {} },
-    .{ "assertRaises", {} },
-    .{ "assertRaisesRegex", {} },
-    .{ "assertWarns", {} },
-    .{ "assertWarnsRegex", {} },
-    .{ "assertLogs", {} },
-    .{ "assertNoLogs", {} },
-    .{ "assertRegex", {} },
-    .{ "assertNotRegex", {} },
-    .{ "assertIsInstance", {} },
-    .{ "assertNotIsInstance", {} },
-    .{ "assertIsSubclass", {} },
-    .{ "assertNotIsSubclass", {} },
-    .{ "assertMultiLineEqual", {} },
-    .{ "assertSequenceEqual", {} },
-    .{ "assertListEqual", {} },
-    .{ "assertTupleEqual", {} },
-    .{ "assertSetEqual", {} },
-    .{ "assertDictEqual", {} },
-    .{ "assertHasAttr", {} },
-    .{ "assertNotHasAttr", {} },
-    .{ "assertStartsWith", {} },
-    .{ "assertNotStartsWith", {} },
-    .{ "assertEndsWith", {} },
-    .{ "assertNotEndsWith", {} },
-    .{ "assertFloatsAreIdentical", {} },
-    // Note: addCleanup is NOT in this list because it needs self in generated code
-    // (unlike assertions which dispatch to runtime.unittest without self)
-    .{ "subTest", {} },
-    .{ "fail", {} },
-    .{ "skipTest", {} },
-});
+/// Note: addCleanup is NOT in this list because it needs self in generated code
+/// (unlike assertions which dispatch to runtime.unittest without self)
+/// Re-export from method_categories for backward compatibility
+pub const unittest_assertion_methods = method_categories.UNITTEST_ALL_ASSERTIONS;
 
 /// Check if the first parameter (typically 'self') is used in method body
 /// NOTE: Excludes unittest assertion methods like self.assertEqual() because

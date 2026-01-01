@@ -21,6 +21,32 @@ const CollectionsDictTypes = std.StaticStringMap(void).initComptime(.{
     .{ "Counter", {} }, .{ "defaultdict", {} }, .{ "OrderedDict", {} },
 });
 
+/// Modules that use hashmap_helper in their generated code
+/// When these are imported, we need to emit the hashmap_helper import
+const HashMapHelperModules = std.StaticStringMap(void).initComptime(.{
+    .{ "os", {} }, // os.environ uses hashmap
+    .{ "collections", {} }, // Counter, defaultdict, OrderedDict use hashmap
+    .{ "typing", {} }, // get_type_hints uses hashmap
+    .{ "configparser", {} }, // ConfigParser uses hashmap
+    .{ "email", {} }, // email.message uses hashmap
+    .{ "urllib", {} }, // parse_qs uses hashmap
+    .{ "dbm", {} }, // dbm.open uses hashmap
+    .{ "argparse", {} }, // Namespace uses hashmap
+    .{ "contextvars", {} }, // Context uses hashmap
+    .{ "multiprocessing", {} }, // Manager uses hashmap
+    .{ "types", {} }, // SimpleNamespace uses hashmap
+    .{ "linecache", {} }, // getlines uses hashmap
+    .{ "site", {} }, // addsitedir uses hashmap
+    .{ "copyreg", {} }, // dispatch_table uses hashmap
+    .{ "token", {} }, // EXACT_TOKEN_TYPES uses hashmap
+    .{ "platform", {} }, // uname_result uses hashmap
+    .{ "errno", {} }, // errorcode uses hashmap
+    .{ "sys", {} }, // modules uses hashmap
+    .{ "threading", {} }, // local uses hashmap
+    .{ "dataclasses", {} }, // asdict uses hashmap
+    .{ "csv", {} }, // DictReader/DictWriter use hashmap
+});
+
 /// Analysis result - what the module needs
 pub const ModuleAnalysis = struct {
     needs_json: bool = false,
@@ -279,6 +305,13 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
             const expr_analysis = try analyzeExpr(expr.value.*);
             analysis.merge(expr_analysis);
         },
+        .return_stmt => |ret| {
+            // Analyze return value expression for dicts, sets, etc.
+            if (ret.value) |value| {
+                const expr_analysis = try analyzeExpr(value.*);
+                analysis.merge(expr_analysis);
+            }
+        },
         .if_stmt => |if_stmt| {
             const cond_analysis = try analyzeExpr(if_stmt.condition.*);
             analysis.merge(cond_analysis);
@@ -404,6 +437,28 @@ fn analyzeStmt(node: ast.Node) !ModuleAnalysis {
             for (class.body) |stmt| {
                 const stmt_analysis = try analyzeStmt(stmt);
                 analysis.merge(stmt_analysis);
+            }
+        },
+        .import_stmt => |import| {
+            // Check for modules that use hashmap_helper in their generated code
+            // import.module is the imported module name (e.g., "os" or "os.path")
+            const root_mod = if (std.mem.indexOfScalar(u8, import.module, '.')) |dot|
+                import.module[0..dot]
+            else
+                import.module;
+            if (HashMapHelperModules.has(root_mod)) {
+                analysis.needs_hashmap_helper = true;
+            }
+        },
+        .import_from => |import| {
+            // Check for modules that use hashmap_helper
+            // import.module is the source module (e.g., "os" from "from os import ...")
+            const root_mod = if (std.mem.indexOfScalar(u8, import.module, '.')) |dot|
+                import.module[0..dot]
+            else
+                import.module;
+            if (HashMapHelperModules.has(root_mod)) {
+                analysis.needs_hashmap_helper = true;
             }
         },
         else => {},

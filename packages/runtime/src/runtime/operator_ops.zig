@@ -10,31 +10,19 @@ const float_ops = @import("float_ops/arithmetic.zig");
 // Modulo Operations
 // =============================================================================
 
-/// Result of polymorphic modulo operation - preserves int/float distinction
-pub const ModResult = union(enum) {
-    int: i64,
-    float: f64,
+/// Python floored modulo for integers: result has same sign as divisor
+/// This is different from Zig's @mod which uses truncated semantics.
+/// Examples:
+///   Python: -10 % 3 = 2 (floored)
+///   Zig:    @mod(-10, 3) = -1 (truncated)
+pub fn pyFlooredModInt(a: i64, b: i64) i64 {
+    const quotient = @divFloor(a, b);
+    return a - quotient * b;
+}
 
-    /// Convert to f64 for consistent handling
-    pub fn toFloat(self: ModResult) f64 {
-        return switch (self) {
-            .int => |i| @floatFromInt(i),
-            .float => |f| f,
-        };
-    }
-
-    /// Convert to i64 (truncates floats - use only when certain result is int)
-    pub fn toInt(self: ModResult) i64 {
-        return switch (self) {
-            .int => |i| i,
-            .float => |f| @intFromFloat(f),
-        };
-    }
-};
-
-/// Modulo for i64 (Python semantics: floored)
+/// Modulo for i64 (Python floored semantics)
 pub fn modI64(a: i64, b: i64) i64 {
-    return @mod(a, b);
+    return pyFlooredModInt(a, b);
 }
 
 /// Modulo for f64 (Python floored semantics)
@@ -43,23 +31,16 @@ pub fn modF64(a: f64, b: f64) f64 {
 }
 
 /// Polymorphic numeric modulo - handles mixed types (int, float, anytype)
-/// Used by generated class methods where types are not known at compile time
-/// Returns ModResult tagged union to preserve type information:
-///   int % int → ModResult.int
-///   float % any → ModResult.float
-///   any % float → ModResult.float
-pub fn pyModNumeric(_: std.mem.Allocator, a: anytype, b: anytype) ModResult {
+/// Used by generated code where types are not known at compile time.
+/// Always returns f64 to handle all cases uniformly.
+/// Uses Python floored semantics (result has same sign as divisor).
+pub fn pyModNumeric(_: std.mem.Allocator, a: anytype, b: anytype) f64 {
     const AType = @TypeOf(a);
     const BType = @TypeOf(b);
     const a_info = @typeInfo(AType);
     const b_info = @typeInfo(BType);
 
-    // Both integers - use native @mod, return int
-    if ((a_info == .int or a_info == .comptime_int) and (b_info == .int or b_info == .comptime_int)) {
-        return .{ .int = @intCast(@mod(@as(i64, @intCast(a)), @as(i64, @intCast(b)))) };
-    }
-
-    // At least one float - use Python floored mod, return float
+    // Convert both operands to f64 and use Python floored mod
     const af: f64 = switch (a_info) {
         .int, .comptime_int => @floatFromInt(a),
         .float, .comptime_float => @floatCast(a),
@@ -70,8 +51,11 @@ pub fn pyModNumeric(_: std.mem.Allocator, a: anytype, b: anytype) ModResult {
         .float, .comptime_float => @floatCast(b),
         else => @as(f64, 1),
     };
-    return .{ .float = float_ops.pyFloatMod(af, bf) };
+    return float_ops.pyFloatMod(af, bf);
 }
+
+/// Alias for codegen compatibility - used by aug_assign and comp_conditions
+pub const moduloRuntime = pyModNumeric;
 
 // =============================================================================
 // Power Operations
@@ -128,6 +112,14 @@ pub fn floordivF64(a: f64, b: f64) f64 {
 // Tests
 // =============================================================================
 
+test "pyFlooredModInt" {
+    // Python floored semantics: result has same sign as divisor
+    try std.testing.expectEqual(@as(i64, 1), pyFlooredModInt(10, 3));
+    try std.testing.expectEqual(@as(i64, 2), pyFlooredModInt(-10, 3)); // NOT -1
+    try std.testing.expectEqual(@as(i64, -2), pyFlooredModInt(10, -3)); // NOT 1
+    try std.testing.expectEqual(@as(i64, -1), pyFlooredModInt(-10, -3));
+}
+
 test "modI64" {
     try std.testing.expectEqual(@as(i64, 1), modI64(10, 3));
     try std.testing.expectEqual(@as(i64, 2), modI64(-10, 3)); // Python floored semantics
@@ -168,38 +160,36 @@ test "floordivF64" {
 
 test "pyModNumeric int % int" {
     const result = pyModNumeric(undefined, @as(i64, 10), @as(i64, 3));
-    try std.testing.expectEqual(ModResult{ .int = 1 }, result);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result, 0.0001);
 }
 
 test "pyModNumeric float % float preserves fractional part" {
     // This was the bug: 5.5 % 2.0 should return 1.5, not 1
     const result = pyModNumeric(undefined, @as(f64, 5.5), @as(f64, 2.0));
-    try std.testing.expectApproxEqAbs(@as(f64, 1.5), result.float, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), result, 0.0001);
 }
 
 test "pyModNumeric negative float uses Python floored semantics" {
     // -5.5 % 2.0 = 0.5 in Python (floored, result has same sign as divisor)
     // Not -1.5 as Zig's @mod would give (truncated)
     const result = pyModNumeric(undefined, @as(f64, -5.5), @as(f64, 2.0));
-    try std.testing.expectApproxEqAbs(@as(f64, 0.5), result.float, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), result, 0.0001);
+}
+
+test "pyModNumeric negative int uses Python floored semantics" {
+    // -10 % 3 = 2 in Python (floored)
+    const result = pyModNumeric(undefined, @as(i64, -10), @as(i64, 3));
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), result, 0.0001);
 }
 
 test "pyModNumeric int % float returns float" {
     const result = pyModNumeric(undefined, @as(i64, 5), @as(f64, 2.0));
     // 5 % 2.0 = 1.0
-    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.float, 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), result, 0.0001);
 }
 
 test "pyModNumeric float % int returns float" {
     const result = pyModNumeric(undefined, @as(f64, 5.5), @as(i64, 2));
     // 5.5 % 2 = 1.5
-    try std.testing.expectApproxEqAbs(@as(f64, 1.5), result.float, 0.0001);
-}
-
-test "ModResult.toFloat works" {
-    const int_result = ModResult{ .int = 42 };
-    try std.testing.expectEqual(@as(f64, 42.0), int_result.toFloat());
-
-    const float_result = ModResult{ .float = 3.14 };
-    try std.testing.expectApproxEqAbs(@as(f64, 3.14), float_result.toFloat(), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.5), result, 0.0001);
 }

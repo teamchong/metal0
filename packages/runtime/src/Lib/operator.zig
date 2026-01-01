@@ -11,8 +11,10 @@
 
 const std = @import("std");
 const comparison = @import("../runtime/comparison.zig");
+const type_predicates = @import("../runtime/type_predicates.zig");
 const PyValue = @import("../Objects/object.zig").PyValue;
 const float_ops = @import("../runtime/float_ops/arithmetic.zig");
+const operator_ops = @import("../runtime/operator_ops.zig");
 
 // ============================================================================
 // Comparison Operations
@@ -178,11 +180,138 @@ pub fn mod(a: anytype, b: @TypeOf(a)) @TypeOf(a) {
     const T = @TypeOf(a);
     const info = @typeInfo(T);
     // For floats, use Python's modulo semantics (handles signed zeros)
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return @floatCast(float_ops.pyFloatMod(a, b));
     }
     // For integers, use Zig's builtin mod
     return @mod(a, b);
+}
+
+const PythonError = @import("../runtime/exceptions.zig").PythonError;
+
+/// Check if type looks like PyComplex (struct with real and imag f64 fields)
+fn isComplexLike(comptime T: type, comptime info: std.builtin.Type) bool {
+    if (info != .@"struct") return false;
+    if (!@hasField(T, "real") or !@hasField(T, "imag")) return false;
+    const RealType = @TypeOf(@field(@as(T, undefined), "real"));
+    const ImagType = @TypeOf(@field(@as(T, undefined), "imag"));
+    return (RealType == f64 or RealType == comptime_float) and
+        (ImagType == f64 or ImagType == comptime_float);
+}
+
+/// Polymorphic modulo for unknown types - raises TypeError for complex
+pub fn modCall(a: anytype, b: anytype) PythonError!i64 {
+    const AType = @TypeOf(a);
+    const BType = @TypeOf(b);
+    const a_info = @typeInfo(AType);
+    const b_info = @typeInfo(BType);
+
+    // Check for PyComplex struct
+    if (isComplexLike(AType, a_info) or isComplexLike(BType, b_info)) {
+        return PythonError.TypeError;
+    }
+
+    // Numeric types
+    if (type_predicates.isIntInfo(a_info) and type_predicates.isIntInfo(b_info)) {
+        return @mod(@as(i64, a), @as(i64, b));
+    }
+
+    return PythonError.TypeError;
+}
+
+/// Polymorphic floordiv for unknown types - raises TypeError for complex
+pub fn floordivCall(a: anytype, b: anytype) PythonError!i64 {
+    const AType = @TypeOf(a);
+    const BType = @TypeOf(b);
+    const a_info = @typeInfo(AType);
+    const b_info = @typeInfo(BType);
+
+    // Check for PyComplex struct
+    if (isComplexLike(AType, a_info) or isComplexLike(BType, b_info)) {
+        return PythonError.TypeError;
+    }
+
+    // Numeric types
+    if (type_predicates.isIntInfo(a_info) and type_predicates.isIntInfo(b_info)) {
+        return @divFloor(@as(i64, a), @as(i64, b));
+    }
+
+    return PythonError.TypeError;
+}
+
+/// Convert any numeric type to i64 for divmod result
+fn convertToI64(value: anytype) i64 {
+    const T = @TypeOf(value);
+    const info = @typeInfo(T);
+    return switch (info) {
+        .int, .comptime_int => @as(i64, @intCast(value)),
+        .float, .comptime_float => @as(i64, @intFromFloat(value)),
+        else => 0, // Fallback for unexpected types
+    };
+}
+
+/// Polymorphic divmod for unknown types - raises TypeError for complex
+/// Returns tuple (a // b, a % b) as .{ i64, i64 }
+/// Supports class instances with __floordiv__ and __mod__ methods
+pub fn divmodCall(a: anytype, b: anytype) PythonError!struct { i64, i64 } {
+    const AType = @TypeOf(a);
+    const BType = @TypeOf(b);
+    const a_info = @typeInfo(AType);
+    const b_info = @typeInfo(BType);
+
+    // Check for PyComplex struct - divmod on complex raises TypeError
+    if (isComplexLike(AType, a_info) or isComplexLike(BType, b_info)) {
+        return PythonError.TypeError;
+    }
+
+    // Handle class instances (pointers to structs with __floordiv__/__mod__)
+    if (a_info == .pointer and a_info.pointer.size == .one) {
+        const ChildA = a_info.pointer.child;
+        if (@typeInfo(ChildA) == .@"struct") {
+            if (@hasDecl(ChildA, "__floordiv__") and @hasDecl(ChildA, "__mod__")) {
+                // Class methods may require an allocator parameter
+                // Use c_allocator as a fallback (same as __global_allocator in generated code)
+                const floordiv_result = a.__floordiv__(std.heap.c_allocator, b) catch return PythonError.TypeError;
+                const mod_raw = a.__mod__(std.heap.c_allocator, b) catch return PythonError.TypeError;
+                // Convert mod result to i64 - may be f64 if using pyFloatMod, or i64 from @mod
+                const mod_result = convertToI64(mod_raw);
+                return .{ convertToI64(floordiv_result), mod_result };
+            }
+        }
+    }
+
+    // Handle reverse case: divmod(int, ClassInstance) calls __rfloordiv__/__rmod__
+    if (b_info == .pointer and b_info.pointer.size == .one) {
+        const ChildB = b_info.pointer.child;
+        if (@typeInfo(ChildB) == .@"struct") {
+            if (@hasDecl(ChildB, "__rfloordiv__") and @hasDecl(ChildB, "__rmod__")) {
+                // Reverse methods: b.__rfloordiv__(a), b.__rmod__(a)
+                const floordiv_result = b.__rfloordiv__(std.heap.c_allocator, a) catch return PythonError.TypeError;
+                const mod_raw = b.__rmod__(std.heap.c_allocator, a) catch return PythonError.TypeError;
+                // Convert mod result to i64 - may be f64 if using pyFloatMod, or i64 from @mod
+                const mod_result = convertToI64(mod_raw);
+                return .{ convertToI64(floordiv_result), mod_result };
+            }
+        }
+    }
+
+    // Numeric types
+    if (type_predicates.isIntInfo(a_info) and type_predicates.isIntInfo(b_info)) {
+        const ai: i64 = @as(i64, a);
+        const bi: i64 = @as(i64, b);
+        return .{ @divFloor(ai, bi), @mod(ai, bi) };
+    }
+
+    // Handle floats - Python's divmod on floats returns (floor division, modulo)
+    if (type_predicates.isFloatInfo(a_info) or type_predicates.isFloatInfo(b_info)) {
+        const af: f64 = if (type_predicates.isFloatInfo(a_info)) @as(f64, @floatCast(a)) else @as(f64, @floatFromInt(a));
+        const bf: f64 = if (type_predicates.isFloatInfo(b_info)) @as(f64, @floatCast(b)) else @as(f64, @floatFromInt(b));
+        const q = @floor(af / bf);
+        const r = af - q * bf;
+        return .{ @intFromFloat(q), @intFromFloat(r) };
+    }
+
+    return PythonError.TypeError;
 }
 
 /// Negation: -a
@@ -268,7 +397,7 @@ pub fn concat(allocator: std.mem.Allocator, a: anytype, b: @TypeOf(a)) !@TypeOf(
     const T = @TypeOf(a);
     const info = @typeInfo(T);
 
-    if (info == .pointer and info.pointer.size == .Slice) {
+    if (info == .pointer and info.pointer.size == .slice) {
         // Slice concatenation - allocate new slice with combined length
         const ElemType = info.pointer.child;
         const result = try allocator.alloc(ElemType, a.len + b.len);
@@ -381,8 +510,8 @@ fn indexOfPyValue(sequence: []const PyValue, item: PyValue) !usize {
 }
 
 /// Get item at index: a[b]
-pub fn getitem(sequence: anytype, index: usize) @typeInfo(@TypeOf(sequence)).pointer.child {
-    return sequence[index];
+pub fn getitem(sequence: anytype, idx: usize) @typeInfo(@TypeOf(sequence)).pointer.child {
+    return sequence[idx];
 }
 
 /// Get length: len(a)
@@ -404,10 +533,10 @@ pub fn attrgetter(comptime field: []const u8) fn (anytype) @TypeOf(@field(@as(@T
 }
 
 /// Item getter - creates a function that gets an item at index
-pub fn itemgetter(comptime index: usize) fn (anytype) @typeInfo(@TypeOf(undefined)).pointer.child {
+pub fn itemgetter(comptime idx: usize) fn (anytype) @typeInfo(@TypeOf(undefined)).pointer.child {
     return struct {
         pub fn get(seq: anytype) @typeInfo(@TypeOf(seq)).pointer.child {
-            return seq[index];
+            return seq[idx];
         }
     }.get;
 }
@@ -490,6 +619,62 @@ pub fn is_not(a: anytype, b: @TypeOf(a)) bool {
 }
 
 // ============================================================================
+// Index Operation (for Integral ABC)
+// ============================================================================
+
+/// operator.index(x) - Returns x.__index__() for objects that implement __index__
+/// This is used to get an integer representation for use in slicing and other contexts
+/// that require an integer. Raises TypeError if __index__ is not defined.
+///
+/// For built-in integers, returns the value directly.
+/// For class instances with __index__, calls that method.
+pub fn index(obj: anytype) PythonError!i64 {
+    const T = @TypeOf(obj);
+    const info = @typeInfo(T);
+
+    // Built-in integer types directly return the value
+    if (type_predicates.isIntInfo(info)) {
+        return @as(i64, @intCast(obj));
+    }
+
+    // For booleans, True = 1, False = 0
+    if (T == bool) {
+        return if (obj) 1 else 0;
+    }
+
+    // For pointers to structs, check for __index__ method
+    if (info == .pointer and info.pointer.size == .one) {
+        const ChildType = info.pointer.child;
+        if (@typeInfo(ChildType) == .@"struct") {
+            if (@hasDecl(ChildType, "__index__")) {
+                // Call __index__() method - it may return error union
+                const result = obj.__index__();
+                const ResultType = @TypeOf(result);
+                if (@typeInfo(ResultType) == .error_union) {
+                    return result catch return PythonError.TypeError;
+                }
+                return @as(i64, @intCast(result));
+            }
+        }
+    }
+
+    // For struct values (not pointers), check for __index__ method
+    if (info == .@"struct") {
+        if (@hasDecl(T, "__index__")) {
+            const result = obj.__index__();
+            const ResultType = @TypeOf(result);
+            if (@typeInfo(ResultType) == .error_union) {
+                return result catch return PythonError.TypeError;
+            }
+            return @as(i64, @intCast(result));
+        }
+    }
+
+    // No __index__ method found - raise TypeError
+    return PythonError.TypeError;
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -567,4 +752,14 @@ test "in-place operations" {
 
     imul(&x, 2);
     try std.testing.expectEqual(@as(i32, 12), x);
+}
+
+test "index operation" {
+    // Built-in integers
+    try std.testing.expectEqual(@as(i64, 42), try index(@as(i32, 42)));
+    try std.testing.expectEqual(@as(i64, -10), try index(@as(i64, -10)));
+
+    // Booleans
+    try std.testing.expectEqual(@as(i64, 1), try index(true));
+    try std.testing.expectEqual(@as(i64, 0), try index(false));
 }

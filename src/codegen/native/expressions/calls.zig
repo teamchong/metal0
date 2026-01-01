@@ -32,6 +32,7 @@ const NativeType = @import("../../../analysis/native_types/core.zig").NativeType
 const expr_emitter = @import("../expr_emitter.zig");
 const builder_mod = @import("codegen.builder");
 const ZigValue = builder_mod.ZigValue;
+const int_conv = @import("../builtins/conversions/int_conv.zig");
 
 // MIGRATED TO ZIGBUILDER
 // Builder-based call helpers with auto-closing patterns
@@ -123,8 +124,10 @@ fn emitToFloat(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
 
 /// Emit try runtime.PyValue.fromAlloc(__global_allocator, expr) for runtime PyValue conversion
 /// Uses emitCallCtx for guaranteed bracket matching
+/// Context-aware: at module level uses catch unreachable instead of try
 pub fn emitPyValueFromAlloc(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("try ");
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     try self.emitCallCtx("runtime.PyValue.fromAlloc", expr, struct {
         pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
             const genExpr = @import("../expressions.zig").genExpr;
@@ -132,6 +135,7 @@ pub fn emitPyValueFromAlloc(self: *NativeCodegen, expr: ast.Node) CodegenError!v
             try genExpr(s, e);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 // Import trait functions for type checking
@@ -534,6 +538,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, attr.attr }) catch null;
                 if (type_attr_key) |key| {
                     if (self.class_type_attrs.get(key)) |type_value| {
+                        // When type_value == "int", use genInt to generate proper int conversion
+                        // This handles `int_class = int` where self.int_class(x) should behave like int(x)
+                        if (std.mem.eql(u8, type_value, "int")) {
+                            try int_conv.genInt(self, call.args);
+                            return;
+                        }
+
                         // This is a type attribute - call as @This().attr_name(args)
                         try self.emit("@This().");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
@@ -543,10 +554,6 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                                 for (ctx.args, 0..) |arg, i| {
                                     if (i > 0) try s.emit(", ");
                                     try genExpr(s, arg);
-                                }
-                                // For int type attributes with optional base param, add null if not provided
-                                if (std.mem.eql(u8, ctx.type_value, "int") and ctx.args.len == 1) {
-                                    try s.emit(", null");
                                 }
                             }
                         }.emit);
@@ -686,6 +693,88 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     }
                 }
             }
+            // FOURTH: Check if this is a method call on a constructor result (ClassName(args).method())
+            // The attr.value is a call expression to a class constructor
+            if (!is_class_method_call and attr.value.* == .call) {
+                const constructor_call = attr.value.call;
+                if (constructor_call.func.* == .name) {
+                    const class_name = constructor_call.func.name.id;
+                    // Check if this is a known nested class
+                    if (self.nested_class_defs.get(class_name)) |nested_class_def| {
+                        // Find the method in the nested class
+                        for (nested_class_def.body) |stmt| {
+                            if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                is_nested_class_method_call = true;
+                                method_class_name = class_name;
+                                const signature = @import("../statements/functions/generators/signature.zig");
+                                is_static_method = signature.hasStaticmethodDecorator(stmt.function_def.decorators);
+                                class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
+                                break;
+                            }
+                        }
+                        // If method not found in body, check if it's an ABC default method
+                        if (!is_nested_class_method_call) {
+                            const abc_default_methods = [_][]const u8{ "conjugate", "real", "imag", "numerator", "denominator" };
+                            for (abc_default_methods) |abc_method| {
+                                if (std.mem.eql(u8, attr.attr, abc_method)) {
+                                    // Check if nested class inherits from numbers ABC
+                                    if (self.nested_class_bases.get(class_name)) |base_name| {
+                                        if (std.mem.eql(u8, base_name, "Real") or
+                                            std.mem.eql(u8, base_name, "Rational") or
+                                            std.mem.eql(u8, base_name, "Integral") or
+                                            std.mem.eql(u8, base_name, "Complex") or
+                                            std.mem.eql(u8, base_name, "Number"))
+                                        {
+                                            is_nested_class_method_call = true;
+                                            method_class_name = class_name;
+                                            class_method_needs_alloc = false; // ABC default methods don't need allocator
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Also check class_registry for top-level classes
+                    if (!is_nested_class_method_call) {
+                        if (self.class_registry.getClass(class_name)) |class_def| {
+                            for (class_def.body) |stmt| {
+                                if (stmt == .function_def and std.mem.eql(u8, stmt.function_def.name, attr.attr)) {
+                                    is_class_method_call = true;
+                                    method_class_name = class_name;
+                                    class_method_needs_alloc = function_traits.analyzeNeedsAllocator(stmt.function_def, class_name);
+                                    break;
+                                }
+                            }
+                            // If method not found in body, check if it's an ABC default method
+                            // ABC default methods (conjugate, real, imag, numerator, denominator) are
+                            // generated during class codegen but not in the Python class body
+                            if (!is_class_method_call) {
+                                const abc_default_methods = [_][]const u8{ "conjugate", "real", "imag", "numerator", "denominator" };
+                                for (abc_default_methods) |abc_method| {
+                                    if (std.mem.eql(u8, attr.attr, abc_method)) {
+                                        // Check if class inherits from numbers ABC
+                                        for (class_def.bases) |base_name| {
+                                            if (std.mem.eql(u8, base_name, "Real") or
+                                                std.mem.eql(u8, base_name, "Rational") or
+                                                std.mem.eql(u8, base_name, "Integral") or
+                                                std.mem.eql(u8, base_name, "Complex") or
+                                                std.mem.eql(u8, base_name, "Number"))
+                                            {
+                                                is_class_method_call = true;
+                                                method_class_name = class_name;
+                                                class_method_needs_alloc = false; // ABC default methods don't need allocator
+                                                break;
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Determine allocator/try requirements from registry or class method analysis
@@ -725,15 +814,20 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Block expressions cannot have methods called on them directly in Zig
         const needs_temp_var = producesBlockExpression(attr.value.*);
 
+        // Check if at module level - can't use try there
+        const at_module_level_method = self.current_function_name == null;
+
         if (needs_temp_var) {
             // Wrap in block with intermediate variable using unique label:
             // mcall_{id}: { const __obj = <expr>; break :mcall_{id} __obj.method(args); }
             var em = self.exprEmitter();
             var blk = try em.labeledBlock("mcall", "__obj", attr.value.*);
             try blk.startBreak();
-            // In defer blocks or functions returning PyValue, 'try' is not allowed - use catch {} instead
-            if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue) {
+            // In defer blocks, functions returning PyValue, or module level, 'try' is not allowed
+            if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue and !at_module_level_method) {
                 try self.emit("try ");
+            } else if (emit_try and at_module_level_method) {
+                try self.emit("(");  // Will close with catch unreachable
             }
             // For @staticmethod: use @TypeOf(__obj.*).method() since staticmethod has no self parameter
             // Instance method call with no self parameter requires type-based invocation
@@ -765,8 +859,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try genExpr(self, kwarg.value);
             }
 
-            // In defer blocks or functions returning PyValue, append 'catch {}' to silence errors
-            if (emit_try and (self.inside_defer or self.current_function_returns_pyvalue)) {
+            // In defer blocks, functions returning PyValue, or module level, append 'catch' variant
+            if (emit_try and at_module_level_method) {
+                try self.emit(") catch unreachable)");  // Close the catch unreachable wrapper
+            } else if (emit_try and (self.inside_defer or self.current_function_returns_pyvalue)) {
                 try self.emit(") catch {}");
             } else {
                 try self.emit(")");
@@ -774,9 +870,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try blk.close();
         } else {
             // Normal path - no wrapping needed
-            // In defer blocks or functions returning PyValue, 'try' is not allowed - use catch {} at the end instead
-            if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue) {
+            // In defer blocks, functions returning PyValue, or module level, 'try' is not allowed
+            if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue and !at_module_level_method) {
                 try self.emit("try ");
+            } else if (emit_try and at_module_level_method) {
+                try self.emit("(");  // Will close with catch unreachable
             }
 
             // Check if this is calling a PyValue attribute (e.g., self.logger where logger is PyValue)
@@ -1002,8 +1100,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            // In defer blocks or functions returning PyValue, append 'catch {}' to silence errors
-            if (emit_try and (self.inside_defer or self.current_function_returns_pyvalue)) {
+            // In defer blocks, functions returning PyValue, or module level, append 'catch' variant
+            if (emit_try and at_module_level_method) {
+                try self.emit(") catch unreachable)");  // Close the catch unreachable wrapper
+            } else if (emit_try and (self.inside_defer or self.current_function_returns_pyvalue)) {
                 try self.emit(") catch {}");
             } else {
                 try self.emit(")");
@@ -1028,10 +1128,16 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Lambda call: square(5) -> (try square.call(5))
             // Inline struct lambdas need .call() method invocation
             // Lambda return types may be error unions (!T), wrap with try
+            // At module level, can't use try - must use catch unreachable
             // MIGRATED TO BUILDER: uses exprToValue + emitZigValue
+            const at_mod_level = self.current_function_name == null;
             const b = try self.getBuilder();
             const escaped_name = try zig_keywords.escapeIfKeyword(self.arena.allocator(), func_name);
-            try b.emitRaw("(try ");
+            if (at_mod_level) {
+                try b.emitRaw("(");
+            } else {
+                try b.emitRaw("(try ");
+            }
             try b.emitRaw(escaped_name);
             try b.emitRaw(".call(");
 
@@ -1047,7 +1153,11 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try b.emitValueCore(arg_value);
             }
 
-            try b.emitRaw("))");
+            if (at_mod_level) {
+                try b.emitRaw(") catch unreachable)");
+            } else {
+                try b.emitRaw("))");
+            }
             try self.emitZigValue(ZigValue.raw(try b.getBodyDupe()));
             return;
         }
@@ -1058,9 +1168,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Closure call: add_five(3) -> (try add_five.call(3))
             // Closures return error unions (!T) so we need to unwrap with try
             // EXCEPTION: void-returning closures don't need try wrapping
+            // At module level, can't use try - must use catch unreachable
+            const at_mod_level = self.current_function_name == null;
             const is_void_closure = self.void_closure_vars.contains(raw_func_name);
-            if (!is_void_closure) {
+            if (!is_void_closure and !at_mod_level) {
                 try self.emit("(try ");
+            } else if (!is_void_closure and at_mod_level) {
+                try self.emit("(");
             }
             // For hoisted DynamicClosures (from if/else branches), use raw_func_name
             // since they're declared as "var get_output: DynamicClosure = undefined;"
@@ -1069,7 +1183,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 raw_func_name
             else
                 func_name;
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), closure_name);
+            // Use writeLocalVarName to handle field access expressions (e.g., "__m0_cap_track.f")
+            // These need to be split on the dot, not escaped as a single identifier
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), closure_name);
             try self.emit(".call(");
 
             // Pass args to closure - wrap integer literals with @as(i64, ...) to force
@@ -1112,8 +1228,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 }
             }
 
-            if (!is_void_closure) {
+            if (!is_void_closure and !at_mod_level) {
                 try self.emit("))");  // Close both .call() and (try ...)
+            } else if (!is_void_closure and at_mod_level) {
+                try self.emit(") catch unreachable)");  // Close both .call() and catch unreachable
             } else {
                 try self.emit(")");  // Close just .call() - no try wrapper
             }
@@ -1128,7 +1246,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Callable call: f("100") -> (try f.call("100")) for error callables
             //                f("100") -> f.call("100") for regular callables
             // In assertRaises context, don't use try - let error propagate for expectError to check
-            const use_try = returns_error and !self.in_assert_raises_context;
+            // At module level, can't use try - must use catch unreachable
+            const at_mod_level = self.current_function_name == null;
+            const use_try = returns_error and !self.in_assert_raises_context and !at_mod_level;
+            const use_catch = returns_error and !self.in_assert_raises_context and at_mod_level;
             const b = try self.getBuilder();
             const alloc = self.arena.allocator();
             const escaped_name = try zig_keywords.escapeIfKeyword(alloc, func_name);
@@ -1149,6 +1270,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 try b.emitRaw("(try ");
                 try b.emitMethodCallExpr(receiver, "call", call_args.items);
                 try b.emitRaw(")");
+            } else if (use_catch) {
+                try b.emitRaw("(");
+                try b.emitMethodCallExpr(receiver, "call", call_args.items);
+                try b.emitRaw(" catch unreachable)");
             } else {
                 try b.emitMethodCallExpr(receiver, "call", call_args.items);
             }
@@ -1289,10 +1414,18 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                                 try b.emitCallExpr(from_float_func, &.{.{ .value = arg_value }});
                             } else if (string_traits.isString(arg_type)) {
                                 // String argument: use fromString (returns error union)
+                                // At module level, can't use try - must use catch unreachable
+                                const at_mod_level = self.current_function_name == null;
                                 const from_string_func = try std.fmt.allocPrint(alloc, "{s}.fromString", .{escaped_name});
-                                try b.emitRaw("(try ");
-                                try b.emitCallExpr(from_string_func, &.{.{ .value = arg_value }});
-                                try b.emitRaw(")");
+                                if (at_mod_level) {
+                                    try b.emitRaw("(");
+                                    try b.emitCallExpr(from_string_func, &.{.{ .value = arg_value }});
+                                    try b.emitRaw(" catch unreachable)");
+                                } else {
+                                    try b.emitRaw("(try ");
+                                    try b.emitCallExpr(from_string_func, &.{.{ .value = arg_value }});
+                                    try b.emitRaw(")");
+                                }
                             } else {
                                 // Default: fromInt for int/unknown types
                                 const from_int_func = try std.fmt.allocPrint(alloc, "{s}.fromInt", .{escaped_name});
@@ -1384,9 +1517,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             try array_literal.appendSlice(alloc, "}");
 
             const array_arg = ZigValue.raw(array_literal.items);
-            try b.emitRaw("(try ");
-            try b.emitMethodCallExpr(receiver, "call", &.{.{ .value = array_arg }});
-            try b.emitRaw(")");
+            // At module level, can't use try - must use catch unreachable
+            const at_mod_level = self.current_function_name == null;
+            if (at_mod_level) {
+                try b.emitRaw("(");
+                try b.emitMethodCallExpr(receiver, "call", &.{.{ .value = array_arg }});
+                try b.emitRaw(" catch unreachable)");
+            } else {
+                try b.emitRaw("(try ");
+                try b.emitMethodCallExpr(receiver, "call", &.{.{ .value = array_arg }});
+                try b.emitRaw(")");
+            }
             // Copy final result to avoid aliasing
             const result = try alloc.dupe(u8, b.getBodyAndClear());
             try self.emitZigValue(ZigValue.raw(result));
@@ -1861,7 +2002,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (is_user_class) {
                 // User-defined class: nested classes and error init classes need try
                 // But if inside a PyValue-returning function, use explicit unwrap instead
-                if (needs_try and !self.current_function_returns_pyvalue) {
+                // NOTE: At module level, we can't use try - must use catch unreachable
+                const at_module_level = self.current_function_name == null;
+                const cannot_use_try = at_module_level or self.inside_defer;
+                if (needs_try and cannot_use_try) {
+                    // At module level: use catch unreachable instead of try
+                    try self.emit("(");
+                } else if (needs_try and !self.current_function_returns_pyvalue) {
                     try self.emit("(try ");
                 } else if (needs_try and self.current_function_returns_pyvalue) {
                     try self.emit("(");
@@ -1936,7 +2083,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // (e.g., due to scoping issues). User-defined init() returns struct directly.
                 // Need to emit (try ...) wrapper if class has error init
                 // But if inside a PyValue-returning function, use explicit unwrap instead
-                if (needs_try and !self.current_function_returns_pyvalue) {
+                // NOTE: At module level, we can't use try - must use catch unreachable
+                const at_module_level = self.current_function_name == null;
+                const cannot_use_try = at_module_level or self.inside_defer;
+                if (needs_try and cannot_use_try) {
+                    // At module level: use catch unreachable instead of try
+                    try self.emit("(");
+                } else if (needs_try and !self.current_function_returns_pyvalue) {
                     try self.emit("(try ");
                 } else if (needs_try and self.current_function_returns_pyvalue) {
                     try self.emit("(");
@@ -2150,7 +2303,13 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             // Close the (try ...) wrapper for nested class or error-init constructors
             // When inside_try_body, errors must propagate to the except handler
             // Only use catch unreachable for PyValue-returning functions NOT in a try body
-            if (needs_try and self.inside_try_body) {
+            // NOTE: At module level, we can't use try - must use catch unreachable
+            const at_module_level_close = self.current_function_name == null;
+            const cannot_use_try_close = at_module_level_close or self.inside_defer;
+            if (needs_try and cannot_use_try_close) {
+                // At module level: close with catch unreachable
+                try self.emit(" catch unreachable)");
+            } else if (needs_try and self.inside_try_body) {
                 // Inside try body: propagate errors to except handler
                 try self.emit(")");
             } else if (needs_try and !self.current_function_returns_pyvalue) {

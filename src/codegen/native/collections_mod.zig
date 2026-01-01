@@ -234,6 +234,42 @@ pub fn genDeque(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 const builder_mod = @import("codegen.builder");
 const ZigBuilder = builder_mod.ZigBuilder;
 
+/// Check if a field name is a valid Python/Zig identifier
+/// Python namedtuple field names must:
+/// - Be valid Python identifiers (alphanumeric + underscore, not starting with digit)
+/// - Not start with underscore (Python convention for namedtuple)
+/// - Not be a Python keyword
+fn isValidFieldName(name: []const u8) bool {
+    if (name.len == 0) return false;
+
+    // Cannot start with digit or underscore
+    const first = name[0];
+    if (first >= '0' and first <= '9') return false;
+    if (first == '_') return false;
+
+    // Must be alphanumeric + underscore only
+    for (name) |c| {
+        const is_alpha = (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z');
+        const is_digit = c >= '0' and c <= '9';
+        const is_underscore = c == '_';
+        if (!is_alpha and !is_digit and !is_underscore) return false;
+    }
+
+    // Check for Python keywords
+    const keywords = [_][]const u8{
+        "False", "None", "True", "and", "as", "assert", "async", "await",
+        "break", "class", "continue", "def", "del", "elif", "else", "except",
+        "finally", "for", "from", "global", "if", "import", "in", "is",
+        "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try",
+        "while", "with", "yield",
+    };
+    for (keywords) |kw| {
+        if (std.mem.eql(u8, name, kw)) return false;
+    }
+
+    return true;
+}
+
 /// Generate code for collections.namedtuple(typename, field_names)
 /// Returns a struct type that can be instantiated
 pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -245,36 +281,56 @@ pub fn genNamedtuple(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         try self.emit("struct {}");
         return;
     }
-    // Extract field names from second argument (should be a list/tuple)
-    const b = try self.getBuilder();
 
-    // Build the struct definition
-    var struct_def: std.ArrayList(u8) = .{};
-    try struct_def.appendSlice(self.allocator, "struct { ");
+    // Collect and validate field names first
+    var field_names: std.ArrayList([]const u8) = .{};
+    var has_invalid_field = false;
 
     // Try to get field names statically if possible
     if (args[1] == .list) {
-        for (args[1].list.elts, 0..) |elt, i| {
-            if (i > 0) try struct_def.appendSlice(self.allocator, ", ");
+        for (args[1].list.elts) |elt| {
             if (elt == .constant and elt.constant.value == .string) {
                 const field_name = elt.constant.value.string;
-                try struct_def.writer(self.allocator).print("{s}: @TypeOf(undefined)", .{field_name});
-            } else {
-                try struct_def.writer(self.allocator).print("@\"{d}\": @TypeOf(undefined)", .{i});
+                try field_names.append(self.allocator, field_name);
+                if (!isValidFieldName(field_name)) {
+                    has_invalid_field = true;
+                }
             }
         }
     } else if (args[1] == .constant and args[1].constant.value == .string) {
         // namedtuple('Point', 'x y') format - split by space
         const fields_str = args[1].constant.value.string;
         var iter = std.mem.splitScalar(u8, fields_str, ' ');
-        var i: usize = 0;
         while (iter.next()) |field| {
             if (field.len == 0) continue;
-            if (i > 0) try struct_def.appendSlice(self.allocator, ", ");
-            try struct_def.writer(self.allocator).print("{s}: @TypeOf(undefined)", .{field});
-            i += 1;
+            try field_names.append(self.allocator, field);
+            if (!isValidFieldName(field)) {
+                has_invalid_field = true;
+            }
         }
     }
+
+    // If any field name is invalid, generate code that triggers ValueError
+    // This allows assertRaises(ValueError, namedtuple, ...) tests to work
+    // We emit error.ValueError which expectSpecificError can match
+    if (has_invalid_field) {
+        try self.emit("error.ValueError");
+        return;
+    }
+
+    // Extract field names from second argument (should be a list/tuple)
+    const b = try self.getBuilder();
+
+    // Build the struct definition with validated field names
+    var struct_def: std.ArrayList(u8) = .{};
+    try struct_def.appendSlice(self.allocator, "struct { ");
+
+    for (field_names.items, 0..) |field_name, i| {
+        if (i > 0) try struct_def.appendSlice(self.allocator, ", ");
+        // Use @"..." syntax for safety (handles Zig keywords like 'type', 'error')
+        try struct_def.writer(self.allocator).print("@\"{s}\": @TypeOf(undefined)", .{field_name});
+    }
+
     try struct_def.appendSlice(self.allocator, " }");
 
     try b.emitRaw(struct_def.items);
@@ -287,7 +343,7 @@ pub fn genChainMap(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     if (args.len == 0) {
         try self.withInlineBlock("chainmap", args, struct {
             fn emit(c: *NativeCodegen, label: []const u8, _: []ast.Node) !void {
-                try c.emitFmt("var _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){{}}; break :{s} _maps", .{label});
+                try c.emitFmt("const _maps = std.ArrayListUnmanaged(hashmap_helper.StringHashMap(*runtime.PyObject)){{}}; break :{s} _maps", .{label});
             }
         }.emit);
         return;

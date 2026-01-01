@@ -4,7 +4,9 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../main.zig").NativeCodegen;
 const CodegenError = @import("../main.zig").CodegenError;
-const NativeType = @import("../../../analysis/native_types/core.zig").NativeType;
+const native_types_core = @import("../../../analysis/native_types/core.zig");
+const NativeType = native_types_core.NativeType;
+const TypeConfidence = native_types_core.TypeConfidence;
 const helpers = @import("assign_helpers.zig");
 const comptimeHelpers = @import("assign_comptime.zig");
 const deferCleanup = @import("assign_defer.zig");
@@ -360,6 +362,28 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
         }
     }
 
+    // TWO-FLOW TYPE SYSTEM: Track confidence for all assigned variables
+    // This connects analysis-phase confidence tracking to codegen-phase PyValue decisions
+    // Confidence determines whether to use raw Zig types (certain) or PyValue (uncertain)
+    for (assign.targets) |target| {
+        if (target == .name) {
+            const var_name = target.name.id;
+            const confidence: TypeConfidence = blk: {
+                // VM fallback expressions are always uncertain (return PyValue)
+                if (self.needsVMFallback(assign.value.*)) break :blk .uncertain;
+                // PyValue and unknown types are uncertain
+                if (value_type == .pyvalue or value_type == .unknown) break :blk .uncertain;
+                // If we used a widened scoped type, propagate its existing confidence
+                if (self.type_inferrer.getScopedVar(var_name)) |_| {
+                    break :blk self.type_inferrer.getConfidence(var_name);
+                }
+                // Known types are certain
+                break :blk .certain;
+            };
+            self.type_inferrer.putConfidence(var_name, confidence) catch {};
+        }
+    }
+
     // Track variables assigned from BigInt expressions
     // This handles cases like: hibit = 1 << (bits - 1) where bits is not comptime
     // We need to know hibit is BigInt for subsequent operations like hibit | x
@@ -687,8 +711,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // becomes __mN_lv_line = line.strip() and subsequent refs use __mN_lv_line
             // NOTE: We set the rename AFTER generating the value, so the RHS uses the original capture
             const is_loop_capture_reassign = self.loop_capture_vars.contains(var_name);
+            // First check if var_renames already has a renamed version (pre-declared at for-loop level)
+            // This avoids generating a new name when genEnumerateLoop already pre-declared one
             const loop_renamed_name = if (is_loop_capture_reassign)
-                self.name_gen.loopVar(var_name) catch var_name
+                (self.var_renames.get(var_name) orelse self.name_gen.loopVar(var_name) catch var_name)
             else
                 var_name;
             if (is_loop_capture_reassign) {
@@ -949,6 +975,15 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.var_renames.put(var_name, shadow_name);
                     var_name = shadow_name;
                 }
+            }
+
+            // Check if local variable would shadow an imported module
+            // Python allows this (locals shadow imports) but Zig doesn't allow shadowing module-level vars
+            // e.g., `const overrides = @import("./overrides.zig")` then local `overrides = ...` -> rename local
+            if (is_first_assignment and self.wouldShadowImport(var_name)) {
+                const shadow_name = try self.name_gen.local(var_name);
+                try self.var_renames.put(var_name, shadow_name);
+                var_name = shadow_name;
             }
 
             // Also check if local variable would shadow a module-level pre-declared global
@@ -1357,7 +1392,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // which is incompatible with PyValue.from() wrapping
                     // EXCEPTION 3: eval() calls already wrap result in PyValue.from() via genEval
                     // Also check pyvalue_hoisted_vars for variables hoisted from try-except blocks
-                    const is_pyvalue_reassign = (declared_type == .pyvalue) or self.pyvalue_hoisted_vars.contains(var_name);
+                    // Also check conditional_var_types for module-level variables declared as PyValue
+                    const is_conditional_pyvalue = blk: {
+                        if (self.conditional_var_types.get(var_name)) |zig_type| {
+                            break :blk std.mem.eql(u8, zig_type, "runtime.PyValue");
+                        }
+                        break :blk false;
+                    };
+                    const is_pyvalue_reassign = (declared_type == .pyvalue) or self.pyvalue_hoisted_vars.contains(var_name) or is_conditional_pyvalue;
                     const binop_produces_pyvalue = valueGen.binopProducesPyValue(self, assign.value.*);
                     // Check if this is an eval() call - genEval already wraps in PyValue.from()
                     const is_eval_call = blk: {
@@ -1372,7 +1414,17 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     };
                     const expr_produces_pyvalue = binop_produces_pyvalue or is_eval_call;
                     const is_list_literal = assign.value.* == .list;
-                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue and !is_list_literal;
+                    // Skip PyValue wrapping for exception-to-exception assignments
+                    // e.g., `raised = exc` where `exc` is from `except Exception as exc:`
+                    // PyException should NOT be wrapped in PyValue.from()
+                    const is_exception_assignment = blk: {
+                        if (assign.value.* == .name) {
+                            const rhs_name = assign.value.name.id;
+                            if (self.exception_vars.contains(rhs_name)) break :blk true;
+                        }
+                        break :blk false;
+                    };
+                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue and !is_list_literal and !is_exception_assignment;
 
                     // UNIFIED INT: Check if reassigning a UnifiedInt variable
                     // If the target is UnifiedInt and RHS is not already UnifiedInt, wrap with fromI64()
@@ -1440,11 +1492,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const left_type = try self.inferExprScoped(assign.value.binop.left.*);
                 const right_type = try self.inferExprScoped(assign.value.binop.right.*);
                 if (string_traits.isString(left_type) or string_traits.isString(right_type)) {
-                    try valueGen.genStringConcat(self, assign, var_name, is_first_assignment);
-                    // Close PyValue wrapper if it was opened (string concat doesn't need it)
-                    if (is_first_assignment and wrapper_opened) {
-                        try self.emit(")");
-                    }
+                    // Pass wrapper_opened so genStringConcat can close the PyValue.from() wrapper before semicolon
+                    // For first assignment: wrapper_opened is set by emitVarDeclaration
+                    // For reassignment: reassign_pyvalue_wrap is set when reassigning a PyValue variable
+                    const pyvalue_wrap_opened = (is_first_assignment and wrapper_opened) or reassign_pyvalue_wrap;
+                    try valueGen.genStringConcat(self, assign, var_name, is_first_assignment, pyvalue_wrap_opened);
                     return;
                 }
             }
@@ -1468,10 +1520,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     is_allocated_string,
                     assign.value.*,
                 );
-                // Close PyValue wrapper if it was opened (first assignment only)
-                if (is_first_assignment and wrapper_opened) {
-                    try self.emit(");\n");
-                }
+                // genArrayListInit now closes the wrapper internally, so don't add extra );\n
                 return;
             }
 
@@ -1658,6 +1707,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.type_inferrer.putScopedVar(var_name, .pyvalue);
                     // Also update symbol_table so getLocalVarType() returns .pyvalue for reassignment detection
                     try self.symbol_table.declare(var_name, .pyvalue, true);
+                    // TWO-FLOW: Set confidence to uncertain since we wrapped in PyValue
+                    self.type_inferrer.putConfidence(var_name, .uncertain) catch {};
                 }
                 // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper for reassignment if opened
                 if (reassign_pyvalue_wrap) {
@@ -1807,6 +1858,27 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
+            }
+
+            // Emit discard for ALL first assignments to handle unused const variables
+            // This catches cases not covered by the specific categories above (iterator,
+            // deque, class instance, mutated, VM fallback, eval string)
+            // Examples: field2 (used only in eval), two (dead code), protocol (unused const)
+            if (is_first_assignment) {
+                // Check if any of the specific categories already emitted a discard
+                const is_class_instance = type_traits.isClassInstance(value_type);
+                const is_mutated = self.isVarMutated(var_name);
+                const already_handled = is_iterator or is_deque or is_class_instance or
+                    is_mutated or self.needsVMFallback(assign.value.*) or
+                    self.isEvalStringVar(original_var_name) or is_vm_fallback_var;
+
+                if (!already_handled) {
+                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                    try self.emit(";\n");
+                }
             }
 
             // Track variable metadata (ArrayList vars, closures, etc.)

@@ -59,6 +59,10 @@ pub const CallableReturnKind = enum {
     /// Examples: bool, all, any, callable, isinstance
     fixed_bool,
 
+    /// Always returns complex (PyComplex)
+    /// Examples: complex
+    fixed_complex,
+
     /// Unknown return type - fallback to PyObject
     unknown,
 

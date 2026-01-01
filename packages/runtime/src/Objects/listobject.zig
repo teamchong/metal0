@@ -219,7 +219,7 @@ pub const PyList = struct {
             if (runtime.PyLong_Check(item) and runtime.PyLong_Check(value)) {
                 const item_obj: *PyLongObject = @ptrCast(@alignCast(item));
                 const value_obj: *PyLongObject = @ptrCast(@alignCast(value));
-                if (item_obj.ob_digit == value_obj.ob_digit) {
+                if (item_obj.getValue() == value_obj.getValue()) {
                     return true;
                 }
             }
@@ -262,7 +262,7 @@ pub const PyList = struct {
             if (runtime.PyLong_Check(item) and runtime.PyLong_Check(value)) {
                 const item_obj: *PyLongObject = @ptrCast(@alignCast(item));
                 const value_obj: *PyLongObject = @ptrCast(@alignCast(value));
-                if (item_obj.ob_digit == value_obj.ob_digit) {
+                if (item_obj.getValue() == value_obj.getValue()) {
                     // Shift remaining items
                     var j: usize = i;
                     while (j < size - 1) : (j += 1) {
@@ -307,7 +307,7 @@ pub const PyList = struct {
             if (runtime.PyLong_Check(item) and runtime.PyLong_Check(value)) {
                 const item_obj: *PyLongObject = @ptrCast(@alignCast(item));
                 const value_obj: *PyLongObject = @ptrCast(@alignCast(value));
-                if (item_obj.ob_digit == value_obj.ob_digit) {
+                if (item_obj.getValue() == value_obj.getValue()) {
                     count_val += 1;
                 }
             }
@@ -326,7 +326,7 @@ pub const PyList = struct {
             if (runtime.PyLong_Check(item) and runtime.PyLong_Check(value)) {
                 const item_obj: *PyLongObject = @ptrCast(@alignCast(item));
                 const value_obj: *PyLongObject = @ptrCast(@alignCast(value));
-                if (item_obj.ob_digit == value_obj.ob_digit) {
+                if (item_obj.getValue() == value_obj.getValue()) {
                     return @intCast(i);
                 }
             }
@@ -409,7 +409,8 @@ pub const PyList = struct {
                 if (runtime.PyLong_Check(list_obj.ob_item[j]) and runtime.PyLong_Check(list_obj.ob_item[j + 1])) {
                     const obj_j: *PyLongObject = @ptrCast(@alignCast(list_obj.ob_item[j]));
                     const obj_j1: *PyLongObject = @ptrCast(@alignCast(list_obj.ob_item[j + 1]));
-                    if (obj_j.ob_digit > obj_j1.ob_digit) {
+                    // Use getValue() for Python 3.12+ layout comparison
+                    if (obj_j.getValue() > obj_j1.getValue()) {
                         const temp = list_obj.ob_item[j];
                         list_obj.ob_item[j] = list_obj.ob_item[j + 1];
                         list_obj.ob_item[j + 1] = temp;
@@ -451,8 +452,9 @@ pub const PyList = struct {
         for (0..size) |i| {
             if (runtime.PyLong_Check(list_obj.ob_item[i])) {
                 const long_obj: *PyLongObject = @ptrCast(@alignCast(list_obj.ob_item[i]));
-                if (long_obj.ob_digit < min_val) {
-                    min_val = long_obj.ob_digit;
+                const val = long_obj.getValue();
+                if (val < min_val) {
+                    min_val = val;
                 }
             }
         }
@@ -471,8 +473,9 @@ pub const PyList = struct {
         for (0..size) |i| {
             if (runtime.PyLong_Check(list_obj.ob_item[i])) {
                 const long_obj: *PyLongObject = @ptrCast(@alignCast(list_obj.ob_item[i]));
-                if (long_obj.ob_digit > max_val) {
-                    max_val = long_obj.ob_digit;
+                const val = long_obj.getValue();
+                if (val > max_val) {
+                    max_val = val;
                 }
             }
         }
@@ -489,7 +492,7 @@ pub const PyList = struct {
         for (0..size) |i| {
             if (runtime.PyLong_Check(list_obj.ob_item[i])) {
                 const long_obj: *PyLongObject = @ptrCast(@alignCast(list_obj.ob_item[i]));
-                total += long_obj.ob_digit;
+                total += long_obj.getValue();
             }
         }
         return total;

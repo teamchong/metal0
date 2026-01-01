@@ -487,6 +487,10 @@ pub fn genZeroCaptureClosure(
         try return_type_str.appendSlice(self.allocator, "i64");
     }
 
+    // Check if this function was hoisted as a DynamicClosure (from if/else branch)
+    // Used below to decide whether to add var_rename
+    const is_hoisted_dynamic = self.hoisted_dynamic_closures.contains(func.name);
+
     try self.emitIndent();
     try self.emit("const ");
     // Always use a unique wrapper name to avoid conflicts with:
@@ -496,7 +500,12 @@ pub fn genZeroCaptureClosure(
     const wrapper_name = try std.fmt.allocPrint(self.allocator, "__m{d}_closure_{s}", .{ saved_id, func.name });
     // Don't defer free - the name is stored in var_renames for later reference
     // Register rename so references use the correct name
-    try self.var_renames.put(func.name, wrapper_name);
+    // BUT: For hoisted dynamic closures (from if/else branches), do NOT add var_rename.
+    // Hoisted closures use the original name (e.g., ptr_formatter) which was hoisted
+    // as DynamicClosure. The wrapper_name is only used internally.
+    if (!is_hoisted_dynamic) {
+        try self.var_renames.put(func.name, wrapper_name);
+    }
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), wrapper_name);
 
     // Calculate total param count (including vararg)

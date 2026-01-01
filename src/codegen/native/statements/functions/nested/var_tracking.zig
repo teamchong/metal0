@@ -582,6 +582,14 @@ fn isParamReassignedInNode(param_name: []const u8, node: ast.Node) bool {
                         }
                     }
                 }
+                // Handle list unpacking: [a, b] = ... or a, b = ... (when parsed as list)
+                if (target == .list) {
+                    for (target.list.elts) |elt| {
+                        if (elt == .name and std.mem.eql(u8, elt.name.id, param_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
             }
             break :blk false;
         },
@@ -1376,6 +1384,58 @@ fn collectReferencedVarsInNode(
                     try collectReferencedVarsInNode(self, guard.*, referenced);
                 }
                 try collectReferencedVars(self, case.body, referenced);
+            }
+        },
+        // IMPORTANT: Nested function definitions need special handling.
+        // If a nested function references a variable from outside its own scope,
+        // that variable needs to be captured by the CURRENT function too.
+        // For example:
+        //   def outer(x):
+        //       def inner():
+        //           return x  # x is referenced by inner, but outer needs to capture x too
+        //       return inner
+        .function_def => |f| {
+            // Collect all variables referenced in the nested function body
+            var nested_refs = std.ArrayList([]const u8){};
+            defer nested_refs.deinit(self.allocator);
+            try collectReferencedVars(self, f.body, &nested_refs);
+
+            // Filter out the nested function's own parameters - they shadow outer scope
+            for (nested_refs.items) |ref_name| {
+                var is_nested_param = false;
+                for (f.args) |arg| {
+                    if (std.mem.eql(u8, arg.name, ref_name)) {
+                        is_nested_param = true;
+                        break;
+                    }
+                }
+                // Skip if it's a parameter of the nested function
+                if (is_nested_param) continue;
+
+                // Also check vararg and kwarg
+                if (f.vararg) |varg| {
+                    if (std.mem.eql(u8, varg, ref_name)) continue;
+                }
+                if (f.kwarg) |kwarg| {
+                    if (std.mem.eql(u8, kwarg, ref_name)) continue;
+                }
+
+                // Check if this var is locally assigned in the nested function (shadows)
+                var locally_assigned_in_nested = std.ArrayList([]const u8){};
+                defer locally_assigned_in_nested.deinit(self.allocator);
+                collectLocallyAssignedVars(self.allocator, f.body, &locally_assigned_in_nested) catch {};
+                var is_local_in_nested = false;
+                for (locally_assigned_in_nested.items) |local_var| {
+                    if (std.mem.eql(u8, local_var, ref_name)) {
+                        is_local_in_nested = true;
+                        break;
+                    }
+                }
+                if (is_local_in_nested) continue;
+
+                // This variable is referenced by nested function but not local to it
+                // So the current function needs to pass it through
+                try referenced.append(self.allocator, ref_name);
             }
         },
         else => {},

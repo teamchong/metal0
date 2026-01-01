@@ -2,6 +2,7 @@
 /// This module re-exports from specialized submodules for better organization.
 const std = @import("std");
 const PyValue = @import("../Objects/object.zig").PyValue;
+const type_predicates = @import("type_predicates.zig");
 
 // =============================================================================
 // PyCallable - Generic callable wrapper for heterogeneous callable lists
@@ -344,6 +345,18 @@ pub const defaultdict = cons_mod.defaultdict;
 pub const pycomplex_mod = @import("pycomplex.zig");
 pub const complex = pycomplex_mod.PyComplex.create;
 
+/// Python base 'object' class
+/// All classes in Python inherit from object. This type is used in MRO comparisons.
+/// Usage: D.__mro__ == (D, A, B, object)
+pub const object = struct {
+    pub const __name__: []const u8 = "object";
+    pub const __doc__: ?[]const u8 = "The most base type";
+    pub const __bases__: @TypeOf(.{}) = .{};
+    pub const __bases_vtables__: ?[]const *const PyValue.PyObjectVTable = null;
+    pub const __vtable__: PyValue.PyObjectVTable = PyValue.generateVTableForType(@This());
+    pub const __mro__: @TypeOf(.{@This()}) = .{@This()};
+};
+
 /// Python staticmethod wrapper type
 /// Used when `staticmethod` is passed as a first-class function
 /// Wraps a function to indicate it's a static method (no self parameter)
@@ -456,7 +469,7 @@ pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anyt
 
         if (other_info == .@"struct" and @hasField(OtherT, "items")) {
             list_ptr.appendSlice(allocator, other.items) catch unreachable;
-        } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
+        } else if (other_info == .pointer and other_info.pointer.size == .slice) {
             list_ptr.appendSlice(allocator, other) catch unreachable;
         }
     } else if (T == PyValue) {
@@ -466,7 +479,7 @@ pub fn pyListExtend(allocator: std.mem.Allocator, list_ptr: anytype, other: anyt
             const other_info = @typeInfo(OtherT);
             if (OtherT == PyValue and other == .list) {
                 list_ptr.list.appendSlice(allocator, other.list.items) catch unreachable;
-            } else if (other_info == .pointer and other_info.pointer.size == .Slice) {
+            } else if (other_info == .pointer and other_info.pointer.size == .slice) {
                 for (other) |item| {
                     list_ptr.list.append(allocator, PyValue.from(item)) catch unreachable;
                 }
@@ -1259,20 +1272,20 @@ pub fn typeConvert(comptime T: type, value: anytype) T {
 
     // Target is integer
     if (t_info == .int) {
-        if (v_info == .int or v_info == .comptime_int) {
+        if (type_predicates.isIntInfo(v_info)) {
             return @intCast(value);
         }
-        if (v_info == .float or v_info == .comptime_float) {
+        if (type_predicates.isFloatInfo(v_info)) {
             return @intFromFloat(value);
         }
     }
 
     // Target is float
     if (t_info == .float) {
-        if (v_info == .int or v_info == .comptime_int) {
+        if (type_predicates.isIntInfo(v_info)) {
             return @floatFromInt(value);
         }
-        if (v_info == .float or v_info == .comptime_float) {
+        if (type_predicates.isFloatInfo(v_info)) {
             return @floatCast(value);
         }
     }
@@ -1303,7 +1316,7 @@ pub fn numericToFloat(value: anytype) f64 {
     const T = @TypeOf(value);
     const info = @typeInfo(T);
     if (info == .float) return @floatCast(value);
-    if (info == .int or info == .comptime_int) return @floatFromInt(value);
+    if (type_predicates.isIntInfo(info)) return @floatFromInt(value);
     if (info == .comptime_float) return @floatCast(value);
     @compileError("numericToFloat: expected numeric type, got " ++ @typeName(T));
 }

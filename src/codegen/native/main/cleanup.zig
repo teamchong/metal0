@@ -79,6 +79,7 @@ pub fn deinit(self: *NativeCodegen) void {
     self.nested_class_instances.deinit();
     self.nested_class_names.deinit();
     self.hoisted_local_classes.deinit();
+    self.factory_hoisted_classes.deinit();
     self.bigint_vars.deinit();
     self.nested_class_bases.deinit();
     self.nested_class_defs.deinit();

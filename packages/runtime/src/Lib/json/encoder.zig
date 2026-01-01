@@ -201,12 +201,12 @@ fn stringifyPyObjectDirect(obj: *runtime.PyObject, buffer: *std.ArrayList(u8), a
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
             const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(obj));
-            try buffer.appendSlice(allocator, if (bool_obj.ob_digit != 0) JSON_TRUE else JSON_FALSE);
+            try buffer.appendSlice(allocator, if (bool_obj.getValue()) JSON_TRUE else JSON_FALSE);
         },
         .int => {
             const long_obj: *runtime.PyLongObject = @ptrCast(@alignCast(obj));
             var buf: [32]u8 = undefined;
-            const formatted = std.fmt.bufPrint(&buf, "{d}", .{long_obj.ob_digit}) catch unreachable;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{long_obj.getValue()}) catch unreachable;
             try buffer.appendSlice(allocator, formatted);
         },
         .float => {
@@ -415,7 +415,7 @@ fn stringifyPyObject(obj: *runtime.PyObject, writer: anytype) !void {
         },
         .bool => {
             const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(obj));
-            if (bool_obj.ob_digit != 0) {
+            if (bool_obj.getValue()) {
                 try writer.writeAll("true");
             } else {
                 try writer.writeAll("false");
@@ -423,7 +423,7 @@ fn stringifyPyObject(obj: *runtime.PyObject, writer: anytype) !void {
         },
         .int => {
             const long_obj: *runtime.PyLongObject = @ptrCast(@alignCast(obj));
-            try writer.print("{}", .{long_obj.ob_digit});
+            try writer.print("{}", .{long_obj.getValue()});
         },
         .float => {
             const float_obj: *runtime.PyFloatObject = @ptrCast(@alignCast(obj));
@@ -573,12 +573,12 @@ fn stringifyPyObjectWithOptions(obj: *runtime.PyObject, buffer: *std.ArrayList(u
         .none => try buffer.appendSlice(allocator, JSON_NULL),
         .bool => {
             const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(obj));
-            try buffer.appendSlice(allocator, if (bool_obj.ob_digit != 0) JSON_TRUE else JSON_FALSE);
+            try buffer.appendSlice(allocator, if (bool_obj.getValue()) JSON_TRUE else JSON_FALSE);
         },
         .int => {
             const long_obj: *runtime.PyLongObject = @ptrCast(@alignCast(obj));
             var buf: [32]u8 = undefined;
-            const formatted = std.fmt.bufPrint(&buf, "{d}", .{long_obj.ob_digit}) catch unreachable;
+            const formatted = std.fmt.bufPrint(&buf, "{d}", .{long_obj.getValue()}) catch unreachable;
             try buffer.appendSlice(allocator, formatted);
         },
         .float => {

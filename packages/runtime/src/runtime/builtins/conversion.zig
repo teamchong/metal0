@@ -3,6 +3,7 @@ const std = @import("std");
 const runtime = @import("../../runtime.zig");
 const PythonError = runtime.PythonError;
 const PyValue = runtime.PyValue;
+const type_predicates = @import("../type_predicates.zig");
 
 // ============================================================================
 // Centralized Integer Extraction Helpers
@@ -26,7 +27,7 @@ pub fn extractI32Clamped(value: anytype, clamp_min: i32, clamp_max: i32) ?i32 {
     const info = @typeInfo(T);
 
     // Case 1: Native integer types
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         const v: i64 = @intCast(value);
         if (v < std.math.minInt(i32)) return clamp_min;
         if (v > std.math.maxInt(i32)) return clamp_max;
@@ -105,7 +106,7 @@ pub fn extractI64(value: anytype) ?i64 {
     const info = @typeInfo(T);
 
     // Case 1: Native integer types
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return @intCast(value);
     }
 
@@ -155,7 +156,7 @@ pub fn extractI64(value: anytype) ?i64 {
 pub fn hex(allocator: std.mem.Allocator, value: anytype) []const u8 {
     const T = @TypeOf(value);
     const int_val: i64 = blk: {
-        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        if (type_predicates.isInt(T)) {
             break :blk @as(i64, @intCast(value));
         } else if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toInt64")) {
             break :blk value.toInt64() orelse 0;
@@ -174,7 +175,7 @@ pub fn hex(allocator: std.mem.Allocator, value: anytype) []const u8 {
 pub fn oct(allocator: std.mem.Allocator, value: anytype) []const u8 {
     const T = @TypeOf(value);
     const int_val: i64 = blk: {
-        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        if (type_predicates.isInt(T)) {
             break :blk @as(i64, @intCast(value));
         } else if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toInt64")) {
             break :blk value.toInt64() orelse 0;
@@ -193,7 +194,7 @@ pub fn oct(allocator: std.mem.Allocator, value: anytype) []const u8 {
 pub fn bin(allocator: std.mem.Allocator, value: anytype) []const u8 {
     const T = @TypeOf(value);
     const int_val: i64 = blk: {
-        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        if (type_predicates.isInt(T)) {
             break :blk @as(i64, @intCast(value));
         } else if (@typeInfo(T) == .@"struct" and @hasDecl(T, "toInt64")) {
             break :blk value.toInt64() orelse 0;
@@ -226,7 +227,7 @@ pub fn intWithBase(allocator: std.mem.Allocator, string: anytype, base: anytype)
 
     const base_val: u8 = blk: {
         const BaseT = @TypeOf(base);
-        if (@typeInfo(BaseT) == .int or @typeInfo(BaseT) == .comptime_int) {
+        if (type_predicates.isInt(BaseT)) {
             // Cast to i64 first to safely compare (handles comptime_int with large/negative values)
             const base_i64: i64 = @intCast(base);
             // Validate base is in valid range before casting to u8
@@ -235,6 +236,11 @@ pub fn intWithBase(allocator: std.mem.Allocator, string: anytype, base: anytype)
                 return PythonError.ValueError;
             }
             break :blk @intCast(base_i64);
+        }
+        // Float base is invalid: int() base must be an integer, not 'float'
+        const base_info = @typeInfo(BaseT);
+        if (base_info == .float or base_info == .comptime_float) {
+            return PythonError.TypeError;
         }
         break :blk 10;
     };
@@ -301,9 +307,9 @@ pub fn round(value: anytype, args: anytype) PythonError!f64 {
     const T = @TypeOf(value);
     const ArgsType = @TypeOf(args);
 
-    const float_val: f64 = if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float)
+    const float_val: f64 = if (type_predicates.isFloat(T))
         value
-    else if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int)
+    else if (type_predicates.isInt(T))
         @floatFromInt(value)
     else
         return PythonError.TypeError;
@@ -472,10 +478,10 @@ pub fn bankersRound(value: f64) f64 {
 /// Python round() - simple version for integers
 pub fn pyRound(value: anytype) i64 {
     const T = @TypeOf(value);
-    if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+    if (type_predicates.isInt(T)) {
         return @intCast(value);
     }
-    if (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float) {
+    if (type_predicates.isFloat(T)) {
         return @intFromFloat(bankersRound(value));
     }
     return 0;
@@ -488,7 +494,7 @@ pub fn ord(value: anytype) PythonError!i64 {
     const info = @typeInfo(T);
 
     // Handle single integer (already a code point or byte)
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return @intCast(value);
     }
 
@@ -535,7 +541,7 @@ pub fn ord(value: anytype) PythonError!i64 {
 pub fn chr(allocator: std.mem.Allocator, value: anytype) PythonError![]const u8 {
     const T = @TypeOf(value);
     const int_val: u21 = blk: {
-        if (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int) {
+        if (type_predicates.isInt(T)) {
             if (value < 0 or value > 0x10FFFF) {
                 return PythonError.ValueError;
             }

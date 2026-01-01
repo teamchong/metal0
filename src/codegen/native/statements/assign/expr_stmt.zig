@@ -14,6 +14,13 @@ const VoidFunctions = std.StaticStringMap(void).initComptime(.{
     .{ "setattr", {} }, .{ "delattr", {} },
 });
 
+/// Builtins that return values when aliased as class type attributes (e.g., int_class = int)
+const BuiltinsReturningValues = std.StaticStringMap(void).initComptime(.{
+    .{ "int", {} }, .{ "float", {} }, .{ "str", {} }, .{ "bool", {} },
+    .{ "bytes", {} }, .{ "list", {} }, .{ "dict", {} }, .{ "tuple", {} },
+    .{ "set", {} }, .{ "frozenset", {} }, .{ "type", {} }, .{ "object", {} },
+});
+
 /// Module functions that return values (need `_ = ` prefix when used as statements)
 /// These modules are dispatched via ModuleDispatch, not import_registry
 /// Format: "module.function" or "type.method" -> void
@@ -315,7 +322,16 @@ pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
         struct {
             fn emit(b: *ZigBuilder, ctx: StmtCtx) !void {
                 // Add discard prefix if needed (for error-returning or value-returning expressions)
-                if (ctx.needs_discard or ctx.needs_catch) {
+                // BUT: Skip for declarations (const/var/inline/if) - they can't have _ = prefix
+                // NOTE: "try " is NOT a declaration - "try expr" returns a value and needs "_ = try expr"
+                const trimmed = std.mem.trimLeft(u8, ctx.pre_generated, " \t\n");
+                const is_declaration = std.mem.startsWith(u8, trimmed, "const ") or
+                    std.mem.startsWith(u8, trimmed, "var ") or
+                    std.mem.startsWith(u8, trimmed, "inline ") or
+                    std.mem.startsWith(u8, trimmed, "if (") or
+                    std.mem.startsWith(u8, trimmed, "//"); // Comments
+
+                if (!is_declaration and (ctx.needs_discard or ctx.needs_catch)) {
                     try b.emitRaw("_ = ");
                 }
 
@@ -465,6 +481,21 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
             return true;
         }
 
+        // Check for class type attributes like self.int_class where int_class = int
+        // These are aliased to builtin types that return values
+        if (attr.value.* == .name and std.mem.eql(u8, attr.value.name.id, "self")) {
+            if (self.current_class_name) |class_name| {
+                const type_attr_key = std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, attr.attr }) catch null;
+                if (type_attr_key) |key| {
+                    if (self.class_type_attrs.get(key)) |type_value| {
+                        if (BuiltinsReturningValues.has(type_value)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
         const attr_type = self.type_inferrer.inferExpr(expr.call.func.*) catch .unknown;
 
         if (attr_type == .pyvalue) return true;
@@ -533,6 +564,12 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         // If either operand is a class instance, the binary op will use dunder methods
         // which return values that need to be discarded
         if (type_traits.isClassInstance(left_type) or type_traits.isClassInstance(right_type)) {
+            return true;
+        }
+        // Division operations (/, //) always return values (f64 or i64)
+        // These generate runtime.divideFloat() or similar, which return non-void
+        const op = expr.binop.op;
+        if (op == .Div or op == .FloorDiv or op == .Mod) {
             return true;
         }
     }

@@ -55,6 +55,7 @@ pub fn inferBuiltinCall(
                 .fixed_int => .{ .int = .bounded },
                 .fixed_float => .float,
                 .fixed_bool => .bool,
+                .fixed_complex => .complex,
                 // Callable with unknown return type should be .pyvalue, not .unknown
                 // This prevents narrowing to .float when widening with other calls
                 // E.g., pow() can return float or complex (PyValue), so calls like

@@ -91,7 +91,7 @@ pub const PrettyPrinter = struct {
                     } else {
                         try self.formatSlice(result, value, level, allowance);
                     }
-                } else if (ptr.size == .One) {
+                } else if (ptr.size == .one) {
                     if (@typeInfo(ptr.child) == .array) {
                         const child_info = @typeInfo(ptr.child).array;
                         if (child_info.child == u8) {

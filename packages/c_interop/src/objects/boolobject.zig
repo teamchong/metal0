@@ -1,43 +1,73 @@
-/// PyBool - EXACT CPython 3.12 memory layout
+/// PyBool - CPython memory layout (version-aware)
 ///
 /// Bool is a subclass of int (PyLongObject). Py_True and Py_False are singletons.
+/// Layout differs between Python 3.12+ (lv_tag) and 3.10-3.11 (ob_size).
 ///
 /// Reference: cpython/Include/boolobject.h
 
 const std = @import("std");
 const cpython = @import("../include/object.zig");
 const helpers = @import("../optimization_helpers.zig");
+const version = @import("../include/version.zig");
 
 // Bool is just a PyLongObject with value 0 or 1
 pub const PyBoolObject = cpython.PyLongObject;
 
 // ============================================================================
-// SINGLETONS - Py_True and Py_False
+// SINGLETONS - Py_True and Py_False (version-dependent layout)
 // ============================================================================
 
 /// _Py_FalseStruct - the singleton False value
-pub export var _Py_FalseStruct: cpython.PyLongObject = .{
-    .ob_base = .{
-        .ob_refcnt = 1000000, // Immortal
-        .ob_type = &PyBool_Type,
-    },
-    .long_value = .{
-        .lv_tag = 0, // 0 digits, non-negative = value 0
+pub export var _Py_FalseStruct: cpython.PyLongObject = if (version.hasLvTag(cpython.PYTHON_VERSION))
+    // Python 3.12+: lv_tag encoding
+    .{
+        .ob_base = .{
+            .ob_refcnt = 1000000, // Immortal
+            .ob_type = &PyBool_Type,
+        },
+        .long_value = .{
+            .lv_tag = 1, // zero = sign mask 1
+            .ob_digit = .{0},
+        },
+    }
+else
+    // Python 3.10-3.11: ob_size encoding
+    .{
+        .ob_base = .{
+            .ob_base = .{
+                .ob_refcnt = 1000000, // Immortal
+                .ob_type = &PyBool_Type,
+            },
+            .ob_size = 0,
+        },
         .ob_digit = .{0},
-    },
-};
+    };
 
 /// _Py_TrueStruct - the singleton True value
-pub export var _Py_TrueStruct: cpython.PyLongObject = .{
-    .ob_base = .{
-        .ob_refcnt = 1000000, // Immortal
-        .ob_type = &PyBool_Type,
-    },
-    .long_value = .{
-        .lv_tag = (1 << 3) | 0, // 1 digit, non-negative
+pub export var _Py_TrueStruct: cpython.PyLongObject = if (version.hasLvTag(cpython.PYTHON_VERSION))
+    // Python 3.12+: lv_tag encoding (1 digit, positive sign = (1 << 3) | 0 = 8)
+    .{
+        .ob_base = .{
+            .ob_refcnt = 1000000, // Immortal
+            .ob_type = &PyBool_Type,
+        },
+        .long_value = .{
+            .lv_tag = (1 << 3) | 0, // 1 digit, non-negative
+            .ob_digit = .{1},
+        },
+    }
+else
+    // Python 3.10-3.11: ob_size encoding
+    .{
+        .ob_base = .{
+            .ob_base = .{
+                .ob_refcnt = 1000000, // Immortal
+                .ob_type = &PyBool_Type,
+            },
+            .ob_size = 1,
+        },
         .ob_digit = .{1},
-    },
-};
+    };
 
 /// Py_FalseStruct - alias for _Py_FalseStruct (some extensions use this)
 pub export const Py_FalseStruct: *cpython.PyLongObject = &_Py_FalseStruct;

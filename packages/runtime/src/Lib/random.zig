@@ -364,9 +364,18 @@ pub fn randrange(start: i64, stop: ?i64, step: ?i64) i64 {
     return getDefaultInstance().randrange(start, stop, step);
 }
 
-/// Return n random bits
-pub fn getrandbits(k: u6) u64 {
-    return getDefaultInstance().getrandbits(k);
+/// Return n random bits (k should be 0-64, larger values are clamped)
+pub fn getrandbits(k: anytype) u64 {
+    const T = @TypeOf(k);
+    const k_val: u7 = switch (@typeInfo(T)) {
+        .int, .comptime_int => blk: {
+            if (k < 0) break :blk 0;
+            if (k > 64) break :blk 64;
+            break :blk @intCast(k);
+        },
+        else => @compileError("getrandbits expects an integer type"),
+    };
+    return getDefaultInstance().getrandbits(k_val);
 }
 
 /// Choose a random element

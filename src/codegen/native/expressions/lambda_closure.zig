@@ -735,10 +735,57 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
             }.f);
         },
         .compare => |cmp| {
-            try genExprWithCapturePrefix(self, cmp.left.*, captured_vars, prefix);
+            // Use runtime comparison for type safety (handles strings, cross-type, etc.)
+            // Chained comparisons like a < b < c become (a < b) and (b < c)
             for (cmp.ops, 0..) |op, i| {
-                try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
-                try genExprWithCapturePrefix(self, cmp.comparators[i], captured_vars, prefix);
+                if (i > 0) try self.emit(" and ");
+                const left_expr = if (i == 0) cmp.left.* else cmp.comparators[i - 1];
+                const right_expr = cmp.comparators[i];
+
+                switch (op) {
+                    .Eq, .Is => {
+                        // Use runtime equality for string/cross-type safety
+                        try self.emit("runtime.pyAnyEql(");
+                        try genExprWithCapturePrefix(self, left_expr, captured_vars, prefix);
+                        try self.emit(", ");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit(")");
+                    },
+                    .NotEq, .IsNot => {
+                        try self.emit("!runtime.pyAnyEql(");
+                        try genExprWithCapturePrefix(self, left_expr, captured_vars, prefix);
+                        try self.emit(", ");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit(")");
+                    },
+                    .In => {
+                        // Containment check: element in container
+                        try self.emit("runtime.container_dispatch.contains(@TypeOf(");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit("), ");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit(", ");
+                        try genExprWithCapturePrefix(self, left_expr, captured_vars, prefix);
+                        try self.emit(")");
+                    },
+                    .NotIn => {
+                        try self.emit("!runtime.container_dispatch.contains(@TypeOf(");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit("), ");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit(", ");
+                        try genExprWithCapturePrefix(self, left_expr, captured_vars, prefix);
+                        try self.emit(")");
+                    },
+                    else => {
+                        // For <, <=, >, >= use runtime comparison
+                        try self.emit("(");
+                        try genExprWithCapturePrefix(self, left_expr, captured_vars, prefix);
+                        try self.emit(CompOpStrings.get(@tagName(op)) orelse " == ");
+                        try genExprWithCapturePrefix(self, right_expr, captured_vars, prefix);
+                        try self.emit(")");
+                    },
+                }
             }
         },
         .attribute => |attr| {

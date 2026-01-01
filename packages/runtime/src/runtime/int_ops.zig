@@ -7,6 +7,7 @@ const PythonError = runtime_core.PythonError;
 const PyObject = runtime_core.PyObject;
 const PyString = runtime_core.pystring.PyString;
 const PyValue = @import("../Objects/object.zig").PyValue;
+const type_predicates = @import("type_predicates.zig");
 
 /// Convert any value to i64 (supports __int__ protocol)
 /// Two-Flow: Handles PyValue for uncertain types
@@ -20,12 +21,12 @@ pub fn toInt(value: anytype) !i64 {
     }
 
     // Handle integers - pass through
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return @as(i64, @intCast(value));
     }
 
     // Handle floats - truncate
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return @as(i64, @intFromFloat(value));
     }
 
@@ -108,7 +109,7 @@ pub fn toIntBig(allocator: std.mem.Allocator, value: anytype) !IntResult {
     const info = @typeInfo(T);
 
     // Handle floats - check bounds before converting
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         const f: f64 = @floatCast(value);
         // Check i64 bounds
         const min_f: f64 = @floatFromInt(std.math.minInt(i64));
@@ -121,7 +122,7 @@ pub fn toIntBig(allocator: std.mem.Allocator, value: anytype) !IntResult {
     }
 
     // Handle integers - pass through as small
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return IntResult{ .small = @as(i64, @intCast(value)) };
     }
 
@@ -145,6 +146,7 @@ pub fn toIntBig(allocator: std.mem.Allocator, value: anytype) !IntResult {
             },
             .bool => |b| IntResult{ .small = @as(i64, @intFromBool(b)) },
             .bigint => |b| IntResult{ .big = b },
+            .complex => return error.TypeError, // int(complex) raises TypeError
             else => return error.IntConversionFailed,
         };
     }
@@ -160,12 +162,14 @@ pub fn divideInt(a: i64, b: i64) PythonError!i64 {
     return @divTrunc(a, b);
 }
 
-/// Modulo with zero check
+/// Modulo with zero check (Python floored semantics)
 pub fn moduloInt(a: i64, b: i64) PythonError!i64 {
     if (b == 0) {
         return PythonError.ZeroDivisionError;
     }
-    return @mod(a, b);
+    // Use Python floored modulo semantics (result has same sign as divisor)
+    const quotient = @divFloor(a, b);
+    return a - quotient * b;
 }
 
 /// Convert any value to i64 (Python int() constructor)
@@ -175,12 +179,12 @@ pub fn pyIntFromAny(value: anytype) i64 {
     const info = @typeInfo(T);
 
     // Integer types - direct conversion
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return @as(i64, @intCast(value));
     }
 
     // Float types - truncate
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return @as(i64, @intFromFloat(value));
     }
 
@@ -600,6 +604,12 @@ pub fn intBuiltinCall(allocator: std.mem.Allocator, first: anytype, rest: anytyp
             const base_val = @field(rest, fields[0].name);
             // Check for invalid third+ arguments
             if (fields.len > 1) {
+                return PythonError.TypeError;
+            }
+            // Validate base is an integer, not a float
+            // Python: int() base must be an integer, not 'float'
+            const base_type = @typeInfo(@TypeOf(base_val));
+            if (base_type == .float or base_type == .comptime_float) {
                 return PythonError.TypeError;
             }
             break :blk @as(u8, @intCast(base_val));

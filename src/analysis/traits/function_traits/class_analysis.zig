@@ -4,19 +4,9 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const hashmap_helper = @import("utils.hashmap_helper");
 const types = @import("types.zig");
+const shared_maps = @import("codegen.shared_maps");
 
 pub const ClassTraits = types.ClassTraits;
-
-/// Builtin types that can be subclassed
-const BUILTIN_BASES = [_][]const u8{ "int", "float", "str", "bytes", "list", "dict", "tuple", "set", "frozenset", "bool" };
-
-/// Check if a base name is a builtin type
-fn isBuiltinBase(name: []const u8) bool {
-    for (BUILTIN_BASES) |base| {
-        if (std.mem.eql(u8, name, base)) return true;
-    }
-    return false;
-}
 
 /// Analyze a class definition and extract its traits
 pub fn analyzeClassTraits(class_def: ast.Node.ClassDef, parent_scope: ?[]const u8) ClassTraits {
@@ -30,7 +20,7 @@ pub fn analyzeClassTraits(class_def: ast.Node.ClassDef, parent_scope: ?[]const u
     for (class_def.bases) |base| {
         if (base == .name) {
             const base_name = base.name.id;
-            if (isBuiltinBase(base_name)) {
+            if (shared_maps.isBuiltinBase(base_name)) {
                 traits_val.builtin_base = base_name;
                 break;
             }
@@ -43,32 +33,22 @@ pub fn analyzeClassTraits(class_def: ast.Node.ClassDef, parent_scope: ?[]const u
             const func = stmt.function_def;
             const method_name = func.name;
 
-            if (std.mem.eql(u8, method_name, "__float__")) {
-                traits_val.overridden_dunders.float = true;
-            } else if (std.mem.eql(u8, method_name, "__int__")) {
-                traits_val.overridden_dunders.int = true;
-            } else if (std.mem.eql(u8, method_name, "__str__")) {
-                traits_val.overridden_dunders.str = true;
-            } else if (std.mem.eql(u8, method_name, "__repr__")) {
-                traits_val.overridden_dunders.repr = true;
-            } else if (std.mem.eql(u8, method_name, "__bool__")) {
-                traits_val.overridden_dunders.bool_ = true;
-            } else if (std.mem.eql(u8, method_name, "__index__")) {
-                traits_val.overridden_dunders.index = true;
-            } else if (std.mem.eql(u8, method_name, "__hash__")) {
-                traits_val.overridden_dunders.hash = true;
-            } else if (std.mem.eql(u8, method_name, "__len__")) {
-                traits_val.overridden_dunders.len = true;
-            } else if (std.mem.eql(u8, method_name, "__iter__")) {
-                traits_val.overridden_dunders.iter = true;
-            } else if (std.mem.eql(u8, method_name, "__next__")) {
-                traits_val.overridden_dunders.next = true;
-            } else if (std.mem.eql(u8, method_name, "__call__")) {
-                traits_val.overridden_dunders.call = true;
-            } else if (std.mem.eql(u8, method_name, "__new__")) {
-                traits_val.overridden_dunders.new = true;
-            } else if (std.mem.eql(u8, method_name, "__init__")) {
-                traits_val.overridden_dunders.init = true;
+            if (shared_maps.getDunderTraitKind(method_name)) |kind| {
+                switch (kind) {
+                    .float => traits_val.overridden_dunders.float = true,
+                    .int => traits_val.overridden_dunders.int = true,
+                    .str => traits_val.overridden_dunders.str = true,
+                    .repr => traits_val.overridden_dunders.repr = true,
+                    .bool_ => traits_val.overridden_dunders.bool_ = true,
+                    .index => traits_val.overridden_dunders.index = true,
+                    .hash => traits_val.overridden_dunders.hash = true,
+                    .len => traits_val.overridden_dunders.len = true,
+                    .iter => traits_val.overridden_dunders.iter = true,
+                    .next => traits_val.overridden_dunders.next = true,
+                    .call => traits_val.overridden_dunders.call = true,
+                    .new => traits_val.overridden_dunders.new = true,
+                    .init => traits_val.overridden_dunders.init = true,
+                }
             }
         }
     }

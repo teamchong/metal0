@@ -34,28 +34,48 @@ fn emitAsI64(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     }.f);
 }
 
-/// Helper: emit try runtime.toPyValue(alloc, expr) with guaranteed bracket matching
-fn emitToPyValue(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node) CodegenError!void {
-    const Ctx = struct { a: []const u8, e: ast.Node };
-    try self.emitCallCtx("try runtime.toPyValue", Ctx{ .a = alloc_name, .e = expr }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit(ctx.a);
-            try s.emit(", ");
-            try genExpr(s, ctx.e);
-        }
-    }.f);
+/// Helper: emit runtime.toPyValue(alloc, expr) with appropriate error handling
+/// At module level or inside defer, uses `catch unreachable` instead of `try`
+fn emitToPyValue(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node, cannot_use_try: bool) CodegenError!void {
+    if (cannot_use_try) {
+        // Module level or inside defer: use catch unreachable
+        try self.emit("(runtime.toPyValue(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try genExpr(self, expr);
+        try self.emit(") catch unreachable)");
+    } else {
+        const Ctx = struct { a: []const u8, e: ast.Node };
+        try self.emitCallCtx("try runtime.toPyValue", Ctx{ .a = alloc_name, .e = expr }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.emit(ctx.a);
+                try s.emit(", ");
+                try genExpr(s, ctx.e);
+            }
+        }.f);
+    }
 }
 
-/// Helper: emit try runtime.PyValue.fromAlloc(alloc, expr) with guaranteed bracket matching
-fn emitPyValueFromAlloc(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node) CodegenError!void {
-    const Ctx = struct { a: []const u8, e: ast.Node };
-    try self.emitCallCtx("try runtime.PyValue.fromAlloc", Ctx{ .a = alloc_name, .e = expr }, struct {
-        pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
-            try s.emit(ctx.a);
-            try s.emit(", ");
-            try genExpr(s, ctx.e);
-        }
-    }.f);
+/// Helper: emit runtime.PyValue.fromAlloc(alloc, expr) with appropriate error handling
+/// At module level or inside defer, uses `catch unreachable` instead of `try`
+fn emitPyValueFromAlloc(self: *NativeCodegen, alloc_name: []const u8, expr: ast.Node, cannot_use_try: bool) CodegenError!void {
+    if (cannot_use_try) {
+        // Module level or inside defer: use catch unreachable
+        try self.emit("(runtime.PyValue.fromAlloc(");
+        try self.emit(alloc_name);
+        try self.emit(", ");
+        try genExpr(self, expr);
+        try self.emit(") catch unreachable)");
+    } else {
+        const Ctx = struct { a: []const u8, e: ast.Node };
+        try self.emitCallCtx("try runtime.PyValue.fromAlloc", Ctx{ .a = alloc_name, .e = expr }, struct {
+            pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
+                try s.emit(ctx.a);
+                try s.emit(", ");
+                try genExpr(s, ctx.e);
+            }
+        }.f);
+    }
 }
 
 /// Helper: emit try alloc.dupe(u8, expr) with guaranteed bracket matching
@@ -208,6 +228,52 @@ pub fn genDict(self: *NativeCodegen, dict: ast.Node.Dict) CodegenError!void {
     // In main() (scope 0): use 'allocator' (local variable)
     // In functions (scope > 0): use '__global_allocator' (module-level)
     const alloc_name = "__global_allocator";
+
+    // Check if target is a PyValue variable (conditional or uncertain)
+    // If so, we need to create a heap-allocated dict and wrap in PyValue
+    const target_is_pyvalue = blk: {
+        if (self.current_assign_target) |target| {
+            if (self.conditional_var_types.get(target)) |zig_type| {
+                if (std.mem.eql(u8, zig_type, "runtime.PyValue")) {
+                    break :blk true;
+                }
+            }
+        }
+        break :blk false;
+    };
+
+    // For PyValue targets with empty dict, create heap-allocated Dict
+    if (target_is_pyvalue and dict.keys.len == 0) {
+        // Generate: runtime.PyValue{ .dict = blk: {
+        //     const ptr = __global_allocator.create(runtime.PyValue.Dict) catch unreachable;
+        //     ptr.* = runtime.PyValue.Dict{};
+        //     break :blk ptr;
+        // }}
+        const id = self.nextNameId();
+        try self.emitFmt("runtime.PyValue{{ .dict = __m{d}_dict: {{ ", .{id});
+        try self.emit("const __ptr = __global_allocator.create(runtime.PyValue.Dict) catch unreachable; ");
+        try self.emit("__ptr.* = runtime.PyValue.Dict{}; ");
+        try self.emitFmt("break :__m{d}_dict __ptr; }} }}", .{id});
+        return;
+    }
+
+    // For PyValue targets with non-empty dict, create heap-allocated Dict with entries
+    if (target_is_pyvalue) {
+        const id = self.nextNameId();
+        try self.emitFmt("runtime.PyValue{{ .dict = __m{d}_dict: {{ ", .{id});
+        try self.emit("const __ptr = __global_allocator.create(runtime.PyValue.Dict) catch unreachable; ");
+        try self.emit("__ptr.* = runtime.PyValue.Dict{}; ");
+        // Add entries
+        for (dict.keys, dict.values) |key, value| {
+            try self.emit("__ptr.put(__global_allocator, ");
+            try genExpr(self, key);
+            try self.emit(", runtime.PyValue.from(");
+            try genExpr(self, value);
+            try self.emit(")) catch unreachable; ");
+        }
+        try self.emitFmt("break :__m{d}_dict __ptr; }} }}", .{id});
+        return;
+    }
 
     // Empty dict - check if mutations will use int keys, string keys, or mixed
     if (dict.keys.len == 0) {
@@ -538,15 +604,9 @@ fn getEntryValueType(self: *NativeCodegen, key: ast.Node, value: ast.Node) Codeg
 
 /// Generate runtime dict literal (fallback path)
 fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const u8) CodegenError!void {
-    // Check if we're at module level (not inside a function)
-    // Module-level const initializers can't use labeled blocks with `try`
-    const at_module_level = self.current_function_name == null;
-    if (at_module_level) {
-        // At module level: generate a placeholder that can be iterated as empty
-        // Runtime dicts with function call values can't be fully initialized at module level
-        try self.emit("&.{}");
-        return;
-    }
+    // Note: We used to check current_function_name == null as "module level"
+    // but module-level code runs inside main(), so labeled blocks with `try` work fine.
+    // Removed the early return that emitted `&.{}` which caused type mismatches.
 
     // Infer key type from first key (for non-unpacking entries)
     // Use getDictKeyType for proper classification (int, string, pyvalue for tuples/bools/etc)
@@ -641,6 +701,10 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
     self.inside_list_depth += 1;
     defer self.inside_list_depth -= 1;
 
+    // Check if at module level - can't use 'try' at module level
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+
     // Add all key-value pairs
     for (dict.keys, dict.values) |key, value| {
         // Check for dict unpacking: {**other_dict} represented as None key
@@ -659,11 +723,21 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             try self.emitIndent();
             // If target dict expects PyValue, wrap the source value
             if (val_type == .pyvalue) {
-                try self.emitFmt("try {s}.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(", .{map_var});
-                try self.emit(alloc_name);
-                try self.emit(", entry.value_ptr.*));\n");
+                if (cannot_use_try) {
+                    try self.emitFmt("{s}.put(entry.key_ptr.*, runtime.PyValue.fromAlloc(", .{map_var});
+                    try self.emit(alloc_name);
+                    try self.emit(", entry.value_ptr.*) catch unreachable) catch unreachable;\n");
+                } else {
+                    try self.emitFmt("try {s}.put(entry.key_ptr.*, try runtime.PyValue.fromAlloc(", .{map_var});
+                    try self.emit(alloc_name);
+                    try self.emit(", entry.value_ptr.*));\n");
+                }
             } else {
-                try self.emitFmt("try {s}.put(entry.key_ptr.*, entry.value_ptr.*);\n", .{map_var});
+                if (cannot_use_try) {
+                    try self.emitFmt("{s}.put(entry.key_ptr.*, entry.value_ptr.*) catch unreachable;\n", .{map_var});
+                } else {
+                    try self.emitFmt("try {s}.put(entry.key_ptr.*, entry.value_ptr.*);\n", .{map_var});
+                }
             }
             self.dedent();
             try self.emitIndent();
@@ -675,7 +749,11 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         }
 
         try self.emitIndent();
-        try self.emitFmt("try {s}.put(", .{map_var});
+        if (cannot_use_try) {
+            try self.emitFmt("{s}.put(", .{map_var});
+        } else {
+            try self.emitFmt("try {s}.put(", .{map_var});
+        }
 
         // Generate key with appropriate conversion
         switch (key_classification) {
@@ -688,7 +766,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
             },
             .pyvalue => {
                 // Convert key to PyValue for PyValueHashMap
-                try emitToPyValue(self, alloc_name, key);
+                try emitToPyValue(self, alloc_name, key, cannot_use_try);
             },
         }
         try self.emit(", ");
@@ -697,7 +775,7 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
         switch (key_classification) {
             .pyvalue => {
                 // PyValueHashMap always uses PyValue values
-                try emitToPyValue(self, alloc_name, value);
+                try emitToPyValue(self, alloc_name, value, cannot_use_try);
             },
             else => {
                 // If dict values are string type and this value isn't string, convert it
@@ -713,14 +791,18 @@ fn genDictRuntime(self: *NativeCodegen, dict: ast.Node.Dict, alloc_name: []const
                     }
                 } else if (val_type == .pyvalue) {
                     // PyValue: wrap the value with PyValue.fromAlloc()
-                    try emitPyValueFromAlloc(self, alloc_name, value);
+                    try emitPyValueFromAlloc(self, alloc_name, value, cannot_use_try);
                 } else {
                     try genExpr(self, value);
                 }
             },
         }
 
-        try self.emit(");\n");
+        if (cannot_use_try) {
+            try self.emit(") catch unreachable;\n");
+        } else {
+            try self.emit(");\n");
+        }
     }
 
     try self.emitIndent();

@@ -9,11 +9,14 @@ const CodegenError = @import("../main.zig").CodegenError;
 
 /// Generate code for file.read(n=-1)
 /// Two-Flow: Uses runtime.PyFile which handles type dispatch internally
+/// Context-aware: at module level uses catch unreachable instead of try
 pub fn genFileRead(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     if (args.len > 0) {
         // read(n) - read n bytes
         const Ctx = struct { o: ast.Node, n: ast.Node };
-        try self.emitCallCtx("try runtime.PyFile.readN", Ctx{ .o = obj, .n = args[0] }, struct {
+        try self.emitCallCtx("runtime.PyFile.readN", Ctx{ .o = obj, .n = args[0] }, struct {
             pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
                 try s.genExpr(ctx.o);
                 try s.emit(", ");
@@ -23,26 +26,31 @@ pub fn genFileRead(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
         }.f);
     } else {
         // read() - read all
-        try self.emitCallCtx("try runtime.PyFile.read", obj, struct {
+        try self.emitCallCtx("runtime.PyFile.read", obj, struct {
             pub fn f(s: *NativeCodegen, o: ast.Node) CodegenError!void {
                 try s.genExpr(o);
                 try s.emit(", __global_allocator");
             }
         }.f);
     }
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Generate code for file.write(content)
+/// Context-aware: at module level uses catch unreachable instead of try
 pub fn genFileWrite(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     if (args.len < 1) { try self.emit("@compileError(\"write() requires 1 argument\")"); return; }
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     const Ctx = struct { o: ast.Node, a: ast.Node };
-    try self.emitCallCtx("try runtime.PyFile.write", Ctx{ .o = obj, .a = args[0] }, struct {
+    try self.emitCallCtx("runtime.PyFile.write", Ctx{ .o = obj, .a = args[0] }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
             try s.genExpr(ctx.o);
             try s.emit(", ");
             try s.genExpr(ctx.a);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Generate code for file.close()

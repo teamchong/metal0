@@ -710,14 +710,14 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
             if (is_frame_field) {
                 // Assignment to frame field
                 try self.emit("            frame.");
-                try self.emit(target_name.?);
+                try self.emitVarName(target_name.?);
                 try self.emit(" = ");
                 try genExprInFrame(self, assign.value.*, frame_fields);
                 try self.emit(";\n");
             } else if (target_name != null) {
                 // Local variable - emit with frame-aware expression
                 try self.emit("            const ");
-                try self.emit(target_name.?);
+                try self.emitVarName(target_name.?);
                 try self.emit(" = ");
                 try genExprInFrame(self, assign.value.*, frame_fields);
                 try self.emit(";\n");
@@ -743,7 +743,7 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
             // Bind loop variable
             if (for_stmt.target.* == .name) {
                 try self.emit("                    const ");
-                try self.emit(for_stmt.target.*.name.id);
+                try self.emitVarName(for_stmt.target.*.name.id);
                 try self.emit(" = __i;\n");
             }
             // Generate body with frame prefix
@@ -760,13 +760,13 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                 const prefix: []const u8 = if (is_field) "frame." else "";
                 try self.emit("            ");
                 try self.emit(prefix);
-                try self.emit(target_name);
+                try self.emitVarName(target_name);
                 try self.emit(" = ");
                 // Handle special operators that need function calls
                 if (aug.op == .Pow) {
                     try self.emit("std.math.pow(i64, ");
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
@@ -774,7 +774,7 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                     // Use runtime.OperatorMod for proper Python modulo semantics (floored)
                     try self.emit("runtime.OperatorMod{}.call(");
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
@@ -782,13 +782,13 @@ fn genStatementInFrame(self: *NativeCodegen, stmt: ast.Node, frame_fields: []con
                     // Use runtime.OperatorFloordiv for proper Python floor division
                     try self.emit("runtime.OperatorFloordiv{}.call(");
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
                 } else {
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try emitBinOp(self, aug.op);
                     try self.emit("(");
                     try genExprInFrame(self, aug.value.*, frame_fields);
@@ -815,7 +815,7 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
             if (assign.targets.len > 0 and assign.targets[0] == .name) {
                 const target_name = assign.targets[0].name.id;
                 try self.emit(indent);
-                try self.emit(target_name);
+                try self.emitVarName(target_name);
                 try self.emit(" = ");
                 try genExprInFrame(self, assign.value.*, frame_fields);
                 try self.emit(";\n");
@@ -828,13 +828,13 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
                 const prefix: []const u8 = if (is_field) "frame." else "";
                 try self.emit(indent);
                 try self.emit(prefix);
-                try self.emit(target_name);
+                try self.emitVarName(target_name);
                 try self.emit(" = ");
                 // Handle special operators that need function calls
                 if (aug.op == .Pow) {
                     try self.emit("std.math.pow(i64, ");
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
@@ -842,7 +842,7 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
                     // Use runtime.OperatorMod for proper Python modulo semantics (floored)
                     try self.emit("runtime.OperatorMod{}.call(");
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
@@ -850,13 +850,13 @@ fn genStatementInFrameWithIndent(self: *NativeCodegen, stmt: ast.Node, frame_fie
                     // Use runtime.OperatorFloordiv for proper Python floor division
                     try self.emit("runtime.OperatorFloordiv{}.call(");
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genExprInFrame(self, aug.value.*, frame_fields);
                     try self.emit(");\n");
                 } else {
                     try self.emit(prefix);
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try emitBinOp(self, aug.op);
                     try self.emit("(");
                     try genExprInFrame(self, aug.value.*, frame_fields);
@@ -891,7 +891,7 @@ fn genExprInFrame(self: *NativeCodegen, node: ast.Node, frame_fields: []const []
             for (fs.parts) |part| {
                 switch (part) {
                     .literal => |lit| try self.emit(lit),
-                    .expr, .format_expr, .conv_expr => try self.emit("{any}"),
+                    .expr, .format_expr, .conv_expr => try self.emit("{}"),
                 }
             }
             try self.emit("\", .{");
@@ -1590,7 +1590,7 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                 }
                 if (is_param) {
                     try self.emit("            frame.");
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(" = ");
                     try genSyncExprInFrame(self, assign.value.*, args);
                     try self.emit(";\n");
@@ -1606,7 +1606,7 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
                     // Use var for mutated variables, const for immutable
                     try self.emit("            ");
                     try self.emit(if (is_mutated) "var " else "const ");
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(" = ");
                     try genSyncExprInFrame(self, assign.value.*, args);
                     try self.emit(";\n");
@@ -1629,7 +1629,7 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
             // Bind loop variable
             if (for_stmt.target.* == .name) {
                 try self.emit("                    const ");
-                try self.emit(for_stmt.target.*.name.id);
+                try self.emitVarName(for_stmt.target.*.name.id);
                 try self.emit(" = __i;\n");
             }
             // Generate body
@@ -1643,31 +1643,31 @@ fn genSyncStatementInFrame(self: *NativeCodegen, stmt: ast.Node, args: []ast.Arg
             if (aug.target.* == .name) {
                 const target_name = aug.target.*.name.id;
                 try self.emit("            ");
-                try self.emit(target_name);
+                try self.emitVarName(target_name);
                 try self.emit(" = ");
                 // Handle special operators that need function calls
                 if (aug.op == .Pow) {
                     try self.emit("std.math.pow(i64, ");
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
                     try self.emit(");\n");
                 } else if (aug.op == .Mod) {
                     // Use runtime.OperatorMod for proper Python modulo semantics (floored)
                     try self.emit("runtime.OperatorMod{}.call(");
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
                     try self.emit(");\n");
                 } else if (aug.op == .FloorDiv) {
                     // Use runtime.OperatorFloordiv for proper Python floor division
                     try self.emit("runtime.OperatorFloordiv{}.call(");
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try self.emit(", ");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");
                     try self.emit(");\n");
                 } else {
-                    try self.emit(target_name);
+                    try self.emitVarName(target_name);
                     try emitBinOp(self, aug.op);
                     try self.emit("(");
                     try genSyncExprInFrameWithLoopVar(self, aug.value.*, args, "__i");

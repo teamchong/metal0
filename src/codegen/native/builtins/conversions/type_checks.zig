@@ -255,6 +255,13 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             try self.emit("; }");
             return;
         }
+
+        // Check for numbers module ABC types (Complex, Real, Rational, Integral, Number)
+        // These are abstract base classes that check for specific methods/fields
+        if (isNumbersABCType(tname)) {
+            try genNumbersABCIsinstance(self, args[0], tname);
+            return;
+        }
     }
 
     // Default: reference argument and return true for compile-time compatibility
@@ -402,6 +409,43 @@ pub fn genIssubclass(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
+    // Handle direct numbers ABC name (from numbers import Integral, Real, etc.)
+    if (args[1] == .name) {
+        const base_name = args[1].name.id;
+        if (isNumbersABCType(base_name)) {
+            // Get the type name from the first argument
+            const type_name: ?[]const u8 = blk: {
+                if (args[0] == .name) {
+                    break :blk args[0].name.id;
+                } else if (args[0] == .attribute) {
+                    // Handle module.Class (e.g., decimal.Decimal)
+                    break :blk args[0].attribute.attr;
+                }
+                break :blk null;
+            };
+
+            if (type_name) |tname| {
+                // Map Python built-in type names to their ABC class names
+                const cls_name = if (std.mem.eql(u8, tname, "int"))
+                    "int"
+                else if (std.mem.eql(u8, tname, "float"))
+                    "float"
+                else if (std.mem.eql(u8, tname, "complex"))
+                    "complex"
+                else
+                    tname;
+
+                // Emit: runtime.isNumbersSubclass("ClassName", runtime.NumbersABC.ABCName)
+                try self.emit("runtime.isNumbersSubclass(\"");
+                try self.emit(cls_name);
+                try self.emit("\", runtime.NumbersABC.");
+                try self.emit(base_name);
+                try self.emit(")");
+                return;
+            }
+        }
+    }
+
     // Check if the second argument is a type union (e.g., int | str | float)
     // Python 3.10+ allows isinstance(x, int | str) which creates a union type
     // We need to convert this to a tuple for runtime.isSubclass
@@ -480,4 +524,89 @@ pub fn genDelattr(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try self.emit("; const __da_key_str = if (@hasField(@TypeOf(__da_key), \"__base_value__\")) __da_key.__base_value__ else __da_key; _ = @constCast(&");
     try self.genExpr(args[0]);
     try self.emitFmt(".__dict__).swapRemove(__da_key_str); break :__m{d}_blk {{}}; }}", .{id});
+}
+
+// ============================================================================
+// Numbers module ABC type handling
+// ============================================================================
+
+/// Map of numbers module ABC type names
+const numbers_abc_types = std.StaticStringMap(void).initComptime(.{
+    .{ "Complex", {} },
+    .{ "Real", {} },
+    .{ "Rational", {} },
+    .{ "Integral", {} },
+    .{ "Number", {} },
+});
+
+/// Check if type name is a numbers module ABC
+fn isNumbersABCType(tname: []const u8) bool {
+    return numbers_abc_types.has(tname);
+}
+
+/// Generate isinstance check for numbers module ABC types
+/// Uses structural typing: checks for required methods/fields at compile time
+fn genNumbersABCIsinstance(self: *NativeCodegen, obj: ast.Node, abc_name: []const u8) CodegenError!void {
+    const id = self.nextNameId();
+
+    // Get the type to check its structure
+    try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+    try self.genExpr(obj);
+    try self.emit("); const info = @typeInfo(T); ");
+
+    // Check for pointer to struct (common case for class instances)
+    try self.emit("const ChildType = if (info == .pointer and info.pointer.size == .one) info.pointer.child else T; ");
+    try self.emit("const child_info = @typeInfo(ChildType); ");
+    try self.emit("if (child_info != .@\"struct\") { ");
+    // For non-struct types, check if it's a numeric primitive
+    try self.emit("break :__m");
+    try self.emitFmt("{d}", .{id});
+    try self.emit("_blk ");
+    try genPrimitiveNumbersCheck(self, abc_name);
+    try self.emit("; } ");
+
+    // For struct types, check for required fields/methods based on ABC type
+    try self.emit("break :__m");
+    try self.emitFmt("{d}", .{id});
+    try self.emit("_blk ");
+
+    if (std.mem.eql(u8, abc_name, "Complex")) {
+        // Complex requires real and imag (methods or fields)
+        try self.emit("(@hasDecl(ChildType, \"real\") or @hasField(ChildType, \"real\")) and (@hasDecl(ChildType, \"imag\") or @hasField(ChildType, \"imag\"))");
+    } else if (std.mem.eql(u8, abc_name, "Real")) {
+        // Real requires real (and imag should be 0 or not exist, but we just check real)
+        try self.emit("@hasDecl(ChildType, \"real\") or @hasField(ChildType, \"real\")");
+    } else if (std.mem.eql(u8, abc_name, "Rational")) {
+        // Rational requires numerator and denominator
+        try self.emit("(@hasDecl(ChildType, \"numerator\") or @hasField(ChildType, \"numerator\")) and (@hasDecl(ChildType, \"denominator\") or @hasField(ChildType, \"denominator\"))");
+    } else if (std.mem.eql(u8, abc_name, "Integral")) {
+        // Integral is essentially int-like - check for __index__ or int-like behavior
+        try self.emit("@hasDecl(ChildType, \"__index__\") or @hasDecl(ChildType, \"__int__\")");
+    } else {
+        // Number - base class, just check it's a struct (any numeric-like class)
+        try self.emit("true");
+    }
+
+    try self.emit("; }");
+}
+
+/// Generate primitive type check for numbers ABC
+fn genPrimitiveNumbersCheck(self: *NativeCodegen, abc_name: []const u8) CodegenError!void {
+    // For primitive types, check type info
+    if (std.mem.eql(u8, abc_name, "Complex")) {
+        // Only complex type satisfies Complex ABC from primitives
+        try self.emit("false");
+    } else if (std.mem.eql(u8, abc_name, "Real")) {
+        // float and int satisfy Real ABC
+        try self.emit("(info == .float or info == .comptime_float or info == .int or info == .comptime_int)");
+    } else if (std.mem.eql(u8, abc_name, "Rational")) {
+        // int satisfies Rational (as n/1)
+        try self.emit("(info == .int or info == .comptime_int)");
+    } else if (std.mem.eql(u8, abc_name, "Integral")) {
+        // int and bool satisfy Integral
+        try self.emit("(info == .int or info == .comptime_int or T == bool)");
+    } else {
+        // Number - any numeric type
+        try self.emit("(info == .float or info == .comptime_float or info == .int or info == .comptime_int or T == bool)");
+    }
 }

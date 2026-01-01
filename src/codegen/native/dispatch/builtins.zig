@@ -7,14 +7,17 @@ const CodegenError = @import("../main.zig").CodegenError;
 const expr_emitter = @import("../expr_emitter.zig");
 
 /// Helper: emit try runtime.dynamic_import(__global_allocator, expr) with guaranteed bracket matching
+/// Uses context-aware try: at module level uses `catch unreachable`, in functions uses `try`
 fn emitDynamicImport(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
-    try self.emit("try ");
+    const at_module_level = self.current_function_name == null;
+    if (!at_module_level) try self.emit("try ");
     try self.emitCallCtx("runtime.dynamic_import", expr, struct {
         pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
             try s.emit("__global_allocator, ");
             try s.genExpr(e);
         }
     }.f);
+    if (at_module_level) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.PyValue.from(expr) with guaranteed bracket matching

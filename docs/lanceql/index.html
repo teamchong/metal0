@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LanceQL - Query Lance Files in the Browser</title>
+    <meta name="description" content="Zero-dependency WASM library for querying Lance columnar files directly in the browser with SQL and DataFrame APIs.">
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --surface: #141414;
+            --border: #2a2a2a;
+            --text: #e5e5e5;
+            --text-muted: #888;
+            --accent: #3b82f6;
+            --accent-dim: #1d4ed8;
+            --success: #22c55e;
+            --error: #ef4444;
+            --code-bg: #1a1a1a;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 16px 0;
+        }
+        header .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text);
+            text-decoration: none;
+        }
+        .logo span { color: var(--accent); }
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            margin-left: 24px;
+            font-size: 0.9rem;
+        }
+        nav a:hover { color: var(--text); }
+
+        .hero {
+            padding: 80px 0;
+            text-align: center;
+        }
+        .hero h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        .hero h1 span { color: var(--accent); }
+        .hero p {
+            color: var(--text-muted);
+            font-size: 1.25rem;
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+        .hero-stats {
+            display: flex;
+            gap: 48px;
+            justify-content: center;
+            margin-bottom: 32px;
+        }
+        .stat { text-align: center; }
+        .stat-value { font-size: 2rem; font-weight: 700; color: var(--accent); }
+        .stat-label { color: var(--text-muted); font-size: 0.875rem; }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-primary:hover { background: var(--accent-dim); }
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border);
+            margin-left: 12px;
+        }
+        .btn-secondary:hover { border-color: var(--text-muted); }
+
+        .features {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+        .features h2 { text-align: center; font-size: 2rem; margin-bottom: 48px; }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+        .feature {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .feature h3 { font-size: 1.125rem; margin-bottom: 8px; }
+        .feature p { color: var(--text-muted); font-size: 0.9rem; }
+
+        .demo {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+        .demo h2 { text-align: center; font-size: 2rem; margin-bottom: 16px; }
+        .demo > p { text-align: center; color: var(--text-muted); margin-bottom: 32px; }
+        .demo-container {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .demo-content { padding: 24px; }
+        .code-block {
+            background: var(--code-bg);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+        .code-block .comment { color: #6a737d; }
+        .code-block .keyword { color: #ff7b72; }
+        .code-block .string { color: #a5d6ff; }
+        .code-block .function { color: #d2a8ff; }
+        .code-block .number { color: #79c0ff; }
+
+        .live-demo {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+        .live-demo h2 { text-align: center; font-size: 2rem; margin-bottom: 32px; }
+        #demo-output {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            min-height: 200px;
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 0.875rem;
+        }
+        .demo-controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            justify-content: center;
+        }
+        .log-entry { margin-bottom: 8px; }
+        .log-entry.pass { color: var(--success); }
+        .log-entry.fail { color: var(--error); }
+        .log-entry.pending { color: var(--text-muted); }
+
+        .api {
+            padding: 80px 0;
+            border-top: 1px solid var(--border);
+        }
+        .api h2 { text-align: center; font-size: 2rem; margin-bottom: 48px; }
+        .api-section { margin-bottom: 48px; }
+        .api-section h3 { font-size: 1.25rem; margin-bottom: 16px; color: var(--accent); }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 48px 0;
+            text-align: center;
+            color: var(--text-muted);
+        }
+        footer a { color: var(--accent); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <a href="/" class="logo">Lance<span>QL</span></a>
+            <nav>
+                <a href="#features">Features</a>
+                <a href="#demo">Demo</a>
+                <a href="#api">API</a>
+                <a href="https://github.com/user/lanceql">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Query <span>Lance</span> Files in the Browser</h1>
+            <p>Zero-dependency WASM library for reading Lance columnar files with SQL and DataFrame APIs. HTTP Range requests for efficient remote access.</p>
+            <div class="hero-stats">
+                <div class="stat">
+                    <div class="stat-value">&lt;200KB</div>
+                    <div class="stat-label">WASM Size</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">1M+</div>
+                    <div class="stat-label">Rows Queryable</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">0</div>
+                    <div class="stat-label">Dependencies</div>
+                </div>
+            </div>
+            <a href="#live-demo" class="btn btn-primary">Try Live Demo</a>
+            <a href="https://www.npmjs.com/package/@metal0/lanceql" class="btn btn-secondary">npm install</a>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <h2>Features</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>SQL Queries</h3>
+                    <p>Full SQL support with SELECT, WHERE, ORDER BY, LIMIT, JOINs, and aggregates. Query remote datasets without downloading.</p>
+                </div>
+                <div class="feature">
+                    <h3>DataFrame API</h3>
+                    <p>Immer-style immutable chaining: df.filter().select().limit().collect(). Works with both local and remote data.</p>
+                </div>
+                <div class="feature">
+                    <h3>HTTP Range Requests</h3>
+                    <p>Read specific columns and rows from remote files. Query 1M+ row datasets by fetching only what you need.</p>
+                </div>
+                <div class="feature">
+                    <h3>Vector Search</h3>
+                    <p>IVF-PQ index support for approximate nearest neighbor search. Find similar vectors in milliseconds.</p>
+                </div>
+                <div class="feature">
+                    <h3>OPFS Storage</h3>
+                    <p>Cache datasets locally using Origin Private File System. Works offline after first load.</p>
+                </div>
+                <div class="feature">
+                    <h3>Zero Dependencies</h3>
+                    <p>Pure Zig compiled to WASM. No npm dependencies, no build step required. Just import and use.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="demo" id="demo">
+        <div class="container">
+            <h2>Quick Start</h2>
+            <p>Get started in under a minute</p>
+            <div class="demo-container">
+                <div class="demo-content">
+                    <div class="code-block">
+<span class="comment">// Import from npm or CDN</span>
+<span class="keyword">import</span> { LanceQL, DataFrame, RemoteLanceDataset } <span class="keyword">from</span> <span class="string">'@metal0/lanceql'</span>;
+
+<span class="comment">// Load WASM and open remote dataset</span>
+<span class="keyword">const</span> lanceql = <span class="keyword">await</span> LanceQL.<span class="function">load</span>();
+<span class="keyword">const</span> dataset = <span class="keyword">await</span> RemoteLanceDataset.<span class="function">open</span>(
+    lanceql,
+    <span class="string">'https://data.metal0.dev/laion-1m/images.lance'</span>
+);
+
+<span class="comment">// SQL query</span>
+<span class="keyword">const</span> result = <span class="keyword">await</span> dataset.<span class="function">executeSQL</span>(
+    <span class="string">'SELECT url, width, height FROM dataset WHERE width > 1000 LIMIT 10'</span>
+);
+
+<span class="comment">// Or use DataFrame API</span>
+<span class="keyword">const</span> df = <span class="keyword">new</span> <span class="function">DataFrame</span>(dataset)
+    .<span class="function">filter</span>(<span class="number">2</span>, <span class="string">'>'</span>, <span class="number">1000</span>, <span class="string">'int64'</span>)
+    .<span class="function">select</span>(<span class="number">0</span>, <span class="number">2</span>, <span class="number">3</span>)
+    .<span class="function">limit</span>(<span class="number">10</span>);
+<span class="keyword">const</span> rows = <span class="keyword">await</span> df.<span class="function">collect</span>();
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="live-demo" id="live-demo">
+        <div class="container">
+            <h2>Live Demo</h2>
+            <div class="demo-controls">
+                <button class="btn btn-primary" onclick="runDemo()">Run Demo</button>
+            </div>
+            <div id="demo-output">
+                <div class="log-entry pending">Click "Run Demo" to query a 1M row dataset...</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="api" id="api">
+        <div class="container">
+            <h2>API Reference</h2>
+
+            <div class="api-section">
+                <h3>LanceQL</h3>
+                <div class="code-block">
+<span class="comment">// Load WASM module</span>
+<span class="keyword">const</span> lanceql = <span class="keyword">await</span> LanceQL.<span class="function">load</span>(wasmUrl?);
+
+<span class="comment">// Open remote dataset</span>
+<span class="keyword">const</span> dataset = <span class="keyword">await</span> lanceql.<span class="function">openDataset</span>(url, { version? });
+
+<span class="comment">// Open single file</span>
+<span class="keyword">const</span> file = <span class="keyword">await</span> lanceql.<span class="function">openUrl</span>(url);
+                </div>
+            </div>
+
+            <div class="api-section">
+                <h3>RemoteLanceDataset</h3>
+                <div class="code-block">
+<span class="comment">// Open dataset</span>
+<span class="keyword">const</span> dataset = <span class="keyword">await</span> RemoteLanceDataset.<span class="function">open</span>(lanceql, url, { version?, skipCache? });
+
+<span class="comment">// Properties</span>
+dataset.totalRows     <span class="comment">// number</span>
+dataset.numColumns    <span class="comment">// number</span>
+dataset.columnNames   <span class="comment">// string[]</span>
+
+<span class="comment">// Read rows</span>
+<span class="keyword">const</span> result = <span class="keyword">await</span> dataset.<span class="function">readRows</span>({ offset, limit, columns? });
+
+<span class="comment">// Execute SQL</span>
+<span class="keyword">const</span> result = <span class="keyword">await</span> dataset.<span class="function">executeSQL</span>(sql);
+                </div>
+            </div>
+
+            <div class="api-section">
+                <h3>DataFrame</h3>
+                <div class="code-block">
+<span class="comment">// Create from dataset</span>
+<span class="keyword">const</span> df = <span class="keyword">new</span> <span class="function">DataFrame</span>(dataset);
+
+<span class="comment">// Chain operations (immutable)</span>
+df.<span class="function">filter</span>(colIdx, op, value, type?)  <span class="comment">// op: '=', '!=', '<', '<=', '>', '>='</span>
+df.<span class="function">select</span>(...colIndices)
+df.<span class="function">limit</span>(n)
+
+<span class="comment">// Execute</span>
+<span class="keyword">const</span> sql = df.<span class="function">toSQL</span>();
+<span class="keyword">const</span> result = <span class="keyword">await</span> df.<span class="function">collect</span>();
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>LanceQL is part of <a href="/">metal0</a></p>
+            <p style="margin-top: 8px;">MIT License</p>
+        </div>
+    </footer>
+
+    <script type="module">
+        // Load from R2 bucket
+        const ASSET_BASE = 'https://data.metal0.dev/lanceql';
+
+        async function loadLanceQL() {
+            const module = await import(`${ASSET_BASE}/lanceql.esm.js`);
+            return module;
+        }
+
+        function log(msg, status = 'pending') {
+            const output = document.getElementById('demo-output');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${status}`;
+            entry.textContent = msg;
+            output.appendChild(entry);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        window.runDemo = async function() {
+            const output = document.getElementById('demo-output');
+            output.innerHTML = '';
+
+            log('Loading WASM from CDN...', 'pending');
+            try {
+                const { LanceQL, DataFrame, RemoteLanceDataset } = await loadLanceQL();
+                const lanceql = await LanceQL.load(`${ASSET_BASE}/lanceql.wasm`);
+                log('WASM loaded (' + (lanceql.memory.buffer.byteLength / 1024 / 1024).toFixed(1) + 'MB)', 'pass');
+
+                log('Opening remote dataset...', 'pending');
+                const dataset = await RemoteLanceDataset.open(
+                    lanceql,
+                    'https://data.metal0.dev/laion-1m/images.lance',
+                    { skipCache: true }
+                );
+                log(`Dataset: ${dataset._totalRows.toLocaleString()} rows, ${dataset._numColumns} columns`, 'pass');
+
+                log('SQL: SELECT url, width, height WHERE width > 1000 LIMIT 5', 'pending');
+                const sqlResult = await dataset.executeSQL('SELECT url, width, height FROM dataset WHERE width > 1000 LIMIT 5');
+                log(`Result: ${sqlResult.columns[0]?.length || 0} rows`, 'pass');
+
+                log('DataFrame: df.filter(width > 1500).limit(3)', 'pending');
+                const df = new DataFrame(dataset).filter(2, '>', 1500, 'int64').select(0, 2, 3).limit(3);
+                log(`SQL: ${df.toSQL()}`, 'pass');
+                const dfResult = await df.collect();
+                log(`Result: ${dfResult.columns[0]?.length || 0} rows`, 'pass');
+
+                log('All tests passed!', 'pass');
+            } catch (e) {
+                log('Error: ' + e.message, 'fail');
+                console.error(e);
+            }
+        };
+    </script>
+</body>
+</html>

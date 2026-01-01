@@ -125,7 +125,7 @@ pub const PyTuple = struct {
         if (runtime.PyLong_Check(a) or runtime.PyBool_Check(a)) {
             const a_obj: *PyLongObject = @ptrCast(@alignCast(a));
             const b_obj: *PyLongObject = @ptrCast(@alignCast(b));
-            return a_obj.ob_digit == b_obj.ob_digit;
+            return a_obj.getValue() == b_obj.getValue();
         }
 
         if (runtime.PyFloat_Check(a)) {
@@ -173,7 +173,7 @@ pub const PyTuple = struct {
             const item = tuple_obj.ob_item[i];
             if (runtime.PyLong_Check(item)) {
                 const long_obj: *PyLongObject = @ptrCast(@alignCast(item));
-                std.debug.print("{d}", .{long_obj.ob_digit});
+                std.debug.print("{d}", .{long_obj.getValue()});
             } else if (runtime.PyUnicode_Check(item)) {
                 const str_obj: *PyUnicodeObject = @ptrCast(@alignCast(item));
                 const str_len: usize = @intCast(str_obj.length);

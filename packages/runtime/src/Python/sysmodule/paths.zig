@@ -1,5 +1,6 @@
 /// paths - Module Search Path Management
 /// Handles sys.path and installation prefixes
+/// CPython-compatible path resolution order (PEP 302, site.py)
 
 const std = @import("std");
 
@@ -12,7 +13,7 @@ threadlocal var path_storage: [256][]const u8 = undefined;
 threadlocal var path_len: usize = 0;
 
 // ============================================================================
-// Installation Prefixes
+// Installation Prefixes (exported via sysmodule.zig)
 // ============================================================================
 
 /// Prefix for installed files
@@ -54,11 +55,36 @@ pub fn addPath(new_path: []const u8) !void {
     path_len += 1;
 }
 
-/// Initialize default paths
+/// Initialize default paths (CPython-compatible order)
+/// Order follows CPython's site.py and _bootstrap_external.py:
+/// 1. Script directory (empty string = cwd for module resolution)
+/// 2. PYTHONPATH environment variable entries
+/// 3. Current directory (.)
+/// Note: site-packages are added separately via site.zig
 pub fn initPaths() void {
-    path_storage[0] = "";
-    path_storage[1] = ".";
-    path_len = 2;
+    var idx: usize = 0;
+
+    // 1. Script directory (empty string = cwd for module resolution)
+    path_storage[idx] = "";
+    idx += 1;
+
+    // 2. PYTHONPATH entries (CPython: processed before stdlib/site-packages)
+    if (std.posix.getenv("PYTHONPATH")) |pythonpath| {
+        const sep = if (@import("builtin").os.tag == .windows) ';' else ':';
+        var iter = std.mem.splitScalar(u8, pythonpath, sep);
+        while (iter.next()) |entry| {
+            if (idx < path_storage.len and entry.len > 0) {
+                path_storage[idx] = entry;
+                idx += 1;
+            }
+        }
+    }
+
+    // 3. Current directory
+    path_storage[idx] = ".";
+    idx += 1;
+
+    path_len = idx;
 }
 
 // ============================================================================

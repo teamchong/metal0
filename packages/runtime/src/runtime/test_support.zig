@@ -2,6 +2,7 @@
 /// Provides stubs and implementations for test.support functionality
 const std = @import("std");
 const runtime = @import("../runtime.zig");
+const type_predicates = @import("type_predicates.zig");
 
 // ============================================================================
 // Constants commonly imported from test.support
@@ -751,14 +752,14 @@ pub fn collision_stats(nbins: anytype, nballs: anytype) struct { f64, f64 } {
 
     const n: f64 = if (NbinsT == @import("bigint").BigInt)
         nbins.toFloat()
-    else if (@typeInfo(NbinsT) == .int or @typeInfo(NbinsT) == .comptime_int)
+    else if (type_predicates.isInt(NbinsT))
         @floatFromInt(nbins)
     else
         @floatCast(nbins);
 
     const k: f64 = if (NballsT == @import("bigint").BigInt)
         nballs.toFloat()
-    else if (@typeInfo(NballsT) == .int or @typeInfo(NballsT) == .comptime_int)
+    else if (type_predicates.isInt(NballsT))
         @floatFromInt(nballs)
     else
         @floatCast(nballs);

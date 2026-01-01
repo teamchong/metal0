@@ -99,8 +99,29 @@ fn detectTypeChangingPattern(self: *NativeCodegen, method: ast.Node.FunctionDef)
             }
         }
 
-        // Check for isint/isRat returning class instance or type-changing assignment
-        if (std.mem.eql(u8, func_name, "isint") or std.mem.eql(u8, func_name, "isinstance")) {
+        // Check for isint returning class instance or type-changing assignment
+        // NOTE: isinstance is handled separately - we only process isinstance(x, int) here,
+        // NOT isinstance(x, Complex) or other ABC types which need different code generation
+        const is_isinstance_int = blk: {
+            if (std.mem.eql(u8, func_name, "isinstance")) {
+                // Check if isinstance is checking for 'int' type, not ABC types like Complex/Real/Rational/Integral
+                if (call.args.len >= 2 and call.args[1] == .name) {
+                    const type_name = call.args[1].name.id;
+                    // Skip ABC types - they need different handling via conditional codegen
+                    if (std.mem.eql(u8, type_name, "Complex") or
+                        std.mem.eql(u8, type_name, "Real") or
+                        std.mem.eql(u8, type_name, "Rational") or
+                        std.mem.eql(u8, type_name, "Integral") or
+                        std.mem.eql(u8, type_name, "Number"))
+                    {
+                        break :blk false;
+                    }
+                    break :blk std.mem.eql(u8, type_name, "int");
+                }
+            }
+            break :blk false;
+        };
+        if (std.mem.eql(u8, func_name, "isint") or is_isinstance_int) {
             for (if_stmt.body) |body_stmt| {
                 // Pattern 1: Type-changing assignment
                 if (body_stmt == .assign) {
@@ -259,8 +280,20 @@ fn generateComptimeTypeDispatch(
     try self.pushScope();
     // Reset control flow flag - each comptime branch is independent
     self.control_flow_terminated = false;
+    // IMPORTANT: Temporarily remove param from anytype_params for class branch
+    // In this branch, we KNOW the type is @This(), so we should use direct field
+    // access (e.g., other.__den) instead of getAttrDynamic which returns f64
+    _ = self.anytype_params.swapRemove(param_name);
+    // Also add to narrowed_type_params so isOperandUncertain knows this param
+    // is narrowed to the current class type (for same-field-name expressions
+    // like self.__num * other.__num that would otherwise be uncertain)
+    try self.narrowed_type_params.put(param_name, class_name);
     // Generate the class case body directly
     try generateBodyForTypeCheck(self, method, class_name, true);
+    // Restore anytype_params for subsequent branches
+    try self.anytype_params.put(param_name, {});
+    // Remove from narrowed_type_params
+    _ = self.narrowed_type_params.swapRemove(param_name);
     self.popScope();
 
     self.dedent();
@@ -559,6 +592,12 @@ pub fn genFunctionBody(
     const old_type_scope = self.type_inferrer.enterScope(func.name);
     defer self.type_inferrer.exitScope(old_type_scope);
 
+    // Set current function body for nested function detection in try/except hoisting
+    // This allows try_except.zig to skip hoisting variables that are nested function names
+    const prev_func_body = self.current_function_body;
+    self.current_function_body = func.body;
+    defer self.current_function_body = prev_func_body;
+
     // Emit hoisted variable declarations using shared hoisting module
     // This handles forward reference detection and fallback types
     // Pass func.body for pre-scan type inference (Solution 3 for forward refs)
@@ -576,21 +615,24 @@ pub fn genFunctionBody(
     // We need to emit `_ = param;` ONLY for params that:
     // 1. Are in a generator function (yield body becomes pass)
     // 2. Are NOT actually used in the non-yield parts of the body
-    // 3. Don't have defaults (defaults are handled below)
     if (signature.hasYieldStatement(func.body)) {
         for (func.args) |arg| {
-            // Skip params with defaults - they're used in "const x = x_param orelse ..."
-            if (arg.default != null) continue;
-            // Skip params that would be renamed by wouldShadowMethod (e.g., "stop" -> "stop_")
+            // Skip params that would be renamed by wouldShadowMethod/wouldShadowModule (e.g., "stop" -> "stop_", "main" -> "main_")
             // These ARE used in the body under their renamed form, so discard would be pointless
-            if (zig_keywords.wouldShadowMethod(arg.name)) continue;
+            if (zig_keywords.wouldShadowMethod(arg.name) or zig_keywords.wouldShadowModule(arg.name)) continue;
             // Only discard if param is NOT used in the body (excluding yield expressions)
             // Use ExcludingYield variant since yield becomes `// pass`
             if (param_analyzer.isNameUsedInBodyExcludingYield(func.body, arg.name)) continue;
             try self.emitIndent();
             try self.emit("_ = ");
-            // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            // For params with defaults, use <name>_param suffix since that's the signature name
+            // For regular params, use writeLocalVarName for consistency (handles "stop" -> "stop_")
+            if (arg.default != null) {
+                try self.emit(arg.name);
+                try self.emit("_param");
+            } else {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            }
             try self.emit(";\n");
         }
     }
@@ -645,42 +687,57 @@ pub fn genFunctionBody(
 
             // Check if parameter is unused in the function body
             // For generator functions, use ExcludingYield since yield bodies become `// pass`
+            // IMPORTANT: If locals() is used, all parameters must be accessible, so treat as used
             const is_generator = signature.hasYieldStatement(func.body);
-            const is_param_unused = if (is_generator)
+            const uses_locals = param_analyzer.usesLocalsBuiltin(func.body);
+            const is_param_unused = if (uses_locals)
+                false // locals() needs all params - treat all as used
+            else if (is_generator)
                 !param_analyzer.isNameUsedInBodyExcludingYield(func.body, arg.name)
             else
                 !param_analyzer.isNameUsedInBody(func.body, arg.name);
 
             if (needs_rename) {
                 if (is_param_unused) {
-                    // Parameter is unused - just discard the optional value
-                    try self.emitIndent();
-                    try self.emit("_ = ");
-                    try self.emit(arg.name);
-                    try self.emit("_param;\n");
+                    // Parameter is unused - skip entirely
+                    // The signature already made this an anonymous parameter (_: type),
+                    // so there's nothing to discard. Emitting "_ = arg_param;" would be
+                    // an error since arg_param was never declared.
                 } else {
                     // Rename local variable to avoid shadowing module-level variable
                     // Use NameGen for consistent unique naming
                     const renamed = try self.name_gen.local(arg.name);
-                    try self.var_renames.put(arg.name, renamed);
 
                     try self.emitIndent();
                     try self.emit("const ");
                     try self.emit(renamed);
                     try self.emit(" = ");
-                    try self.emit(arg.name);
-                    try self.emit("_param orelse ");
+                    // Check if parameter was renamed in signature generation (e.g., shadows module-level)
+                    // If so, use the renamed parameter name instead of arg.name
+                    if (self.var_renames.get(arg.name)) |sig_renamed| {
+                        try self.emit(sig_renamed);
+                        // Don't add _param suffix if rename already ends with _param
+                        if (!std.mem.endsWith(u8, sig_renamed, "_param")) {
+                            try self.emit("_param");
+                        }
+                    } else {
+                        try self.emit(arg.name);
+                        try self.emit("_param");
+                    }
+                    try self.emit(" orelse ");
                     // Reference the original module-level variable (arg.name), not the renamed one
                     try self.emit(arg.name);
                     try self.emit(";\n");
+
+                    // Now set up the local rename for the rest of the function body
+                    try self.var_renames.put(arg.name, renamed);
                 }
             } else {
                 if (is_param_unused) {
-                    // Parameter is unused - just discard the optional value
-                    try self.emitIndent();
-                    try self.emit("_ = ");
-                    try self.emit(arg.name);
-                    try self.emit("_param;\n");
+                    // Parameter is unused - skip entirely
+                    // The signature already made this an anonymous parameter (_: type),
+                    // so there's nothing to discard. Emitting "_ = arg_param;" would be
+                    // an error since arg_param was never declared.
                 } else {
                     // Check if default is None - if so, keep the optional type
                     const default_is_none = if (default_expr.* == .constant)
@@ -688,22 +745,51 @@ pub fn genFunctionBody(
                     else
                         false;
 
+                    // Check if parameter was already renamed in signature generation
+                    // If renamed to {name}_param, we don't need a local binding because
+                    // the parameter IS the local - just need to track it for None comparisons
+                    if (self.var_renames.get(arg.name)) |renamed| {
+                        if (std.mem.endsWith(u8, renamed, "_param")) {
+                            // Parameter was renamed to avoid shadowing - no local binding needed
+                            // The parameter name IS the name to use in the body
+                            if (default_is_none) {
+                                try self.none_default_params.put(arg.name, {});
+                            }
+                            try self.declareVar(arg.name);
+                            continue;
+                        }
+                    }
+
+                    // Get a safe local name that won't shadow module-level declarations
+                    // If arg.name would shadow (e.g., 'dtype' when there's a module-level dtype),
+                    // getSafeLocalName returns a unique name and registers the rename mapping
+                    const safe_name = try self.getSafeLocalName(arg.name);
+
                     try self.emitIndent();
                     try self.emit("const ");
-                    try self.emit(arg.name);
+                    try self.emit(safe_name);
                     try self.emit(" = ");
+                    // Use the parameter name (arg.name + _param)
                     try self.emit(arg.name);
+                    try self.emit("_param");
                     if (default_is_none) {
                         // Keep optional type: const limit = limit_param;
-                        try self.emit("_param;\n");
+                        try self.emit(";\n");
                         // Track this param for null comparisons in `x is None`
                         try self.none_default_params.put(arg.name, {});
                     } else {
                         // Unwrap with default: const x = x_param orelse <default>;
-                        try self.emit("_param orelse ");
+                        try self.emit(" orelse ");
                         try expressions.genExpr(self, default_expr.*);
                         try self.emit(";\n");
                     }
+                    // Emit discard to prevent "unused local constant" warning
+                    // The parameter binding may not be directly used in Zig if the
+                    // function uses VM fallback for all operations
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try self.emit(safe_name);
+                    try self.emit(";\n");
                     // Declare the param so it won't be hoisted later
                     try self.declareVar(arg.name);
                 }
@@ -718,6 +804,8 @@ pub fn genFunctionBody(
         // Skip parameters with defaults - they're handled above
         if (arg.default != null) continue;
 
+        // NOTE: Parameter renames are already set up in generators.zig BEFORE this is called
+        // var_renames is populated there, so we just need to declare the (possibly renamed) var
         try self.declareVar(arg.name);
 
         // Check if this parameter is reassigned in the function body
@@ -764,12 +852,50 @@ pub fn genFunctionBody(
         }
     }
 
+    // Handle vararg (*args) reassignment - create mutable copy if vararg is reassigned
+    // This is needed because anytype parameters are const in Zig but Python allows reassignment
+    if (func.vararg) |vararg_name| {
+        if (var_tracking.isParamReassignedInStmts(vararg_name, func.body)) {
+            // Create a mutable copy of the vararg parameter
+            const mut_name = try self.name_gen.mutable(vararg_name);
+            try self.emitIndent();
+            try self.emit("var ");
+            try self.emit(mut_name);
+            try self.emit(" = ");
+            try self.emit(vararg_name);
+            try self.emit(";\n");
+            // Rename all references to use the mutable copy
+            try self.var_renames.put(vararg_name, mut_name);
+            // Remove from func_local_vars so expressions use var_renames lookup
+            _ = self.func_local_vars.swapRemove(vararg_name);
+        }
+    }
+
+    // Handle kwarg (**kwargs) reassignment - same pattern as vararg
+    if (func.kwarg) |kwarg_name| {
+        if (var_tracking.isParamReassignedInStmts(kwarg_name, func.body)) {
+            const mut_name = try self.name_gen.mutable(kwarg_name);
+            try self.emitIndent();
+            try self.emit("var ");
+            try self.emit(mut_name);
+            try self.emit(" = ");
+            try self.emit(kwarg_name);
+            try self.emit(";\n");
+            try self.var_renames.put(kwarg_name, mut_name);
+            _ = self.func_local_vars.swapRemove(kwarg_name);
+        }
+    }
+
     // Forward-referenced captured variables: emit var declarations with undefined
     // before the class definitions, so `&list2` doesn't fail with "undeclared"
     // Pass func.args, func.vararg, func.kwarg to avoid shadowing function parameters
     var forward_refs = try nested_captures.findForwardReferencedCapturesWithSpecialParams(self, func.body, func.args, func.vararg, func.kwarg);
     defer forward_refs.deinit(self.allocator);
     for (forward_refs.items) |fwd_var| {
+        // Skip if already hoisted by try/except - avoid redeclaration
+        if (self.hoisted_vars.contains(fwd_var)) {
+            continue;
+        }
         // Check if this variable would shadow a module-level declaration
         // Use CONSOLIDATED helper for most checks, plus isGlobalVar for forward vars
         var actual_fwd_var = fwd_var;
@@ -962,8 +1088,8 @@ pub fn genFunctionBody(
                     break :blk true;
                 }
 
-                // If name would be renamed (e.g., "stop" -> "stop_"), check renamed version
-                if (zig_keywords.wouldShadowMethod(arg.name)) {
+                // If name would be renamed (e.g., "stop" -> "stop_", "main" -> "main_"), check renamed version
+                if (zig_keywords.wouldShadowMethod(arg.name) or zig_keywords.wouldShadowModule(arg.name)) {
                     // Build renamed name with "_" suffix
                     var renamed_buf: [256]u8 = undefined;
                     const renamed_len = arg.name.len + 1;
@@ -1840,6 +1966,14 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             try self.emitIndent();
             try self.emit("return __gen_result.items;\n");
         }
+
+        // For comparison methods (__eq__, __ne__, etc.) that return runtime.PyValue,
+        // add a default return if control flow is not terminated.
+        // Python's __eq__ that doesn't match should return NotImplemented.
+        if (is_comparison_method and !self.control_flow_terminated) {
+            try self.emitIndent();
+            try self.emit("return runtime.PyValue{ .not_implemented = {} };\n");
+        }
     }
 
     // Check if method parameters (beyond self) were actually used in generated body
@@ -1902,8 +2036,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                     break :blk true;
                 }
 
-                // If name would be renamed by writeLocalVarName (e.g., "stop" -> "stop_"), check that too
-                if (zig_keywords.wouldShadowMethod(actual_param_name)) {
+                // If name would be renamed by writeLocalVarName (e.g., "stop" -> "stop_", "main" -> "main_"), check that too
+                if (zig_keywords.wouldShadowMethod(actual_param_name) or zig_keywords.wouldShadowModule(actual_param_name)) {
                     // Build renamed name with "_" suffix
                     var renamed_buf: [256]u8 = undefined;
                     const renamed_len = actual_param_name.len + 1;

@@ -6,6 +6,7 @@ const pyint = @import("../../Objects/intobject.zig");
 const pystring = @import("../../Objects/unicodeobject.zig");
 const repr = @import("repr.zig");
 const PyValue = @import("../../Objects/object.zig").PyValue;
+const type_predicates = @import("../type_predicates.zig");
 
 const PyObject = runtime_core.PyObject;
 const PyInt = pyint.PyInt;
@@ -148,11 +149,11 @@ fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocat
         output.appendSlice(allocator, value) catch unreachable;
     } else if (T == PyBytes) {
         output.appendSlice(allocator, repr.bytesRepr(allocator, value.data) catch "b''") catch unreachable;
-    } else if (info == .int or info == .comptime_int) {
+    } else if (type_predicates.isIntInfo(info)) {
         var buf: [32]u8 = undefined;
         const formatted = std.fmt.bufPrint(&buf, "{d}", .{value}) catch return;
         output.appendSlice(allocator, formatted) catch unreachable;
-    } else if (info == .float or info == .comptime_float) {
+    } else if (type_predicates.isFloatInfo(info)) {
         if (std.math.isNan(value)) {
             output.appendSlice(allocator, "nan") catch unreachable;
         } else if (std.math.isInf(value)) {
@@ -191,7 +192,7 @@ fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocat
             } else if (cpython.PyLong_Check(obj)) {
                 const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(obj));
                 var buf: [32]u8 = undefined;
-                const formatted = std.fmt.bufPrint(&buf, "{d}", .{int_obj.ob_digit}) catch return;
+                const formatted = std.fmt.bufPrint(&buf, "{d}", .{int_obj.getValue()}) catch return;
                 output.appendSlice(allocator, formatted) catch unreachable;
             } else if (cpython.PyUnicode_Check(obj)) {
                 const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(obj));
@@ -199,7 +200,7 @@ fn printValueToList(output: *std.ArrayListUnmanaged(u8), value: anytype, allocat
                 output.appendSlice(allocator, str_obj.data[0..len]) catch unreachable;
             } else if (cpython.PyBool_Check(obj)) {
                 const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
-                output.appendSlice(allocator, if (bool_obj.ob_digit != 0) "True" else "False") catch unreachable;
+                output.appendSlice(allocator, if (bool_obj.getValue()) "True" else "False") catch unreachable;
             } else {
                 output.appendSlice(allocator, "<unknown pyobject type>") catch unreachable;
             }

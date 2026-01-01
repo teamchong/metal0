@@ -71,8 +71,8 @@ pub fn exec(
 pub fn execWithScope(
     allocator: std.mem.Allocator,
     source: []const u8,
-    _globals: ?*runtime.PyObject,
-    _locals: ?*runtime.PyObject,
+    _globals: anytype,
+    _locals: anytype,
 ) anyerror!void {
     // globals/locals parameters not yet implemented in bytecode VM
     _ = _globals;

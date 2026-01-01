@@ -86,7 +86,7 @@ fn emitEscapedChar(b: *ZigBuilder, c: u8) CodegenError!void {
 /// Emit Zig format specifier for Python format spec using builder
 fn emitZigFormatSpec(b: *ZigBuilder, fspec: FormatSpec, fallback_fmt_char: u8) CodegenError!void {
     switch (fspec.spec_char) {
-        'd', 'i' => try b.emitRaw("{any}"),
+        'd', 'i' => try b.emitRaw("{}"),
         's' => try b.emitRaw("{s}"),
         'f' => {
             if (fspec.precision) |p| {
@@ -187,17 +187,23 @@ pub fn genStringFormat(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError
         return;
     }
 
-    // For %f/%e/%g formats (float formatting), use runtime.pyStringFormat for banker's rounding
+    // For formats that need special handling, use runtime.pyStringFormat:
+    // - %f/%e/%g: Banker's rounding and proper semantics
+    // - %d/%i/%s: Avoid Zig format ambiguity with types that have format() methods (UnifiedInt, PyValue)
     // This must be checked BEFORE creating the buffer/writer
     if (format_str) |fmt| {
         var fi: usize = 0;
         while (fi < fmt.len) {
             if (fmt[fi] == '%' and fi + 1 < fmt.len) {
                 const fspec = parseFormatSpec(fmt, fi);
+                // Route all common formats to runtime for safety:
+                // - 'd', 'i': integers (avoids {} ambiguity with UnifiedInt)
+                // - 's': strings (avoids {} ambiguity with PyValue)
+                // - 'f', 'e', 'E', 'g', 'G': floats (banker's rounding)
                 if (fspec.spec_char == 'f' or fspec.spec_char == 'e' or fspec.spec_char == 'E' or
-                    fspec.spec_char == 'g' or fspec.spec_char == 'G')
+                    fspec.spec_char == 'g' or fspec.spec_char == 'G' or
+                    fspec.spec_char == 'd' or fspec.spec_char == 'i' or fspec.spec_char == 's')
                 {
-                    // Use runtime formatting for banker's rounding and proper %g semantics
                     try emitRuntimePyStringFormat(self, b, label_id, alloc_name, left_val, right_val);
                     try self.flushBuilder();
                     return;

@@ -1,6 +1,7 @@
 /// Integer conversion utilities
 const std = @import("std");
 const BigInt = @import("bigint").BigInt;
+const type_predicates = @import("type_predicates.zig");
 
 // Import from parent Objects
 const object = @import("../Objects/object.zig");
@@ -73,7 +74,7 @@ pub inline fn packInt(value: anytype) u64 {
     }
     // Handle regular integers and comptime_int
     const info = @typeInfo(T);
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return @as(u64, @intCast(value));
     }
     // Fallback

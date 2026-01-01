@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>metal0 - Edge-Native Infrastructure</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --surface: #141414;
+            --border: #2a2a2a;
+            --text: #e5e5e5;
+            --text-muted: #888;
+            --accent: #3b82f6;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 24px;
+        }
+        .logo { font-size: 3rem; font-weight: 700; margin-bottom: 16px; }
+        .logo span { color: var(--accent); }
+        .tagline { color: var(--text-muted); margin-bottom: 48px; }
+        .projects {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            max-width: 800px;
+            width: 100%;
+        }
+        .project {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            text-decoration: none;
+            color: var(--text);
+            transition: border-color 0.2s;
+        }
+        .project:hover { border-color: var(--accent); }
+        .project h2 { font-size: 1.25rem; margin-bottom: 8px; }
+        .project p { color: var(--text-muted); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <div class="logo">metal<span>0</span></div>
+    <p class="tagline">Edge-native infrastructure</p>
+    <div class="projects">
+        <a href="/lanceql/" class="project">
+            <h2>LanceQL</h2>
+            <p>Query Lance files in the browser with SQL & DataFrame APIs</p>
+        </a>
+        <a href="/edgebox/" class="project">
+            <h2>EdgeBox</h2>
+            <p>Edge compute runtime</p>
+        </a>
+        <a href="/zell/" class="project">
+            <h2>Zell</h2>
+            <p>Local AI inference</p>
+        </a>
+        <a href="https://github.com/user/metal0" class="project">
+            <h2>Runtime</h2>
+            <p>Zig-powered WASM runtime</p>
+        </a>
+    </div>
+</body>
+</html>

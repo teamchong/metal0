@@ -61,6 +61,20 @@ pub fn collectLocalVarsInStmts(self: *NativeCodegen, stmts: []ast.Node) CodegenE
                 for (assign.targets) |target| {
                     if (target == .name) {
                         try self.func_local_vars.put(target.name.id, {});
+                    } else if (target == .tuple) {
+                        // Tuple unpacking: (a, b, c) = expr
+                        for (target.tuple.elts) |elt| {
+                            if (elt == .name) {
+                                try self.func_local_vars.put(elt.name.id, {});
+                            }
+                        }
+                    } else if (target == .list) {
+                        // List unpacking: [a, b, c] = expr
+                        for (target.list.elts) |elt| {
+                            if (elt == .name) {
+                                try self.func_local_vars.put(elt.name.id, {});
+                            }
+                        }
                     }
                 }
             },
@@ -532,8 +546,17 @@ pub fn findForwardReferencedCapturesWithSpecialParams(
                         }
                     }
                 }
+                // IMPORTANT: Mark this class name as declared so closures defined after
+                // the class don't get the class name forward-declared as a variable
+                // (e.g., class C: ... def f(): C() - C should NOT be forward-declared)
+                try declared_vars.put(class.name, {});
             },
             .function_def => |func| {
+                // IMPORTANT: Mark this function name as declared FIRST, before checking
+                // captured_vars. This prevents recursive functions from being forward-declared
+                // (e.g., `def recurser(): recurser(...)` - recurser captures itself but shouldn't be forward-declared)
+                try declared_vars.put(func.name, {});
+
                 // Check if this nested function captures any variables not yet declared
                 // captured_vars is pre-computed by the closure analyzer
                 for (func.captured_vars) |cap_var| {
@@ -552,11 +575,6 @@ pub fn findForwardReferencedCapturesWithSpecialParams(
                         }
                     }
                 }
-                // IMPORTANT: Mark this function name as declared so sibling functions
-                // that reference it don't get it forward-declared as a variable
-                // (e.g., tryone_inner and tryone are both nested functions,
-                // tryone calls tryone_inner - tryone_inner is NOT a forward-referenced capture)
-                try declared_vars.put(func.name, {});
             },
             .assign => |assign| {
                 // Mark variables as declared

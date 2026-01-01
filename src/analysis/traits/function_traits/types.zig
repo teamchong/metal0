@@ -3,6 +3,7 @@
 const std = @import("std");
 const hashmap_helper = @import("utils.hashmap_helper");
 const error_types = @import("error_types.zig");
+const shared_maps = @import("codegen.shared_maps");
 
 /// Reference to a function (for call graph edges)
 pub const FunctionRef = struct {
@@ -106,11 +107,8 @@ pub const FunctionTraits = struct {
     /// Check if a variable needs allocator for PyValue conversion (builtin subclass with collection base)
     pub fn needsAllocForPyValue(self: *const FunctionTraits, var_name: []const u8) bool {
         if (self.getBuiltinBase(var_name)) |base| {
-            // tuple, list, dict, set need fromAlloc to properly convert elements
-            return std.mem.eql(u8, base, "tuple") or
-                std.mem.eql(u8, base, "list") or
-                std.mem.eql(u8, base, "dict") or
-                std.mem.eql(u8, base, "set");
+            // Collection bases need fromAlloc to properly convert elements
+            return shared_maps.isCollectionBase(base);
         }
         return false;
     }
@@ -144,26 +142,28 @@ pub const ClassTraits = struct {
 
     /// Query methods
     pub fn overrides(self: *const ClassTraits, dunder: []const u8) bool {
-        if (std.mem.eql(u8, dunder, "__float__")) return self.overridden_dunders.float;
-        if (std.mem.eql(u8, dunder, "__int__")) return self.overridden_dunders.int;
-        if (std.mem.eql(u8, dunder, "__str__")) return self.overridden_dunders.str;
-        if (std.mem.eql(u8, dunder, "__repr__")) return self.overridden_dunders.repr;
-        if (std.mem.eql(u8, dunder, "__bool__")) return self.overridden_dunders.bool_;
-        if (std.mem.eql(u8, dunder, "__index__")) return self.overridden_dunders.index;
-        if (std.mem.eql(u8, dunder, "__hash__")) return self.overridden_dunders.hash;
-        if (std.mem.eql(u8, dunder, "__len__")) return self.overridden_dunders.len;
-        if (std.mem.eql(u8, dunder, "__iter__")) return self.overridden_dunders.iter;
-        if (std.mem.eql(u8, dunder, "__next__")) return self.overridden_dunders.next;
-        if (std.mem.eql(u8, dunder, "__call__")) return self.overridden_dunders.call;
-        if (std.mem.eql(u8, dunder, "__new__")) return self.overridden_dunders.new;
-        if (std.mem.eql(u8, dunder, "__init__")) return self.overridden_dunders.init;
-        return false;
+        const kind = shared_maps.getDunderTraitKind(dunder) orelse return false;
+        return switch (kind) {
+            .float => self.overridden_dunders.float,
+            .int => self.overridden_dunders.int,
+            .str => self.overridden_dunders.str,
+            .repr => self.overridden_dunders.repr,
+            .bool_ => self.overridden_dunders.bool_,
+            .index => self.overridden_dunders.index,
+            .hash => self.overridden_dunders.hash,
+            .len => self.overridden_dunders.len,
+            .iter => self.overridden_dunders.iter,
+            .next => self.overridden_dunders.next,
+            .call => self.overridden_dunders.call,
+            .new => self.overridden_dunders.new,
+            .init => self.overridden_dunders.init,
+        };
     }
 
-    /// Check if class inherits from a numeric builtin (float, int)
+    /// Check if class inherits from a numeric builtin (float, int, complex)
     pub fn isNumericSubclass(self: *const ClassTraits) bool {
         if (self.builtin_base) |base| {
-            return std.mem.eql(u8, base, "float") or std.mem.eql(u8, base, "int");
+            return shared_maps.isNumericBase(base);
         }
         return false;
     }

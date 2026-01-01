@@ -114,12 +114,17 @@ pub fn genExprWithSubs(
             try self.output.writer(self.allocator).print("{d}: {{\n", .{list_id});
             self.indent();
             try self.emitIndent();
-            try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
-            for (l.elts) |elt| {
-                try self.emitIndent();
-                try self.emit("try _list.append(__global_allocator, ");
-                try genExprWithSubs(self, elt, subs);
-                try self.emit(");\n");
+            // Use const for empty lists (never modified), var for non-empty (appended to)
+            if (l.elts.len == 0) {
+                try self.emit("const _list = std.ArrayListUnmanaged(i64){};\n");
+            } else {
+                try self.emit("var _list = std.ArrayListUnmanaged(i64){};\n");
+                for (l.elts) |elt| {
+                    try self.emitIndent();
+                    try self.emit("try _list.append(__global_allocator, ");
+                    try genExprWithSubs(self, elt, subs);
+                    try self.emit(");\n");
+                }
             }
             try self.emitIndent();
             try self.output.writer(self.allocator).print("break :list_{d} _list;\n", .{list_id});
@@ -348,6 +353,16 @@ fn genBuiltinCallWithSubs(
             // Fallback for tuple of types - just emit false for now
             try self.emit("false");
         }
+    } else if (std.mem.eql(u8, func_name, "ord") and c.args.len == 1) {
+        // ord(x) in comprehension - get first byte of string as integer
+        try self.emit("@as(i64, (");
+        try genExprWithSubs(self, c.args[0], subs);
+        try self.emit(")[0])");
+    } else if (std.mem.eql(u8, func_name, "chr") and c.args.len == 1) {
+        // chr(x) in comprehension - convert integer to single-char string
+        try self.emit("(try runtime.builtins.chr(__global_allocator, @intCast(");
+        try genExprWithSubs(self, c.args[0], subs);
+        try self.emit(")))");
     } else {
         // Fallback: generate call with substituted args
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);

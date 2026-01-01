@@ -10,6 +10,7 @@
 const std = @import("std");
 const PyValue = @import("../../Objects/object.zig").PyValue;
 const comparison = @import("../comparison.zig");
+const type_predicates = @import("../type_predicates.zig");
 
 // =============================================================================
 // CONCRETE PyValue COMPARISONS (compile ONCE, not per call site)
@@ -500,15 +501,15 @@ pub fn pyEqual(allocator: std.mem.Allocator, a: anytype, b: anytype) !bool {
     // Fast path: cross-type integers
     const info_a = @typeInfo(TypeA);
     const info_b = @typeInfo(TypeB);
-    if ((info_a == .int or info_a == .comptime_int) and (info_b == .int or info_b == .comptime_int)) {
+    if ((type_predicates.isIntInfo(info_a)) and (type_predicates.isIntInfo(info_b))) {
         return a == b;
     }
 
     // Fast path: BigInt (identified by 'managed' field)
     const a_is_bigint = info_a == .@"struct" and @hasField(TypeA, "managed");
     const b_is_bigint = info_b == .@"struct" and @hasField(TypeB, "managed");
-    const a_is_int = info_a == .int or info_a == .comptime_int;
-    const b_is_int = info_b == .int or info_b == .comptime_int;
+    const a_is_int = type_predicates.isIntInfo(info_a);
+    const b_is_int = type_predicates.isIntInfo(info_b);
 
     if (a_is_bigint and b_is_int) {
         if (@hasDecl(TypeA, "eqlInt")) {

@@ -141,86 +141,77 @@ fn isUniqueStringMethod(name: []const u8) bool {
 /// Returns true if handled, false if should fall through
 fn genPyValueStringMethod(self: *NativeCodegen, obj: ast.Node, method_name: []const u8, args: []ast.Node) CodegenError!bool {
     const parent = @import("../expressions.zig");
+    const categories = @import("method_categories.zig");
 
-    // Methods that return bool (no allocator needed)
-    if (std.mem.eql(u8, method_name, "startswith")) {
-        // obj.startswith(prefix) -> runtime.PyValue.from(obj).startswith(prefix)
-        try self.emit("runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").startswith(");
-        if (args.len > 0) {
-            try parent.genExpr(self, args[0]);
-        } else {
-            try self.emit("\"\"");
-        }
-        try self.emit(")");
-        return true;
+    const kind = categories.getPyValueStringMethodKind(method_name) orelse return false;
+
+    switch (kind) {
+        .bool_result => {
+            // startswith, endswith - emit: runtime.PyValue.from(obj).method(prefix)
+            try self.emit("runtime.PyValue.from(");
+            try parent.genExpr(self, obj);
+            try self.emit(").");
+            try self.emit(method_name);
+            try self.emit("(");
+            if (args.len > 0) {
+                try parent.genExpr(self, args[0]);
+            } else {
+                try self.emit("\"\"");
+            }
+            try self.emit(")");
+        },
+        .slice_result => {
+            // strip, lstrip, rstrip, upper, lower - emit: runtime.PyValue.from(obj).method()
+            try self.emit("runtime.PyValue.from(");
+            try parent.genExpr(self, obj);
+            try self.emit(").");
+            try self.emit(method_name);
+            try self.emit("()");
+        },
+        .replace_result => {
+            // replace(old, new) - emit: runtime.string_utils.replace(obj.asString(), old, new)
+            try self.emit("(try runtime.string_utils.replace(__global_allocator, runtime.PyValue.from(");
+            try parent.genExpr(self, obj);
+            try self.emit(").asString(), ");
+            if (args.len > 0) {
+                try parent.genExpr(self, args[0]);
+            } else {
+                try self.emit("\"\"");
+            }
+            try self.emit(", ");
+            if (args.len > 1) {
+                try parent.genExpr(self, args[1]);
+            } else {
+                try self.emit("\"\"");
+            }
+            try self.emit("))");
+        },
+        .find_result => {
+            // find - emit: runtime.PyValue.from(obj).find(substr)
+            try self.emit("runtime.PyValue.from(");
+            try parent.genExpr(self, obj);
+            try self.emit(").find(");
+            if (args.len > 0) {
+                try parent.genExpr(self, args[0]);
+            } else {
+                try self.emit("\"\"");
+            }
+            try self.emit(")");
+        },
+        .list_result => {
+            // split - needs allocator: (try runtime.PyValue.from(obj).split(alloc, sep)).items
+            try self.emit("(try runtime.PyValue.from(");
+            try parent.genExpr(self, obj);
+            try self.emit(").split(__global_allocator, ");
+            if (args.len > 0) {
+                try parent.genExpr(self, args[0]);
+            } else {
+                try self.emit("\" \""); // Default: split on whitespace
+            }
+            try self.emit(")).items");
+        },
     }
-
-    if (std.mem.eql(u8, method_name, "endswith")) {
-        try self.emit("runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").endswith(");
-        if (args.len > 0) {
-            try parent.genExpr(self, args[0]);
-        } else {
-            try self.emit("\"\"");
-        }
-        try self.emit(")");
-        return true;
-    }
-
-    // Methods that return []const u8 (no allocator needed)
-    if (std.mem.eql(u8, method_name, "strip")) {
-        try self.emit("runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").strip()");
-        return true;
-    }
-
-    if (std.mem.eql(u8, method_name, "lstrip")) {
-        try self.emit("runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").lstrip()");
-        return true;
-    }
-
-    if (std.mem.eql(u8, method_name, "rstrip")) {
-        try self.emit("runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").rstrip()");
-        return true;
-    }
-
-    // Methods that return i64 (no allocator needed)
-    if (std.mem.eql(u8, method_name, "find")) {
-        try self.emit("runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").find(");
-        if (args.len > 0) {
-            try parent.genExpr(self, args[0]);
-        } else {
-            try self.emit("\"\"");
-        }
-        try self.emit(")");
-        return true;
-    }
-
-    // Methods that need allocator (return ArrayList or complex types)
-    if (std.mem.eql(u8, method_name, "split")) {
-        try self.emit("(try runtime.PyValue.from(");
-        try parent.genExpr(self, obj);
-        try self.emit(").split(__global_allocator, ");
-        if (args.len > 0) {
-            try parent.genExpr(self, args[0]);
-        } else {
-            try self.emit("\" \""); // Default: split on whitespace
-        }
-        try self.emit(")).items");
-        return true;
-    }
-
-    return false;
+    return true;
 }
 
 // List methods - O(1) lookup via StaticStringMap
@@ -678,18 +669,21 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
     }
 
     // Try float methods (is_integer, as_integer_ratio, hex, conjugate)
-    // Float methods are unambiguous (no other type has these methods), so we can
-    // dispatch regardless of inferred type. This handles:
-    // - Direct float literals: (1.0).is_integer()
-    // - Variables inferred as float: f.is_integer()
-    // - Tuple field access: __tuple__.@"0".as_integer_ratio()
-    // Since no other Python type has these methods, dispatching is always safe.
+    // These methods exist on float objects but also on user-defined classes inheriting from numbers ABC.
+    // Only dispatch to float handlers for known float/int types to avoid stealing method calls from class instances.
     if (FloatMethods.get(method_name)) |handler| {
-        handler(self, obj, call.args) catch |err| {
-            if (err == error.UnsupportedSyntax) return false;
-            return err;
-        };
-        return true;
+        // Only dispatch for primitive float/int types, not class instances
+        // Class instances (MyReal, MyComplex) have their own conjugate() methods
+        if (type_traits.isFloating(obj_type) or type_traits.isIntegral(obj_type) or
+            type_traits.isComplex(obj_type))
+        {
+            handler(self, obj, call.args) catch |err| {
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
+            };
+            return true;
+        }
+        // For class instances or unknown types, don't dispatch - let genCall handle it
     }
 
     // Try primitive int methods (__index__, __int__, __hash__, etc.)
@@ -994,9 +988,10 @@ fn genCExtensionMethodCall(self: *NativeCodegen, obj: ast.Node, method_name: []c
     // Use runtime.PyValue.from() for proper type conversion from *PyObject to PyValue
     // The obj might be a PyValue, so use toPtr() to get the underlying *anyopaque
     // Use orelse @panic instead of .? for safer null handling with clear error message
-    try self.emit("runtime.PyValue.from((c_interop.callMethod(@ptrCast(");
+    // NOTE: toPtr() returns ?*anyopaque, must unwrap before alignment cast
+    try self.emit("runtime.PyValue.from((c_interop.callMethod(@ptrCast(@alignCast(");
     try expressions.genExpr(self, obj);
-    try self.emit(".toPtr()), \"");
+    try self.emit(".toPtr() orelse @panic(\"Object has no pointer representation\"))), \"");
     try self.emit(method_name);
     try self.emit("\", .{");
 

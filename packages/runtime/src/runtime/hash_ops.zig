@@ -4,6 +4,7 @@
 const std = @import("std");
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
+const type_predicates = @import("type_predicates.zig");
 
 /// Python hash() builtin - returns integer hash of object
 /// For integers: returns the integer itself (Python behavior)
@@ -15,7 +16,7 @@ pub fn pyHash(value: anytype) i64 {
 
     // Integer types: hash is the value itself (Python behavior)
     // Note: Python maps -1 to -2 because -1 is reserved as error indicator in C API
-    if (type_info == .int or type_info == .comptime_int) {
+    if (type_predicates.isIntInfo(type_info)) {
         const result: i64 = @intCast(value);
         return if (result == -1) -2 else result;
     }
@@ -27,13 +28,14 @@ pub fn pyHash(value: anytype) i64 {
 
     // Pointer types - check if it's a string slice
     if (type_info == .pointer) {
-        const child = type_info.pointer.child;
-        // Check for []const u8 (string slice)
-        if (child == u8) {
+        const ptr_info = type_info.pointer;
+        const child = ptr_info.child;
+        // Check for []const u8 (string slice) - must be slice size, not multi-pointer
+        if (child == u8 and ptr_info.size == .slice) {
             return @as(i64, @bitCast(std.hash.Wyhash.hash(0, value)));
         }
-        // Check for slice of u8
-        if (@typeInfo(child) == .array) {
+        // Check for slice of u8 arrays (e.g., [][N]u8)
+        if (ptr_info.size == .slice and @typeInfo(child) == .array) {
             const array_child = @typeInfo(child).array.child;
             if (array_child == u8) {
                 return @as(i64, @bitCast(std.hash.Wyhash.hash(0, value)));
@@ -42,7 +44,7 @@ pub fn pyHash(value: anytype) i64 {
     }
 
     // Float: use Python's float hash algorithm
-    if (type_info == .float or type_info == .comptime_float) {
+    if (type_predicates.isFloatInfo(type_info)) {
         return floatHashInternal(@as(f64, value));
     }
 

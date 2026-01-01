@@ -74,33 +74,45 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
     // Only generate for local imports (inside functions)
     // Module-level imports are handled in PHASE 3 of generator.zig
     // In module mode, indent_level == 1 means we're at struct level (still module-level)
+    // UNLESS we're inside a function (current_function_name is set)
     if (self.indent_level == 0) return;
-    if (self.mode == .module and self.indent_level == 1) return;
+    if (self.mode == .module and self.indent_level == 1 and self.current_function_name == null) return;
 
     // Look up in registry
     if (self.import_registry.lookup(module_name)) |info| {
-        // Skip generating local import if the module is a well-known module
-        // that's typically imported at module level - Python allows redundant imports
-        // but Zig doesn't allow shadowing
-        // Note: This is a heuristic - we skip stdlib modules since they're usually
-        // imported at module level and would cause shadowing errors
-        if (info.strategy == .zig_runtime) {
-            // Still track as imported so dispatch works for module.func() calls
-            // This fixes: import operator inside function -> operator.truth(0) dispatches natively
-            const alias_copy = try self.allocator.dupe(u8, alias);
-            try self.imported_modules.put(alias_copy, {});
-            return;
-        }
+        // Check if already imported at module level before we add it again
+        // This avoids shadowing errors when the same import appears both at module level and locally
+        const already_imported = self.imported_modules.contains(alias);
 
         // Prefer direct_import for DCE-friendly imports, fallback to zig_import
         const import_path = info.direct_import orelse info.zig_import;
         if (import_path) |path| {
+            // Check if already declared at module level (avoids shadowing error)
+            // This happens when the same import appears both at module level and locally
+            // Check all possible sources of module-level declarations:
+            // - isDeclared: hoisted_vars, var_renames, symbol_table
+            // - module_level_from_imports: from X import Y symbols
+            // - already_imported: import X statements (e.g., import ctypes)
+            if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias) or already_imported) {
+                return;
+            }
+
+            // Track as imported ONLY if we're actually emitting code
+            // (moved from before skip check to avoid adding to map when skipping)
+            const alias_copy = try self.allocator.dupe(u8, alias);
+            try self.imported_modules.put(alias_copy, {});
+
             const b = try self.getBuilder();
             try b.writeIndent();
             try b.emitRaw("const ");
             try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
             try b.emitRaw(" = ");
             try b.emitRaw(path);
+            try b.emitRaw(";\n");
+            // Emit discard to suppress "unused local constant" warning
+            try b.writeIndent();
+            try b.emitRaw("_ = &");
+            try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
             try b.emitRaw(";\n");
 
             const output = try b.getBodyDupe();
@@ -121,10 +133,17 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
         // Generate eval that imports and returns the module
         // Use the last part of the module path as the value to return
-        try b.writeFmt(" = runtime.PyValue.from(try runtime.eval(__global_allocator, \"import {s}; {s}\"));\n", .{ module_name, module_name });
+        // At module level, can't use try - must use catch unreachable
+        const at_mod_level = self.current_function_name == null;
+        if (at_mod_level) {
+            try b.writeFmt(" = (runtime.PyValue.from(runtime.eval(__global_allocator, \"import {s}; {s}\") catch unreachable));\n", .{ module_name, module_name });
+        } else {
+            try b.writeFmt(" = runtime.PyValue.from(try runtime.eval(__global_allocator, \"import {s}; {s}\"));\n", .{ module_name, module_name });
+        }
         // Emit discard to suppress "unused local constant" warning for non-hoisted imports
         // Hoisted variables are used elsewhere (outside the block), so no discard needed
-        if (!was_hoisted) {
+        // But NOT at module level - statements can't be at struct level
+        if (!was_hoisted and !at_mod_level) {
             try b.writeIndent();
             try b.emitRaw("_ = &");
             try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
@@ -193,8 +212,13 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 else
                     name;
 
-                // Skip if already declared at module level (avoids shadowing error)
-                // This happens when the same import appears both at module level and locally
+                // Skip if already declared in current scope (avoids shadowing error)
+                // Check:
+                // 1. isDeclared - hoisted vars, symbol table
+                // 2. module_level_from_imports - module-level from X import Y bindings
+                // For local imports inside functions that duplicate module-level imports
+                // (e.g., "from test.support import import_helper" in both module and function),
+                // skip generating the local const to avoid shadowing.
                 if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias)) {
                     continue;
                 }
@@ -231,5 +255,57 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 try self.local_from_imports.put(alias, module_name);
             }
         }
+    } else {
+        // Module not in registry - use VM fallback for dynamic import
+        // This handles external packages like numpy submodules (numpy.lib._stride_tricks_impl)
+        // Generate: const name = runtime.PyValue.from(try runtime.eval("from module import name; name"))
+        const b = try self.getBuilder();
+
+        for (import.names, 0..) |name, i| {
+            // Skip star imports - they can't be represented as a single const
+            if (std.mem.eql(u8, name, "*")) {
+                continue;
+            }
+
+            const alias = if (i < import.asnames.len and import.asnames[i] != null)
+                import.asnames[i].?
+            else
+                name;
+
+            // Skip if already declared in current scope or at module level
+            if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias)) {
+                continue;
+            }
+
+            // Check if variable was hoisted (e.g., for imports inside try blocks)
+            const was_hoisted = self.hoisted_vars.contains(alias);
+            try b.writeIndent();
+            if (!was_hoisted) {
+                try b.emitRaw("const ");
+            }
+            try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
+            // At module level, can't use try - must use catch unreachable
+            const at_mod_level = self.current_function_name == null;
+            if (at_mod_level) {
+                try b.writeFmt(" = (runtime.PyValue.from(runtime.eval(__global_allocator, \"from {s} import {s}; {s}\") catch unreachable));\n", .{ module_name, name, name });
+            } else {
+                try b.writeFmt(" = runtime.PyValue.from(try runtime.eval(__global_allocator, \"from {s} import {s}; {s}\"));\n", .{ module_name, name, name });
+            }
+
+            // Emit discard to suppress "unused local constant" warning
+            // But NOT at module level - statements can't be at struct level
+            if (!was_hoisted and !at_mod_level) {
+                try b.writeIndent();
+                try b.emitRaw("_ = &");
+                try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
+                try b.emitRaw(";\n");
+            }
+
+            // Track as local from-import for dispatch
+            try self.local_from_imports.put(alias, module_name);
+        }
+
+        const output = try b.getBodyDupe();
+        try self.output.appendSlice(self.allocator, output);
     }
 }

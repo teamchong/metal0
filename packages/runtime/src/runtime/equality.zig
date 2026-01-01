@@ -13,6 +13,7 @@ const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
 const PyPowResult = @import("builtins/pow.zig").PyPowResult;
 const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
+const type_predicates = @import("type_predicates.zig");
 
 /// Python-style containment check for slices
 /// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
@@ -393,13 +394,13 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             if (cpython.PyLong_Check(a) and cpython.PyLong_Check(b)) {
                 const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
                 const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
-                return a_obj.ob_digit == b_obj.ob_digit;
+                return a_obj.getValue() == b_obj.getValue();
             }
             // Both are bools
             if (cpython.PyBool_Check(a) and cpython.PyBool_Check(b)) {
                 const a_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
                 const b_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));
-                return (a_obj.ob_digit != 0) == (b_obj.ob_digit != 0);
+                return a_obj.getValue() == b_obj.getValue();
             }
             // Both are strings
             if (cpython.PyUnicode_Check(a) and cpython.PyUnicode_Check(b)) {
@@ -413,12 +414,12 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
             if (cpython.PyFloat_Check(a) and cpython.PyLong_Check(b)) {
                 const a_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
                 const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
-                return a_obj.ob_fval == @as(f64, @floatFromInt(b_obj.ob_digit));
+                return a_obj.ob_fval == @as(f64, @floatFromInt(b_obj.getValue()));
             }
             if (cpython.PyLong_Check(a) and cpython.PyFloat_Check(b)) {
                 const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
                 const b_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
-                return @as(f64, @floatFromInt(a_obj.ob_digit)) == b_obj.ob_fval;
+                return @as(f64, @floatFromInt(a_obj.getValue())) == b_obj.ob_fval;
             }
             // Different types or unsupported - not equal
             return false;
@@ -662,14 +663,14 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
     }
 
     // Numeric coercion: int vs comptime_int, float vs comptime_float
-    const a_is_int = a_info == .int or a_info == .comptime_int;
-    const b_is_int = b_info == .int or b_info == .comptime_int;
+    const a_is_int = type_predicates.isIntInfo(a_info);
+    const b_is_int = type_predicates.isIntInfo(b_info);
     if (a_is_int and b_is_int) {
         return @as(i64, a) == @as(i64, b);
     }
 
-    const a_is_float = a_info == .float or a_info == .comptime_float;
-    const b_is_float = b_info == .float or b_info == .comptime_float;
+    const a_is_float = type_predicates.isFloatInfo(a_info);
+    const b_is_float = type_predicates.isFloatInfo(b_info);
     if (a_is_float and b_is_float) {
         // Use bitwise comparison to handle NaN identity (NaN == NaN should be true for containment)
         // This matches Python's behavior where `nan in [nan]` is True (identity check)
@@ -756,7 +757,7 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
                     // Then check PyLongObject (small integers)
                     if (cpython.PyLong_Check(pyobj)) {
                         const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(p));
-                        const int_val: i64 = int_obj.ob_digit;
+                        const int_val: i64 = int_obj.getValue();
                         break :blk b.eqlInt(int_val);
                     }
                 }
@@ -817,13 +818,13 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         if (cpython.PyLong_Check(a) and cpython.PyLong_Check(b)) {
             const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
             const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
-            return a_obj.ob_digit == b_obj.ob_digit;
+            return a_obj.getValue() == b_obj.getValue();
         }
         // Both are bools
         if (cpython.PyBool_Check(a) and cpython.PyBool_Check(b)) {
             const a_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
             const b_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));
-            return (a_obj.ob_digit != 0) == (b_obj.ob_digit != 0);
+            return a_obj.getValue() == b_obj.getValue();
         }
         // Both are strings
         if (cpython.PyUnicode_Check(a) and cpython.PyUnicode_Check(b)) {
@@ -837,12 +838,12 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         if (cpython.PyFloat_Check(a) and cpython.PyLong_Check(b)) {
             const a_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(a));
             const b_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
-            return a_obj.ob_fval == @as(f64, @floatFromInt(b_obj.ob_digit));
+            return a_obj.ob_fval == @as(f64, @floatFromInt(b_obj.getValue()));
         }
         if (cpython.PyLong_Check(a) and cpython.PyFloat_Check(b)) {
             const a_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
             const b_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(b));
-            return @as(f64, @floatFromInt(a_obj.ob_digit)) == b_obj.ob_fval;
+            return @as(f64, @floatFromInt(a_obj.getValue())) == b_obj.ob_fval;
         }
         // Different types or unsupported - not equal
         return false;
@@ -870,22 +871,22 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         } else if (cpython.PyLong_Check(a)) {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(a));
             if (b_info == .comptime_int or b_info == .int) {
-                return int_obj.ob_digit == @as(i64, b);
+                return int_obj.getValue() == @as(i64, b);
             } else if (b_info == .comptime_float or b_info == .float) {
                 // Cross-type comparison: PyLongObject vs f64
                 // Python: 0 == 0.0 returns True
-                const int_val: i64 = int_obj.ob_digit;
+                const int_val: i64 = int_obj.getValue();
                 return @as(f64, @floatFromInt(int_val)) == @as(f64, b);
             } else if (B == UnifiedInt) {
                 // Cross-type comparison: PyLongObject vs UnifiedInt
                 // Both represent Python integers, compare their values
-                const int_val: i64 = int_obj.ob_digit;
+                const int_val: i64 = int_obj.getValue();
                 return b.eqlInt(int_val);
             }
         } else if (cpython.PyBool_Check(a)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(a));
             if (B == bool) {
-                return (bool_obj.ob_digit != 0) == b;
+                return bool_obj.getValue() == b;
             }
         } else if (cpython.PyUnicode_Check(a)) {
             const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(a));
@@ -917,22 +918,22 @@ pub fn pyAnyEql(a: anytype, b: anytype) bool {
         } else if (cpython.PyLong_Check(b)) {
             const int_obj: *cpython.PyLongObject = @ptrCast(@alignCast(b));
             if (a_info == .comptime_int or a_info == .int) {
-                return @as(i64, a) == int_obj.ob_digit;
+                return @as(i64, a) == int_obj.getValue();
             } else if (a_info == .comptime_float or a_info == .float) {
                 // Cross-type comparison: f64 vs PyLongObject
                 // Python: 0.0 == 0 returns True
-                const int_val: i64 = int_obj.ob_digit;
+                const int_val: i64 = int_obj.getValue();
                 return @as(f64, a) == @as(f64, @floatFromInt(int_val));
             } else if (A == UnifiedInt) {
                 // Cross-type comparison: UnifiedInt vs PyLongObject
                 // Both represent Python integers, compare their values
-                const int_val: i64 = int_obj.ob_digit;
+                const int_val: i64 = int_obj.getValue();
                 return a.eqlInt(int_val);
             }
         } else if (cpython.PyBool_Check(b)) {
             const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(b));
             if (A == bool) {
-                return a == (bool_obj.ob_digit != 0);
+                return a == bool_obj.getValue();
             }
         } else if (cpython.PyUnicode_Check(b)) {
             const str_obj: *cpython.PyUnicodeObject = @ptrCast(@alignCast(b));

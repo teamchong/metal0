@@ -259,7 +259,14 @@ pub fn genKeys(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try _keys_list.append(__global_allocator, key);\n");
+    // At module level or inside defer, can't use 'try' - use 'catch unreachable' instead
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+    if (cannot_use_try) {
+        try self.emit("_keys_list.append(__global_allocator, key) catch unreachable;\n");
+    } else {
+        try self.emit("try _keys_list.append(__global_allocator, key);\n");
+    }
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -325,7 +332,14 @@ pub fn genValues(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     self.indent_level += 1;
 
     try self.emitIndent();
-    try self.emit("try _values_list.append(__global_allocator, val);\n");
+    // At module level or inside defer, can't use 'try' - use 'catch unreachable' instead
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+    if (cannot_use_try) {
+        try self.emit("_values_list.append(__global_allocator, val) catch unreachable;\n");
+    } else {
+        try self.emit("try _values_list.append(__global_allocator, val);\n");
+    }
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -399,7 +413,14 @@ pub fn genItems(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     try self.emit("}){entry.key_ptr.*, entry.value_ptr.*};\n");
 
     try self.emitIndent();
-    try self.emit("try _items_list.append(__global_allocator, _tuple);\n");
+    // At module level or inside defer, can't use 'try' - use 'catch unreachable' instead
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+    if (cannot_use_try) {
+        try self.emit("_items_list.append(__global_allocator, _tuple) catch unreachable;\n");
+    } else {
+        try self.emit("try _items_list.append(__global_allocator, _tuple);\n");
+    }
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -517,7 +538,12 @@ pub fn genUpdate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
     try self.emitIndent();
     // Use the mutable pointer we stored above
-    try self.emit("try __target_dict.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    // Check inside_defer - can't use try inside defer blocks
+    if (self.inside_defer) {
+        try self.emit("__target_dict.put(entry.key_ptr.*, entry.value_ptr.*) catch {};\n");
+    } else {
+        try self.emit("try __target_dict.put(entry.key_ptr.*, entry.value_ptr.*);\n");
+    }
 
     self.indent_level -= 1;
     try self.emitIndent();
@@ -592,7 +618,12 @@ pub fn genCopy(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
 
     try self.emitIndent();
     // ArrayHashMap.put() doesn't take allocator - it uses the one stored internally
-    try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, entry.value_ptr.*);\n", .{copy});
+    // Check inside_defer - can't use try inside defer blocks
+    if (self.inside_defer) {
+        try self.output.writer(self.allocator).print("{s}.put(entry.key_ptr.*, entry.value_ptr.*) catch {{}};\n", .{copy});
+    } else {
+        try self.output.writer(self.allocator).print("try {s}.put(entry.key_ptr.*, entry.value_ptr.*);\n", .{copy});
+    }
 
     self.indent_level -= 1;
     try self.emitIndent();

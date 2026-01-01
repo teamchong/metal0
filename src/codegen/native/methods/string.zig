@@ -96,6 +96,12 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
     }
 
     // split(separator) or split(separator, maxsplit)
+    // At module level, we can't use try - use catch unreachable instead
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+    const try_prefix = if (cannot_use_try) "" else "try ";
+    const catch_suffix: []const u8 = if (cannot_use_try) " catch unreachable" else "";
+
     const split_label = self.nextLabelId();
     try self.emitFmt("split_{d}: {{\n", .{split_label});
     try self.emit("    var _split_result = std.ArrayListUnmanaged([]const u8){};\n");
@@ -117,9 +123,9 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("            const _rest = _split_iter.rest();\n");
         try self.emit("            if (part.len > 0) {\n");
         try self.emit("                if (_rest.len > 0) {\n");
-        try self.emit("                    const _combined = try __global_allocator.alloc(u8, part.len + ");
+        try self.emitFmt("                    const _combined = {s}__global_allocator.alloc(u8, part.len + ", .{try_prefix});
         try self.genExpr(args[0]);
-        try self.emit(".len + _rest.len);\n");
+        try self.emitFmt(".len + _rest.len){s};\n", .{catch_suffix});
         try self.emit("                    @memcpy(_combined[0..part.len], part);\n");
         try self.emit("                    @memcpy(_combined[part.len..part.len + ");
         try self.genExpr(args[0]);
@@ -129,19 +135,19 @@ pub fn genSplit(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenEr
         try self.emit("                    @memcpy(_combined[part.len + ");
         try self.genExpr(args[0]);
         try self.emit(".len..], _rest);\n");
-        try self.emit("                    try _split_result.append(__global_allocator, _combined);\n");
+        try self.emitFmt("                    _split_result.append(__global_allocator, _combined){s};\n", .{catch_suffix});
         try self.emit("                } else {\n");
-        try self.emit("                    try _split_result.append(__global_allocator, part);\n");
+        try self.emitFmt("                    _split_result.append(__global_allocator, part){s};\n", .{catch_suffix});
         try self.emit("                }\n");
         try self.emit("            }\n");
         try self.emit("            break;\n");
         try self.emit("        }\n");
-        try self.emit("        try _split_result.append(__global_allocator, part);\n");
+        try self.emitFmt("        _split_result.append(__global_allocator, part){s};\n", .{catch_suffix});
         try self.emit("        _split_count += 1;\n");
         try self.emit("    }\n");
     } else {
         try self.emit("    while (_split_iter.next()) |part| {\n");
-        try self.emit("        try _split_result.append(__global_allocator, part);\n");
+        try self.emitFmt("        _split_result.append(__global_allocator, part){s};\n", .{catch_suffix});
         try self.emit("    }\n");
     }
 
@@ -289,7 +295,14 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     try self.emit("const __join_list = ");
     try self.genExpr(args[0]); // The list
     try self.emit(";\n");
-    try self.emitFmt("break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n", .{join_label});
+    // At module level or inside defer, can't use 'try' - use 'catch unreachable' instead
+    const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
+    if (cannot_use_try) {
+        try self.emitFmt("break :join_{d} runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list) catch unreachable;\n", .{join_label});
+    } else {
+        try self.emitFmt("break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n", .{join_label});
+    }
     try self.emit("}");
 }
 
@@ -710,10 +723,17 @@ pub fn genFormat(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keywords
     var em = self.exprEmitter();
     const label_id = em.reserveLabelId();
 
+    // At module level, can't use try - must use catch unreachable
+    const at_mod_level = self.current_function_name == null;
+
     try self.emitFmt("format_{d}: {{\n", .{label_id});
     try self.emit("break :format_");
     try self.emitFmt("{d}", .{label_id});
-    try self.emit(" try runtime.string_utils.pyStrFormat(__global_allocator, ");
+    if (at_mod_level) {
+        try self.emit(" (runtime.string_utils.pyStrFormat(__global_allocator, ");
+    } else {
+        try self.emit(" try runtime.string_utils.pyStrFormat(__global_allocator, ");
+    }
     try self.genExpr(obj);
     try self.emit(", .{");
 
@@ -733,5 +753,9 @@ pub fn genFormat(self: *NativeCodegen, obj: ast.Node, args: []ast.Node, keywords
         try self.emit("}");
     }
 
-    try self.emit("});\n}");
+    if (at_mod_level) {
+        try self.emit("}) catch unreachable);\n}");
+    } else {
+        try self.emit("});\n}");
+    }
 }

@@ -127,6 +127,128 @@ pub fn isInitBodyOnlyRaises(body: []const ast.Node) bool {
     return has_raise;
 }
 
+/// Check if the function body uses locals() builtin
+/// This is important because locals() requires all parameters to be accessible
+/// If locals() is used, we cannot discard any parameters
+pub fn usesLocalsBuiltin(body: []const ast.Node) bool {
+    for (body) |stmt| {
+        if (usesLocalsInStmt(stmt)) return true;
+    }
+    return false;
+}
+
+fn usesLocalsInStmt(stmt: ast.Node) bool {
+    return switch (stmt) {
+        .expr_stmt => |expr| usesLocalsInExpr(expr.value.*),
+        .assign => |assign| {
+            if (usesLocalsInExpr(assign.value.*)) return true;
+            return false;
+        },
+        .return_stmt => |ret| {
+            if (ret.value) |v| return usesLocalsInExpr(v.*);
+            return false;
+        },
+        .if_stmt => |i| {
+            if (usesLocalsInExpr(i.condition.*)) return true;
+            for (i.body) |s| if (usesLocalsInStmt(s)) return true;
+            for (i.else_body) |s| if (usesLocalsInStmt(s)) return true;
+            return false;
+        },
+        .for_stmt => |f| {
+            if (usesLocalsInExpr(f.iter.*)) return true;
+            for (f.body) |s| if (usesLocalsInStmt(s)) return true;
+            if (f.orelse_body) |ob| for (ob) |s| if (usesLocalsInStmt(s)) return true;
+            return false;
+        },
+        .while_stmt => |w| {
+            if (usesLocalsInExpr(w.condition.*)) return true;
+            for (w.body) |s| if (usesLocalsInStmt(s)) return true;
+            if (w.orelse_body) |ob| for (ob) |s| if (usesLocalsInStmt(s)) return true;
+            return false;
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| if (usesLocalsInStmt(s)) return true;
+            for (t.handlers) |h| for (h.body) |s| if (usesLocalsInStmt(s)) return true;
+            for (t.else_body) |s| if (usesLocalsInStmt(s)) return true;
+            for (t.finalbody) |s| if (usesLocalsInStmt(s)) return true;
+            return false;
+        },
+        .with_stmt => |w| {
+            if (usesLocalsInExpr(w.context_expr.*)) return true;
+            for (w.body) |s| if (usesLocalsInStmt(s)) return true;
+            return false;
+        },
+        else => false,
+    };
+}
+
+fn usesLocalsInExpr(expr: ast.Node) bool {
+    return switch (expr) {
+        .call => |call| {
+            // Check if it's a call to locals()
+            if (call.func.* == .name and std.mem.eql(u8, call.func.name.id, "locals")) {
+                return true;
+            }
+            // Check arguments recursively
+            if (usesLocalsInExpr(call.func.*)) return true;
+            for (call.args) |arg| if (usesLocalsInExpr(arg)) return true;
+            for (call.keyword_args) |kwarg| if (usesLocalsInExpr(kwarg.value)) return true;
+            return false;
+        },
+        .binop => |b| usesLocalsInExpr(b.left.*) or usesLocalsInExpr(b.right.*),
+        .unaryop => |u| usesLocalsInExpr(u.operand.*),
+        .compare => |c| {
+            if (usesLocalsInExpr(c.left.*)) return true;
+            for (c.comparators) |comp| if (usesLocalsInExpr(comp)) return true;
+            return false;
+        },
+        .subscript => |s| usesLocalsInExpr(s.value.*),
+        .attribute => |a| usesLocalsInExpr(a.value.*),
+        .if_expr => |i| usesLocalsInExpr(i.condition.*) or usesLocalsInExpr(i.body.*) or usesLocalsInExpr(i.orelse_value.*),
+        .list => |l| {
+            for (l.elts) |e| if (usesLocalsInExpr(e)) return true;
+            return false;
+        },
+        .tuple => |t| {
+            for (t.elts) |e| if (usesLocalsInExpr(e)) return true;
+            return false;
+        },
+        .dict => |d| {
+            for (d.keys) |k| if (usesLocalsInExpr(k)) return true;
+            for (d.values) |v| if (usesLocalsInExpr(v)) return true;
+            return false;
+        },
+        .listcomp => |lc| {
+            if (usesLocalsInExpr(lc.elt.*)) return true;
+            // Check generators (for x in <iter> if <cond>)
+            for (lc.generators) |gen| {
+                if (usesLocalsInExpr(gen.iter.*)) return true;
+                for (gen.ifs) |if_cond| if (usesLocalsInExpr(if_cond)) return true;
+            }
+            return false;
+        },
+        .dictcomp => |dc| {
+            if (usesLocalsInExpr(dc.key.*) or usesLocalsInExpr(dc.value.*)) return true;
+            // Check generators
+            for (dc.generators) |gen| {
+                if (usesLocalsInExpr(gen.iter.*)) return true;
+                for (gen.ifs) |if_cond| if (usesLocalsInExpr(if_cond)) return true;
+            }
+            return false;
+        },
+        .genexp => |ge| {
+            if (usesLocalsInExpr(ge.elt.*)) return true;
+            // Check generators
+            for (ge.generators) |gen| {
+                if (usesLocalsInExpr(gen.iter.*)) return true;
+                for (gen.ifs) |if_cond| if (usesLocalsInExpr(if_cond)) return true;
+            }
+            return false;
+        },
+        else => false,
+    };
+}
+
 // ============================================================================
 // Parameter-specific analysis functions (not in shared module)
 // ============================================================================

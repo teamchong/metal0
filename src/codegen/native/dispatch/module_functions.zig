@@ -331,6 +331,52 @@ const winsound_mod = @import("../winsound_mod.zig");
 const ModuleHandler = *const fn (*NativeCodegen, []ast.Node) CodegenError!void;
 const FuncMap = std.StaticStringMap(ModuleHandler);
 
+// ============================================================================
+// Special Module Function Dispatch
+// For functions that need full call context (kwargs, type inference)
+// ============================================================================
+
+/// Special module.function combinations that need full call context
+pub const SpecialFuncKind = enum {
+    builtins_delegate, // Delegate to builtin dispatch
+    importlib_import, // Compile-time module resolution
+    support_stopwatch, // Struct init: support.Stopwatch.init()
+    support_adjust_digits, // Function: support.adjust_int_max_str_digits()
+    pylong_compute_powers, // Kwargs: need_hi
+    pickle_dumps, // Kwargs: protocol
+    datetime_timedelta, // Kwargs: days, seconds, microseconds
+    itertools_product, // Kwargs: repeat
+};
+
+/// Inner function map type for special cases
+const SpecialFuncMap = std.StaticStringMap(SpecialFuncKind);
+
+/// Two-level map for special cases: module -> (function -> kind)
+const SpecialModuleFuncs = std.StaticStringMap(SpecialFuncMap).initComptime(.{
+    .{ "builtins", SpecialFuncMap.initComptime(.{
+        .{ "*", .builtins_delegate }, // Wildcard for all builtins
+    }) },
+    .{ "importlib", SpecialFuncMap.initComptime(.{
+        .{ "import_module", .importlib_import },
+    }) },
+    .{ "support", SpecialFuncMap.initComptime(.{
+        .{ "Stopwatch", .support_stopwatch },
+        .{ "adjust_int_max_str_digits", .support_adjust_digits },
+    }) },
+    .{ "_pylong", SpecialFuncMap.initComptime(.{
+        .{ "compute_powers", .pylong_compute_powers },
+    }) },
+    .{ "pickle", SpecialFuncMap.initComptime(.{
+        .{ "dumps", .pickle_dumps },
+    }) },
+    .{ "datetime", SpecialFuncMap.initComptime(.{
+        .{ "timedelta", .datetime_timedelta },
+    }) },
+    .{ "itertools", SpecialFuncMap.initComptime(.{
+        .{ "product", .itertools_product },
+    }) },
+});
+
 const AstFuncs = ast_module.Funcs;
 
 /// unittest.mock module functions
@@ -786,31 +832,37 @@ pub fn hasCodegenDispatch(module_name: []const u8) bool {
     return ModuleMap.has(module_name);
 }
 
-/// Try to dispatch module function call (e.g., json.loads, os.getcwd)
-/// Returns true if dispatched successfully
-pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
-    // Handle builtins module - delegate to builtin dispatch
-    // builtins.len(x) -> len(x), builtins.str(x) -> str(x), etc.
-    // This is a special Python module that provides access to built-in functions
-    if (std.mem.eql(u8, module_name, "builtins")) {
-        const builtin_dispatch = @import("builtins.zig");
-        if (try builtin_dispatch.tryDispatchByName(self, func_name, call.args, call.keyword_args)) {
-            return true;
-        }
-    }
+// ============================================================================
+// Special Case Handler Functions
+// ============================================================================
 
-    // Handle importlib.import_module() - resolve at compile time for static module names
-    if (std.mem.eql(u8, module_name, "importlib") and
-        std.mem.eql(u8, func_name, "import_module"))
-    {
-        // Get module name argument
-        if (call.args.len > 0) {
-            const arg = call.args[0];
-            if (arg == .constant and arg.constant.value == .string) {
-                // Static module name - resolve at compile time
-                const target_module = arg.constant.value.string;
-                // Return the module struct directly (must be imported already)
-                // Replace dots with underscores for valid Zig identifier
+/// Handle builtins.* - delegate to builtin dispatch
+fn handleBuiltinsDelegate(self: *NativeCodegen, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
+    const builtin_dispatch = @import("builtins.zig");
+    return builtin_dispatch.tryDispatchByName(self, func_name, call.args, call.keyword_args);
+}
+
+/// Handle importlib.import_module() - resolve at compile time for static module names
+fn handleImportlibImport(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
+    if (call.args.len > 0) {
+        const arg = call.args[0];
+        if (arg == .constant and arg.constant.value == .string) {
+            // Static module name - resolve at compile time
+            const target_module = arg.constant.value.string;
+            // Replace dots with underscores for valid Zig identifier
+            var safe_buf: [256]u8 = undefined;
+            var idx: usize = 0;
+            for (target_module) |c| {
+                if (idx >= safe_buf.len - 1) break;
+                safe_buf[idx] = if (c == '.') '_' else c;
+                idx += 1;
+            }
+            try self.emit(safe_buf[0..idx]);
+            return true;
+        } else if (arg == .fstring) {
+            // F-string with single literal part = static name
+            if (arg.fstring.parts.len == 1 and arg.fstring.parts[0] == .literal) {
+                const target_module = arg.fstring.parts[0].literal;
                 var safe_buf: [256]u8 = undefined;
                 var idx: usize = 0;
                 for (target_module) |c| {
@@ -820,225 +872,223 @@ pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []c
                 }
                 try self.emit(safe_buf[0..idx]);
                 return true;
-            } else if (arg == .fstring) {
-                // F-string with single literal part = static name
-                if (arg.fstring.parts.len == 1 and arg.fstring.parts[0] == .literal) {
-                    const target_module = arg.fstring.parts[0].literal;
-                    var safe_buf: [256]u8 = undefined;
-                    var idx: usize = 0;
-                    for (target_module) |c| {
-                        if (idx >= safe_buf.len - 1) break;
-                        safe_buf[idx] = if (c == '.') '_' else c;
-                        idx += 1;
-                    }
-                    try self.emit(safe_buf[0..idx]);
-                    return true;
-                }
             }
         }
-        // Dynamic module name - emit runtime import call (returns module struct)
-        try self.emit("runtime.importlib.importModule(__global_allocator, ");
-        if (call.args.len > 0) {
-            try self.genExpr(call.args[0]);
-        } else {
-            try self.emit("\"\"");
+    }
+    // Dynamic module name - emit runtime import call
+    try self.emit("runtime.importlib.importModule(__global_allocator, ");
+    if (call.args.len > 0) {
+        try self.genExpr(call.args[0]);
+    } else {
+        try self.emit("\"\"");
+    }
+    try self.emit(")");
+    return true;
+}
+
+/// Handle support.Stopwatch() - Zig struct initialization
+fn handleSupportStopwatch(self: *NativeCodegen) CodegenError!bool {
+    try self.emit("support.Stopwatch.init()");
+    return true;
+}
+
+/// Handle support.adjust_int_max_str_digits(n)
+fn handleSupportAdjustDigits(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
+    const args = call.args;
+    try self.emitCallCtx("support.adjust_int_max_str_digits", args, struct {
+        pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
+            if (a.len > 0) {
+                try s.genExpr(a[0]);
+            }
         }
-        try self.emit(")");
+    }.f);
+    return true;
+}
+
+/// Handle _pylong.compute_powers with kwargs support
+fn handlePylongComputePowers(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
+    if (call.args.len < 3) {
+        try self.emit("(runtime.pylong.computePowers(__global_allocator, 0, 2, 0, false))");
         return true;
     }
-
-    // Handle test.support module context managers
-    // These are Zig structs that need .init() to be instantiated
-    if (std.mem.eql(u8, module_name, "support")) {
-        if (std.mem.eql(u8, func_name, "Stopwatch")) {
-            // support.Stopwatch() -> support.Stopwatch.init()
-            try self.emit("support.Stopwatch.init()");
-            return true;
-        }
-        if (std.mem.eql(u8, func_name, "adjust_int_max_str_digits")) {
-            // support.adjust_int_max_str_digits(n) -> support.adjust_int_max_str_digits(n)
-            // This is a function, not a struct, so it works normally
-            const args = call.args;
-            try self.emitCallCtx("support.adjust_int_max_str_digits", args, struct {
-                pub fn f(s: *NativeCodegen, a: []ast.Node) CodegenError!void {
-                    if (a.len > 0) {
-                        try s.genExpr(a[0]);
-                    }
+    try self.emit("(runtime.pylong.computePowers(__global_allocator, @intCast(");
+    try self.genExpr(call.args[0]);
+    try self.emit("), @intCast(");
+    try self.genExpr(call.args[1]);
+    try self.emit("), @intCast(");
+    try self.genExpr(call.args[2]);
+    try self.emit("), ");
+    // Handle need_hi kwarg
+    var found_need_hi = false;
+    for (call.keyword_args) |kw| {
+        if (std.mem.eql(u8, kw.name, "need_hi")) {
+            try self.withParensCtx(kw.value, struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                    try s.emit(" != 0");
                 }
             }.f);
-            return true;
+            found_need_hi = true;
+            break;
         }
     }
-
-    // Handle _pylong.compute_powers with kwargs support
-    if (std.mem.eql(u8, module_name, "_pylong") and std.mem.eql(u8, func_name, "compute_powers")) {
-        if (call.args.len < 3) {
-            try self.emit("(runtime.pylong.computePowers(__global_allocator, 0, 2, 0, false))");
-            return true;
-        }
-        try self.emit("(runtime.pylong.computePowers(__global_allocator, @intCast(");
-        try self.genExpr(call.args[0]);
-        try self.emit("), @intCast(");
-        try self.genExpr(call.args[1]);
-        try self.emit("), @intCast(");
-        try self.genExpr(call.args[2]);
-        try self.emit("), ");
-        // Handle need_hi kwarg - convert to bool with != 0 in case it's i64
-        // Uses withParensCtx for guaranteed bracket matching
-        var found_need_hi = false;
-        for (call.keyword_args) |kw| {
-            if (std.mem.eql(u8, kw.name, "need_hi")) {
-                try self.withParensCtx(kw.value, struct {
-                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
-                        try s.genExpr(e);
-                        try s.emit(" != 0");
-                    }
-                }.f);
-                found_need_hi = true;
-                break;
-            }
-        }
-        if (!found_need_hi) {
-            if (call.args.len > 3) {
-                try self.withParensCtx(call.args[3], struct {
-                    pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
-                        try s.genExpr(e);
-                        try s.emit(" != 0");
-                    }
-                }.f);
-            } else {
-                try self.emit("false");
-            }
-        }
-        try self.emit("))");
-        return true;
-    }
-
-    // Handle pickle.dumps with protocol kwarg
-    // pickle.dumps(obj, protocol=N) needs special handling for different protocols
-    if (std.mem.eql(u8, module_name, "pickle") and std.mem.eql(u8, func_name, "dumps")) {
-        if (call.args.len > 0) {
-            // Check for protocol kwarg
-            var protocol_value: ?i64 = null;
-
-            // Check positional arg first (args[1])
-            if (call.args.len > 1) {
-                if (call.args[1] == .constant and call.args[1].constant.value == .int) {
-                    protocol_value = call.args[1].constant.value.int;
+    if (!found_need_hi) {
+        if (call.args.len > 3) {
+            try self.withParensCtx(call.args[3], struct {
+                pub fn f(s: *NativeCodegen, e: ast.Node) CodegenError!void {
+                    try s.genExpr(e);
+                    try s.emit(" != 0");
                 }
-            }
-
-            // Check kwargs for protocol=N
-            for (call.keyword_args) |kw| {
-                if (std.mem.eql(u8, kw.name, "protocol")) {
-                    if (kw.value == .constant and kw.value.constant.value == .int) {
-                        protocol_value = kw.value.constant.value.int;
-                        break;
-                    }
-                }
-            }
-
-            // Infer type of first argument
-            const arg_type = self.type_inferrer.inferExpr(call.args[0]) catch .unknown;
-
-            if (type_traits.isBoolean(arg_type)) {
-                if (protocol_value != null and protocol_value.? >= 2) {
-                    // Protocol 2+: use binary format - return as PyBytes for correct type
-                    try self.emit("runtime.builtins.bytesLiteral(if (");
-                    try self.genExpr(call.args[0]);
-                    try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\")");
-                } else {
-                    // Protocol 0/1: use text format - return as PyBytes for correct type
-                    try self.emit("runtime.builtins.bytesLiteral(if (");
-                    try self.genExpr(call.args[0]);
-                    try self.emit(") \"I01\\n.\" else \"I00\\n.\")");
-                }
-                return true;
-            }
+            }.f);
+        } else {
+            try self.emit("false");
         }
     }
+    try self.emit("))");
+    return true;
+}
 
-    // Handle datetime.timedelta with keyword arguments (days=, seconds=, microseconds=)
-    if (std.mem.eql(u8, module_name, "datetime") and std.mem.eql(u8, func_name, "timedelta")) {
-        // Initialize defaults
-        var days_expr: ?ast.Node = null;
-        var seconds_expr: ?ast.Node = null;
-        var microseconds_expr: ?ast.Node = null;
+/// Handle pickle.dumps with protocol kwarg
+fn handlePickleDumps(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
+    if (call.args.len > 0) {
+        // Check for protocol kwarg
+        var protocol_value: ?i64 = null;
 
-        // Parse positional args (days, seconds, microseconds)
-        if (call.args.len >= 1) days_expr = call.args[0];
-        if (call.args.len >= 2) seconds_expr = call.args[1];
-        if (call.args.len >= 3) microseconds_expr = call.args[2];
+        // Check positional arg first (args[1])
+        if (call.args.len > 1) {
+            if (call.args[1] == .constant and call.args[1].constant.value == .int) {
+                protocol_value = call.args[1].constant.value.int;
+            }
+        }
 
-        // Parse keyword args
+        // Check kwargs for protocol=N
         for (call.keyword_args) |kw| {
-            if (std.mem.eql(u8, kw.name, "days")) days_expr = kw.value;
-            if (std.mem.eql(u8, kw.name, "seconds")) seconds_expr = kw.value;
-            if (std.mem.eql(u8, kw.name, "microseconds")) microseconds_expr = kw.value;
-        }
-
-        // Generate timedelta struct
-        try self.emit("runtime.datetime.Timedelta{ .days = ");
-        if (days_expr) |d| {
-            try self.genExpr(d);
-        } else {
-            try self.emit("0");
-        }
-        try self.emit(", .seconds = ");
-        if (seconds_expr) |s| {
-            try self.genExpr(s);
-        } else {
-            try self.emit("0");
-        }
-        try self.emit(", .microseconds = ");
-        if (microseconds_expr) |ms| {
-            try self.genExpr(ms);
-        } else {
-            try self.emit("0");
-        }
-        try self.emit(" }");
-        return true;
-    }
-
-    // Handle itertools.product with repeat keyword argument
-    // product(iterable, repeat=N) generates cartesian product of iterable with itself N times
-    if (std.mem.eql(u8, module_name, "itertools") and std.mem.eql(u8, func_name, "product")) {
-        // Check for repeat kwarg
-        var repeat_value: ?i64 = null;
-        for (call.keyword_args) |kw| {
-            if (std.mem.eql(u8, kw.name, "repeat")) {
+            if (std.mem.eql(u8, kw.name, "protocol")) {
                 if (kw.value == .constant and kw.value.constant.value == .int) {
-                    repeat_value = kw.value.constant.value.int;
+                    protocol_value = kw.value.constant.value.int;
                     break;
                 }
             }
         }
 
-        if (repeat_value) |repeat_n| {
-            if (call.args.len >= 1) {
-                // product(iterable, repeat=N) - create N copies of the iterable and compute cartesian product
-                // Use inline codegen to generate N nested loops - handles all element types
-                try itertools_mod.genProductWithRepeat(self, call.args[0], repeat_n);
-                return true;
+        // Infer type of first argument
+        const arg_type = self.type_inferrer.inferExpr(call.args[0]) catch .unknown;
+
+        if (type_traits.isBoolean(arg_type)) {
+            if (protocol_value != null and protocol_value.? >= 2) {
+                // Protocol 2+: use binary format
+                try self.emit("runtime.builtins.bytesLiteral(if (");
+                try self.genExpr(call.args[0]);
+                try self.emit(") \"\\x80\\x02\\x88.\" else \"\\x80\\x02\\x89.\")");
+            } else {
+                // Protocol 0/1: use text format
+                try self.emit("runtime.builtins.bytesLiteral(if (");
+                try self.genExpr(call.args[0]);
+                try self.emit(") \"I01\\n.\" else \"I00\\n.\")");
             }
+            return true;
         }
-        // Fall through to generic handler for product without repeat
+    }
+    return false; // Fall through to standard dispatch
+}
+
+/// Handle datetime.timedelta with keyword arguments
+fn handleDatetimeTimedelta(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
+    // Initialize defaults
+    var days_expr: ?ast.Node = null;
+    var seconds_expr: ?ast.Node = null;
+    var microseconds_expr: ?ast.Node = null;
+
+    // Parse positional args (days, seconds, microseconds)
+    if (call.args.len >= 1) days_expr = call.args[0];
+    if (call.args.len >= 2) seconds_expr = call.args[1];
+    if (call.args.len >= 3) microseconds_expr = call.args[2];
+
+    // Parse keyword args
+    for (call.keyword_args) |kw| {
+        if (std.mem.eql(u8, kw.name, "days")) days_expr = kw.value;
+        if (std.mem.eql(u8, kw.name, "seconds")) seconds_expr = kw.value;
+        if (std.mem.eql(u8, kw.name, "microseconds")) microseconds_expr = kw.value;
     }
 
-    // O(1) module lookup, then O(1) function lookup
+    // Generate timedelta struct
+    try self.emit("runtime.datetime.Timedelta{ .days = ");
+    if (days_expr) |d| {
+        try self.genExpr(d);
+    } else {
+        try self.emit("0");
+    }
+    try self.emit(", .seconds = ");
+    if (seconds_expr) |s| {
+        try self.genExpr(s);
+    } else {
+        try self.emit("0");
+    }
+    try self.emit(", .microseconds = ");
+    if (microseconds_expr) |ms| {
+        try self.genExpr(ms);
+    } else {
+        try self.emit("0");
+    }
+    try self.emit(" }");
+    return true;
+}
+
+/// Handle itertools.product with repeat keyword argument
+fn handleItertoolsProduct(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool {
+    // Check for repeat kwarg
+    var repeat_value: ?i64 = null;
+    for (call.keyword_args) |kw| {
+        if (std.mem.eql(u8, kw.name, "repeat")) {
+            if (kw.value == .constant and kw.value.constant.value == .int) {
+                repeat_value = kw.value.constant.value.int;
+                break;
+            }
+        }
+    }
+
+    if (repeat_value) |repeat_n| {
+        if (call.args.len >= 1) {
+            // product(iterable, repeat=N)
+            try itertools_mod.genProductWithRepeat(self, call.args[0], repeat_n);
+            return true;
+        }
+    }
+    return false; // Fall through to standard dispatch
+}
+
+/// Try to dispatch module function call (e.g., json.loads, os.getcwd)
+/// Returns true if dispatched successfully
+pub fn tryDispatch(self: *NativeCodegen, module_name: []const u8, func_name: []const u8, call: ast.Node.Call) CodegenError!bool {
+    // O(1) lookup for special cases
+    if (SpecialModuleFuncs.get(module_name)) |func_map| {
+        // Check for wildcard first, then specific function
+        const kind = func_map.get("*") orelse func_map.get(func_name);
+        if (kind) |k| {
+            const result = switch (k) {
+                .builtins_delegate => try handleBuiltinsDelegate(self, func_name, call),
+                .importlib_import => try handleImportlibImport(self, call),
+                .support_stopwatch => try handleSupportStopwatch(self),
+                .support_adjust_digits => try handleSupportAdjustDigits(self, call),
+                .pylong_compute_powers => try handlePylongComputePowers(self, call),
+                .pickle_dumps => try handlePickleDumps(self, call),
+                .datetime_timedelta => try handleDatetimeTimedelta(self, call),
+                .itertools_product => try handleItertoolsProduct(self, call),
+            };
+            if (result) return true;
+            // Some handlers return false to fall through to standard dispatch
+        }
+    }
+
+    // Standard O(1) module → function dispatch
     if (ModuleMap.get(module_name)) |func_map| {
         if (func_map.get(func_name)) |handler| {
-            // Try handler, but if it returns UnsupportedSyntax (e.g., needs kwargs),
-            // return false to let caller try runtime dispatch
             handler(self, call.args) catch |err| {
-                if (err == error.UnsupportedSyntax) {
-                    return false; // Handler declined, try other options
-                }
-                return err; // Propagate other errors
+                if (err == error.UnsupportedSyntax) return false;
+                return err;
             };
             return true;
         }
     }
-
     return false;
 }

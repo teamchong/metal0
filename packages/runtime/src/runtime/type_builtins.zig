@@ -163,7 +163,8 @@ fn toBool(value: anytype) bool {
         .int, .comptime_int => value != 0,
         .float, .comptime_float => value != 0.0,
         .optional => if (value) |v| toBool(v) else false,
-        .pointer => |p| if (p.size == .Slice) value.len > 0 else value != null,
+        // Slices check len, non-optional pointers are always truthy (can't be null)
+        .pointer => |p| if (p.size == .slice) value.len > 0 else true,
         else => true, // Objects are truthy by default
     };
 }

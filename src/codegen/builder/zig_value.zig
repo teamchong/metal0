@@ -320,6 +320,8 @@ pub const ZigValue = union(enum) {
                     .bit_not => break :blk .int, // Bitwise not always produces int
                 }
             },
+            // field_access - use type_hint if available for optimized comparisons
+            .field_access => |fa| if (fa.type_hint) |hint| hint else .other,
             else => .other,
         };
     }
@@ -655,6 +657,8 @@ pub const FieldAccessValue = struct {
     field: []const u8,
     /// Access confidence
     confidence: TypeConfidence,
+    /// Optional type hint for the field value (enables optimized comparison paths)
+    type_hint: ?CertainType = null,
 };
 
 /// Subscript/index access value

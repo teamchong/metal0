@@ -876,17 +876,28 @@ pub fn genStandardClosure(
         try self.emit(" } };\n");
 
         try self.emitIndent();
-        // Check if function name will be reassigned (e.g., bar = decorator(bar))
-        // If so, use var instead of const to allow the reassignment
-        // NOTE: We check saved_func_local_mutations (outer function's mutations) because
-        // at this point self.func_local_mutations has been replaced with the nested function's map
-        var outer_key_buf: [256]u8 = undefined;
-        const outer_key = std.fmt.bufPrint(&outer_key_buf, "{s}:0", .{func.name}) catch func.name;
-        const is_func_mutated = saved_func_local_mutations.contains(func.name) or
-            saved_func_local_mutations.contains(outer_key);
-        try self.emit(if (is_func_mutated) "var " else "const ");
-        try self.emitIdent(alias_name);
-        try self.emitFmt(" = {s};\n", .{closure_var_name});
+
+        // Check if this function was hoisted as a DynamicClosure (from if/else branch)
+        // In this case, we assign to the existing var instead of declaring a new one
+        const is_hoisted_closure = self.hoisted_dynamic_closures.contains(func.name);
+
+        if (is_hoisted_closure) {
+            // Assign to hoisted DynamicClosure variable (no var/const declaration)
+            try self.emitIdent(alias_name);
+            try self.emitFmt(" = {s};\n", .{closure_var_name});
+        } else {
+            // Check if function name will be reassigned (e.g., bar = decorator(bar))
+            // If so, use var instead of const to allow the reassignment
+            // NOTE: We check saved_func_local_mutations (outer function's mutations) because
+            // at this point self.func_local_mutations has been replaced with the nested function's map
+            var outer_key_buf: [256]u8 = undefined;
+            const outer_key = std.fmt.bufPrint(&outer_key_buf, "{s}:0", .{func.name}) catch func.name;
+            const is_func_mutated = saved_func_local_mutations.contains(func.name) or
+                saved_func_local_mutations.contains(outer_key);
+            try self.emit(if (is_func_mutated) "var " else "const ");
+            try self.emitIdent(alias_name);
+            try self.emitFmt(" = {s};\n", .{closure_var_name});
+        }
 
         // If we renamed the function, also add a var_rename so calls use the prefixed name
         if (shadows_import or is_redefinition) {
@@ -894,8 +905,10 @@ pub fn genStandardClosure(
             try self.var_renames.put(func.name, alias_copy);
         }
 
-        // Declare the alias name (using unique name if redefinition)
-        try self.declareVar(alias_name);
+        // Declare the alias name (using unique name if redefinition) - skip if hoisted
+        if (!is_hoisted_closure) {
+            try self.declareVar(alias_name);
+        }
 
         // Mark this variable as a closure so calls use .call() syntax
         const func_name_copy = try self.arena.allocator().dupe(u8, func.name);

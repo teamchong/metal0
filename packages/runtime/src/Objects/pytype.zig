@@ -186,22 +186,22 @@ pub fn getBuiltinType() ?*PyType {
 /// Calculate MRO using C3 linearization algorithm
 /// https://www.python.org/download/releases/2.3/mro/
 fn calculateMRO(allocator: std.mem.Allocator, cls: *PyType, bases: []const *PyType) ![]const *PyType {
-    var result = std.ArrayList(*PyType).init(allocator);
+    var result: std.ArrayList(*PyType) = .{};
 
     // Start with the class itself
-    try result.append(cls);
+    try result.append(allocator, cls);
 
     // Simple case: no bases
     if (bases.len == 0) {
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     // For single inheritance, just prepend to parent's MRO
     if (bases.len == 1) {
         for (bases[0].mro) |base| {
-            try result.append(base);
+            try result.append(allocator, base);
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice(allocator);
     }
 
     // Multiple inheritance: C3 linearization
@@ -214,13 +214,13 @@ fn calculateMRO(allocator: std.mem.Allocator, cls: *PyType, bases: []const *PyTy
     for (bases) |base| {
         for (base.mro) |mro_cls| {
             if (!seen.contains(mro_cls)) {
-                try result.append(mro_cls);
+                try result.append(allocator, mro_cls);
                 try seen.put(mro_cls, {});
             }
         }
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(allocator);
 }
 
 /// type.__new__(cls, name, bases, dict) - Create a new class

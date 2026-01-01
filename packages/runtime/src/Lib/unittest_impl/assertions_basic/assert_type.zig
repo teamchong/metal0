@@ -23,7 +23,7 @@ pub fn assertIs(a: anytype, b: anytype) !void {
         if (A == *runtime.PyObject and B == bool) {
             if (runtime.PyBool_Check(a)) {
                 const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(a));
-                const py_bool = bool_obj.ob_digit != 0;
+                const py_bool = bool_obj.getValue();
                 break :blk py_bool == b;
             }
             break :blk false;
@@ -31,7 +31,7 @@ pub fn assertIs(a: anytype, b: anytype) !void {
         if (B == *runtime.PyObject and A == bool) {
             if (runtime.PyBool_Check(b)) {
                 const bool_obj: *runtime.PyBoolObject = @ptrCast(@alignCast(b));
-                const py_bool = bool_obj.ob_digit != 0;
+                const py_bool = bool_obj.getValue();
                 break :blk a == py_bool;
             }
             break :blk false;

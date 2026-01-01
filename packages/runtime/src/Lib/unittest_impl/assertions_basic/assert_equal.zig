@@ -33,7 +33,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             return;
         } else if (a_is_null or b_is_null) {
             // One null, one not - not equal
-            std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+            std.debug.print("AssertionError: {} != {}\n", .{ a, b });
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
@@ -53,7 +53,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             return;
         } else {
             // a has value, b is null - not equal
-            std.debug.print("AssertionError: {any} != null\n", .{a});
+            std.debug.print("AssertionError: {} != null\n", .{a});
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
@@ -69,7 +69,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             return;
         } else {
             // a is null, b has value - not equal
-            std.debug.print("AssertionError: null != {any}\n", .{b});
+            std.debug.print("AssertionError: null != {}\n", .{b});
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
@@ -90,7 +90,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             return try assertEqual(unwrapped, b);
         } else {
             // a is null, b is not optional - they can't be equal unless b is null-like
-            std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+            std.debug.print("AssertionError: {} != {}\n", .{ a, b });
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
@@ -103,7 +103,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             return try assertEqual(a, unwrapped);
         } else {
             // b is null, a is not optional - they can't be equal unless a is null-like
-            std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+            std.debug.print("AssertionError: {} != {}\n", .{ a, b });
             if (runner.global_result) |result| {
                 result.addFail("assertEqual failed") catch {};
             }
@@ -145,7 +145,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
             if (runner.global_result) |result| result.addPass();
             return;
         }
-        std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+        std.debug.print("AssertionError: {} != {}\n", .{ a, b });
         if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
         return error.AssertionFailed;
     }
@@ -285,7 +285,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 }
                 return;
             } else {
-                std.debug.print("AssertionError: IntResult({any}) != {d}\n", .{ a, b_float });
+                std.debug.print("AssertionError: IntResult({}) != {d}\n", .{ a, b_float });
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
@@ -300,7 +300,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 }
                 return;
             } else {
-                std.debug.print("AssertionError: IntResult({any}) != {d}\n", .{ a, b_int });
+                std.debug.print("AssertionError: IntResult({}) != {d}\n", .{ a, b_int });
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
@@ -317,7 +317,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 }
                 return;
             } else {
-                std.debug.print("AssertionError: {d} != IntResult({any})\n", .{ a_float, b });
+                std.debug.print("AssertionError: {d} != IntResult({})\n", .{ a_float, b });
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
@@ -332,7 +332,7 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
                 }
                 return;
             } else {
-                std.debug.print("AssertionError: {d} != IntResult({any})\n", .{ a_int, b });
+                std.debug.print("AssertionError: {d} != IntResult({})\n", .{ a_int, b });
                 if (runner.global_result) |result| {
                     result.addFail("assertEqual failed") catch {};
                 }
@@ -786,11 +786,11 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
         if (a_is_string and b_is_string) {
             std.debug.print("AssertionError: '{s}' != '{s}'\n", .{ a, b });
         } else if (a_is_string) {
-            std.debug.print("AssertionError: '{s}' != {any}\n", .{ a, b });
+            std.debug.print("AssertionError: '{s}' != {}\n", .{ a, b });
         } else if (b_is_string) {
-            std.debug.print("AssertionError: {any} != '{s}'\n", .{ a, b });
+            std.debug.print("AssertionError: {} != '{s}'\n", .{ a, b });
         } else {
-            std.debug.print("AssertionError: {any} != {any}\n", .{ a, b });
+            std.debug.print("AssertionError: {} != {}\n", .{ a, b });
         }
         if (runner.global_result) |result| {
             result.addFail("assertEqual failed") catch {};

@@ -15,6 +15,7 @@ const object_zig = @import("../Objects/object.zig");
 const PyValue = object_zig.PyValue;
 const exceptions = @import("exceptions.zig");
 const PythonError = exceptions.PythonError;
+const type_predicates = @import("type_predicates.zig");
 
 /// Generic bool conversion for Python truthiness semantics
 /// Returns false for: 0, 0.0, false, empty strings, empty slices
@@ -30,12 +31,12 @@ pub fn toBool(value: anytype) bool {
     }
 
     // Handle integers
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return value != 0;
     }
 
     // Handle floats
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return value != 0.0;
     }
 
@@ -206,12 +207,12 @@ pub fn toBoolWithError(value: anytype) !bool {
     }
 
     // Handle integers
-    if (info == .int or info == .comptime_int) {
+    if (type_predicates.isIntInfo(info)) {
         return value != 0;
     }
 
     // Handle floats
-    if (info == .float or info == .comptime_float) {
+    if (type_predicates.isFloatInfo(info)) {
         return value != 0.0;
     }
 

@@ -210,7 +210,7 @@ fn parseInt(arg: *PyObject, va_args: anytype, idx: usize) bool {
     }
     const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(arg));
     if (idx < va_args.len) {
-        va_args[idx].* = @intCast(long_obj.ob_digit);
+        va_args[idx].* = @intCast(long_obj.getValue());
     }
     return true;
 }
@@ -222,7 +222,7 @@ fn parseLong(arg: *PyObject, va_args: anytype, idx: usize) bool {
     }
     const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(arg));
     if (idx < va_args.len) {
-        va_args[idx].* = long_obj.ob_digit;
+        va_args[idx].* = long_obj.getValue();
     }
     return true;
 }
@@ -238,7 +238,7 @@ fn parseDouble(arg: *PyObject, va_args: anytype, idx: usize) bool {
     if (cpython.PyLong_Check(arg)) {
         const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(arg));
         if (idx < va_args.len) {
-            va_args[idx].* = @floatFromInt(long_obj.ob_digit);
+            va_args[idx].* = @floatFromInt(long_obj.getValue());
         }
         return true;
     }
@@ -268,7 +268,7 @@ fn parseSsize(arg: *PyObject, va_args: anytype, idx: usize) bool {
     }
     const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(arg));
     if (idx < va_args.len) {
-        va_args[idx].* = @intCast(long_obj.ob_digit);
+        va_args[idx].* = @intCast(long_obj.getValue());
     }
     return true;
 }
@@ -277,10 +277,10 @@ fn parsePredicate(arg: *PyObject, va_args: anytype, idx: usize) bool {
     // Any object - check truthiness
     const is_true: c_int = if (cpython.PyBool_Check(arg)) blk: {
         const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(arg));
-        break :blk if (bool_obj.ob_digit != 0) 1 else 0;
+        break :blk if (bool_obj.getValue()) 1 else 0;
     } else if (cpython.PyLong_Check(arg)) blk: {
         const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(arg));
-        break :blk if (long_obj.ob_digit != 0) 1 else 0;
+        break :blk if (long_obj.getValue() != 0) 1 else 0;
     } else blk: {
         // Non-None objects are truthy
         break :blk if (arg != cpython.Py_None) 1 else 0;
@@ -400,15 +400,19 @@ fn buildSingleValue(allocator: Allocator, format: [*:0]const u8, fmt_idx: *usize
 
 fn buildLong(allocator: Allocator, val: anytype) ?*PyObject {
     const obj = allocator.create(cpython.PyLongObject) catch return null;
+    // Determine sign: 0=positive, 1=zero, 2=negative
+    const int_val: i64 = @intCast(val);
+    const sign: usize = if (int_val == 0) 1 else if (int_val < 0) 2 else 0;
+    const abs_val: u32 = if (int_val < 0) @intCast(-int_val) else @intCast(int_val);
     obj.* = .{
         .ob_base = .{
-            .ob_base = .{
-                .ob_refcnt = 1,
-                .ob_type = &cpython.PyLong_Type,
-            },
-            .ob_size = 1,
+            .ob_refcnt = 1,
+            .ob_type = &cpython.PyLong_Type,
         },
-        .ob_digit = @intCast(val),
+        .long_value = .{
+            .lv_tag = (1 << cpython._PyLong_NON_SIZE_BITS) | sign, // 1 digit
+            .ob_digit = .{abs_val},
+        },
     };
     return @ptrCast(obj);
 }
@@ -729,7 +733,7 @@ test "build long" {
     defer allocator.destroy(@as(*cpython.PyLongObject, @ptrCast(@alignCast(obj.?))));
 
     const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(obj.?));
-    try std.testing.expectEqual(@as(i64, 42), long_obj.ob_digit);
+    try std.testing.expectEqual(@as(i64, 42), long_obj.getValue());
 }
 
 test "build float" {

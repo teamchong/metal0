@@ -139,10 +139,11 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         try b.writeIndent();
         try b.emitRaw("for (");
         try zig_keywords.writeLocalVarName(writer, var_name);
-        try b.emitRaw(".values()) |value| {\n");
+        // Use __v to avoid shadowing outer scope variables named "value"
+        try b.emitRaw(".values()) |__v| {\n");
         self.indent();
         try b.writeIndent();
-        try b.writeFmt("{s}.free(value);\n", .{alloc_name});
+        try b.writeFmt("{s}.free(__v);\n", .{alloc_name});
         self.dedent();
         try b.writeIndent();
         try b.emitRaw("}\n");

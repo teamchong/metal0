@@ -28,6 +28,7 @@ const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const bigint_ops = @import("../expressions/operators/bigint_ops.zig");
 const unified_int_ops = @import("../expressions/operators/unified_int_ops.zig");
 const shared_maps = @import("../shared_maps.zig");
+const method_categories = @import("../dispatch/method_categories.zig");
 
 // MIGRATED TO ZIGBUILDER
 // NOTE: emitConst/emitFmtConst are DEPRECATED - use self.emit()/self.emitFmt() instead
@@ -272,6 +273,16 @@ pub const TestClassInfo = struct {
     has_tearDown: bool = false,
     has_setup_class: bool = false,
     has_teardown_class: bool = false,
+    /// True if this class came from a factory function (tuple unpacking)
+    /// Factory-returned classes are PyValue types, requiring runtime dispatch
+    is_factory_returned: bool = false,
+    /// For factory-returned classes: the original struct name inside the factory function
+    /// This is the actual Zig struct with .init() and test methods, as opposed to
+    /// class_name which may be the PyValue variable name from tuple unpacking
+    original_class_name: ?[]const u8 = null,
+    /// For factory-returned classes: the name of the factory function
+    /// Used along with original_class_name to construct scoped names for hoisting
+    factory_name: ?[]const u8 = null,
 };
 
 /// Factory function that returns test classes
@@ -490,6 +501,11 @@ pub const NativeCodegen = struct {
     // Track anytype parameters in current function scope (for comprehension iteration)
     anytype_params: FnvVoidMap,
 
+    // Track type-narrowed anytype params: param_name -> class_name
+    // Set inside `if isClassName(param):` blocks, cleared on exit
+    // Used to enable direct field access with correct types (vs getAttrDynamic which returns f64)
+    narrowed_type_params: FnvStringMap,
+
     // Track parameters with None defaults (need null comparison, not false literal)
     none_default_params: FnvVoidMap,
 
@@ -705,6 +721,11 @@ pub const NativeCodegen = struct {
     // These classes should be skipped during normal body generation
     hoisted_local_classes: FnvStringMap,
 
+    // Track factory test classes hoisted to module scope
+    // Maps original class name -> module-scope scoped name (e.g., "TestLegacyAPI" -> "test_factory__TestLegacyAPI")
+    // Used to skip inline class defs in factory bodies and reference hoisted classes
+    factory_hoisted_classes: FnvStringMap,
+
     // Track variables assigned from BigInt expressions
     // Used to detect when a variable's type is BigInt for subsequent operations
     bigint_vars: FnvVoidMap,
@@ -805,6 +826,10 @@ pub const NativeCodegen = struct {
     // True when generating code inside a defer block
     // In defer blocks, 'try' is not allowed, so we use 'catch {}' instead
     inside_defer: bool,
+
+    // True when generating code inside a const initializer (pub const ... = <expr>)
+    // In const initializers, 'try' is not allowed, so we use 'catch unreachable' instead
+    inside_const_init: bool,
 
     // True when generating code inside a finally block that can capture exceptions
     // When true, raise statements break out of the finally block with an error
@@ -1084,6 +1109,7 @@ pub const NativeCodegen = struct {
             .dict_vars = FnvVoidMap.init(aa),
             .target_dict_value_type = null,
             .anytype_params = FnvVoidMap.init(aa),
+            .narrowed_type_params = FnvStringMap.init(aa),
             .none_default_params = FnvVoidMap.init(aa),
             .mutable_classes = FnvVoidMap.init(aa),
             .error_init_classes = FnvVoidMap.init(aa),
@@ -1139,6 +1165,7 @@ pub const NativeCodegen = struct {
             .nested_class_names = FnvVoidMap.init(aa),
             .nested_class_aliases = FnvStringMap.init(aa),
             .hoisted_local_classes = FnvStringMap.init(aa),
+            .factory_hoisted_classes = FnvStringMap.init(aa),
             .bigint_vars = FnvVoidMap.init(aa),
             .pyvalue_vars = FnvVoidMap.init(aa),
             .imported_class_types = FnvVoidMap.init(aa),
@@ -1163,6 +1190,7 @@ pub const NativeCodegen = struct {
             .inside_method_with_self = false,
             .current_scope_id = 0,
             .inside_defer = false,
+            .inside_const_init = false,
             .inside_finally_block = false,
             .current_finally_id = 0,
             .finally_stack = std.ArrayList(FinallyContext){},
@@ -1536,13 +1564,16 @@ pub const NativeCodegen = struct {
         // Always check hoisted_vars first - these are function-level hoisted declarations
         if (self.hoisted_vars.contains(name)) return true;
 
+        // Check var_renames - this handles TryHelper captured variables and other renames
+        // TryHelper creates parameter copies like __local_x_1 and adds x -> __local_x_1 to var_renames
+        // These should count as "declared" to prevent redeclaration during tuple unpacking
+        if (self.var_renames.contains(name)) return true;
+
         if (self.inside_nested_function) {
             // Inside nested function: check all scopes from nested_function_base_scope to current
             // This includes variables declared in block scopes (like for loops) within the function
             // but excludes variables from outer (enclosing) function scopes
-            if (self.symbol_table.isDeclaredFromScopeLevel(name, self.nested_function_base_scope)) return true;
-            // Captured variables are in var_renames, they should count as "declared"
-            return self.var_renames.contains(name);
+            return self.symbol_table.isDeclaredFromScopeLevel(name, self.nested_function_base_scope);
         }
         return self.symbol_table.lookup(name) != null;
     }
@@ -1559,8 +1590,8 @@ pub const NativeCodegen = struct {
         return self.symbol_table.lookup(name) != null;
     }
 
-    /// CONSOLIDATED: Check if a parameter name would shadow any declaration
-    /// This is the SINGLE SOURCE OF TRUTH for parameter shadowing detection.
+    /// CONSOLIDATED: Check if a parameter name would shadow any ACTUAL declaration
+    /// This is the SINGLE SOURCE OF TRUTH for determining if `__shadow` naming is needed.
     /// All codegen that generates function/method parameters should use this.
     ///
     /// Checks (in order):
@@ -1568,20 +1599,16 @@ pub const NativeCodegen = struct {
     /// 2. Module-level variable names (self.module_level_vars)
     /// 3. Imported module names (self.imported_modules)
     /// 4. From-import symbols (self.module_level_from_imports) - e.g., 'deque' from 'from collections import deque'
-    /// 5. Common method names that conflict with Zig builtins (zig_keywords.wouldShadowMethod)
-    /// 6. Common module names (zig_keywords.wouldShadowModule)
     ///
-    /// Returns true if the parameter name would cause a shadowing error in Zig.
+    /// NOTE: Does NOT check wouldShadowMethod/wouldShadowModule - those are handled
+    /// by zig_keywords.writeParamName with a simple `_` suffix (e.g., "stop" -> "stop_").
     pub fn wouldParamShadow(self: *const NativeCodegen, param_name: []const u8) bool {
         // Check module-level declarations tracked at codegen time
+        // These are ACTUAL variables/functions that would be shadowed
         if (self.module_level_funcs.contains(param_name)) return true;
         if (self.module_level_vars.contains(param_name)) return true;
         if (self.imported_modules.contains(param_name)) return true;
         if (self.module_level_from_imports.contains(param_name)) return true;
-
-        // Check static lists of known-problematic names
-        if (zig_keywords.wouldShadowMethod(param_name)) return true;
-        if (zig_keywords.wouldShadowModule(param_name)) return true;
 
         return false;
     }
@@ -1707,6 +1734,13 @@ pub const NativeCodegen = struct {
         if (self.type_inferrer.isUncertain(name)) {
             return true;
         }
+        // Check if this is a module-level conditional variable declared as PyValue
+        // These are variables assigned in both if/else branches with different types
+        if (self.conditional_var_types.get(name)) |zig_type| {
+            if (std.mem.eql(u8, zig_type, "runtime.PyValue")) {
+                return true;
+            }
+        }
         // Variable is certain - use raw Zig type for performance
         return false;
     }
@@ -1720,8 +1754,10 @@ pub const NativeCodegen = struct {
             // Don't use VM fallback for lambdas - they're handled natively
             .lambda => return false,
 
-            // Generator expressions need fallback (lazy evaluation)
-            .genexp => return true,
+            // Generator expressions use native codegen in comp_genexp.zig
+            // They're treated as eager list comprehensions for AOT compilation
+            // Using VM fallback breaks local variable access (e.g., `any(ch in lit for ch in 'xyz')`)
+            .genexp => return false,
 
             // Function calls - check if we can determine the return type
             .call => |call| {
@@ -1787,24 +1823,8 @@ pub const NativeCodegen = struct {
                         if (self.current_method_first_param) |first_param| {
                             if (std.mem.eql(u8, var_name, first_param) or std.mem.eql(u8, var_name, "self")) {
                                 // Check if method being called is a unittest assertion
-                                const method_name = attr.attr;
-                                const unittest_methods = [_][]const u8{
-                                    "assertEqual",        "assertNotEqual",     "assertTrue",
-                                    "assertFalse",        "assertIs",           "assertIsNot",
-                                    "assertIsNone",       "assertIsNotNone",    "assertIn",
-                                    "assertNotIn",        "assertRaises",       "assertRaisesRegex",
-                                    "assertWarns",        "assertWarnsRegex",   "assertGreater",
-                                    "assertGreaterEqual", "assertLess",         "assertLessEqual",
-                                    "assertAlmostEqual",  "assertNotAlmostEqual", "assertSequenceEqual",
-                                    "assertListEqual",    "assertTupleEqual",   "assertSetEqual",
-                                    "assertDictEqual",    "assertMultiLineEqual", "assertCountEqual",
-                                    "assertRegex",        "assertNotRegex",     "subTest",
-                                    "skipTest",           "fail",
-                                };
-                                for (unittest_methods) |ut_method| {
-                                    if (std.mem.eql(u8, method_name, ut_method)) {
-                                        return false; // Native dispatch handles unittest methods
-                                    }
+                                if (method_categories.isUnittestAssertion(attr.attr)) {
+                                    return false; // Native dispatch handles unittest methods
                                 }
                             }
                         }
@@ -1812,14 +1832,8 @@ pub const NativeCodegen = struct {
                         // String methods on uncertain types are handled via PyValue.from(obj).method()
                         if (self.isVarUncertain(var_name)) {
                             const method_name = attr.attr;
-                            const pyvalue_string_methods = [_][]const u8{
-                                "startswith", "endswith", "strip", "lstrip", "rstrip",
-                                "split", "find", "upper", "lower", "replace",
-                            };
-                            for (pyvalue_string_methods) |pyv_method| {
-                                if (std.mem.eql(u8, method_name, pyv_method)) {
-                                    return false; // Let dispatch handle via PyValue methods
-                                }
+                            if (method_categories.isPyValueStringMethod(method_name)) {
+                                return false; // Let dispatch handle via PyValue methods
                             }
                             // Float methods on uncertain types - native dispatch extracts float via .asFloat()
                             const pyvalue_float_methods = [_][]const u8{
@@ -2319,6 +2333,13 @@ pub const NativeCodegen = struct {
                         if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_c_") != null) break :blk renamed;
                         // Shadow variables for type-changing assignments (__m*_s_*) - e.g., x /= 2 changes int to float
                         if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_s_") != null) break :blk renamed;
+                        // Local variable renames (__m*_l_*) - e.g., kwargs -> __m41_l_kwargs
+                        if (std.mem.startsWith(u8, renamed, "__m") and std.mem.indexOf(u8, renamed, "_l_") != null) break :blk renamed;
+                        // Parameter renames with underscore suffix (e.g., stop -> stop_) for method/module shadowing
+                        // These MUST apply even for func_local_vars to maintain consistency with signature
+                        if (std.mem.endsWith(u8, renamed, "_") and renamed.len == orig_name.len + 1) break :blk renamed;
+                        // Parameter renames with _param suffix (e.g., stop -> stop_param) for default params
+                        if (std.mem.endsWith(u8, renamed, "_param")) break :blk renamed;
                     }
                     // Local vars/params take precedence - don't rename them
                     if (self.func_local_vars.contains(orig_name)) break :blk orig_name;
@@ -2326,6 +2347,15 @@ pub const NativeCodegen = struct {
                     if (self.var_renames.get(orig_name)) |renamed| break :blk renamed;
                     break :blk orig_name;
                 };
+
+                // Handle nested class self-reference: when inside a class and referencing that class by name
+                // The class name maps to @This() because Zig doesn't allow referencing a const before it's defined
+                // (same logic as expressions.zig genName)
+                if (self.current_class_name) |class_name| {
+                    if (std.mem.eql(u8, name, class_name)) {
+                        return builder_mod.ZigValue.raw("@This()");
+                    }
+                }
 
                 // Check type confidence from inferrer
                 if (self.type_inferrer.getTypedVar(name)) |typed| {
@@ -2341,9 +2371,20 @@ pub const NativeCodegen = struct {
                     return builder_mod.ZigValue.raw(name);
                 }
 
+                // Check for Python primitive type names first (int, float, bool)
+                // These map directly to Zig types and must be emitted raw to avoid escaping
+                // (e.g., 'bool' is a Zig keyword, would become @"bool" if not handled)
+                const primitive_types = std.StaticStringMap([]const u8).initComptime(.{
+                    .{ "int", "i64" },
+                    .{ "float", "f64" },
+                    .{ "bool", "bool" },
+                });
+                if (primitive_types.get(orig_name)) |zig_type| {
+                    return builder_mod.ZigValue.raw(zig_type);
+                }
+
                 // Check for Python builtin type names (list, dict, etc.)
                 // These should be emitted as runtime.builtins.* references
-                // Note: int is NOT included here to avoid conflict with issubclass(x, int)
                 const builtin_types = std.StaticStringMap([]const u8).initComptime(.{
                     .{ "list", "runtime.builtins.list" },
                     .{ "dict", "runtime.builtins.dict" },
@@ -2351,6 +2392,7 @@ pub const NativeCodegen = struct {
                     .{ "tuple", "runtime.builtins.tuple" },
                     .{ "str", "runtime.builtins.str_factory" },
                     .{ "bytes", "runtime.builtins.bytes_factory" },
+                    .{ "object", "runtime.builtins.object" },
                 });
                 if (builtin_types.get(orig_name)) |zig_name| {
                     return builder_mod.ZigValue.raw(zig_name);
@@ -2738,15 +2780,33 @@ pub const NativeCodegen = struct {
                         }
 
                         // Check for anytype param directly (e.g., other.__den in @This() branch)
-                        // When attribute matches current class field, treat as certain
+                        // Code emission checks (in order): var_renames, narrowed_type_params, anytype_params
+                        // If redirected/narrowed, uses direct field access. Otherwise uses getAttrDynamic.
                         if (self.anytype_params.contains(base_name)) {
+                            // Check if code emission will use direct field access (not getAttrDynamic)
+                            // 1. var_renames redirects (e.g., other -> other_converted in int branch)
+                            // 2. narrowed_type_params (inside if isRat(other): uses direct access)
+                            const uses_direct_access = self.var_renames.contains(base_name) or
+                                self.narrowed_type_params.contains(base_name);
+
                             if (self.current_class_name) |class_name| {
                                 if (self.type_inferrer.class_fields.get(class_name)) |class_info| {
                                     if (class_info.fields.get(a.attr)) |field_type| {
                                         if (field_type == .pyvalue or field_type == .unknown) {
                                             break :blk .{ .confidence = .uncertain, .type_hint = null };
                                         }
-                                        break :blk .{ .confidence = .certain, .type_hint = nativeTypeToCertainType(field_type) };
+                                        if (uses_direct_access) {
+                                            // Direct field access: use actual field type
+                                            break :blk .{ .confidence = .certain, .type_hint = nativeTypeToCertainType(field_type) };
+                                        }
+                                        // No redirect/narrow: getAttrDynamic returns f64 for numeric types
+                                        const hint: ?builder_mod.CertainType = switch (field_type) {
+                                            .int, .float => .float, // getAttrDynamic returns f64
+                                            .bool => .bool_,
+                                            .string => .string,
+                                            else => null,
+                                        };
+                                        break :blk .{ .confidence = .certain, .type_hint = hint };
                                     }
                                 }
                             }
@@ -3033,6 +3093,29 @@ pub const NativeCodegen = struct {
         try self.emit(fbs.getWritten());
     }
 
+    /// Emit a struct member name (method or field) with proper renaming/escaping.
+    /// Use this for pub fn/pub const declarations inside structs.
+    /// Unlike emitIdent which just escapes with @"", this RENAMES "std" to "std_"
+    /// to avoid shadowing the module-level std import.
+    /// NOTE: This writes through the builder to maintain correct output order.
+    pub fn emitStructMemberName(self: *NativeCodegen, name: []const u8) CodegenError!void {
+        // Write to temp buffer first to go through builder (maintains output order)
+        var buf: [512]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+        zig_keywords.writeStructMethodName(fbs.writer(), name) catch |err| switch (err) {
+            error.NoSpaceLeft => {
+                // Name too long for fixed buffer, fall back to dynamic allocation
+                var list: std.ArrayList(u8) = .{};
+                defer list.deinit(self.allocator);
+                try zig_keywords.writeStructMethodName(list.writer(self.allocator), name);
+                try self.emit(list.items);
+                return;
+            },
+            else => |e| return e,
+        };
+        try self.emit(fbs.getWritten());
+    }
+
     /// Emit a dotted identifier with proper escaping (e.g., "test.support" -> "@\"test\".@\"support\"").
     /// Use this for module names with dots.
     /// NOTE: This writes through the builder to maintain correct output order.
@@ -3080,6 +3163,7 @@ pub const NativeCodegen = struct {
     /// Must call clearDiscardedParams() when entering a new function scope.
     ///
     /// The parameter name in the discard must match the signature:
+    /// - If param was renamed via var_renames (e.g., __m40_p_types): use that name
     /// - If param shadows class method, module-level, or local scope: {name}__shadow
     /// - Otherwise: use writeLocalVarName (handles Zig keyword escaping)
     pub fn emitParamDiscard(self: *NativeCodegen, param_name: []const u8) CodegenError!void {
@@ -3089,6 +3173,21 @@ pub const NativeCodegen = struct {
         }
         // Mark as discarded
         try self.discarded_params.put(param_name, {});
+
+        // First, check if the parameter was renamed via var_renames
+        // (e.g., types -> __m40_p_types). If so, use the renamed name directly.
+        // Special case: if renamed to "_", the param was made anonymous - skip discard entirely
+        if (self.var_renames.get(param_name)) |renamed| {
+            if (std.mem.eql(u8, renamed, "_")) {
+                // Anonymous parameter - no discard needed
+                return;
+            }
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(renamed);
+            try self.emit(";\n");
+            return;
+        }
 
         // Check if param was renamed to {name}__shadow in the signature
         // This mirrors the logic in signature.zig:genMethodParam
@@ -4088,6 +4187,15 @@ pub const NativeCodegen = struct {
     /// Check if a class is a metaclass (inherits from type)
     /// Used for handling super().__new__() in metaclass __new__ methods
     pub fn isClassMetaclass(self: *NativeCodegen, class_name: []const u8) bool {
+        return self.isClassMetaclassWithDepth(class_name, 0);
+    }
+
+    fn isClassMetaclassWithDepth(self: *NativeCodegen, class_name: []const u8, depth: usize) bool {
+        // Cycle detection: if we've traversed too deep, assume not a metaclass
+        if (depth >= MAX_INHERITANCE_DEPTH) {
+            return false;
+        }
+
         // Get the parent class from inheritance registry
         const parent = self.class_registry.inheritance.get(class_name) orelse return false;
 
@@ -4096,13 +4204,25 @@ pub const NativeCodegen = struct {
             return true;
         }
 
-        // Check if parent is also a metaclass (recursive)
-        return self.isClassMetaclass(parent);
+        // Check if parent is also a metaclass (recursive with depth tracking)
+        return self.isClassMetaclassWithDepth(parent, depth + 1);
     }
 
     /// Check if a class name inherits from unittest.TestCase (directly or indirectly)
     /// This traverses the inheritance chain through imported modules and local classes
     pub fn isTestCaseSubclass(self: *NativeCodegen, class_name: []const u8) bool {
+        return self.isTestCaseSubclassWithDepth(class_name, 0);
+    }
+
+    /// Maximum inheritance depth to prevent infinite loops in circular inheritance chains
+    const MAX_INHERITANCE_DEPTH = 32;
+
+    fn isTestCaseSubclassWithDepth(self: *NativeCodegen, class_name: []const u8, depth: usize) bool {
+        // Cycle detection: if we've traversed too deep, assume not a TestCase subclass
+        if (depth >= MAX_INHERITANCE_DEPTH) {
+            return false;
+        }
+
         // Direct check for unittest.TestCase
         if (std.mem.eql(u8, class_name, "unittest.TestCase")) {
             return true;
@@ -4132,15 +4252,15 @@ pub const NativeCodegen = struct {
         // Check class registry for local class definitions
         if (self.class_registry.getClass(class_name)) |parent_class| {
             if (parent_class.bases.len > 0) {
-                // Recursively check parent's base
-                return self.isTestCaseSubclass(parent_class.bases[0]);
+                // Recursively check parent's base with incremented depth
+                return self.isTestCaseSubclassWithDepth(parent_class.bases[0], depth + 1);
             }
         }
 
         // Check nested class definitions
         if (self.nested_class_defs.get(class_name)) |parent_class| {
             if (parent_class.bases.len > 0) {
-                return self.isTestCaseSubclass(parent_class.bases[0]);
+                return self.isTestCaseSubclassWithDepth(parent_class.bases[0], depth + 1);
             }
         }
 

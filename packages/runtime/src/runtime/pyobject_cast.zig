@@ -17,7 +17,7 @@ pub inline fn castConst(comptime T: type, obj: anytype) *const T {
 /// Returns the numeric value directly
 pub inline fn getLongValue(obj: anytype, comptime PyLongObject: type) i64 {
     const long_obj: *PyLongObject = @ptrCast(@alignCast(obj));
-    return long_obj.ob_digit;
+    return long_obj.getValue();
 }
 
 pub inline fn getFloatValue(obj: anytype, comptime PyFloatObject: type) f64 {
@@ -27,7 +27,7 @@ pub inline fn getFloatValue(obj: anytype, comptime PyFloatObject: type) f64 {
 
 pub inline fn getBoolValue(obj: anytype, comptime PyBoolObject: type) bool {
     const bool_obj: *PyBoolObject = @ptrCast(@alignCast(obj));
-    return bool_obj.ob_digit != 0;
+    return bool_obj.getValue();
 }
 
 /// Get size/length for container types

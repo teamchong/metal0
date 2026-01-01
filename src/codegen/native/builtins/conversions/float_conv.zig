@@ -133,6 +133,12 @@ pub fn genFloat(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         }
     }
 
+    // Complex type - float(complex) raises TypeError in Python
+    if (type_traits.isComplex(arg_type)) {
+        try self.emit("(blk: { return error.TypeError; unreachable; })");
+        return;
+    }
+
     // Already a float - just return it
     if (type_traits.isFloating(arg_type)) {
         try self.genExpr(args[0]);

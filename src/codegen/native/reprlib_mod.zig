@@ -5,6 +5,6 @@ const h = @import("mod_helper.zig");
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "Repr", h.c(".{ .maxlevel = 6, .maxtuple = 6, .maxlist = 6, .maxarray = 5, .maxdict = 4, .maxset = 6, .maxfrozenset = 6, .maxdeque = 6, .maxstring = 30, .maxlong = 40, .maxother = 30, .fillvalue = \"...\" }") },
-    .{ "repr", h.wrapBlk("repr", "", "std.fmt.allocPrint(__global_allocator, \"{any}\", .{__v}) catch \"<repr error>\"", "\"\"") },
+    .{ "repr", h.wrapBlk("repr", "", "std.fmt.allocPrint(__global_allocator, \"{}\", .{__v}) catch \"<repr error>\"", "\"\"") },
     .{ "recursive_repr", h.c("@as(?*const fn(anytype) anytype, null)") },
 });

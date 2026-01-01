@@ -2,6 +2,7 @@
 const std = @import("std");
 const bigint = @import("bigint");
 const BigInt = bigint.BigInt;
+const type_predicates = @import("../type_predicates.zig");
 
 /// Python error types
 pub const PythonError = error{
@@ -33,9 +34,9 @@ pub fn floatAsIntegerRatioBigInt(allocator: std.mem.Allocator, value: anytype) !
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
-    const f: f64 = if (type_info == .float or type_info == .comptime_float)
+    const f: f64 = if (type_predicates.isFloatInfo(type_info))
         @as(f64, value)
-    else if (type_info == .int or type_info == .comptime_int)
+    else if (type_predicates.isIntInfo(type_info))
         @as(f64, @floatFromInt(value))
     else if (type_info == .@"struct" and @hasField(T, "__base_value__"))
         @as(f64, value.__base_value__)
@@ -102,9 +103,9 @@ pub fn floatAsIntegerRatio(value: anytype) PythonError!struct { i64, i64 } {
     const T = @TypeOf(value);
     const type_info = @typeInfo(T);
 
-    const f: f64 = if (type_info == .float or type_info == .comptime_float)
+    const f: f64 = if (type_predicates.isFloatInfo(type_info))
         @as(f64, value)
-    else if (type_info == .int or type_info == .comptime_int)
+    else if (type_predicates.isIntInfo(type_info))
         @as(f64, @floatFromInt(value))
     else if (type_info == .@"struct" and @hasField(T, "__base_value__"))
         @as(f64, value.__base_value__)

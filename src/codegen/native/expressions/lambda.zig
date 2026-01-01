@@ -61,6 +61,7 @@ const lambda_closure = @import("lambda_closure.zig");
 const shared = @import("../shared_maps.zig");
 const ListMethodsMap = shared.MutatingMethods;
 const StringMethodsMap = shared.StringMethods;
+const method_categories = @import("../dispatch/method_categories.zig");
 
 const TypeStrToNativeMap = std.StaticStringMap(NativeType).initComptime(.{
     .{ "i64", NativeType{ .int = .bounded } },
@@ -680,11 +681,9 @@ fn analyzeParamUsage(self: *NativeCodegen, param_name: []const u8, node: ast.Nod
             // These methods accept any type, so parameter should be anytype
             if (c.func.* == .attribute) {
                 const method_name = c.func.attribute.attr;
-                // assertRaises/assertRaisesRegex pass the value to bool(), int(), etc.
+                // assertRaises/assertRaisesRegex/etc pass the value to bool(), int(), etc.
                 // which can accept any class instance - use anytype
-                if (std.mem.eql(u8, method_name, "assertRaises") or
-                    std.mem.eql(u8, method_name, "assertRaisesRegex"))
-                {
+                if (method_categories.isAssertContextManager(method_name)) {
                     // Check if param is passed to this method (3rd arg is typically the value)
                     for (c.args) |arg| {
                         if (arg == .name and std.mem.eql(u8, arg.name.id, param_name)) {
@@ -876,8 +875,7 @@ fn isAssertRaisesCall(node: ast.Node) bool {
     if (call.func.* != .attribute) return false;
     const attr = call.func.attribute;
     const method_name = attr.attr;
-    return std.mem.eql(u8, method_name, "assertRaises") or
-        std.mem.eql(u8, method_name, "assertRaisesRegex");
+    return method_categories.isAssertContextManager(method_name);
 }
 
 /// Check if a lambda body calls a nested class constructor

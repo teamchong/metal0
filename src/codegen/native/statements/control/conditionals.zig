@@ -73,6 +73,47 @@ const TypeCheckRaiseInfo = struct {
     check_type: []const u8, // "int", "float", etc.
 };
 
+/// Info about a positive type check: if isClassName(x): ... OR if isinstance(x, ClassName): ...
+/// Used for type narrowing within the if-body
+const TypeNarrowingInfo = struct {
+    param_name: []const u8,
+    class_name: []const u8,
+};
+
+/// Detect if condition is a positive type check on an anytype param
+/// Returns info to narrow the type within the if-body
+/// Pattern: isClassName(x) or isinstance(x, ClassName) where x is anytype
+fn detectTypeNarrowingCondition(condition: ast.Node, anytype_params: anytype) ?TypeNarrowingInfo {
+    if (condition != .call) return null;
+    const call = condition.call;
+    if (call.func.* != .name) return null;
+    const func_name = call.func.name.id;
+
+    // Pattern 1: isClassName(param) - e.g., isRat(other)
+    if (std.mem.startsWith(u8, func_name, "is") and call.args.len >= 1 and call.args[0] == .name) {
+        const arg_name = call.args[0].name.id;
+        if (anytype_params.contains(arg_name)) {
+            // Extract class name from isClassName -> ClassName
+            const class_name = func_name[2..]; // Remove "is" prefix
+            if (class_name.len > 0) {
+                return TypeNarrowingInfo{ .param_name = arg_name, .class_name = class_name };
+            }
+        }
+    }
+    // Pattern 2: isinstance(param, ClassName)
+    else if (std.mem.eql(u8, func_name, "isinstance")) {
+        if (call.args.len >= 2 and call.args[0] == .name and call.args[1] == .name) {
+            const arg_name = call.args[0].name.id;
+            const type_name = call.args[1].name.id;
+            if (anytype_params.contains(arg_name)) {
+                return TypeNarrowingInfo{ .param_name = arg_name, .class_name = type_name };
+            }
+        }
+    }
+
+    return null;
+}
+
 /// Check if an if statement is a type-check-then-raise pattern for an anytype param
 /// Pattern: if not isinstance(x, int): raise TypeError  OR  if not isint(x): raise TypeError
 fn isTypeCheckRaisePattern(if_stmt: ast.Node.If, anytype_params: anytype) ?TypeCheckRaiseInfo {
@@ -587,8 +628,22 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
     const saved_control_flow = self.control_flow_terminated;
     self.control_flow_terminated = false;
 
+    // Type narrowing: if condition is isClassName(param) or isinstance(param, ClassName),
+    // track the narrowed type for the param so attribute access can use direct field access
+    // for known fields (preserves i64/f64 types) instead of getAttrDynamic (always returns f64).
+    // Methods still use getAttrDynamic since they need callable dispatch.
+    const narrowing = detectTypeNarrowingCondition(if_stmt.condition.*, self.anytype_params);
+    if (narrowing) |info| {
+        self.narrowed_type_params.put(info.param_name, info.class_name) catch {};
+    }
+
     for (if_stmt.body) |stmt| {
         try self.generateStmt(stmt);
+    }
+
+    // Clear narrowed type after if-body (doesn't apply in else branch or after)
+    if (narrowing) |info| {
+        _ = self.narrowed_type_params.swapRemove(info.param_name);
     }
 
     const if_body_terminates = self.control_flow_terminated;

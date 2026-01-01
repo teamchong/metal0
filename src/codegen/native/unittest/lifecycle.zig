@@ -18,9 +18,10 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("_ = try unittest.initRunner(__global_allocator);\n\n");
 
-    // Count total runnable tests
+    // Count total runnable tests (skip factory-returned - they run inside factory)
     var total_tests: usize = 0;
     for (self.unittest_classes.items) |class_info| {
+        if (class_info.is_factory_returned) continue;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason == null) {
                 total_tests += 1;
@@ -28,8 +29,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         }
     }
 
-    // Print skipped tests first
+    // Print skipped tests first (skip factory-returned - they run inside factory)
     for (self.unittest_classes.items) |class_info| {
+        if (class_info.is_factory_returned) continue;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason) |reason| {
                 try self.emitIndent();
@@ -38,8 +40,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         }
     }
 
-    // Create test class instances
+    // Create test class instances (skip factory-returned - they run inside factory)
     for (self.unittest_classes.items) |class_info| {
+        if (class_info.is_factory_returned) continue;
         var has_runnable_tests = false;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason == null) {
@@ -50,11 +53,8 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
 
         try self.emitIndent();
         if (has_runnable_tests) {
-            // init() returns error union - use try to handle error
             try self.output.writer(self.allocator).print("var _test_instance_{s} = try {s}.init(__global_allocator);\n", .{ class_info.class_name, class_info.class_name });
         } else {
-            // No runnable tests, but still need to instantiate for side effects
-            // Use catch to discard error and value
             try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator) catch undefined;\n", .{class_info.class_name});
         }
 
@@ -91,8 +91,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.output.writer(self.allocator).print("const test_names: [{d}][]const u8 = .{{\n", .{total_tests});
     self.indent();
 
-    // Initialize test names array
+    // Initialize test names array (skip factory-returned - they run inside factory)
     for (self.unittest_classes.items) |class_info| {
+        if (class_info.is_factory_returned) continue;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason != null) continue;
             try self.emitIndent();
@@ -103,9 +104,10 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("};\n\n");
 
-    // Spawn test threads
+    // Spawn test threads (skip factory-returned - they run inside factory)
     var global_test_idx: usize = 0;
     for (self.unittest_classes.items) |class_info| {
+        if (class_info.is_factory_returned) continue;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason != null) continue;
 
@@ -239,8 +241,9 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
     try self.emitIndent();
     try self.emit("}\n\n");
 
-    // Call tearDownClass for all classes
+    // Call tearDownClass for all classes (skip factory-returned - they run inside factory)
     for (self.unittest_classes.items) |class_info| {
+        if (class_info.is_factory_returned) continue;
         var has_runnable_tests = false;
         for (class_info.test_methods) |method_info| {
             if (method_info.skip_reason == null) {

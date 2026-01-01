@@ -3,6 +3,7 @@ const std = @import("std");
 const runner = @import("../../unittest/runner.zig");
 const runtime = @import("../../../runtime.zig");
 const PyValue = runtime.PyValue;
+const type_predicates = @import("../../../runtime/type_predicates.zig");
 
 /// Assertion: assertStartsWith(text, prefix) - string must start with prefix
 pub fn assertStartsWith(text: []const u8, prefix: []const u8) !void {
@@ -57,7 +58,7 @@ fn extractFloat(comptime T: type, value: T) f64 {
     } else {
         // Regular numeric type
         const info = @typeInfo(T);
-        if (info == .int or info == .comptime_int) {
+        if (type_predicates.isIntInfo(info)) {
             return @floatFromInt(value);
         } else {
             return @floatCast(value);

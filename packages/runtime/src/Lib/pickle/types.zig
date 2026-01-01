@@ -75,17 +75,20 @@ pub fn pickleValueToPyObject(value: PickleValue, allocator: std.mem.Allocator) !
         .none => runtime.Py_None,
         .bool => |b| if (b) runtime.Py_True else runtime.Py_False,
         .int => |i| blk: {
-            // Create CPython-compatible PyLongObject
+            // Create CPython-compatible PyLongObject (Python 3.12+ layout)
             const long_obj = try allocator.create(runtime.PyLongObject);
+            // Determine sign: 0=positive, 1=zero, 2=negative
+            const sign: usize = if (i == 0) 1 else if (i < 0) 2 else 0;
+            const abs_val: u32 = if (i < 0) @intCast(-i) else @intCast(i);
             long_obj.* = .{
                 .ob_base = .{
-                    .ob_base = .{
-                        .ob_refcnt = 1,
-                        .ob_type = &runtime.cpython.PyLong_Type,
-                    },
-                    .ob_size = 1,
+                    .ob_refcnt = 1,
+                    .ob_type = &runtime.cpython.PyLong_Type,
                 },
-                .ob_digit = i,
+                .long_value = .{
+                    .lv_tag = (1 << runtime.cpython._PyLong_NON_SIZE_BITS) | sign,
+                    .ob_digit = .{abs_val},
+                },
             };
             break :blk @ptrCast(long_obj);
         },

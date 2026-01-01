@@ -285,8 +285,29 @@ pub fn build(b: *std.Build) void {
 
         // Add package modules (numpy, pytest, etc.) to this executable
         // These are registered dynamically from package_modules.txt
-        for (package_modules_list[0..package_module_count]) |pkg| {
-            exe.root_module.addImport(pkg.name, pkg.module);
+        // IMPORTANT: Only add modules that are actually imported by this test
+        // Zig 0.15 errors on "module declared but not used"
+        const zig_file = std.fs.cwd().openFile(zig_path_rel, .{}) catch null;
+        if (zig_file) |file| {
+            defer file.close();
+            var file_buf: [64 * 1024]u8 = undefined;
+            const file_size = file.readAll(&file_buf) catch 0;
+            const file_content = file_buf[0..file_size];
+
+            for (package_modules_list[0..package_module_count]) |pkg| {
+                // Check if this test actually imports this package
+                // Look for @import("package_name") in the generated code
+                var import_pattern_buf: [128]u8 = undefined;
+                const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{pkg.name}) catch continue;
+                if (std.mem.indexOf(u8, file_content, import_pattern) != null) {
+                    exe.root_module.addImport(pkg.name, pkg.module);
+                }
+            }
+        } else {
+            // Fallback: add all package modules if we can't read the file
+            for (package_modules_list[0..package_module_count]) |pkg| {
+                exe.root_module.addImport(pkg.name, pkg.module);
+            }
         }
 
         // Link libc

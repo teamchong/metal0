@@ -39,7 +39,7 @@ pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "itemgetter", h.c("struct { item: i64 = 0, pub fn __call__(__self: @This(), obj: anytype) @TypeOf(obj[0]) { return obj[@intCast(__self.item)]; } }{}") },
     .{ "methodcaller", h.c("struct { name: []const u8 = \"\", pub fn __call__(__self: @This(), obj: anytype) void { _ = &__self; _ = obj; } }{}") },
     // Index
-    .{ "index", h.pass("@as(i64, 0)") },
+    .{ "index", genIndex },
     // In-place (same as regular)
     .{ "iadd", h.binop(" + ", "@as(i64, 0)") }, .{ "isub", h.binop(" - ", "@as(i64, 0)") },
     .{ "imul", h.binop(" * ", "@as(i64, 0)") }, .{ "itruediv", genTruediv }, .{ "ifloordiv", genFloordiv },
@@ -58,9 +58,57 @@ fn genTruediv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     try divOp(self, args, "(runtime.builtins.OperatorTruediv{})", "@as(f64, 0.0)", "(@as(f64, @floatFromInt(", ")) / @as(f64, @floatFromInt(", ")))");
 }
 fn genFloordiv(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) {
+        // Check if either argument is complex or unknown type
+        const t1 = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        const t2 = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+        if (t1 == .complex or t2 == .complex or t1 == .unknown or t2 == .unknown) {
+            // Use polymorphic runtime helper that handles complex
+            if (self.in_assert_raises_context) {
+                try self.emit("(runtime.Lib.operator.floordivCall(");
+            } else if (self.inside_try_body) {
+                try self.emit("(try runtime.Lib.operator.floordivCall(");
+            } else {
+                try self.emit("(runtime.Lib.operator.floordivCall(");
+            }
+            try self.genExpr(args[0]);
+            try self.emit(", ");
+            try self.genExpr(args[1]);
+            if (self.in_assert_raises_context or self.inside_try_body) {
+                try self.emit("))");
+            } else {
+                try self.emit(") catch 0)");
+            }
+            return;
+        }
+    }
     try divOp(self, args, "(runtime.builtins.OperatorFloordiv{})", "@as(i64, 0)", "@divFloor(", ", ", ")");
 }
 fn genMod(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len >= 2) {
+        // Check if either argument is complex or unknown type
+        const t1 = self.type_inferrer.inferExpr(args[0]) catch .unknown;
+        const t2 = self.type_inferrer.inferExpr(args[1]) catch .unknown;
+        if (t1 == .complex or t2 == .complex or t1 == .unknown or t2 == .unknown) {
+            // Use polymorphic runtime helper that handles complex
+            if (self.in_assert_raises_context) {
+                try self.emit("(runtime.Lib.operator.modCall(");
+            } else if (self.inside_try_body) {
+                try self.emit("(try runtime.Lib.operator.modCall(");
+            } else {
+                try self.emit("(runtime.Lib.operator.modCall(");
+            }
+            try self.genExpr(args[0]);
+            try self.emit(", ");
+            try self.genExpr(args[1]);
+            if (self.in_assert_raises_context or self.inside_try_body) {
+                try self.emit("))");
+            } else {
+                try self.emit(") catch 0)");
+            }
+            return;
+        }
+    }
     try divOp(self, args, "(runtime.builtins.OperatorMod{})", "@as(i64, 0)", "@mod(", ", ", ")");
 }
 fn genPow(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
@@ -88,3 +136,34 @@ fn genIdentity(self: *NativeCodegen, args: []ast.Node, comptime op: []const u8, 
 }
 fn genIs(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " == ", "false"); }
 fn genIsNot(self: *NativeCodegen, args: []ast.Node) CodegenError!void { try genIdentity(self, args, " != ", "true"); }
+
+/// operator.index(x) - returns x.__index__() for Integral ABC types
+fn genIndex(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
+    if (args.len == 0) {
+        try self.emit("@as(i64, 0)");
+        return;
+    }
+    // Check if the argument is a primitive integer - no need for runtime call
+    if (args[0] == .constant) {
+        if (args[0].constant.value == .int) {
+            try self.emit("@as(i64, ");
+            try self.genExpr(args[0]);
+            try self.emit(")");
+            return;
+        }
+    }
+    // For class instances and other types, use the runtime helper
+    if (self.in_assert_raises_context) {
+        try self.emit("(runtime.Lib.operator.index(");
+    } else if (self.inside_try_body) {
+        try self.emit("(try runtime.Lib.operator.index(");
+    } else {
+        try self.emit("(runtime.Lib.operator.index(");
+    }
+    try self.genExpr(args[0]);
+    if (self.in_assert_raises_context or self.inside_try_body) {
+        try self.emit("))");
+    } else {
+        try self.emit(") catch 0)");
+    }
+}

@@ -54,8 +54,8 @@ pub fn pyTruthy(obj: *PyObject) bool {
     const type_id = getTypeId(obj);
     return switch (type_id) {
         .none => false,
-        .bool => cast(PyBoolObject, obj).ob_digit != 0,
-        .int => cast(PyLongObject, obj).ob_digit != 0,
+        .bool => cast(PyBoolObject, obj).getValue(),
+        .int => cast(PyLongObject, obj).getValue() != 0,
         .float => cast(PyFloatObject, obj).ob_fval != 0.0,
         .string => cast(PyUnicodeObject, obj).length > 0,
         .list => cast(PyListObject, obj).ob_base.ob_size > 0,
@@ -75,9 +75,9 @@ fn printPyObjectImpl(obj: *PyObject, quote_strings: bool) void {
     const cast = pyobject_cast.cast;
     const type_id = getTypeId(obj);
     switch (type_id) {
-        .int => std.debug.print("{}", .{cast(PyLongObject, obj).ob_digit}),
+        .int => std.debug.print("{}", .{cast(PyLongObject, obj).getValue()}),
         .float => std.debug.print("{d}", .{cast(PyFloatObject, obj).ob_fval}),
-        .bool => std.debug.print("{s}", .{if (cast(PyBoolObject, obj).ob_digit != 0) "True" else "False"}),
+        .bool => std.debug.print("{s}", .{if (cast(PyBoolObject, obj).getValue()) "True" else "False"}),
         .string => {
             const str_obj = cast(PyUnicodeObject, obj);
             const len: usize = @intCast(str_obj.length);

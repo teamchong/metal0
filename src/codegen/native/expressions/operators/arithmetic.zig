@@ -32,6 +32,26 @@ const ZigBuilder = builder_mod.ZigBuilder;
 // Arithmetic operation helpers - builder pattern
 // ============================================
 
+/// Check if expression is an attribute access on an anytype parameter
+/// getAttrDynamic returns f64 for numeric attributes, so we need runtime helpers
+fn isAnytypeAttributeAccess(self: *NativeCodegen, expr: ast.Node) bool {
+    if (expr != .attribute) return false;
+    const attr = expr.attribute;
+    if (attr.value.* != .name) return false;
+    const base_name = attr.value.name.id;
+    return self.anytype_params.contains(base_name);
+}
+
+/// Check if expression is an attribute access on self/this
+/// self.attr returns a concrete type (e.g., i64) that may mismatch f64 from getAttrDynamic
+fn isSelfAttributeAccess(expr: ast.Node) bool {
+    if (expr != .attribute) return false;
+    const attr = expr.attribute;
+    if (attr.value.* != .name) return false;
+    const base_name = attr.value.name.id;
+    return std.mem.eql(u8, base_name, "self") or std.mem.eql(u8, base_name, "__self");
+}
+
 /// Emit dunder method call: try left.method(__global_allocator, right)
 fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, right: ast.Node) CodegenError!void {
     const b = try self.getBuilder();
@@ -48,8 +68,24 @@ fn emitDunderCall(self: *NativeCodegen, left: ast.Node, method: []const u8, righ
 }
 
 /// Emit runtime.addNum or runtime.subtractNum(left, right)
+/// When one operand is self.attr (i64) and other is anytype.attr (f64),
+/// wrap result in @as(i64, @intFromFloat(...)) to preserve integer semantics
 fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: ast.Node) CodegenError!void {
     const b = try self.getBuilder();
+
+    // Check if we need to convert result back to i64
+    // This happens when mixing self.attr (i64) with anytype.attr (f64 from getAttrDynamic)
+    const left_is_self_attr = isSelfAttributeAccess(left);
+    const right_is_anytype_attr = isAnytypeAttributeAccess(self, right);
+    const left_is_anytype_attr = isAnytypeAttributeAccess(self, left);
+    const right_is_self_attr = isSelfAttributeAccess(right);
+    const needs_int_coercion = (left_is_self_attr and right_is_anytype_attr) or
+        (left_is_anytype_attr and right_is_self_attr);
+
+    if (needs_int_coercion) {
+        try b.emitRaw("@as(i64, @intFromFloat(");
+    }
+
     const left_val = try self.captureExpr(left);
     const right_val = try self.captureExpr(right);
     if (is_add) {
@@ -61,6 +97,11 @@ fn emitRuntimeNumOp(self: *NativeCodegen, is_add: bool, left: ast.Node, right: a
     try b.emitRaw(", ");
     try self.emitZigValue(right_val);
     try b.emitRaw(")");
+
+    if (needs_int_coercion) {
+        try b.emitRaw("))"); // Close both @intFromFloat( and @as(
+    }
+
     try self.flushBuilder();
 }
 
@@ -197,12 +238,27 @@ pub fn genBinOp(self: *NativeCodegen, binop: ast.Node.BinOp) CodegenError!void {
         const left_is_unknown = type_traits.isUnknown(left_type);
         const right_is_unknown = type_traits.isUnknown(right_type);
 
+        // Also check for anytype attribute access which returns f64 from getAttrDynamic
+        // This handles cases like: self.imag + other.imag where other is anytype
+        const left_is_anytype_attr = isAnytypeAttributeAccess(self, binop.left.*);
+        const right_is_anytype_attr = isAnytypeAttributeAccess(self, binop.right.*);
+
+        // Check for self.attr access (always returns concrete type that may mismatch f64)
+        const left_is_self_attr = isSelfAttributeAccess(binop.left.*);
+        const right_is_self_attr = isSelfAttributeAccess(binop.right.*);
+
         const needs_runtime_helper = (left_is_int and right_is_float) or
             (left_is_float and right_is_int) or
             (left_is_int and right_is_unknown) or
             (left_is_unknown and right_is_int) or
             (left_is_float and right_is_unknown) or
-            (left_is_unknown and right_is_float);
+            (left_is_unknown and right_is_float) or
+            // Anytype attribute access returns f64 from getAttrDynamic, needs runtime helper
+            (left_is_int and right_is_anytype_attr) or
+            (left_is_anytype_attr and right_is_int) or
+            // self.attr + anytype.attr needs runtime helper (i64 + f64 mismatch)
+            (left_is_self_attr and right_is_anytype_attr) or
+            (left_is_anytype_attr and right_is_self_attr);
 
         if (needs_runtime_helper) {
             try emitRuntimeNumOp(self, binop.op == .Add, binop.left.*, binop.right.*);
