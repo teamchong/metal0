@@ -20,10 +20,26 @@ pub const AnyCallable = struct {
         const Wrapper = struct {
             fn call(ptr: *const anyopaque, args: anytype, kwargs: anytype) anyerror!PyValue {
                 const f: *const T = @ptrCast(@alignCast(ptr));
-                // Check if T is a closure with .call() method or a direct function
                 const type_info = @typeInfo(T);
+
                 if (type_info == .@"struct") {
-                    // It's a closure struct - call .call() method
+                    // Detect .call() method signature at comptime
+                    if (@hasDecl(T, "call")) {
+                        const CallFnType = @TypeOf(@field(f.*, "call"));
+                        const call_fn_info = @typeInfo(CallFnType);
+
+                        if (call_fn_info == .@"fn") {
+                            // Get parameter count (excluding self)
+                            const param_count = call_fn_info.@"fn".params.len - 1;
+
+                            return switch (param_count) {
+                                0 => try f.call(), // TypedClosure0: .call() takes no args
+                                1 => try f.call(args), // TypedClosure1: .call(arg1)
+                                else => try f.call(args, kwargs), // TypedClosure2+
+                            };
+                        }
+                    }
+                    // Fallback: assume .call(args, kwargs) signature
                     return try f.call(args, kwargs);
                 } else {
                     // It's a direct function - call it
@@ -49,8 +65,18 @@ pub const AnyCallable = struct {
         };
     }
 
-    /// Call the wrapped function (supports both direct call and .call() method)
-    pub fn call(self: AnyCallable, args: anytype, kwargs: anytype) !PyValue {
+    /// Call the wrapped function with 0 arguments
+    pub fn call(self: AnyCallable) !PyValue {
+        return try self.call_fn(self.ptr, .{}, .{});
+    }
+
+    /// Call the wrapped function with 1 argument
+    pub fn call1(self: AnyCallable, arg: anytype) !PyValue {
+        return try self.call_fn(self.ptr, arg, .{});
+    }
+
+    /// Call the wrapped function with 2 arguments (args and kwargs)
+    pub fn call2(self: AnyCallable, args: anytype, kwargs: anytype) !PyValue {
         return try self.call_fn(self.ptr, args, kwargs);
     }
 };
