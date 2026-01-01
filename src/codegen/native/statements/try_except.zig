@@ -1051,11 +1051,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Skip built-in functions
             if (BuiltinFuncs.has(name)) continue;
 
-            // Skip 'self' and '__self' - these are method parameters that may or may not
-            // be named/available depending on self_analyzer.usesSelf(). If self is needed
-            // in the try block, the method signature should already have it available.
-            // Don't try to capture it as an outer variable.
-            if (std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) continue;
+            // NOTE: Do NOT skip 'self' - inside TryHelper struct, self is NOT available
+            // because TryHelper is a separate struct with its own scope. self needs to be
+            // captured like any other read-only variable when used in try body.
 
             // Skip user-defined functions (they're module-level, accessible directly)
             if (self.function_signatures.contains(name)) continue;
@@ -1101,12 +1099,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         try declared_var_set.put(name, {});
                     }
                 }
-            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name)) {
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name) or std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) {
                 // Variable is only read and we can verify it exists - capture as read-only
                 // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
                 // Note: hoisted_vars tracks variables that were hoisted for scope escaping
                 // Note: forward_declared_vars tracks variables forward declared for scope escaping
                 // Note: getScopedVar checks for loop-local variables stored in scoped_var_types
+                // Note: 'self' and '__self' are method parameters - always available when referenced
                 // NOTE: Do NOT include func_local_vars - those are variables that WILL be declared
                 // later in the function, not variables that are already available
                 try read_only_vars.append(self.allocator, name);

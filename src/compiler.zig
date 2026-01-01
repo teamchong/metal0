@@ -107,8 +107,9 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     // 1. C source files first
     try addCSourceFiles(allocator, args);
 
-    // 2. Main module with its deps (main depends on runtime, c_interop, hashmap_helper, allocator_helper)
-    // Main MUST be first -M flag in Zig 0.15 to be treated as root module
+    // 2. Main module FIRST with ALL its deps
+    // In Zig 0.15, --dep flags apply to the NEXT -M flag, so order is critical
+    // Main module deps: runtime, c_interop, hashmap_helper, allocator_helper, + any package modules
     try args.append(allocator, "--dep");
     try args.append(allocator, "runtime");
     try args.append(allocator, "--dep");
@@ -118,15 +119,19 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     try args.append(allocator, "--dep");
     try args.append(allocator, "utils.allocator_helper");
 
-    // 2.5 Add package modules (numpy, pytest, etc.) from manifest if it exists
-    // These are external packages compiled during codegen
-    // Pass zig_code to filter out unused packages (Zig 0.15 errors on unused modules)
-    try addPackageModuleFlags(allocator, args, zig_code);
+    // 2.5 Add package deps (numpy, pytest, etc.) as deps for main
+    // This ONLY adds --dep flags, not -M flags
+    try addPackageDepFlags(allocator, args, zig_code);
 
+    // Now declare the main module (all --dep flags above apply to this -M)
     // In Zig 0.15, the generated code must have an export function to mark the module as "used"
     // See genExportMarker() in codegen which adds: export fn _metal0_module_marker() callconv(.c) void {}
     const main_flag = try std.fmt.allocPrint(allocator, "-Mmain={s}", .{main_path});
     try args.append(allocator, main_flag);
+
+    // 2.6 Add package module declarations (numpy, pytest, etc.) AFTER main
+    // Each package needs its own deps followed by its -M declaration
+    try addPackageModuleFlags(allocator, args, zig_code);
 
     // 3. Modules in REVERSE order (dependents before dependencies)
     // This is the reverse of MODULES array
@@ -147,9 +152,45 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
     }
 }
 
-/// Add package module flags from .metal0/package_modules.txt manifest
-/// This enables individual compilation to also have access to compiled packages like numpy/pytest
-/// zig_code is used to filter which packages to actually include (Zig 0.15 errors on "module declared but not used")
+/// Add package dependency flags (--dep only) for main module
+/// This is called BEFORE -Mmain to set up deps for the main module
+fn addPackageDepFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), zig_code: []const u8) !void {
+    const manifest_path = build_dirs.CACHE ++ "/package_modules.txt";
+
+    const file = std.fs.cwd().openFile(manifest_path, .{}) catch {
+        return; // No manifest - that's fine, no external packages
+    };
+    defer file.close();
+
+    var buf: [256 * 1024]u8 = undefined;
+    const content_len = file.readAll(&buf) catch return;
+    const content = buf[0..content_len];
+
+    // Parse manifest: each line is "module_name:absolute_path"
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+
+        const colon_idx = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const mod_name = line[0..colon_idx];
+
+        if (mod_name.len == 0) continue;
+
+        // Only add package if it's actually imported in the generated code
+        var import_pattern_buf: [128]u8 = undefined;
+        const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{mod_name}) catch continue;
+        if (std.mem.indexOf(u8, zig_code, import_pattern) == null) {
+            continue; // Skip this package - not used
+        }
+
+        // Add --dep for main to depend on this package
+        try args.append(allocator, "--dep");
+        try args.append(allocator, mod_name);
+    }
+}
+
+/// Add package module declarations from .metal0/package_modules.txt manifest
+/// This is called AFTER -Mmain to declare package modules with their deps
 fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), zig_code: []const u8) !void {
     const manifest_path = build_dirs.CACHE ++ "/package_modules.txt";
 
@@ -163,12 +204,10 @@ fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
     const content = buf[0..content_len];
 
     // Parse manifest: each line is "module_name:absolute_path"
-    // Use indexOfScalar to find first colon (path may contain colons on non-Windows)
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
         if (line.len == 0) continue;
 
-        // Find first colon separator
         const colon_idx = std.mem.indexOfScalar(u8, line, ':') orelse continue;
         const mod_name = line[0..colon_idx];
         const mod_path = line[colon_idx + 1 ..];
@@ -176,19 +215,13 @@ fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
         if (mod_name.len == 0 or mod_path.len == 0) continue;
 
         // Only add package if it's actually imported in the generated code
-        // Look for @import("package_name") in the zig code
-        // Zig 0.15 errors on "module declared but not used"
         var import_pattern_buf: [128]u8 = undefined;
         const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{mod_name}) catch continue;
         if (std.mem.indexOf(u8, zig_code, import_pattern) == null) {
             continue; // Skip this package - not used
         }
 
-        // Add --dep for main to depend on this package
-        try args.append(allocator, "--dep");
-        try args.append(allocator, mod_name);
-
-        // Package modules also need runtime and c_interop dependencies
+        // Package modules need runtime and c_interop dependencies (--dep BEFORE -M)
         try args.append(allocator, "--dep");
         try args.append(allocator, "runtime");
         try args.append(allocator, "--dep");
@@ -474,6 +507,11 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try args.append(aa, output_flag);
 
     const argv = try args.toOwnedSlice(aa);
+
+    // Debug: print full command line
+    std.debug.print("Zig command: ", .{});
+    for (argv) |arg| std.debug.print("{s} ", .{arg});
+    std.debug.print("\n", .{});
 
     const result = try std.process.Child.run(.{
         .allocator = aa,
