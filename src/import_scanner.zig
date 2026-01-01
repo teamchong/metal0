@@ -291,17 +291,12 @@ pub const ImportGraph = struct {
             if (std.mem.eql(u8, import_name, "builtins")) {
                 continue;
             }
-            // Skip packages that contain C extensions (numpy, pandas, etc.)
-            // These can't be AOT compiled - they need CPython interop at runtime
-            // Get base package name for C extension check
-            const pkg_name = if (std.mem.indexOf(u8, import_name, ".")) |idx|
-                import_name[0..idx]
-            else
-                import_name;
-            if (import_resolver.isCExtension(pkg_name, self.allocator)) {
-                std.debug.print("  Skipped import (c_extension): {s}\n", .{import_name});
-                continue;
-            }
+            // NOTE: We no longer skip packages that contain C extensions (numpy, pandas, etc.)
+            // Instead, we compile their Python files normally.
+            // When the compiled code tries to import a C extension submodule (like _core._multiarray_umath),
+            // the codegen will generate dlopen code for that specific import.
+            // This allows hybrid packages (Python + C extensions) to work correctly.
+
             // Try to resolve to Python source first
             // Packages like numpy have both .py and .so files - prefer compiling the .py
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {

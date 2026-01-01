@@ -13,6 +13,7 @@ const body = @import("generators/body.zig");
 const builtin_types = @import("generators/builtin_types.zig");
 const test_skip = @import("generators/test_skip.zig");
 const shared = @import("../../shared_maps.zig");
+const method_categories = @import("../../dispatch/method_categories.zig");
 const PyBuiltinTypes = shared.PythonBuiltinTypes;
 const PythonBuiltinNames = shared.PythonBuiltinNames;
 
@@ -23,6 +24,7 @@ pub const ComplexParentInfo = builtin_types.ComplexParentInfo;
 pub const getBuiltinBaseInfo = builtin_types.getBuiltinBaseInfo;
 pub const getComplexParentInfo = builtin_types.getComplexParentInfo;
 pub const isIteratorBuiltin = builtin_types.isIteratorBuiltin;
+pub const isABCType = builtin_types.isABCType;
 pub const hasCPythonOnlyDecorator = test_skip.hasCPythonOnlyDecorator;
 pub const hasSkipUnlessCPythonModule = test_skip.hasSkipUnlessCPythonModule;
 pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
@@ -184,7 +186,8 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         const shadows_module_level = self.module_level_funcs.contains(arg.name) or
             self.module_level_vars.contains(arg.name) or
             self.imported_modules.contains(arg.name) or
-            zig_keywords.wouldShadowModule(arg.name);
+            zig_keywords.wouldShadowModule(arg.name) or
+            zig_keywords.wouldShadowMethod(arg.name);
 
         // Check if parameter shadows a sibling method or class-level attribute
         const shadows_class_member = if (self.current_class_body) |class_body| blk: {
@@ -208,9 +211,17 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
         } else false;
 
         if (shadows_module_level or shadows_class_member) {
-            // Use NameGen to generate unique name
-            const unique_name = try self.name_gen.param(arg.name);
-            try self.var_renames.put(arg.name, unique_name);
+            // For wouldShadowMethod/wouldShadowModule, use "_" suffix to match writeParamName
+            // For actual module-level/class member shadowing, use NameGen for uniqueness
+            if (zig_keywords.wouldShadowMethod(arg.name) or zig_keywords.wouldShadowModule(arg.name)) {
+                // Match writeParamName naming: "stop" -> "stop_"
+                const renamed = try std.fmt.allocPrint(self.allocator, "{s}_", .{arg.name});
+                try self.var_renames.put(arg.name, renamed);
+            } else {
+                // Actual variable shadowing - use NameGen for unique names
+                const unique_name = try self.name_gen.param(arg.name);
+                try self.var_renames.put(arg.name, unique_name);
+            }
         }
     }
 
@@ -521,6 +532,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Only register classes defined at module level - classes inside functions
     // are not directly accessible and must be discovered through module-level bindings
     if (is_unittest_class and self.current_function_name == null) {
+        std.debug.print("genClassDef: Processing unittest class: {s}\n", .{class.name});
         const core = @import("../../main/core.zig");
         var test_methods = std.ArrayList(core.TestMethodInfo){};
         // Build class_names_list ONCE per class (not per method) - PERFORMANCE OPTIMIZATION
@@ -542,7 +554,6 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 const method = stmt.function_def;
                 const method_name = method.name;
                 if (std.mem.startsWith(u8, method_name, "test_") or std.mem.startsWith(u8, method_name, "test")) {
-
                     // Check if method body has fallible operations (needs allocator param)
                     const method_needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
 
@@ -618,17 +629,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         .mock_patch_count = mock_count,
                         .default_params = default_params.toOwnedSlice(self.allocator) catch &.{},
                     });
-                } else if (std.mem.eql(u8, method_name, "setUp")) {
-                    has_setUp = true;
-                } else if (std.mem.eql(u8, method_name, "tearDown")) {
-                    has_tearDown = true;
-                } else if (std.mem.eql(u8, method_name, "setUpClass")) {
-                    has_setup_class = true;
-                } else if (std.mem.eql(u8, method_name, "tearDownClass")) {
-                    has_teardown_class = true;
+                } else if (method_categories.getUnittestLifecycleKind(method_name)) |kind| {
+                    switch (kind) {
+                        .setUp => has_setUp = true,
+                        .tearDown => has_tearDown = true,
+                        .setUpClass => has_setup_class = true,
+                        .tearDownClass => has_teardown_class = true,
+                    }
                 }
             }
         }
+        std.debug.print("genClassDef: Registering unittest class: {s}\n", .{class.name});
         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
             .class_name = class.name,
             .test_methods = try test_methods.toOwnedSlice(self.allocator),
@@ -637,7 +648,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             .has_setup_class = has_setup_class,
             .has_teardown_class = has_teardown_class,
         });
+        std.debug.print("genClassDef: Unittest class registered: {s}\n", .{class.name});
     }
+
+    std.debug.print("genClassDef: Starting struct generation for: {s}\n", .{class.name});
 
     // Track class nesting depth for allocator parameter naming
     self.class_nesting_depth += 1;
@@ -929,9 +943,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Pre-hoist pass 0: Generate class-body-level nested classes at FILE LEVEL
     // These must be generated BEFORE the parent struct so they can be referenced from anywhere
     // e.g., class Outer: class Inner: ... (Inner needs to be accessible from child classes)
+    std.debug.print("genClassDef: [PREHOIST0] Checking for nested classes in: {s}\n", .{class.name});
     for (class.body) |stmt| {
         if (stmt == .class_def) {
             const nested_class = stmt.class_def;
+            std.debug.print("genClassDef: [PREHOIST0] Found nested class: {s} in {s}\n", .{nested_class.name, class.name});
 
             // Generate mangled name: Outer__Inner
             const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ class.name, nested_class.name });
@@ -1016,6 +1032,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         try self.emit("pub const __doc__: ?[]const u8 = null;\n");
     }
 
+    // Generate __annotations__ for Python class annotations (empty dict by default)
+    // This is required for Python code that accesses C.__annotations__
+    try self.emitIndent();
+    try self.emit("pub const __annotations__ = hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator);\n");
+    // Add __flags__ for CPython compatibility (type flags like Py_TPFLAGS_MANAGED_DICT)
+    try self.emitIndent();
+    try self.emit("pub const __flags__: i64 = 0;\n");
+
     // Generate __bases_vtables__ for Python rich comparison protocol subclass priority
     // This is used by PyValue.eql/lt/le/gt/ge to check if right operand is a subclass
     // and call its method first (Python's comparison protocol)
@@ -1029,6 +1053,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (getComplexParentInfo(base_name) != null) continue;
             // Skip iterator/generator builtins (enumerate, filter, map, zip, etc.)
             if (isIteratorBuiltin(base_name)) continue;
+            // Skip ABC types from standard library (numbers.Complex, collections.abc.*, etc.)
+            if (isABCType(base_name)) continue;
             // Skip ABCMeta and type metaclasses
             if (std.mem.eql(u8, base_name, "ABCMeta")) continue;
             if (std.mem.eql(u8, base_name, "type")) continue;
@@ -1054,6 +1080,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (getComplexParentInfo(base_name) != null) continue;
                 // Skip iterator/generator builtins
                 if (isIteratorBuiltin(base_name)) continue;
+                // Skip ABC types from standard library (numbers.Complex, collections.abc.*, etc.)
+                if (isABCType(base_name)) continue;
                 if (std.mem.eql(u8, base_name, "ABCMeta")) continue;
                 if (std.mem.eql(u8, base_name, "type")) continue;
                 if (std.mem.eql(u8, base_name, "object")) continue;
@@ -1116,7 +1144,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Pre-hoist pass 1: Hoist locally-defined classes from ALL method bodies to struct level
     // This MUST happen BEFORE generating any fields or methods, because Zig requires
     // all const declarations to appear before any pub fn declarations in a struct
+    std.debug.print("genClassDef: [HOIST] hoistAllLocalClassesFromMethods starting for: {s}\n", .{class.name});
     try body.hoistAllLocalClassesFromMethods(self, class);
+    std.debug.print("genClassDef: [HOIST] hoistAllLocalClassesFromMethods done for: {s}\n", .{class.name});
+    std.debug.print("genClassDef: [CLOSURE] Pre-generating closure types for: {s}\n", .{class.name});
 
     // Pre-generate closure types for lazy class attributes at struct level
     // This allows us to reference these types in function signatures without relying on @TypeOf
@@ -1314,6 +1345,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Fix 35: Generate class-level attribute fields
     // Class attributes like `all_comp_classes = (...)` become struct fields
     try body.genClassAttributeFields(self, class.body);
+    std.debug.print("genClassDef: [FIELDS] Class fields generated for: {s}\n", .{class.name});
 
     // Generate init() method from __init__, __new__, or inherit from parent
     // Priority: __init__ > __new__ > parent __init__ > default
@@ -1386,10 +1418,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Generate polymorphic return type helper functions (before methods that use them)
+    std.debug.print("genClassDef: [POLY] genPolymorphicReturnHelpers for: {s}\n", .{class.name});
     try body.genPolymorphicReturnHelpers(self, class);
 
     // Generate regular methods (non-__init__)
+    std.debug.print("genClassDef: [METHODS] genClassMethods for: {s}\n", .{class.name});
     try body.genClassMethods(self, class, captured_vars);
+    std.debug.print("genClassDef: [METHODS] genClassMethods done for: {s}\n", .{class.name});
 
     // Generate blocked __bool__/__len__ methods (when assigned to None)
     // Python: __bool__ = None or __len__ = None blocks the method from being called
@@ -1456,11 +1491,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emitIndent();
                         try self.output.writer(self.allocator).print("// {s} = {s} (method alias)\n", .{ alias_name, target_method });
                         try self.emitIndent();
-                        // Escape both alias and target if they're Zig keywords (e.g., union, error)
+                        // Use writeStructMethodName to rename "std" -> "std_" (not just escape)
                         try self.emit("pub const ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), alias_name);
+                        try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), alias_name);
                         try self.emit(" = ");
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), target_method);
+                        try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
                         try self.emit(";\n");
                     }
                 }
@@ -1486,7 +1521,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         // For int type, support optional base parameter: int(value, base=None)
                         if (std.mem.eql(u8, type_name, "int")) {
                             try self.emit("pub fn ");
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr_name);
+                            try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), attr_name);
                             try self.emit("(value: anytype, base: ?i64) i64 {\n");
                             self.indent();
                             try self.emitIndent();
@@ -1780,8 +1815,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                     try self.emit("// Class-level attribute\n");
                     try self.emitIndent();
                     try self.emit("pub const ");
-                    try self.emitIdent(attr_name);
+                    // Use emitStructMemberName to rename "std" -> "std_" (avoids shadowing std import)
+                    try self.emitStructMemberName(attr_name);
                     try self.emit(" = ");
+                    // Mark that we're inside a const initializer so genListRuntime uses catch unreachable
+                    const saved_inside_const_init = self.inside_const_init;
+                    self.inside_const_init = true;
+                    defer self.inside_const_init = saved_inside_const_init;
                     try self.genExpr(assign.value.*);
                     try self.emit(";\n");
                 }
@@ -1831,6 +1871,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // genMethodBodyWithAllocatorInfo which clears func_local_uses
     if (parent_class) |parent| {
         try body.genInheritedMethods(self, class, parent, child_method_names.items);
+    }
+
+    // Generate ABC default methods for classes inheriting from numbers.Complex, Real, etc.
+    // These default methods (e.g., __sub__ = self + (-other)) are auto-generated if not defined
+    if (class.bases.len > 0) {
+        try body.genABCDefaultMethods(self, class.bases, child_method_names.items);
     }
 
     // For classes with metaclass=ABCMeta, generate register() method
@@ -1989,6 +2035,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Declare the class name in current scope to detect redefinitions
     try self.declareVar(effective_class_name);
 
+    // Trigger deferred closure instantiations that were waiting for this class
+    // Deferred closures are keyed by the original class name, not the renamed one
+    // This handles cases like: def f(): C() where C is defined after f
+    const assign_mod = @import("../assign.zig");
+    try assign_mod.triggerDeferredClosureInstantiations(self, class.name);
+
     // For nested classes inside functions, emit _ = BaseName; for local class bases
     // This is needed because Python base classes don't generate Zig struct references -
     // the inheritance is structural (copying methods), not referential
@@ -2002,6 +2054,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (getComplexParentInfo(base_name) != null) continue;
             // Skip iterator/generator builtins (enumerate, filter, map, zip, etc.)
             if (isIteratorBuiltin(base_name)) continue;
+            // Skip ABC types from standard library (numbers.Complex, collections.abc.*, etc.)
+            if (isABCType(base_name)) continue;
             // Skip unittest.TestCase and similar
             if (std.mem.indexOf(u8, base_name, ".") != null) continue;
             // Skip Exception bases
@@ -2064,7 +2118,11 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
         try self.emitIndent();
         try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
         try self.emitIndent();
-        try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
+        try self.emit("pub const __doc__: ?[]const u8 = null;\n");
+        try self.emitIndent();
+        try self.emit("pub const __annotations__ = hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator);\n");
+        try self.emitIndent();
+        try self.emit("pub const __flags__: i64 = 0;\n\n");
 
         try self.emitIndent();
         try self.emit("pub fn init() !@This() {\n");
@@ -2111,7 +2169,11 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     try self.emitIndent();
     try self.output.writer(self.allocator).print("pub const __name__: []const u8 = \"{s}\";\n", .{class.name});
     try self.emitIndent();
-    try self.emit("pub const __doc__: ?[]const u8 = null;\n\n");
+    try self.emit("pub const __doc__: ?[]const u8 = null;\n");
+    try self.emitIndent();
+    try self.emit("pub const __annotations__ = hashmap_helper.StringHashMap(runtime.PyValue).init(__global_allocator);\n");
+    try self.emitIndent();
+    try self.emit("pub const __flags__: i64 = 0;\n\n");
 
     // Find __init__ method for field extraction
     var init_method: ?ast.Node.FunctionDef = null;

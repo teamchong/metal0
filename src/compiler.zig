@@ -160,13 +160,15 @@ fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
     const content = buf[0..content_len];
 
     // Parse manifest: each line is "module_name:absolute_path"
+    // Use indexOfScalar to find first colon (path may contain colons on non-Windows)
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
         if (line.len == 0) continue;
 
-        var parts = std.mem.splitScalar(u8, line, ':');
-        const mod_name = parts.next() orelse continue;
-        const mod_path = parts.next() orelse continue;
+        // Find first colon separator
+        const colon_idx = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const mod_name = line[0..colon_idx];
+        const mod_path = line[colon_idx + 1 ..];
 
         if (mod_name.len == 0 or mod_path.len == 0) continue;
 
