@@ -6,6 +6,7 @@ const allocator_helper = @import("utils.allocator_helper");
 const bigint = @import("bigint");
 const pytype = @import("pytype.zig");
 const cpython = @import("../cpython.zig");
+const UnifiedInt = @import("pyint.zig").UnifiedInt;
 
 /// PyValue - Unified runtime value type for AOT and VM
 /// Uses tagged union for type safety
@@ -776,6 +777,29 @@ pub const PyValue = union(enum) {
         };
     }
 
+    /// float.as_integer_ratio() - Returns (numerator, denominator) tuple
+    /// For PyValue.float, returns a tuple of two UnifiedInt values (to handle extreme floats like 10^100)
+    /// Python: (0.5).as_integer_ratio() -> (1, 2)
+    pub fn as_integer_ratio(self: PyValue) struct { UnifiedInt, UnifiedInt } {
+        const float_ops = @import("../runtime/float_ops/ratio.zig");
+        const alloc = allocator_helper.fast_allocator;
+        return switch (self) {
+            .float => |v| {
+                // Use BigInt version to handle extreme floats (e.g., 10^100)
+                const result = float_ops.floatAsIntegerRatioBigInt(alloc, v) catch return .{ UnifiedInt.fromI64(0), UnifiedInt.fromI64(1) };
+                const num = UnifiedInt.fromBigIntValue(alloc, &result.numerator) catch return .{ UnifiedInt.fromI64(0), UnifiedInt.fromI64(1) };
+                const den = UnifiedInt.fromBigIntValue(alloc, &result.denominator) catch return .{ UnifiedInt.fromI64(0), UnifiedInt.fromI64(1) };
+                return .{ num, den };
+            },
+            .int => |v| .{ UnifiedInt.fromI64(v), UnifiedInt.fromI64(1) }, // Integer ratio is n/1
+            .bigint => |bi| {
+                const num = UnifiedInt.fromBigIntValue(alloc, &bi) catch return .{ UnifiedInt.fromI64(0), UnifiedInt.fromI64(1) };
+                return .{ num, UnifiedInt.fromI64(1) };
+            },
+            else => .{ UnifiedInt.fromI64(0), UnifiedInt.fromI64(1) }, // Default for non-numeric types
+        };
+    }
+
     /// Get length for list/tuple/string PyValues
     pub fn pyLen(self: PyValue) usize {
         return switch (self) {
@@ -1017,15 +1041,15 @@ pub const PyValue = union(enum) {
 
     /// Get underlying pointer for c_interop method calls
     /// Returns *anyopaque that can be cast to *cpython.PyObject for C extension calls
-    pub fn toPtr(self: PyValue) *anyopaque {
+    pub fn toPtr(self: PyValue) ?*anyopaque {
         return switch (self) {
             .ptr => |p| p,
             .object => |o| o.ptr,
             .pylist => |p| @ptrCast(@alignCast(p)),
             .list => |l| @ptrCast(@alignCast(l)),
             .type_obj => |t| @ptrCast(@alignCast(t)),
-            // For other types, return null pointer (will fail at runtime if used incorrectly)
-            else => @ptrFromInt(0),
+            // For other types, return null (caller must handle)
+            else => null,
         };
     }
 
@@ -1153,7 +1177,7 @@ pub const PyValue = union(enum) {
                 // Check bool BEFORE int (PyBoolObject inherits from PyLongObject)
                 if (cpython.PyBool_Check(obj)) {
                     const bool_obj: *cpython.PyBoolObject = @ptrCast(@alignCast(obj));
-                    return .{ .bool = bool_obj.ob_digit != 0 };
+                    return .{ .bool = bool_obj.getValue() };
                 }
                 // Check PyBigIntObject first (our internal arbitrary precision type)
                 if (cpython.PyBigInt_Check(obj)) {
@@ -1162,7 +1186,7 @@ pub const PyValue = union(enum) {
                 }
                 if (cpython.PyLong_Check(obj)) {
                     const long_obj: *cpython.PyLongObject = @ptrCast(@alignCast(obj));
-                    return .{ .int = @intCast(long_obj.ob_digit) };
+                    return .{ .int = long_obj.getValue() };
                 }
                 if (cpython.PyFloat_Check(obj)) {
                     const float_obj: *cpython.PyFloatObject = @ptrCast(@alignCast(obj));
@@ -1220,11 +1244,25 @@ pub const PyValue = union(enum) {
             return .{ .ptr = @ptrCast(@constCast(value)) };
         } else if (@typeInfo(T) == .@"struct") {
             const struct_info = @typeInfo(T).@"struct";
-            // Handle tuples (anonymous structs with is_tuple = true)
+            // Handle tuples (anonymous structs with is_tuple = true) AND
+            // simple numeric tuple-like structs (e.g., struct { i64, i64 } from divmod)
             // Use rotating static storage to avoid allocation while supporting
             // comparisons like: PyValue.from(.{a, b}).eql(PyValue.from(.{c, d}))
             // where we need two different buffers in the same expression
-            if (struct_info.is_tuple) {
+            const is_numeric_tuple_struct = comptime blk: {
+                // Treat structs with only numeric fields (0, 1, 2...) as tuples
+                // This handles divmodCall return type: struct { i64, i64 }
+                if (struct_info.fields.len > 0 and struct_info.fields.len <= 8) {
+                    for (struct_info.fields) |field| {
+                        const is_numeric_field = field.name.len == 1 and field.name[0] >= '0' and field.name[0] <= '9';
+                        const is_int_type = field.type == i64 or field.type == i32 or field.type == comptime_int;
+                        if (!is_numeric_field or !is_int_type) break :blk false;
+                    }
+                    break :blk true;
+                }
+                break :blk false;
+            };
+            if (struct_info.is_tuple or is_numeric_tuple_struct) {
                 const TupleStorage = struct {
                     // 4 rotating buffers for small tuples (up to 8 elements each)
                     // This handles comparisons and nested tuple operations
@@ -1805,23 +1843,25 @@ pub const PyValue = union(enum) {
     }
 
     /// Modulo two PyValues (Python %)
+    /// Uses Python floored modulo semantics for floats (result has same sign as divisor)
     pub fn mod(self: PyValue, other: PyValue) PyValue {
+        const float_arith = @import("../runtime/float_ops/arithmetic.zig");
         return switch (self) {
             .int => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .int = @mod(a, b) } else .{ .none = {} },
-                .float => |b| if (b != 0.0) .{ .float = @mod(@as(f64, @floatFromInt(a)), b) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = float_arith.pyFloatMod(@as(f64, @floatFromInt(a)), b) } else .{ .none = {} },
                 .bool => |b| if (b) .{ .int = 0 } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             .float => |a| switch (other) {
-                .int => |b| if (b != 0) .{ .float = @mod(a, @as(f64, @floatFromInt(b))) } else .{ .none = {} },
-                .float => |b| if (b != 0.0) .{ .float = @mod(a, b) } else .{ .none = {} },
-                .bool => |b| if (b) .{ .float = @mod(a, 1.0) } else .{ .none = {} },
+                .int => |b| if (b != 0) .{ .float = float_arith.pyFloatMod(a, @as(f64, @floatFromInt(b))) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = float_arith.pyFloatMod(a, b) } else .{ .none = {} },
+                .bool => |b| if (b) .{ .float = float_arith.pyFloatMod(a, 1.0) } else .{ .none = {} },
                 else => .{ .none = {} },
             },
             .bool => |a| switch (other) {
                 .int => |b| if (b != 0) .{ .int = @mod(@as(i64, @intFromBool(a)), b) } else .{ .none = {} },
-                .float => |b| if (b != 0.0) .{ .float = @mod(@as(f64, if (a) 1.0 else 0.0), b) } else .{ .none = {} },
+                .float => |b| if (b != 0.0) .{ .float = float_arith.pyFloatMod(@as(f64, if (a) 1.0 else 0.0), b) } else .{ .none = {} },
                 .bool => |b| if (b) .{ .int = 0 } else .{ .none = {} },
                 else => .{ .none = {} },
             },

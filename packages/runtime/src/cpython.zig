@@ -108,14 +108,35 @@ pub const PyTypeObject = extern struct {
 // Concrete Python Type Objects (CPython ABI compatible)
 // =============================================================================
 
-/// PyLongObject - Python integer (CPython compatible)
-/// CPython uses variable-length digit array; we use fixed i64 for simplicity
-/// Note: For full bigint support, may need variable-length digits later
+/// Sign mask for lv_tag (Python 3.12+)
+pub const _PyLong_SIGN_MASK: usize = 3;
+/// Non-size bits count (Python 3.12+)
+pub const _PyLong_NON_SIZE_BITS: u6 = 3;
+
+/// _PyLongValue - Internal long value structure (Python 3.12+)
+pub const _PyLongValue = extern struct {
+    lv_tag: usize, // Number of digits, sign and flags
+    ob_digit: [1]u32, // Flexible array member - at least 1 digit always allocated
+};
+
+/// PyLongObject - Python integer (CPython 3.12 compatible)
+/// Layout: PyObject (16 bytes) + _PyLongValue (lv_tag + ob_digit[1])
 pub const PyLongObject = extern struct {
-    ob_base: PyVarObject,
-    // In CPython this is a variable-length digit array
-    // We simplify to a single i64 for now (covers most use cases)
-    ob_digit: i64,
+    ob_base: PyObject, // Note: PyObject, not PyVarObject for 3.12+
+    long_value: _PyLongValue,
+
+    /// Get the integer value (handles sign encoding)
+    pub fn getValue(self: *const PyLongObject) i64 {
+        const sign = self.long_value.lv_tag & _PyLong_SIGN_MASK;
+        const digit_val: i64 = @intCast(self.long_value.ob_digit[0]);
+
+        return switch (sign) {
+            0 => digit_val, // Positive
+            1 => 0, // Zero
+            2 => -digit_val, // Negative
+            else => 0,
+        };
+    }
 };
 
 /// PyFloatObject - Python float (CPython compatible)
@@ -131,10 +152,16 @@ pub const PyComplexObject = extern struct {
     cval_imag: f64,
 };
 
-/// PyBoolObject - Python bool (same layout as PyLongObject in CPython)
+/// PyBoolObject - Python bool (same layout as PyLongObject in CPython 3.12)
 pub const PyBoolObject = extern struct {
-    ob_base: PyVarObject,
-    ob_digit: i64, // 0 for False, 1 for True
+    ob_base: PyObject, // Note: PyObject, not PyVarObject for 3.12+
+    long_value: _PyLongValue,
+
+    /// Get the boolean value (0 for False, non-zero for True)
+    pub fn getValue(self: *const PyBoolObject) bool {
+        // For bool, sign=1 means zero (False), sign=0 with digit=1 means True
+        return self.long_value.ob_digit[0] != 0;
+    }
 };
 
 /// PyBigIntObject - Python int for arbitrary precision (when > i64 range)

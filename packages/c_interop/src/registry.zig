@@ -104,6 +104,13 @@ pub const PyUnicode_AsUTF8 = @import("include/unicodeobject.zig").PyUnicode_AsUT
 
 const cpython = @import("include/object.zig");
 const import = @import("include/import.zig");
+const exc = @import("exception_types.zig");
+
+fn setErrorIfNone(exc_type: *cpython.PyTypeObject, msg: [*:0]const u8) void {
+    if (traits.externs.PyErr_Occurred() == null) {
+        traits.externs.PyErr_SetString(@ptrCast(exc_type), msg);
+    }
+}
 
 /// Import a C extension module by name (e.g., "numpy", "pandas")
 /// Uses real dlopen/dlsym to load the actual .so/.dylib extension
@@ -113,215 +120,63 @@ pub fn importModule(module_name: [*:0]const u8) ?*PyObject {
 }
 
 /// Import attribute from module using Python's from-import semantics
-/// Handles C extension modules and proxy modules (subprocess-based).
+/// Uses dlopen for C extension modules - NO subprocess.
 ///
 /// For "from numpy import array", this:
-/// 1. Loads the module (C extension or proxy)
-/// 2. Gets the attribute using appropriate method (subprocess for proxies)
+/// 1. Loads the module via dlopen
+/// 2. Gets the attribute using PyObject_GetAttrString
 pub fn fromImport(module_name: [*:0]const u8, attr_name: [*:0]const u8) ?*PyObject {
-    // Import the module (works for C extensions and proxy modules)
-    const module = import.PyImport_ImportModule(module_name) orelse return null;
+    // Import the module via dlopen
+    const module = import.PyImport_ImportModule(module_name) orelse {
+        setErrorIfNone(exc.PyExc_ImportError, "C extension import failed (no subprocess fallback)");
+        return null;
+    };
+    defer traits.externs.Py_DECREF(module);
 
-    // For proxy modules, use subprocess-based attribute access
-    // For regular modules, use standard PyObject_GetAttrString
-    const result = import.getProxyAttr(module, attr_name) orelse
-        traits.externs.PyObject_GetAttrString(module, attr_name);
-    traits.externs.Py_DECREF(module);
-    return result;
+    // Get attribute using standard PyObject_GetAttrString
+    const attr = traits.externs.PyObject_GetAttrString(module, attr_name) orelse {
+        setErrorIfNone(exc.PyExc_AttributeError, "attribute not found");
+        return null;
+    };
+    return attr;
 }
 
 /// Call a function on a C extension module
-/// Uses getAttr to get the function, then calls it via subprocess
+/// Uses real C API: import module, get function, build args, call
+/// NO subprocess fallback - if dlopen fails, returns null
 pub fn callModuleFunction(
     module_name: [*:0]const u8,
     func_name: [*:0]const u8,
     args: anytype,
 ) ?*cpython.PyObject {
-    // For proxy modules, we need to call via subprocess
-    return callFunctionViaSubprocess(module_name, func_name, args);
-}
+    // Import the module using real dlopen/dlsym - NO subprocess fallback
+    const module = import.PyImport_ImportModule(module_name) orelse {
+        setErrorIfNone(exc.PyExc_ImportError, "C extension import failed (no subprocess fallback)");
+        return null;
+    };
+    defer traits.externs.Py_DECREF(module);
 
-/// Validate that a string is a valid Python identifier (prevents injection)
-/// Valid: letters, digits, underscores; cannot start with digit
-fn isValidPythonIdentifier(name: []const u8) bool {
-    if (name.len == 0) return false;
-    // First char must be letter or underscore
-    const first = name[0];
-    if (!std.ascii.isAlphabetic(first) and first != '_') return false;
-    // Rest must be alphanumeric or underscore
-    for (name[1..]) |c| {
-        if (!std.ascii.isAlphanumeric(c) and c != '_' and c != '.') return false;
+    // Get the function attribute
+    const func = traits.externs.PyObject_GetAttrString(module, func_name) orelse {
+        setErrorIfNone(exc.PyExc_AttributeError, "function attribute not found");
+        return null;
+    };
+    defer traits.externs.Py_DECREF(func);
+
+    // Build args tuple from Zig values
+    // Note: buildArgsTuple returns empty tuple for no args ({}), null only on error
+    const args_tuple = buildArgsTuple(args) orelse {
+        setErrorIfNone(exc.PyExc_TypeError, "failed to build argument tuple");
+        return null;
+    };
+    defer traits.externs.Py_DECREF(args_tuple);
+
+    // Call the function
+    const result = traits.externs.PyObject_Call(func, args_tuple, null);
+    if (result == null) {
+        setErrorIfNone(exc.PyExc_RuntimeError, "C extension call failed");
     }
-    return true;
-}
-
-/// Call a function via subprocess Python
-fn callFunctionViaSubprocess(
-    module_name: [*:0]const u8,
-    func_name: [*:0]const u8,
-    args: anytype,
-) ?*cpython.PyObject {
-    const allocator = std.heap.c_allocator;
-    const mod_str = std.mem.span(module_name);
-    const func_str = std.mem.span(func_name);
-
-    // SECURITY: Validate module and function names to prevent code injection
-    if (!isValidPythonIdentifier(mod_str)) return null;
-    if (!isValidPythonIdentifier(func_str)) return null;
-
-    // Build Python code to call function
-    var code_buf: [2048]u8 = undefined; // Increased for escaped strings
-
-    // Format args for Python (now with proper escaping)
-    var args_str_buf: [1024]u8 = undefined; // Increased for escaped content
-    const args_str = formatArgsForPython(&args_str_buf, args);
-
-    // For compound module names like "pytest.mark", extract root module for import
-    // e.g., "pytest.mark" -> import pytest; pytest.mark.skipif(...)
-    const root_module = if (std.mem.indexOf(u8, mod_str, ".")) |dot_idx|
-        mod_str[0..dot_idx]
-    else
-        mod_str;
-
-    const py_code = std.fmt.bufPrint(&code_buf,
-        \\import {s}
-        \\result = {s}.{s}({s})
-        \\print(repr(result))
-    , .{ root_module, mod_str, func_str, args_str }) catch return null;
-
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = &[_][]const u8{ "python3", "-c", py_code },
-    }) catch return null;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-
-    switch (result.term) {
-        .Exited => |exit_code| if (exit_code != 0) return null,
-        else => return null,
-    }
-
-    // Parse the output
-    const output = std.mem.trimRight(u8, result.stdout, "\n\r");
-    if (output.len == 0) return null;
-
-    return import.parseSubprocessOutput(output);
-}
-
-/// Format Zig arguments as Python code
-fn formatArgsForPython(buf: []u8, args: anytype) []const u8 {
-    const ArgsType = @TypeOf(args);
-    const args_info = @typeInfo(ArgsType);
-
-    if (args_info == .@"struct" and args_info.@"struct".is_tuple) {
-        const fields = args_info.@"struct".fields;
-        if (fields.len == 0) {
-            return "";
-        }
-
-        var pos: usize = 0;
-        inline for (fields, 0..) |field, i| {
-            const value = @field(args, field.name);
-            const written = formatValueForPython(buf[pos..], value);
-            pos += written;
-            if (i < fields.len - 1) {
-                if (pos < buf.len - 2) {
-                    buf[pos] = ',';
-                    buf[pos + 1] = ' ';
-                    pos += 2;
-                }
-            }
-        }
-        return buf[0..pos];
-    }
-
-    return "";
-}
-
-/// Escape a string for safe Python embedding
-/// Handles: backslash, single quote, newline, carriage return, tab
-fn escapePythonString(buf: []u8, input: []const u8) usize {
-    var pos: usize = 0;
-    for (input) |c| {
-        const escape_seq: ?[]const u8 = switch (c) {
-            '\\' => "\\\\",
-            '\'' => "\\'",
-            '\n' => "\\n",
-            '\r' => "\\r",
-            '\t' => "\\t",
-            else => null,
-        };
-        if (escape_seq) |seq| {
-            if (pos + seq.len > buf.len) break;
-            @memcpy(buf[pos..][0..seq.len], seq);
-            pos += seq.len;
-        } else {
-            if (pos >= buf.len) break;
-            buf[pos] = c;
-            pos += 1;
-        }
-    }
-    return pos;
-}
-
-/// Format a single value for Python with proper escaping and bounds checking
-fn formatValueForPython(buf: []u8, value: anytype) usize {
-    const T = @TypeOf(value);
-    const info = @typeInfo(T);
-
-    switch (info) {
-        .int, .comptime_int => {
-            return (std.fmt.bufPrint(buf, "{d}", .{value}) catch return 0).len;
-        },
-        .float, .comptime_float => {
-            return (std.fmt.bufPrint(buf, "{d}", .{value}) catch return 0).len;
-        },
-        .bool => {
-            const s = if (value) "True" else "False";
-            if (s.len > buf.len) return 0;
-            @memcpy(buf[0..s.len], s);
-            return s.len;
-        },
-        .array => |arr| {
-            // Format as Python list with bounds checking
-            if (buf.len < 2) return 0; // Need at least []
-            buf[0] = '[';
-            var pos: usize = 1;
-            inline for (value, 0..) |elem, i| {
-                if (pos >= buf.len - 1) break; // Reserve space for ]
-                const written = formatValueForPython(buf[pos..], elem);
-                pos += written;
-                if (i < arr.len - 1) {
-                    if (pos + 2 < buf.len - 1) { // Reserve for ", " and ]
-                        buf[pos] = ',';
-                        buf[pos + 1] = ' ';
-                        pos += 2;
-                    }
-                }
-            }
-            if (pos < buf.len) {
-                buf[pos] = ']';
-                return pos + 1;
-            }
-            return 0;
-        },
-        .pointer => |ptr| {
-            if (ptr.size == .slice and ptr.child == u8) {
-                // String slice - wrap in quotes with proper escaping
-                if (buf.len < 2) return 0; // Need at least ''
-                buf[0] = '\'';
-                // Escape the string content
-                const escaped_len = escapePythonString(buf[1..buf.len -| 1], value);
-                if (1 + escaped_len < buf.len) {
-                    buf[1 + escaped_len] = '\'';
-                    return escaped_len + 2;
-                }
-                return 0;
-            }
-            return 0;
-        },
-        else => return 0,
-    }
+    return result;
 }
 
 /// Build a Python tuple from Zig arguments
@@ -419,16 +274,33 @@ fn toPyObject(value: anytype) ?*cpython.PyObject {
 }
 
 /// Call a method on a PyObject
-/// Currently a stub - C extensions require native reimplementation
+/// Uses PyObject_GetAttrString to get the method, then PyObject_Call to invoke it
 pub fn callMethod(
     obj: *cpython.PyObject,
     method_name: [*:0]const u8,
     args: anytype,
 ) ?*cpython.PyObject {
-    _ = obj;
-    _ = method_name;
-    _ = args;
-    return null;
+    // Get the method attribute from the object
+    const method = traits.externs.PyObject_GetAttrString(obj, method_name) orelse {
+        setErrorIfNone(exc.PyExc_AttributeError, "method attribute not found");
+        return null;
+    };
+    defer traits.externs.Py_DECREF(method);
+
+    // Build args tuple from Zig values
+    // Note: buildArgsTuple returns empty tuple for no args ({}), null only on error
+    const args_tuple = buildArgsTuple(args) orelse {
+        setErrorIfNone(exc.PyExc_TypeError, "failed to build argument tuple");
+        return null;
+    };
+    defer traits.externs.Py_DECREF(args_tuple);
+
+    // Call the method with the args tuple
+    const result = traits.externs.PyObject_Call(method, args_tuple, null);
+    if (result == null) {
+        setErrorIfNone(exc.PyExc_RuntimeError, "method call failed");
+    }
+    return result;
 }
 
 /// Call a PyObject callable with Zig arguments
@@ -445,48 +317,36 @@ pub fn callFromImport(callable: ?*cpython.PyObject, args: anytype) ?*cpython.PyO
         return null;
     }
 
-    // Check if this is a subprocess proxy (callable stored as string representation)
-    // If so, we can't call it directly - return null to indicate call failed
-    // The caller should handle this gracefully
-    if (import.isSubprocessProxy(c)) {
-        // For proxy callables, we'd need to call via subprocess
-        // For now, return null - the test should handle this as expected failure
-        return null;
-    }
-
     // Build args tuple from Zig values
-    const args_tuple = buildArgsTuple(args) orelse return null;
+    const args_tuple = buildArgsTuple(args) orelse {
+        setErrorIfNone(exc.PyExc_TypeError, "failed to build argument tuple");
+        return null;
+    };
     defer traits.externs.Py_DECREF(args_tuple);
 
     // Call the callable using PyObject_Call
-    return traits.externs.PyObject_Call(c, args_tuple, null);
+    const result = traits.externs.PyObject_Call(c, args_tuple, null);
+    if (result == null) {
+        setErrorIfNone(exc.PyExc_RuntimeError, "callable invocation failed");
+    }
+    return result;
 }
 
 /// Get an attribute from a PyObject
-/// Uses real PyObject_GetAttrString for C extension objects
+/// Uses real PyObject_GetAttrString from CPython C API
 pub fn getAttr(
     obj: *cpython.PyObject,
     attr_name: [*:0]const u8,
 ) ?*cpython.PyObject {
-    // Check if this is a subprocess proxy module first
-    if (import.isProxyModule(obj)) {
-        return import.getProxyAttr(obj, attr_name);
-    }
-    // Use the real PyObject_GetAttrString from CPython C API
     return traits.externs.PyObject_GetAttrString(obj, attr_name);
 }
 
 /// Check if a PyObject has an attribute
-/// Uses subprocess for proxy modules, PyObject_HasAttrString otherwise
+/// Uses real PyObject_HasAttrString from CPython C API
 pub fn hasattr(
     obj: *cpython.PyObject,
     attr_name: [*:0]const u8,
 ) bool {
-    // Check if this is a subprocess proxy module first
-    if (import.isProxyModule(obj)) {
-        return import.hasattrProxy(obj, attr_name);
-    }
-    // Use the real PyObject_HasAttrString from CPython C API
     return traits.externs.PyObject_HasAttrString(obj, attr_name) != 0;
 }
 

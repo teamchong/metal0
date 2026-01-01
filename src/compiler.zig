@@ -102,7 +102,8 @@ fn addCSourceFiles(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8
 /// IMPORTANT: Modules must be defined in REVERSE dependency order!
 /// Order: main -> runtime -> ... -> leaf modules
 /// Each module's deps are declared BEFORE the module's -M flag
-fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), main_path: []const u8) !void {
+/// zig_code is used to filter which package modules to include (Zig 0.15 errors on unused modules)
+fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), main_path: []const u8, zig_code: []const u8) !void {
     // 1. C source files first
     try addCSourceFiles(allocator, args);
 
@@ -118,7 +119,8 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
 
     // 2.5 Add package modules (numpy, pytest, etc.) from manifest if it exists
     // These are external packages compiled during codegen
-    try addPackageModuleFlags(allocator, args);
+    // Pass zig_code to filter out unused packages (Zig 0.15 errors on unused modules)
+    try addPackageModuleFlags(allocator, args, zig_code);
 
     const main_flag = try std.fmt.allocPrint(allocator, "-Mmain={s}", .{main_path});
     try args.append(allocator, main_flag);
@@ -144,7 +146,8 @@ fn buildModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u
 
 /// Add package module flags from .metal0/package_modules.txt manifest
 /// This enables individual compilation to also have access to compiled packages like numpy/pytest
-fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8)) !void {
+/// zig_code is used to filter which packages to actually include (Zig 0.15 errors on "module declared but not used")
+fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]const u8), zig_code: []const u8) !void {
     const manifest_path = build_dirs.CACHE ++ "/package_modules.txt";
 
     const file = std.fs.cwd().openFile(manifest_path, .{}) catch {
@@ -166,6 +169,15 @@ fn addPackageModuleFlags(allocator: std.mem.Allocator, args: *std.ArrayList([]co
         const mod_path = parts.next() orelse continue;
 
         if (mod_name.len == 0 or mod_path.len == 0) continue;
+
+        // Only add package if it's actually imported in the generated code
+        // Look for @import("package_name") in the zig code
+        // Zig 0.15 errors on "module declared but not used"
+        var import_pattern_buf: [128]u8 = undefined;
+        const import_pattern = std.fmt.bufPrint(&import_pattern_buf, "@import(\"{s}\")", .{mod_name}) catch continue;
+        if (std.mem.indexOf(u8, zig_code, import_pattern) == null) {
+            continue; // Skip this package - not used
+        }
 
         // Add --dep for main to depend on this package
         try args.append(allocator, "--dep");
@@ -235,7 +247,7 @@ pub fn compileZigWithOptions(allocator: std.mem.Allocator, zig_code: []const u8,
 
     // Add all module definitions including main (-M and --dep flags)
     // This replaces file copying + patching with native Zig module system
-    try buildModuleFlags(aa, &args, tmp_path);
+    try buildModuleFlags(aa, &args, tmp_path, zig_code);
 
     // Use debug mode for DWARF info, release for performance
     if (debug_mode) {
@@ -408,7 +420,7 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try args.append(aa, "build-lib");
 
     // Add all module definitions including main (C source files included)
-    try buildModuleFlags(aa, &args, tmp_path);
+    try buildModuleFlags(aa, &args, tmp_path, zig_code);
 
     try args.append(aa, "-OReleaseFast");
     try args.append(aa, "-fno-stack-check");
@@ -502,7 +514,7 @@ pub fn compileZigStaticLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try args.append(aa, "build-lib");
 
     // Add all module definitions including main (runtime, c_interop, etc.)
-    try buildModuleFlags(aa, &args, tmp_path);
+    try buildModuleFlags(aa, &args, tmp_path, zig_code);
 
     try args.append(aa, "-OReleaseFast");
     try args.append(aa, "-fno-stack-check");

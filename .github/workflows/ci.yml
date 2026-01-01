@@ -367,12 +367,31 @@ jobs:
         timeout-minutes: 60
 
   # =============================================================================
-  # External Library Tests (Official test suites from PyPI packages)
-  # Each library has its own job for clear CI summary display
+  # NumPy External Library Tests
+  # Tests numpy array/ufunc behaviors using upstream test suite
   # =============================================================================
 
-  test-extlib-numpy:
-    name: ExtLib NumPy (11 tests)
+  test-numpy-core:
+    name: NumPy _core Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-extlib-tests
+        with:
+          library: "numpy"
+          test_dir: "tests/numpy/_core"
+          fail_on_error: "false"
+        timeout-minutes: 45
+
+  test-numpy-linalg:
+    name: NumPy linalg Tests
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -382,23 +401,87 @@ jobs:
       - uses: goto-bus-stop/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install NumPy
-        run: pip install numpy
-      - name: Build metal0
-        run: zig build
+      - run: zig build
       - uses: ./.github/actions/run-extlib-tests
         with:
-          library: "numpy"
-          test_dir: "tests/numpy"
+          library: "numpy-linalg"
+          test_dir: "tests/numpy/linalg"
           fail_on_error: "false"
+        timeout-minutes: 20
 
-  # Add more external library tests below as we add support:
-  # test-extlib-scipy:
-  #   name: ExtLib SciPy
-  #   ...
-  # test-extlib-pandas:
-  #   name: ExtLib Pandas
-  #   ...
+  test-numpy-fft:
+    name: NumPy fft Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-extlib-tests
+        with:
+          library: "numpy-fft"
+          test_dir: "tests/numpy/fft"
+          fail_on_error: "false"
+        timeout-minutes: 20
+
+  test-numpy-random:
+    name: NumPy random Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-extlib-tests
+        with:
+          library: "numpy-random"
+          test_dir: "tests/numpy/random"
+          fail_on_error: "false"
+        timeout-minutes: 20
+
+  test-numpy-ma:
+    name: NumPy ma (masked arrays) Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-extlib-tests
+        with:
+          library: "numpy-ma"
+          test_dir: "tests/numpy/ma"
+          fail_on_error: "false"
+        timeout-minutes: 20
+
+  test-numpy-polynomial:
+    name: NumPy polynomial Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build
+      - uses: ./.github/actions/run-extlib-tests
+        with:
+          library: "numpy-polynomial"
+          test_dir: "tests/numpy/polynomial"
+          fail_on_error: "false"
+        timeout-minutes: 20
+

@@ -606,7 +606,9 @@ pub const formatPyObject = runtime_format.formatPyObject;
 pub const PyDict_AsString = runtime_format.PyDict_AsString;
 pub const printValue = runtime_format.printValue;
 pub const pyFormat = runtime_format.pyFormat;
-pub const pyMod = runtime_format.pyMod;
+pub const pyStrMod = runtime_format.pyMod; // String formatting (% on strings)
+pub const pyMod = operator_ops.pyModNumeric; // Numeric modulo
+pub const ModResult = operator_ops.ModResult; // Tagged union for polymorphic modulo result
 pub const pyFloatMod = runtime_format.pyFloatMod;
 pub const pyFloatFloorDiv = runtime_format.pyFloatFloorDiv;
 pub const pyStringFormat = runtime_format.pyStringFormat;
@@ -870,9 +872,9 @@ fn convertItemsToValue(items: [*]*PyObject, count: usize, buffer: *[64]PyValue, 
 fn pyObjectToPyValue(obj: ?*PyObject) PyValue {
     const cast = pyobject_cast.cast;
     const o = obj orelse return .{ .none = {} };
-    if (PyLong_Check(o)) return .{ .int = @intCast(cast(PyLongObject, o).ob_digit) };
+    if (PyLong_Check(o)) return .{ .int = cast(PyLongObject, o).getValue() };
     if (PyFloat_Check(o)) return .{ .float = cast(PyFloatObject, o).ob_fval };
-    if (PyBool_Check(o)) return .{ .bool = cast(PyBoolObject, o).ob_digit != 0 };
+    if (PyBool_Check(o)) return .{ .bool = cast(PyBoolObject, o).getValue() };
     return .{ .ptr = o };
 }
 
@@ -880,8 +882,8 @@ fn pyObjectToPyValue(obj: ?*PyObject) PyValue {
 pub fn pyObjectToValue(obj: *PyObject) f64 {
     const cast = pyobject_cast.cast;
     if (PyFloat_Check(obj)) return cast(PyFloatObject, obj).ob_fval;
-    if (PyLong_Check(obj)) return @floatFromInt(cast(PyLongObject, obj).ob_digit);
-    if (PyBool_Check(obj)) return @floatFromInt(cast(PyBoolObject, obj).ob_digit);
+    if (PyLong_Check(obj)) return @floatFromInt(cast(PyLongObject, obj).getValue());
+    if (PyBool_Check(obj)) return @floatFromInt(@as(i64, @intFromBool(cast(PyBoolObject, obj).getValue())));
     return 0.0;
 }
 
@@ -1021,6 +1023,8 @@ pub const concat = misc_utils.concat;
 pub const dir_builtin = dynamic_attrs.dir_builtin;
 pub const getattr_builtin = dynamic_attrs.getattr_builtin;
 pub const structGetattr = dynamic_attrs.structGetattr;
+pub const globals_builtin = dynamic_attrs.globals_builtin;
+pub const getAttrDynamic = dynamic_attrs.getAttrDynamic;
 
 // Container operations - setEqual already exported via container_ops
 // Additional setEqual export for backward compat
