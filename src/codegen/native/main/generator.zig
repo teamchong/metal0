@@ -590,7 +590,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 3.9: Emit export marker for Zig 0.15 build-lib compatibility
     // In Zig 0.15, "module 'main' declared but not used" error occurs for shared libraries
     // unless there's at least one export symbol. This marker satisfies that requirement.
-    try self.emit("export fn _metal0_module_marker() callconv(.c) void {}\n");
+    // Only emit for main entry file (not dependencies, which are @imported)
+    if (!self.is_dependency) {
+        try self.emit("export fn _metal0_module_marker() callconv(.c) void {}\n");
+    }
 
     // PHASE 4: Define __name__ constant (for if __name__ == "__main__" support)
     try self.emit("const __name__ = \"__main__\";\n");

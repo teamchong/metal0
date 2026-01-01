@@ -184,28 +184,119 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
     // This prevents Zig 0.15 "file exists in multiple modules" errors
     // e.g., When numpy/_core/numeric.py imports numpy as a module, don't generate
     // @import("./multiarray.zig") because numpy._core.__init__.zig already imports it
-    const skip_relative_imports = skip_check: {
-        if (self.source_file_path) |sfp| {
-            // Only applies to files inside site-packages (external packages)
-            if (std.mem.indexOf(u8, sfp, "site-packages") != null) {
-                // Check if any imported module is an ancestor package of this file
-                // e.g., file is numpy/_core/numeric.py and "numpy" is imported
-                for (self.imported_modules.keys()) |mod_name| {
-                    // Check if module name appears in the source path
-                    // e.g., "numpy" in ".../numpy/_core/numeric.py"
-                    if (std.mem.indexOf(u8, sfp, mod_name) != null) {
-                        // Verify it's actually a directory component, not just a substring
-                        const mod_in_path = std.fmt.allocPrint(self.allocator, "/{s}/", .{mod_name}) catch break :skip_check false;
-                        defer self.allocator.free(mod_in_path);
-                        if (std.mem.indexOf(u8, sfp, mod_in_path) != null) {
-                            break :skip_check true;
+    // Instead, generate: const multiarray = numpy._core.multiarray;
+    var skip_relative_imports = false;
+    var parent_package_name: ?[]const u8 = null;
+    var relative_package_path: ?[]const u8 = null;
+
+    if (self.source_file_path) |sfp| {
+        // Only applies to files inside site-packages (external packages)
+        if (std.mem.indexOf(u8, sfp, "site-packages") != null) {
+            // Check if any imported module is an ancestor package of this file
+            // e.g., file is numpy/_core/numeric.py and "numpy" is imported
+            for (self.imported_modules.keys()) |mod_name| {
+                // Check if module name appears in the source path
+                // e.g., "numpy" in ".../numpy/_core/numeric.py"
+                if (std.mem.indexOf(u8, sfp, mod_name) != null) {
+                    // Verify it's actually a directory component, not just a substring
+                    const mod_in_path = std.fmt.allocPrint(self.allocator, "/{s}/", .{mod_name}) catch continue;
+                    defer self.allocator.free(mod_in_path);
+                    if (std.mem.indexOf(u8, sfp, mod_in_path)) |start_idx| {
+                        skip_relative_imports = true;
+                        parent_package_name = mod_name;
+                        // Extract relative path: everything after the package name up to the file
+                        // e.g., for ".../numpy/_core/numeric.py" with package "numpy", get "_core"
+                        const after_pkg = sfp[start_idx + mod_in_path.len ..];
+                        if (std.fs.path.dirname(after_pkg)) |rel_dir| {
+                            if (rel_dir.len > 0) {
+                                relative_package_path = rel_dir;
+                            }
                         }
+                        break;
                     }
                 }
             }
         }
-        break :skip_check false;
-    };
+    }
+
+    // PHASE 0.4: Generate package-qualified aliases when skip_relative_imports is true
+    // Instead of @import("./multiarray.zig"), generate: const multiarray = numpy._core.multiarray;
+    if (skip_relative_imports and parent_package_name != null) {
+        const pkg_name = parent_package_name.?;
+
+        for (self.from_imports.items) |from_imp| {
+            if (from_imp.module.len == 0) continue;
+            if (from_imp.module[0] != '.') continue; // Only handle relative imports
+
+            // Count leading dots
+            var dots: usize = 0;
+            while (dots < from_imp.module.len and from_imp.module[dots] == '.') : (dots += 1) {}
+            const submodule_name = from_imp.module[dots..];
+
+            // Build the package-qualified prefix
+            // For "from . import X" in numpy/_core/numeric.py: prefix = numpy._core
+            // For "from .submod import X": prefix = numpy._core.submod
+            var prefix_buf: [512]u8 = undefined;
+            var prefix_fbs = std.io.fixedBufferStream(&prefix_buf);
+            const prefix_writer = prefix_fbs.writer();
+            prefix_writer.writeAll(pkg_name) catch continue;
+
+            // Add relative_package_path if present (e.g., "_core")
+            if (relative_package_path) |rel_path| {
+                // Convert path separators to dots
+                prefix_writer.writeAll(".") catch continue;
+                for (rel_path) |c| {
+                    if (c == '/' or c == '\\') {
+                        prefix_writer.writeAll(".") catch continue;
+                    } else {
+                        prefix_writer.writeByte(c) catch continue;
+                    }
+                }
+            }
+
+            // For "from .submod import X", add the submodule
+            if (submodule_name.len > 0) {
+                prefix_writer.writeAll(".") catch continue;
+                // Replace dots in submodule name with double underscores for nested
+                for (submodule_name) |c| {
+                    if (c == '.') {
+                        prefix_writer.writeAll("__") catch continue;
+                    } else {
+                        prefix_writer.writeByte(c) catch continue;
+                    }
+                }
+            }
+
+            const prefix = prefix_fbs.getWritten();
+
+            // Generate aliases for each imported name
+            for (from_imp.names, 0..) |name, i| {
+                if (std.mem.eql(u8, name, "*")) continue; // Skip star imports for now
+
+                const has_alias = i < from_imp.asnames.len and from_imp.asnames[i] != null;
+                const symbol_name = if (has_alias) from_imp.asnames[i].? else name;
+
+                // Skip reserved names
+                if (zig_keywords.wouldShadowModule(symbol_name)) continue;
+                if (zig_keywords.isZigKeyword(symbol_name)) continue;
+                if (generated_symbols.contains(symbol_name)) continue;
+
+                // For "from . import X", X is the submodule name itself
+                // Generate: const X = numpy._core.X;
+                if (submodule_name.len == 0) {
+                    // "from . import X" pattern
+                    try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol_name, prefix, name });
+                } else {
+                    // "from .module import symbol" pattern
+                    // Generate: const symbol = numpy._core.module.symbol;
+                    try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol_name, prefix, name });
+                }
+
+                try generated_symbols.put(symbol_name, {});
+                try self.module_level_from_imports.put(symbol_name, {});
+            }
+        }
+    }
 
     // PHASE 0.5: Handle "from . import X" pattern (dots-only module)
     // When module is just dots (e.g., "."), the names list contains submodule names
