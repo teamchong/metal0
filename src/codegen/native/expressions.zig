@@ -44,6 +44,8 @@ const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
     // Boolean constants
     .{ "True", "true" },
     .{ "False", "false" },
+    // Python builtin constants
+    .{ "__debug__", "true" }, // True unless running with -O flag
     // Factories for mutable types (create empty instances)
     .{ "list", "runtime.builtins.list" },
     .{ "dict", "runtime.builtins.dict" },
