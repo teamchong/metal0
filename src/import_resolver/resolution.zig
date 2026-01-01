@@ -73,25 +73,51 @@ pub fn findInSitePackages(
             .{ site_dir, module_path },
         );
 
-        std.fs.cwd().access(module_file, .{}) catch {
+        if (std.fs.cwd().access(module_file, .{})) |_| {
+            return module_file;
+        } else |_| {
             allocator.free(module_file);
+        }
 
-            // Try package __init__.py: site-packages/numpy/matlib/__init__.py
-            const package_init = try std.fmt.allocPrint(
-                allocator,
-                "{s}/{s}/__init__.py",
-                .{ site_dir, module_path },
-            );
+        // Try package __init__.py: site-packages/numpy/matlib/__init__.py
+        const package_init = try std.fmt.allocPrint(
+            allocator,
+            "{s}/{s}/__init__.py",
+            .{ site_dir, module_path },
+        );
 
-            std.fs.cwd().access(package_init, .{}) catch {
-                allocator.free(package_init);
-                continue;
-            };
-
+        if (std.fs.cwd().access(package_init, .{})) |_| {
             return package_init;
-        };
+        } else |_| {
+            allocator.free(package_init);
+        }
 
-        return module_file;
+        // MUST NOT SKIP .so files - Try C extension: site-packages/numpy/_core/_multiarray_umath.cpython-312-darwin.so
+        // These are loaded via dlopen and linked against our c_interop C API reimplementation
+        const so_file = try std.fmt.allocPrint(
+            allocator,
+            "{s}/{s}.cpython-312-darwin.so",
+            .{ site_dir, module_path },
+        );
+
+        if (std.fs.cwd().access(so_file, .{})) |_| {
+            return so_file;
+        } else |_| {
+            allocator.free(so_file);
+        }
+
+        // Also try without cpython suffix (some extensions use plain .so)
+        const plain_so = try std.fmt.allocPrint(
+            allocator,
+            "{s}/{s}.so",
+            .{ site_dir, module_path },
+        );
+
+        if (std.fs.cwd().access(plain_so, .{})) |_| {
+            return plain_so;
+        } else |_| {
+            allocator.free(plain_so);
+        }
     }
 
     // Try stdlib directories (for standard library modules like pathlib)

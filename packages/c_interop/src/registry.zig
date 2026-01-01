@@ -15,6 +15,12 @@ pub const FunctionMapping = mapper.FunctionMapping;
 const cpython_api = @import("include/object.zig");
 pub const PyObject = cpython_api.PyObject;
 
+// Re-export C API functions for generated C extension stubs
+const pymisc = @import("include/pymisc.zig");
+const call_api = @import("include/call.zig");
+pub const PyObject_GetAttrString = pymisc.PyObject_GetAttrString;
+pub const PyObject_Call = call_api.PyObject_Call;
+
 /// Global registry containing all available mappings
 pub var global_registry: ?*mapper.MappingRegistry = null;
 

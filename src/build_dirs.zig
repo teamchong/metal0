@@ -267,6 +267,18 @@ pub fn projectZigPath(allocator: std.mem.Allocator, project_root: []const u8, so
     return std.fmt.allocPrint(allocator, "{s}/" ++ OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}.zig", .{ project_root, stem });
 }
 
+/// Get Zig output path from a relative path (for C extension stubs)
+/// The rel_path should already be in the desired form (e.g., "numpy/_core/_multiarray_umath.zig")
+/// e.g., project_root=".", rel_path="numpy/_core/_multiarray_umath.zig"
+///       -> ".metal0/gen/numpy/_core/_multiarray_umath.zig"
+pub fn projectZigPathFromRelative(allocator: std.mem.Allocator, project_root: []const u8, rel_path: []const u8) ![]const u8 {
+    // Handle "." project root - don't prefix with "./"
+    if (std.mem.eql(u8, project_root, ".")) {
+        return std.fmt.allocPrint(allocator, OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}", .{rel_path});
+    }
+    return std.fmt.allocPrint(allocator, "{s}/" ++ OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}", .{ project_root, rel_path });
+}
+
 /// Get path for binary (project-relative)
 /// e.g., project_root="myproject", source_path="myproject/src/app.py"
 ///       -> "myproject/.metal0/gen/src/app"

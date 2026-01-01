@@ -265,6 +265,39 @@ pub const ImportGraph = struct {
                             self.allocator.free(path);
                             continue;
                         };
+
+                        // Check if it's a C extension (.so file) - add to c_extensions instead of scanning
+                        if (std.mem.endsWith(u8, path, ".so")) {
+                            // Derive full module name from the .so path
+                            // e.g., .venv/lib/python3.12/site-packages/numpy/_core/_multiarray_umath.cpython-312-darwin.so
+                            //    -> numpy._core._multiarray_umath
+                            const full_mod_name = blk: {
+                                // Find site-packages in path
+                                if (std.mem.indexOf(u8, path, "site-packages/")) |sp_idx| {
+                                    const after_sp = path[sp_idx + "site-packages/".len ..];
+                                    // Strip .cpython-*.so suffix
+                                    const so_idx = std.mem.indexOf(u8, after_sp, ".cpython-") orelse
+                                        std.mem.indexOf(u8, after_sp, ".so") orelse after_sp.len;
+                                    const mod_path = after_sp[0..so_idx];
+                                    // Replace / with .
+                                    var name_buf = try self.allocator.alloc(u8, mod_path.len);
+                                    for (mod_path, 0..) |c, i| {
+                                        name_buf[i] = if (c == '/') '.' else c;
+                                    }
+                                    break :blk name_buf;
+                                }
+                                // Fallback: extract from relative import
+                                var rel_dots: usize = 0;
+                                while (rel_dots < import_name.len and import_name[rel_dots] == '.') : (rel_dots += 1) {}
+                                break :blk try self.allocator.dupe(u8, import_name[rel_dots..]);
+                            };
+
+                            std.debug.print("  Found C extension: {s} -> {s}\n", .{ full_mod_name, path });
+                            try self.c_extensions.put(full_mod_name, path);
+                            // Don't free path - it's stored in c_extensions
+                            continue;
+                        }
+
                         std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, path });
                         defer self.allocator.free(path);
                         // Extract module name from relative import (strip leading dots)
@@ -372,17 +405,38 @@ fn resolveRelativeImport(import_name: []const u8, source_dir: []const u8, alloca
 
     // Try as module file first: base_dir/module.py
     const module_path = try std.fmt.allocPrint(allocator, "{s}/{s}.py", .{ base_dir, module_part });
-    std.fs.cwd().access(module_path, .{}) catch {
+    if (std.fs.cwd().access(module_path, .{})) |_| {
+        return module_path;
+    } else |_| {
         allocator.free(module_path);
-        // Try as package: base_dir/module/__init__.py
-        const pkg_path = try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{ base_dir, module_part });
-        std.fs.cwd().access(pkg_path, .{}) catch {
-            allocator.free(pkg_path);
-            return null;
-        };
+    }
+
+    // Try as package: base_dir/module/__init__.py
+    const pkg_path = try std.fmt.allocPrint(allocator, "{s}/{s}/__init__.py", .{ base_dir, module_part });
+    if (std.fs.cwd().access(pkg_path, .{})) |_| {
         return pkg_path;
-    };
-    return module_path;
+    } else |_| {
+        allocator.free(pkg_path);
+    }
+
+    // MUST NOT SKIP .so files - Try C extension: base_dir/module.cpython-312-darwin.so
+    // These are loaded via dlopen and linked against our c_interop C API reimplementation
+    const so_path = try std.fmt.allocPrint(allocator, "{s}/{s}.cpython-312-darwin.so", .{ base_dir, module_part });
+    if (std.fs.cwd().access(so_path, .{})) |_| {
+        return so_path;
+    } else |_| {
+        allocator.free(so_path);
+    }
+
+    // Also try plain .so
+    const plain_so = try std.fmt.allocPrint(allocator, "{s}/{s}.so", .{ base_dir, module_part });
+    if (std.fs.cwd().access(plain_so, .{})) |_| {
+        return plain_so;
+    } else |_| {
+        allocator.free(plain_so);
+    }
+
+    return null;
 }
 
 /// Helper to recursively extract imports from any statement

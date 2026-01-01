@@ -19,6 +19,7 @@ const utils = @import("utils.zig");
 const import_resolver = @import("../import_resolver.zig");
 const import_scanner = @import("../import_scanner.zig");
 const import_registry = @import("../codegen/native/import_registry.zig");
+const imports_mod = @import("../codegen/native/main/imports.zig");
 const build_dirs = @import("../build_dirs.zig");
 const debug_info = @import("debug.debug_info");
 const zig_keywords = @import("utils.zig_keywords");
@@ -285,8 +286,6 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     // PHASE 4.5: Pre-compile imported modules to register function return types
     const source_file_dir_str = ".";
     const source_file_dir: ?[]const u8 = source_file_dir_str;
-
-    const imports_mod = @import("../codegen/native/main/imports.zig");
 
     // Create registry to check for runtime modules
     var registry = try import_registry.createDefaultRegistry(aa);
@@ -583,6 +582,54 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
         }
     }
 
+    // Generate stubs for C extension modules (.so files)
+    // These are loaded via dlopen at runtime and linked against our c_interop C API
+    std.debug.print("Generating C extension stubs ({d} extensions)...\n", .{import_graph.c_extensions.count()});
+    var c_ext_iter = import_graph.c_extensions.iterator();
+    while (c_ext_iter.next()) |entry| {
+        const module_name = entry.key_ptr.*;
+        const so_path = entry.value_ptr.*;
+
+        // Generate output path for the C extension stub
+        // Convert module.name to path: numpy._core._multiarray_umath -> numpy/_core/_multiarray_umath.zig
+        var path_buf: [1024]u8 = undefined;
+        var path_len: usize = 0;
+        for (module_name) |c| {
+            if (path_len >= path_buf.len - 5) break;
+            path_buf[path_len] = if (c == '.') '/' else c;
+            path_len += 1;
+        }
+        @memcpy(path_buf[path_len..][0..4], ".zig");
+        path_len += 4;
+        const rel_path = path_buf[0..path_len];
+
+        const zig_out_path = build_dirs.projectZigPathFromRelative(aa, project_root.?.path, rel_path) catch continue;
+        defer aa.free(zig_out_path);
+
+        // Check if stub already exists
+        std.fs.cwd().access(zig_out_path, .{}) catch {
+            // Generate C extension stub
+            const stub = imports_mod.generateCExtensionStub(aa, module_name, so_path) catch |err| {
+                std.debug.print("Warning: Failed to generate C extension stub for '{s}': {}\n", .{ module_name, err });
+                continue;
+            };
+            defer aa.free(stub);
+
+            // Ensure parent directory exists and write stub
+            build_dirs.ensureParentDir(zig_out_path) catch continue;
+            const file = std.fs.cwd().createFile(zig_out_path, .{}) catch |err| {
+                std.debug.print("Warning: Failed to create C extension stub file '{s}': {}\n", .{ zig_out_path, err });
+                continue;
+            };
+            defer file.close();
+            file.writeAll(stub) catch |err| {
+                std.debug.print("Warning: Failed to write C extension stub '{s}': {}\n", .{ zig_out_path, err });
+                continue;
+            };
+            std.debug.print("  ✓ C extension stub: {s}\n", .{zig_out_path});
+        };
+    }
+
     // Semantic analysis (required for codegen)
     var semantic_info = semantic_types.SemanticInfo.init(aa);
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
@@ -764,6 +811,54 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
     std.debug.print("Module compilation loop complete.\n", .{});
 
+    // Generate stubs for C extension modules (.so files)
+    // These are loaded via dlopen at runtime and linked against our c_interop C API
+    std.debug.print("Generating C extension stubs ({d} extensions)...\n", .{import_graph.c_extensions.count()});
+    var c_ext_iter = import_graph.c_extensions.iterator();
+    while (c_ext_iter.next()) |entry| {
+        const module_name = entry.key_ptr.*;
+        const so_path = entry.value_ptr.*;
+
+        // Generate output path for the C extension stub
+        // Convert module.name to path: numpy._core._multiarray_umath -> numpy/_core/_multiarray_umath.zig
+        var path_buf: [1024]u8 = undefined;
+        var path_len: usize = 0;
+        for (module_name) |c| {
+            if (path_len >= path_buf.len - 5) break;
+            path_buf[path_len] = if (c == '.') '/' else c;
+            path_len += 1;
+        }
+        @memcpy(path_buf[path_len..][0..4], ".zig");
+        path_len += 4;
+        const rel_path = path_buf[0..path_len];
+
+        const zig_out_path = build_dirs.projectZigPathFromRelative(aa, project_root.?.path, rel_path) catch continue;
+        defer aa.free(zig_out_path);
+
+        // Check if stub already exists
+        std.fs.cwd().access(zig_out_path, .{}) catch {
+            // Generate C extension stub
+            const stub = imports_mod.generateCExtensionStub(aa, module_name, so_path) catch |err| {
+                std.debug.print("Warning: Failed to generate C extension stub for '{s}': {}\n", .{ module_name, err });
+                continue;
+            };
+            defer aa.free(stub);
+
+            // Ensure parent directory exists and write stub
+            build_dirs.ensureParentDir(zig_out_path) catch continue;
+            const file = std.fs.cwd().createFile(zig_out_path, .{}) catch |err| {
+                std.debug.print("Warning: Failed to create C extension stub file '{s}': {}\n", .{ zig_out_path, err });
+                continue;
+            };
+            defer file.close();
+            file.writeAll(stub) catch |err| {
+                std.debug.print("Warning: Failed to write C extension stub '{s}': {}\n", .{ zig_out_path, err });
+                continue;
+            };
+            std.debug.print("  ✓ C extension stub: {s}\n", .{zig_out_path});
+        };
+    }
+
     // PHASE 2.5: C Library Import Detection
     std.debug.print("Phase 2.5: C Library Import Detection...\n", .{});
     var import_ctx = c_interop.ImportContext.init(aa);
@@ -787,8 +882,6 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         if (dir.len > 0) dir else "."
     else
         ".";
-
-    const imports_mod = @import("../codegen/native/main/imports.zig");
 
     // Create registry to check for runtime modules
     var registry2 = try import_registry.createDefaultRegistry(aa);
