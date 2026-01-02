@@ -202,6 +202,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     const mod_in_path = std.fmt.allocPrint(self.allocator, "/{s}/", .{mod_name}) catch continue;
                     defer self.allocator.free(mod_in_path);
                     if (std.mem.indexOf(u8, sfp, mod_in_path)) |start_idx| {
+                        // Don't skip for __init__.py - it IS the package root and should generate imports
+                        // e.g., numpy/__init__.py should generate @import("./version.zig"), not skip
+                        if (std.mem.endsWith(u8, sfp, "__init__.py")) continue;
                         skip_relative_imports = true;
                         parent_package_name = mod_name;
                         // Extract relative path: everything after the package name up to the file
