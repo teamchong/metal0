@@ -1192,7 +1192,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 try b.emitRaw(";\n");
                 // Defer __exit__ before calling __enter__ (Python semantics)
                 try b.writeIndent();
-                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{cm_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}) catch {{}}; }}\n", .{cm_name});
                 // Call __enter__() and assign result to target variable
                 try b.writeIndent();
                 try b.emitRaw(var_name);
@@ -1229,7 +1229,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{cm_name});
             } else {
-                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{cm_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}) catch {{}}; }}\n", .{cm_name});
             }
 
             // Call __enter__() to get the value to unpack
@@ -1281,7 +1281,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
             } else {
-                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{ctx_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}) catch {{}}; }}\n", .{ctx_name});
                 try b.writeIndent();
                 try b.writeFmt("_ = try {s}.__enter__();\n", .{ctx_name});
             }
@@ -1335,7 +1335,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 if (cm_type == .file) {
                     try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
                 } else {
-                    try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{ctx_name});
+                    try b.writeFmt("defer {{ _ = {s}.__exit__(runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}) catch {{}}; }}\n", .{ctx_name});
                     try b.writeIndent();
                     try b.writeFmt("_ = try {s}.__enter__();\n", .{ctx_name});
                 }
@@ -1362,7 +1362,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (context_type == .file) {
                 try b.writeFmt("defer runtime.PyFile.close({s});\n", .{ctx_name});
             } else {
-                try b.writeFmt("defer {{ _ = {s}.__exit__(null, null, null) catch {{}}; }}\n", .{ctx_name});
+                try b.writeFmt("defer {{ _ = {s}.__exit__(runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}, runtime.PyValue{{ .none = {{}} }}) catch {{}}; }}\n", .{ctx_name});
                 try b.writeIndent();
                 try b.writeFmt("_ = try {s}.__enter__();\n", .{ctx_name});
             }

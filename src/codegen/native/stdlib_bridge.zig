@@ -26,7 +26,8 @@ pub fn genSimpleCall(comptime spec: SimpleCallSpec) fn (*NativeCodegen, []ast.No
             }
 
             // Check if at module scope - can't use try outside functions
-            const at_module_scope = self.current_function_name == null and self.indent_level == 0;
+            // Note: Don't check indent_level - struct-level consts have indent > 0 but are still at module scope
+            const at_module_scope = self.current_function_name == null;
 
             if (at_module_scope) {
                 try self.emit(spec.runtime_path ++ "(");
@@ -71,7 +72,8 @@ pub fn genNoArgCall(comptime spec: NoArgCallSpec) fn (*NativeCodegen, []ast.Node
             }
 
             // Check if at module scope - can't use try outside functions
-            const at_module_scope = self.current_function_name == null and self.indent_level == 0;
+            // Note: Don't check indent_level - struct-level consts have indent > 0 but are still at module scope
+            const at_module_scope = self.current_function_name == null;
 
             if (at_module_scope) {
                 try self.emit(spec.runtime_path ++ "(");
@@ -110,7 +112,8 @@ pub fn genVarArgCall(comptime spec: VarArgCallSpec) fn (*NativeCodegen, []ast.No
             }
 
             // Check if at module scope - can't use try outside functions
-            const at_module_scope = self.current_function_name == null and self.indent_level == 0;
+            // Note: Don't check indent_level - struct-level consts have indent > 0 but are still at module scope
+            const at_module_scope = self.current_function_name == null;
 
             if (at_module_scope) {
                 try self.emit(spec.runtime_path ++ "(");

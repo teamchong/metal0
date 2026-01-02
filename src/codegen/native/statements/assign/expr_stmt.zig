@@ -5,6 +5,8 @@ const NativeCodegen = @import("../../main.zig").NativeCodegen;
 const CodegenError = @import("../../main.zig").CodegenError;
 const builder_mod = @import("codegen.builder");
 const ZigBuilder = builder_mod.ZigBuilder;
+const expressions = @import("../../expressions.zig");
+const isNameDefined = expressions.isNameDefined;
 
 // Trait imports for type checking
 const type_traits = @import("../../../../analysis/traits/type_traits.zig");
@@ -150,6 +152,22 @@ fn isModuleFuncReturningValue(module: []const u8, func: []const u8) bool {
 /// Generate expression statement using builder.withStatement() for atomic semicolons
 pub fn genExprStmt(self: *NativeCodegen, expr: ast.Node) CodegenError!void {
     const builder = try self.getBuilder();
+
+    // Handle bare name expressions that are undefined (e.g., `xyzzy` in except/context manager)
+    // These should raise NameError at runtime, not fail at compile time
+    // Only applies to bare names, not calls/attributes/etc.
+    if (expr == .name) {
+        const name = expr.name.id;
+        // Check if name is defined in any known scope
+        const is_defined = isNameDefined(self, name);
+        if (!is_defined) {
+            // Emit runtime NameError for undefined bare name expression statements
+            // This handles cases like `xyzzy` in __exit__ methods or exception handlers
+            try self.emitIndent();
+            try self.emit("return error.NameError;\n");
+            return;
+        }
+    }
 
     // Special handling for print()
     if (expr == .call and expr.call.func.* == .name) {

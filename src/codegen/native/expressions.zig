@@ -12,7 +12,8 @@ const container_traits = @import("../../analysis/traits/container_traits.zig");
 
 /// Check if a name is defined in any known scope
 /// Returns true if the name is a known variable, builtin, import, or type
-fn isNameDefined(self: *NativeCodegen, name: []const u8) bool {
+/// Public for use in expr_stmt.zig to detect undefined bare name expressions
+pub fn isNameDefined(self: *NativeCodegen, name: []const u8) bool {
     // Check function local variables
     if (self.func_local_vars.contains(name)) return true;
     // Check var_renames (parameters, shadows, etc.)

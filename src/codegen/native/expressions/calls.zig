@@ -2388,12 +2388,17 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // Add 'try' if function needs allocator, is async, or returns error union
         // Note: kwarg functions don't need try - the block expression handles errors
-        // IMPORTANT: Only emit 'try' inside function bodies (indent_level > 0)
-        // At module level (indent 0), 'try' is invalid in Zig - error unions must be handled differently
-        // Use indent_level instead of scope_level because main() body is at scope 0 but indent 1
-        const inside_function_body = self.indent_level > 0;
-        if (inside_function_body and (user_func_needs_alloc or is_async_func or func_needs_error)) {
-            try self.emit("try ");
+        // IMPORTANT: Only emit 'try' inside function bodies (current_function_name != null)
+        // At module level, 'try' is invalid in Zig - use catch unreachable wrapper instead
+        const at_module_level = self.current_function_name == null;
+        const needs_error_handling = user_func_needs_alloc or is_async_func or func_needs_error;
+        if (needs_error_handling) {
+            if (at_module_level) {
+                // Module level: wrap with ( ... catch unreachable)
+                try self.emit("(");
+            } else {
+                try self.emit("try ");
+            }
         }
 
         // Use renamed func_name for output, with special handling for main
@@ -2658,6 +2663,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         }
 
         try self.emit(")");
+        // Close the catch unreachable wrapper for module-level fallible calls
+        if (needs_error_handling and at_module_level) {
+            try self.emit(" catch unreachable)");
+        }
         return;
     }
 

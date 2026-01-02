@@ -233,6 +233,9 @@ pub const SEEK_SET: i32 = 0;
 pub const SEEK_CUR: i32 = 1;
 pub const SEEK_END: i32 = 2;
 
+/// Default buffer size for I/O operations (matches CPython)
+pub const DEFAULT_BUFFER_SIZE: i64 = 8192;
+
 // Tests
 test "StringIO basic" {
     const testing = std.testing;

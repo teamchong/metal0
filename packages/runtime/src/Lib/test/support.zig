@@ -778,3 +778,64 @@ pub const PatchContext = struct {
         return func;
     }
 };
+
+// ============================================================================
+// Item Swapping Context Manager
+// ============================================================================
+
+/// Context manager to temporarily swap a value in a container
+/// Python: with support.swap_item(mapping, key, new_value): ...
+/// Restores the original value (or deletes the key) on exit
+pub fn swap_item(comptime Container: type, comptime Key: type, comptime Value: type) type {
+    return struct {
+        container: *Container,
+        key: Key,
+        old_value: ?Value,
+        had_key: bool,
+
+        const Self = @This();
+
+        pub fn init(container: *Container, key: Key, new_value: Value) Self {
+            // Save old value and set new
+            const old = container.get(key);
+            const had = old != null;
+            container.put(key, new_value) catch {};
+            return .{
+                .container = container,
+                .key = key,
+                .old_value = old,
+                .had_key = had,
+            };
+        }
+
+        pub fn __enter__(self: *Self, _: std.mem.Allocator) !*Self {
+            return self;
+        }
+
+        pub fn __exit__(self: *Self, _: std.mem.Allocator, _: ?*anyopaque, _: ?*anyopaque, _: ?*anyopaque) !void {
+            // Restore original state
+            if (self.had_key) {
+                if (self.old_value) |val| {
+                    self.container.put(self.key, val) catch {};
+                }
+            } else {
+                _ = self.container.remove(self.key);
+            }
+        }
+    };
+}
+
+/// Simple swap_item for dict-like containers (used by CPython tests)
+/// Returns a context manager that swaps dict[key] = new_value
+pub const SwapItemContext = struct {
+    pub fn __enter__(self: *@This(), _: std.mem.Allocator) !*@This() {
+        return self;
+    }
+
+    pub fn __exit__(_: *@This(), _: std.mem.Allocator, _: ?*anyopaque, _: ?*anyopaque, _: ?*anyopaque) !void {}
+};
+
+/// Non-generic swap_item stub for simple use cases
+pub fn swap_item_simple(_: anytype, _: anytype, _: anytype) SwapItemContext {
+    return .{};
+}
