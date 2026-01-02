@@ -115,6 +115,9 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
             try b.emitRaw(";\n");
 
+            // Register in symbol table so subsequent shadowing checks work
+            try self.declareVar(alias);
+
             const output = try b.getBodyDupe();
             try self.output.appendSlice(self.allocator, output);
         }
@@ -157,6 +160,11 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
             try b.emitRaw("_ = &");
             try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
             try b.emitRaw(";\n");
+        }
+
+        // Register in symbol table so subsequent shadowing checks work
+        if (!was_hoisted) {
+            try self.declareVar(alias);
         }
 
         const output = try b.getBodyDupe();
@@ -265,6 +273,9 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                     try b.emitRaw("_ = &");
                     try b.emitRaw(escaped_alias);
                     try b.emitRaw(";\n");
+
+                    // Register in symbol table so subsequent shadowing checks work
+                    try self.declareVar(alias);
                 }
             }
 
@@ -328,6 +339,12 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 try b.emitRaw("_ = &");
                 try zig_keywords.writeEscapedIdent(b.body.writer(self.allocator), alias);
                 try b.emitRaw(";\n");
+            }
+
+            // Register in symbol table so subsequent shadowing checks work
+            // (e.g., for loop variables with same name as import alias)
+            if (!was_hoisted) {
+                try self.declareVar(alias);
             }
 
             // Track as local from-import for dispatch

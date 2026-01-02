@@ -62,6 +62,21 @@ pub const temp_cwd = struct {
     pub fn __exit__(_: *temp_cwd, _: std.mem.Allocator) !void {}
 };
 
+/// FakePath - Simple implementation of the path protocol
+/// Used for testing path-like objects
+pub const FakePath = struct {
+    path: []const u8,
+
+    pub fn init(_: std.mem.Allocator, path: []const u8) FakePath {
+        return .{ .path = path };
+    }
+
+    /// Returns the file system path representation (__fspath__ protocol)
+    pub fn __fspath__(self: *const FakePath) []const u8 {
+        return self.path;
+    }
+};
+
 pub fn __stub__() void {
     // Stub - see module header for why this isn't needed
 }
