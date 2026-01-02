@@ -150,6 +150,58 @@ pub fn hasActiveException() bool {
     return exception_stack_len > 0;
 }
 
+// ============================================================================
+// Exception Cause Tracking (for `raise X from Y` syntax)
+// ============================================================================
+
+/// Thread-local storage for exception cause (set by `raise X from Y`)
+/// When set, the next raised exception will have __cause__ set to this value
+threadlocal var pending_exception_cause: ?*PyException = null;
+
+/// Thread-local storage for __suppress_context__ (set by `raise X from Y` or `raise X from None`)
+/// When true, __context__ won't be displayed even if set
+threadlocal var pending_suppress_context: bool = false;
+
+/// Thread-local for tracking if cause was explicitly set to None
+/// `raise X from None` is different from just `raise X`
+threadlocal var pending_cause_is_none: bool = false;
+
+/// Set the exception cause for the next raised exception
+/// Called during `raise X from Y` processing
+pub fn setExceptionCause(cause: ?*PyException) void {
+    pending_exception_cause = cause;
+    pending_suppress_context = true; // `raise X from Y` always sets __suppress_context__ = True
+    pending_cause_is_none = cause == null;
+}
+
+/// Get the pending exception cause (and clear it)
+/// Called when constructing the PyException object
+pub fn consumeExceptionCause() ?*PyException {
+    const cause = pending_exception_cause;
+    pending_exception_cause = null;
+    return cause;
+}
+
+/// Get the pending suppress_context flag (and clear it)
+pub fn consumeSuppressContext() bool {
+    const suppress = pending_suppress_context;
+    pending_suppress_context = false;
+    pending_cause_is_none = false;
+    return suppress;
+}
+
+/// Check if `raise X from None` was used (for tests)
+pub fn wasCauseExplicitlyNone() bool {
+    return pending_cause_is_none;
+}
+
+/// Clear all pending cause state
+pub fn clearPendingCause() void {
+    pending_exception_cause = null;
+    pending_suppress_context = false;
+    pending_cause_is_none = false;
+}
+
 /// Map exception type name to Zig error type for bare raise re-raising
 /// This allows the correct error to propagate through catch blocks
 pub fn getErrorFromTypeName(type_name: []const u8) anyerror {
@@ -269,6 +321,8 @@ pub fn clearException() void {
     last_syntax_error_text = null;
     last_syntax_error_end_lineno = null;
     last_syntax_error_end_offset = null;
+    // Clear pending cause state
+    clearPendingCause();
 }
 
 /// Set SyntaxError attributes
@@ -412,8 +466,15 @@ pub fn setExceptionFull(exc: PyException) void {
 }
 
 /// Get the full exception object (returns default if none set)
+/// Also applies pending __cause__ and __suppress_context__ from `raise X from Y`
 pub fn getExceptionFull() PyException {
-    return last_exception_full orelse PyException.fromCurrent();
+    var exc = last_exception_full orelse PyException.fromCurrent();
+    // Apply pending cause from `raise X from Y`
+    if (pending_suppress_context) {
+        exc.__cause__ = consumeExceptionCause();
+        exc.__suppress_context__ = true;
+    }
+    return exc;
 }
 
 /// Set exception message with bytes repr formatted into the message

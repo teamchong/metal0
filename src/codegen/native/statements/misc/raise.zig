@@ -22,6 +22,97 @@ fn getExceptionName(exc: *const ast.Node) []const u8 {
     }
 }
 
+/// Check if an expression is the None literal
+fn isNoneLiteral(node: *const ast.Node) bool {
+    if (node.* == .constant) {
+        return node.constant.value == .none;
+    }
+    return false;
+}
+
+/// Generate code to handle the cause expression for `raise X from Y`
+/// This sets __cause__ and __suppress_context__ on the exception
+fn genRaiseCause(self: *NativeCodegen, b: anytype, cause: *const ast.Node) CodegenError!void {
+    if (isNoneLiteral(cause)) {
+        // `raise X from None` - set __suppress_context__ = True, __cause__ = None
+        try b.writeIndent();
+        try b.emitRaw("runtime.exceptions.setExceptionCause(null);\n");
+    } else if (cause.* == .name) {
+        // `raise X from exc` where exc is a variable name
+        // Check if it's an exception type (like KeyError) vs an instance
+        const name = cause.name.id;
+        if (ExceptionTypes.has(name)) {
+            // It's an exception type name - create PyException with that type
+            try b.writeIndent();
+            try b.emitRaw("{\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("var __cause_exc = runtime.exceptions.PyException.init(\"");
+            try b.emitRaw(name);
+            try b.emitRaw("\", \"\");\n");
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setExceptionCause(&__cause_exc);\n");
+            b.dedent();
+            try b.writeIndent();
+            try b.emitRaw("}\n");
+        } else {
+            // It's a variable - assume it's a PyException and copy from it
+            // Use the current exception on the stack if available
+            try b.writeIndent();
+            try b.emitRaw("{\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("// Get cause from current exception context\n");
+            try b.writeIndent();
+            try b.emitRaw("const __maybe_cause = runtime.exceptions.getCurrentException();\n");
+            try b.writeIndent();
+            try b.emitRaw("if (__maybe_cause) |__cause_entry| {\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("var __cause_exc = runtime.exceptions.PyException.initWithId(__cause_entry.type_name, __cause_entry.message, __cause_entry.exception_id);\n");
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setExceptionCause(&__cause_exc);\n");
+            b.dedent();
+            try b.writeIndent();
+            try b.emitRaw("} else {\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setExceptionCause(null);\n");
+            b.dedent();
+            try b.writeIndent();
+            try b.emitRaw("}\n");
+            b.dedent();
+            try b.writeIndent();
+            try b.emitRaw("}\n");
+        }
+    } else if (cause.* == .call) {
+        // `raise X from ValueError("msg")` - create exception from call
+        const call = cause.call;
+        if (call.func.* == .name) {
+            const cause_exc_name = call.func.name.id;
+            try b.writeIndent();
+            try b.emitRaw("{\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("var __cause_exc = runtime.exceptions.PyException.init(\"");
+            try b.emitRaw(cause_exc_name);
+            try b.emitRaw("\", ");
+            if (call.args.len > 0) {
+                try genRaiseMessage(self, b, call.args[0]);
+            } else {
+                try b.emitRaw("\"\"");
+            }
+            try b.emitRaw(");\n");
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setExceptionCause(&__cause_exc);\n");
+            b.dedent();
+            try b.writeIndent();
+            try b.emitRaw("}\n");
+        }
+    }
+    // For other cause expressions, we don't set a cause (fallback)
+}
+
 /// Generate the error message for a raise statement
 /// Handles string literals and expressions
 /// Returns a string that can be written to builder
@@ -263,6 +354,10 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                         try b.emitRaw(exc_name);
                         try b.emitRaw("\", \"\");\n");
                     }
+                    // Handle `raise X from Y` cause if present
+                    if (raise_node.cause) |cause| {
+                        try genRaiseCause(self, b, cause);
+                    }
                     // Generate: return error.ValueError
                     try b.writeIndent();
                     try b.emitRaw("return error.");
@@ -289,6 +384,10 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
                 try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"");
                 try b.emitRaw(exc_name);
                 try b.emitRaw("\", \"\", @src().line);\n");
+                // Handle `raise X from Y` cause if present
+                if (raise_node.cause) |cause| {
+                    try genRaiseCause(self, b, cause);
+                }
                 // Generate: return error.TypeError
                 try b.writeIndent();
                 try b.emitRaw("return error.");
@@ -305,6 +404,10 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try b.emitRaw("runtime.exceptions.setException(\"Exception\", \"\");\n");
         try b.writeIndent();
         try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
+        // Handle `raise X from Y` cause if present
+        if (raise_node.cause) |cause| {
+            try genRaiseCause(self, b, cause);
+        }
         try b.writeIndent();
         try b.emitRaw("return error.Exception;\n");
     } else {
