@@ -58,15 +58,20 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
     }
 
     // Case 2: Captured variable is itself a closure
-    // Using @TypeOf() causes monomorphization explosion - each unique function type creates
-    // a separate capture struct type, leading to O(n²) compilation when decorating n functions
-    // Solution: Use runtime.AnyCallable vtable wrapper (same as Case 5)
+    // Using @TypeOf() to get the exact closure type - this preserves compatibility
+    // with the closure's .call() method. AnyCallable has anytype making it comptime-only.
     if (self.closure_vars.contains(var_name)) {
         if (is_mutated) {
-            try self.emit(": *runtime.AnyCallable");
+            try self.emit(": *@TypeOf(");
         } else {
-            try self.emit(": runtime.AnyCallable");
+            try self.emit(": @TypeOf(");
         }
+        if (self.var_renames.get(var_name)) |renamed| {
+            try self.emit(renamed);
+        } else {
+            try self.emitIdent(var_name);
+        }
+        try self.emit(")");
         return;
     }
 
@@ -847,30 +852,12 @@ pub fn genStandardClosure(
             const actual_name = outer_capture_renames.get(var_name) orelse
                 self.var_renames.get(var_name) orelse var_name;
 
-            // Check if this is an AnyCallable-wrapped capture
-            // (either unknown type OR a closure from closure_vars)
-            const var_type = self.getLocalVarType(var_name) orelse
-                self.getVarType(var_name) orelse
-                self.type_inferrer.getScopedVar(var_name) orelse
-                .unknown;
-            const is_any_callable = var_type == .unknown or self.closure_vars.contains(var_name);
-
+            // Initialize capture - use & for mutated captures, value for non-mutated
+            // For closures, the type is @TypeOf(actual_var) so we pass directly
             if (mutated_captures.contains(var_name)) {
-                // Mutated captures: take pointer
-                if (is_any_callable) {
-                    // Wrap with AnyCallable to prevent monomorphization
-                    try self.emitFmt(" .{s} = &runtime.AnyCallable.wrap(@TypeOf({s}), {s})", .{ var_name, actual_name, actual_name });
-                } else {
-                    try self.emitFmt(" .{s} = &{s}", .{ var_name, actual_name });
-                }
+                try self.emitFmt(" .{s} = &{s}", .{ var_name, actual_name });
             } else {
-                // Non-mutated captures: use value directly
-                if (is_any_callable) {
-                    // Wrap with AnyCallable to prevent monomorphization
-                    try self.emitFmt(" .{s} = runtime.AnyCallable.wrap(@TypeOf({s}), {s})", .{ var_name, actual_name, actual_name });
-                } else {
-                    try self.emitFmt(" .{s} = {s}", .{ var_name, actual_name });
-                }
+                try self.emitFmt(" .{s} = {s}", .{ var_name, actual_name });
             }
         }
         try self.emit(" } };\n");

@@ -527,6 +527,29 @@ pub const ErrorContext = struct {
     }
 };
 
+/// Context manager for catching unraisable exceptions
+/// Used in tests like: with support.catch_unraisable_exception() as cm:
+pub const UnraisableExceptionContext = struct {
+    unraisable: ?anyerror = null,
+
+    pub fn __enter__(self: UnraisableExceptionContext) !UnraisableExceptionContext {
+        return self;
+    }
+
+    pub fn __exit__(self: UnraisableExceptionContext, exc_type: anytype, exc_val: anytype, exc_tb: anytype) !bool {
+        _ = self;
+        _ = exc_type;
+        _ = exc_val;
+        _ = exc_tb;
+        return false;
+    }
+};
+
+/// Create a catch_unraisable_exception context manager
+pub fn catch_unraisable_exception() UnraisableExceptionContext {
+    return .{};
+}
+
 // ============================================================================
 // Misc Utilities
 // ============================================================================

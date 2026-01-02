@@ -78,7 +78,7 @@ pub fn genRecursiveClosure(
             try b3.write("_: anytype");
         }
     }
-    try b3.write(") void {\n");
+    try b3.write(") anyerror!void {\n");
     const output3 = try b3.getBodyDupe();
     try self.output.appendSlice(self.allocator, output3);
     self.indent();
