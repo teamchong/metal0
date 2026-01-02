@@ -42,6 +42,12 @@ fn hoistLocalClassesFromMethod(self: *NativeCodegen, method: ast.Node.FunctionDe
     if (self.class_registry.getClass(returned_class_name) != null) return;
     if (self.hoisted_local_classes.contains(returned_class_name)) return;
 
+    // CRITICAL: Analyze captured variables BEFORE generating the hoisted class!
+    // This populates nested_class_captures so genClassDef can generate the capture fields.
+    // Without this, hoisted classes would be generated without their captured variables.
+    const nested_captures = @import("nested_captures.zig");
+    try nested_captures.analyzeNestedClassCaptures(self, method);
+
     // Mark as hoisted BEFORE generating (so genClassDef knows to skip _ = &Name;)
     // Store with original name initially - genClassDef will update if renamed
     try self.hoisted_local_classes.put(returned_class_name, returned_class_name);
