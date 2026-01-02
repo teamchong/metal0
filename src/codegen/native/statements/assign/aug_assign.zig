@@ -312,6 +312,9 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         } else {
             // Other operators (Sub, Div, etc.) are not valid for slice assignment in Python
             // Python raises TypeError at runtime - use VM fallback for drop-in CPython replacement
+            // Suppress unused warning for __slice since we fall back to VM
+            try self.emitIndent();
+            try self.emit("_ = &__slice;\n");
             try self.emitVMFallback(.{ .aug_assign = aug });
             try self.emit(";\n");
         }
