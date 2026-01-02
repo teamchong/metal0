@@ -77,6 +77,12 @@ pub fn impl_detail() bool {
     return true; // Run implementation detail tests
 }
 
+/// Decorator stub: no_tracing - disables sys.settrace during test
+/// In metal0 (AOT compilation), tracing is not available, so this is a no-op
+pub fn no_tracing() bool {
+    return true; // Run the test (tracing not applicable in AOT)
+}
+
 /// Decorator stub: requires_resource - check resource availability
 pub fn requires_resource(resource: []const u8) bool {
     return is_resource_enabled(resource);
