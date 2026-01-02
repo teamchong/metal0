@@ -363,6 +363,18 @@ fn genBuiltinCallWithSubs(
         try self.emit("(try runtime.builtins.chr(__global_allocator, @intCast(");
         try genExprWithSubs(self, c.args[0], subs);
         try self.emit(")))");
+    } else if (std.mem.eql(u8, func_name, "getattr") and c.args.len >= 2) {
+        // getattr(obj, name) in comprehension - use dynamic_attrs dispatch
+        const dynamic_attrs = @import("../builtins/dynamic_attrs.zig");
+        try dynamic_attrs.genGetattr(self, c.args);
+    } else if (std.mem.eql(u8, func_name, "hasattr") and c.args.len >= 2) {
+        // hasattr(obj, name) in comprehension - use dynamic_attrs dispatch
+        const dynamic_attrs = @import("../builtins/dynamic_attrs.zig");
+        try dynamic_attrs.genHasattr(self, c.args);
+    } else if (std.mem.eql(u8, func_name, "setattr") and c.args.len >= 3) {
+        // setattr(obj, name, value) in comprehension - use dynamic_attrs dispatch
+        const dynamic_attrs = @import("../builtins/dynamic_attrs.zig");
+        try dynamic_attrs.genSetattr(self, c.args);
     } else {
         // Fallback: generate call with substituted args
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);

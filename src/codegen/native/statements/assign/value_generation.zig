@@ -758,10 +758,17 @@ pub fn emitVarDeclaration(
         break :blk false;
     } else false;
 
+    // Check if var_name would shadow the current function/method name
+    // e.g., inside method `finder(self, spec)` assigning `finder = self.finder(spec)` shadows the method
+    const shadows_current_function = if (self.current_function_name) |fn_name|
+        std.mem.eql(u8, var_name, fn_name)
+    else
+        false;
+
     // Check if we need to create a local rename for shadowing
     // BUT: if var_renames already has a lazy attr pattern "(try X(__alloc))", that's for READS, not declarations
     // In that case, we still need to create a local rename for the declaration
-    const needs_local_rename = shadows_import or shadows_from_import or shadows_module_func or shadows_global or shadows_class_member or shadows_main or shadows_vararg_param;
+    const needs_local_rename = shadows_import or shadows_from_import or shadows_module_func or shadows_global or shadows_class_member or shadows_main or shadows_vararg_param or shadows_current_function;
     const existing_rename = self.var_renames.get(var_name);
     const has_lazy_pattern = if (existing_rename) |r| std.mem.startsWith(u8, r, "(try ") else false;
     if (needs_local_rename and (existing_rename == null or has_lazy_pattern)) {
