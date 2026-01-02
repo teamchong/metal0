@@ -814,6 +814,37 @@ fn genTupleUnpack(
                 try self.emit(actual_name);
                 try self.emit(";\n");
             }
+        } else if (elt == .tuple or elt == .list) {
+            // Handle nested tuple unpacking: for size, (left, right) in zip(...)
+            // First extract the nested tuple to a temp variable
+            const nested_elts = if (elt == .tuple) elt.tuple.elts else elt.list.elts;
+            try self.output.writer(self.allocator).print("const __nested_{d}_{d}_{d} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ label_id, gen_idx, idx, label_id, gen_idx, idx });
+
+            // Then unpack each element from the nested tuple
+            for (nested_elts, 0..) |nested_elt, nested_idx| {
+                if (nested_elt == .name) {
+                    const var_name = nested_elt.name.id;
+                    try self.emitIndent();
+                    if (std.mem.eql(u8, var_name, "_")) {
+                        try self.output.writer(self.allocator).print("_ = __nested_{d}_{d}_{d}.@\"{d}\";\n", .{ label_id, gen_idx, idx, nested_idx });
+                    } else {
+                        const actual_name = if (self.isDeclared(var_name)) blk: {
+                            const renamed = try std.fmt.allocPrint(self.allocator, "__comp_{s}_{d}", .{ var_name, label_id });
+                            try self.var_renames.put(var_name, renamed);
+                            try renamed_vars.append(self.allocator, var_name);
+                            try self.output.writer(self.allocator).print("const {s} = __nested_{d}_{d}_{d}.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx, nested_idx });
+                            break :blk renamed;
+                        } else blk: {
+                            try self.output.writer(self.allocator).print("const {s} = __nested_{d}_{d}_{d}.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx, nested_idx });
+                            break :blk var_name;
+                        };
+                        try self.emitIndent();
+                        try self.emit("_ = &");
+                        try self.emit(actual_name);
+                        try self.emit(";\n");
+                    }
+                }
+            }
         }
     }
 }

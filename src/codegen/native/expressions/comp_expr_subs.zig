@@ -25,8 +25,12 @@ pub fn genExprWithSubs(
     switch (expr) {
         .name => |n| {
             // Check if this name should be substituted
+            // First check local subs (comprehension-specific renames)
+            // Then check var_renames (parameter and outer scope renames)
             if (subs.get(n.id)) |sub_name| {
                 try self.emit(sub_name);
+            } else if (self.var_renames.get(n.id)) |renamed| {
+                try self.emit(renamed);
             } else {
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
             }
