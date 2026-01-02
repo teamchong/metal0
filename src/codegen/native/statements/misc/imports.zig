@@ -122,6 +122,15 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         // Module not in registry - use VM fallback for dynamic import
         // This handles frozen modules (__phello__, etc.) and other dynamic imports
         // import foo.bar.baz as spam -> spam = eval("import foo.bar.baz; foo.bar.baz")
+
+        // Check if already declared at module level (avoids shadowing error)
+        // This happens when numpy is @imported at module level, then code does:
+        // numpy = eval("import numpy; numpy") inside a function
+        const already_imported = self.imported_modules.contains(alias);
+        if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias) or already_imported) {
+            return;
+        }
+
         const b = try self.getBuilder();
         try b.writeIndent();
         // Check if variable was hoisted (e.g., for imports inside with blocks)
@@ -295,7 +304,8 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
 
             // Skip if already declared (but not hoisted) in current scope or at module level
             // If hoisted, we need to generate an assignment to the hoisted variable
-            if (!was_hoisted and (self.isDeclared(alias) or self.module_level_from_imports.contains(alias))) {
+            // Also check imported_modules for shadowing against @imported modules
+            if (!was_hoisted and (self.isDeclared(alias) or self.module_level_from_imports.contains(alias) or self.imported_modules.contains(alias))) {
                 continue;
             }
             try b.writeIndent();
