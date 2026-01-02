@@ -638,6 +638,12 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
         args: []const PyValue = &[_]PyValue{},
         allocator: std.mem.Allocator = undefined,
 
+        // PyException-compatible interface for `raise X from cause`
+        // These are instance fields with default values (accessed via pointer)
+        type_name: []const u8 = exception_name,
+        message: []const u8 = "",
+        exception_id: u64 = 0,
+
         const Self = @This();
 
         pub fn init(allocator: std.mem.Allocator) !*Self {
@@ -645,6 +651,9 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
             self.* = .{
                 .args = &[_]PyValue{},
                 .allocator = allocator,
+                .type_name = exception_name,
+                .message = "",
+                .exception_id = 0,
             };
             return self;
         }
