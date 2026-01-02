@@ -269,9 +269,104 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
 
             const prefix = prefix_fbs.getWritten();
 
+            // Build actual dotted module name for C extension checking (not Zig identifiers)
+            // e.g., "numpy._core.multiarray" (keeps dots, not __ replacements)
+            var abs_module_buf: [512]u8 = undefined;
+            var abs_module_fbs = std.io.fixedBufferStream(&abs_module_buf);
+            const abs_module_writer = abs_module_fbs.writer();
+            abs_module_writer.writeAll(pkg_name) catch continue;
+            if (relative_package_path) |rel_path| {
+                abs_module_writer.writeAll(".") catch continue;
+                for (rel_path) |c| {
+                    if (c == '/' or c == '\\') {
+                        abs_module_writer.writeAll(".") catch continue;
+                    } else {
+                        abs_module_writer.writeByte(c) catch continue;
+                    }
+                }
+            }
+            if (submodule_name.len > 0) {
+                abs_module_writer.writeAll(".") catch continue;
+                abs_module_writer.writeAll(submodule_name) catch continue;
+            }
+            const abs_module_name = abs_module_fbs.getWritten();
+            const is_c_ext_import = self.isCExtensionModule(abs_module_name);
+
             // Generate aliases for each imported name
             for (from_imp.names, 0..) |name, i| {
-                if (std.mem.eql(u8, name, "*")) continue; // Skip star imports for now
+                // Handle star imports
+                if (std.mem.eql(u8, name, "*")) {
+                    if (is_c_ext_import) {
+                        // C extension star import - use current source file's __all__
+                        if (self.source_file_path) |sfp| {
+                            var current_all = parseAllList(self.allocator, sfp) orelse continue;
+                            defer {
+                                for (current_all.items) |item| {
+                                    self.allocator.free(item);
+                                }
+                                current_all.deinit(self.allocator);
+                            }
+
+                            for (current_all.items) |symbol| {
+                                if (generated_symbols.contains(symbol)) continue;
+                                if (zig_keywords.wouldShadowModule(symbol)) continue;
+                                if (zig_keywords.isZigKeyword(symbol)) continue;
+
+                                // Generate: pub var symbol: ?*c_interop.PyObject = null;
+                                if (self.mode == .module) try self.emit("pub ");
+                                try self.emit("var ");
+                                try self.emitIdent(symbol);
+                                try self.emit(": ?*c_interop.PyObject = null;\n");
+                                try generated_symbols.put(symbol, {});
+                                try self.module_level_from_imports.put(symbol, {});
+                                const name_copy = try self.arena.allocator().dupe(u8, symbol);
+                                const module_copy = try self.arena.allocator().dupe(u8, abs_module_name);
+                                try self.c_extension_from_imports.put(symbol, .{ .module = module_copy, .attr = name_copy });
+                            }
+                        }
+                    } else if (submodule_name.len > 0) {
+                        // Python module star import - parse submodule's __all__ and generate re-exports
+                        if (source_dir) |dir| {
+                            // Try {dir}/{submodule}.py first
+                            const py_file = std.fmt.allocPrint(self.allocator, "{s}/{s}.py", .{ dir, submodule_name }) catch continue;
+                            defer self.allocator.free(py_file);
+
+                            var all_list = parseAllList(self.allocator, py_file);
+
+                            // If not found, try {dir}/{submodule}/__init__.py
+                            if (all_list == null) {
+                                const init_file = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.py", .{ dir, submodule_name }) catch continue;
+                                defer self.allocator.free(init_file);
+                                all_list = parseAllList(self.allocator, init_file);
+                            }
+
+                            if (all_list) |*list| {
+                                defer {
+                                    for (list.items) |item| {
+                                        self.allocator.free(item);
+                                    }
+                                    list.deinit(self.allocator);
+                                }
+
+                                // Generate re-exports for each symbol in __all__
+                                for (list.items) |symbol| {
+                                    if (generated_symbols.contains(symbol)) continue;
+                                    if (zig_keywords.wouldShadowModule(symbol)) continue;
+                                    if (zig_keywords.isZigKeyword(symbol)) continue;
+
+                                    // Skip if symbol name matches the module name
+                                    if (std.mem.eql(u8, symbol, submodule_name)) continue;
+
+                                    // Generate: pub const symbol = prefix.symbol;
+                                    try self.emitFmt("pub const {s} = {s}.{s};\n", .{ symbol, prefix, symbol });
+                                    try generated_symbols.put(symbol, {});
+                                    try self.module_level_from_imports.put(symbol, {});
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
 
                 const has_alias = i < from_imp.asnames.len and from_imp.asnames[i] != null;
                 const symbol_name = if (has_alias) from_imp.asnames[i].? else name;
@@ -280,6 +375,23 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 if (zig_keywords.wouldShadowModule(symbol_name)) continue;
                 if (zig_keywords.isZigKeyword(symbol_name)) continue;
                 if (generated_symbols.contains(symbol_name)) continue;
+
+                // Check if this is a C extension import
+                if (is_c_ext_import) {
+                    // C extension - generate runtime binding
+                    // pub var dtype: ?*c_interop.PyObject = null;
+                    if (self.mode == .module) try self.emit("pub ");
+                    try self.emit("var ");
+                    try self.emitIdent(symbol_name);
+                    try self.emit(": ?*c_interop.PyObject = null;\n");
+                    try generated_symbols.put(symbol_name, {});
+                    try self.module_level_from_imports.put(symbol_name, {});
+                    // Track for main() initialization
+                    const name_copy = try self.arena.allocator().dupe(u8, name);
+                    const module_copy = try self.arena.allocator().dupe(u8, abs_module_name);
+                    try self.c_extension_from_imports.put(symbol_name, .{ .module = module_copy, .attr = name_copy });
+                    continue;
+                }
 
                 // For "from . import X", X is the submodule name itself
                 // Generate: const X = numpy._core.X;
@@ -593,12 +705,125 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                                     // Generate direct import: pub const symbol = @import("./submodule.zig").symbol;
                                     try self.emitFmt("pub const {s} = @import(\"{s}\").{s};\n", .{ symbol, import_path, symbol });
                                 } else {
-                                    // Submodule is C extension - skip this import
+                                    // Submodule is C extension - derive absolute module name and generate runtime binding
+                                    const abs_mod: ?[]const u8 = abs_blk: {
+                                        const sdir = source_dir orelse break :abs_blk null;
+                                        if (std.mem.indexOf(u8, sdir, "site-packages/")) |sp_idx| {
+                                            const pkg_path = sdir[sp_idx + "site-packages/".len ..];
+                                            var abs_buf: [512]u8 = undefined;
+                                            var abs_fbs = std.io.fixedBufferStream(&abs_buf);
+                                            const abs_writer = abs_fbs.writer();
+                                            var prev_was_sep = false;
+                                            for (pkg_path) |c| {
+                                                if (c == '/' or c == '\\') {
+                                                    if (!prev_was_sep) {
+                                                        abs_writer.writeByte('.') catch break :abs_blk null;
+                                                        prev_was_sep = true;
+                                                    }
+                                                } else {
+                                                    abs_writer.writeByte(c) catch break :abs_blk null;
+                                                    prev_was_sep = false;
+                                                }
+                                            }
+                                            var written = abs_fbs.getWritten();
+                                            if (written.len > 0 and written[written.len - 1] == '.') {
+                                                written = written[0 .. written.len - 1];
+                                            }
+                                            abs_writer.writeByte('.') catch break :abs_blk null;
+                                            abs_writer.writeAll(submodule_name) catch break :abs_blk null;
+                                            break :abs_blk abs_fbs.getWritten();
+                                        }
+                                        break :abs_blk null;
+                                    };
+
+                                    if (abs_mod) |abs_module| {
+                                        if (self.isCExtensionModule(abs_module)) {
+                                            // C extension - generate runtime binding
+                                            if (self.mode == .module) try self.emit("pub ");
+                                            try self.emit("var ");
+                                            try self.emitIdent(symbol);
+                                            try self.emit(": ?*c_interop.PyObject = null;\n");
+                                            try generated_symbols.put(symbol, {});
+                                            try self.module_level_from_imports.put(symbol, {});
+                                            const name_copy = try self.arena.allocator().dupe(u8, symbol);
+                                            const module_copy = try self.arena.allocator().dupe(u8, abs_module);
+                                            try self.c_extension_from_imports.put(symbol, .{ .module = module_copy, .attr = name_copy });
+                                            continue;
+                                        }
+                                    }
+                                    // Unknown C extension - skip
                                     continue;
                                 }
                                 try generated_symbols.put(symbol, {});
                                 // Track for local variable shadowing prevention
                                 try self.module_level_from_imports.put(symbol, {});
+                            }
+                        } else if (!submodule_is_python) {
+                            // C extension with no __all__ in .py file
+                            // Try to use the CURRENT source file's __all__ as fallback
+                            // This handles cases like: from ._multiarray_umath import *
+                            // where multiarray.py has its own __all__ listing what it exports
+                            const abs_mod: ?[]const u8 = abs_blk: {
+                                const sdir = source_dir orelse break :abs_blk null;
+                                if (std.mem.indexOf(u8, sdir, "site-packages/")) |sp_idx| {
+                                    const pkg_path = sdir[sp_idx + "site-packages/".len ..];
+                                    var abs_buf: [512]u8 = undefined;
+                                    var abs_fbs = std.io.fixedBufferStream(&abs_buf);
+                                    const abs_writer = abs_fbs.writer();
+                                    var prev_was_sep = false;
+                                    for (pkg_path) |c| {
+                                        if (c == '/' or c == '\\') {
+                                            if (!prev_was_sep) {
+                                                abs_writer.writeByte('.') catch break :abs_blk null;
+                                                prev_was_sep = true;
+                                            }
+                                        } else {
+                                            abs_writer.writeByte(c) catch break :abs_blk null;
+                                            prev_was_sep = false;
+                                        }
+                                    }
+                                    var written = abs_fbs.getWritten();
+                                    if (written.len > 0 and written[written.len - 1] == '.') {
+                                        written = written[0 .. written.len - 1];
+                                    }
+                                    abs_writer.writeByte('.') catch break :abs_blk null;
+                                    abs_writer.writeAll(submodule_name) catch break :abs_blk null;
+                                    break :abs_blk abs_fbs.getWritten();
+                                }
+                                break :abs_blk null;
+                            };
+
+                            if (abs_mod) |abs_module| {
+                                if (self.isCExtensionModule(abs_module)) {
+                                    // Try to read the current source file's __all__
+                                    if (self.source_file_path) |sfp| {
+                                        var current_all = parseAllList(self.allocator, sfp) orelse continue;
+                                        defer {
+                                            for (current_all.items) |item| {
+                                                self.allocator.free(item);
+                                            }
+                                            current_all.deinit(self.allocator);
+                                        }
+
+                                        // For each symbol in current module's __all__, generate C extension binding
+                                        for (current_all.items) |symbol| {
+                                            if (generated_symbols.contains(symbol)) continue;
+                                            if (zig_keywords.wouldShadowModule(symbol)) continue;
+                                            if (zig_keywords.isZigKeyword(symbol)) continue;
+
+                                            // Generate: pub var symbol: ?*c_interop.PyObject = null;
+                                            if (self.mode == .module) try self.emit("pub ");
+                                            try self.emit("var ");
+                                            try self.emitIdent(symbol);
+                                            try self.emit(": ?*c_interop.PyObject = null;\n");
+                                            try generated_symbols.put(symbol, {});
+                                            try self.module_level_from_imports.put(symbol, {});
+                                            const name_copy = try self.arena.allocator().dupe(u8, symbol);
+                                            const module_copy = try self.arena.allocator().dupe(u8, abs_module);
+                                            try self.c_extension_from_imports.put(symbol, .{ .module = module_copy, .attr = name_copy });
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -630,7 +855,60 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     // from ._ufunc_config import errstate -> const errstate = @import("./_ufunc_config.zig").errstate;
                     try self.emitFmt("pub const {s} = @import(\"{s}\").{s};\n", .{ symbol_name, import_path, name });
                 } else {
-                    // Submodule is C extension - skip this import
+                    // Submodule is not Python - check if it's a C extension (.so file)
+                    // Try to derive absolute module name from source_dir
+                    const abs_module: ?[]const u8 = abs_blk: {
+                        const sdir = source_dir orelse break :abs_blk null;
+                        // Extract package path from site-packages
+                        // e.g., ".venv/.../site-packages/numpy/_core/" -> "numpy._core.multiarray"
+                        if (std.mem.indexOf(u8, sdir, "site-packages/")) |sp_idx| {
+                            const pkg_path = sdir[sp_idx + "site-packages/".len ..];
+                            // pkg_path = "numpy/_core/" -> we want "numpy._core"
+                            var abs_buf: [512]u8 = undefined;
+                            var abs_fbs = std.io.fixedBufferStream(&abs_buf);
+                            const abs_writer = abs_fbs.writer();
+                            var prev_was_sep = false;
+                            for (pkg_path) |c| {
+                                if (c == '/' or c == '\\') {
+                                    if (!prev_was_sep) {
+                                        abs_writer.writeByte('.') catch break :abs_blk null;
+                                        prev_was_sep = true;
+                                    }
+                                } else {
+                                    abs_writer.writeByte(c) catch break :abs_blk null;
+                                    prev_was_sep = false;
+                                }
+                            }
+                            // Remove trailing dot if present
+                            var written = abs_fbs.getWritten();
+                            if (written.len > 0 and written[written.len - 1] == '.') {
+                                written = written[0 .. written.len - 1];
+                            }
+                            // Append submodule name
+                            abs_writer.writeByte('.') catch break :abs_blk null;
+                            abs_writer.writeAll(submodule_name) catch break :abs_blk null;
+                            break :abs_blk abs_fbs.getWritten();
+                        }
+                        break :abs_blk null;
+                    };
+
+                    if (abs_module) |abs_mod| {
+                        if (self.isCExtensionModule(abs_mod)) {
+                            // C extension - generate runtime binding
+                            if (self.mode == .module) try self.emit("pub ");
+                            try self.emit("var ");
+                            try self.emitIdent(symbol_name);
+                            try self.emit(": ?*c_interop.PyObject = null;\n");
+                            try generated_symbols.put(symbol_name, {});
+                            try self.module_level_from_imports.put(symbol_name, {});
+                            // Track for main() initialization
+                            const name_copy = try self.arena.allocator().dupe(u8, name);
+                            const module_copy = try self.arena.allocator().dupe(u8, abs_mod);
+                            try self.c_extension_from_imports.put(symbol_name, .{ .module = module_copy, .attr = name_copy });
+                            continue;
+                        }
+                    }
+                    // Unknown submodule - skip
                     continue;
                 }
                 try generated_symbols.put(symbol_name, {});
