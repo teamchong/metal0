@@ -71,8 +71,8 @@ pub const Funcs = std.StaticStringMap(H).initComptime(.{
     .{ "addressof", m.wrap("@intFromPtr(&", ")", "0") },
     .{ "byref", m.wrap("&", "", "null") },
     .{ "cast", m.wrap("@as(*anyopaque, @ptrCast(", "))", "null") },
-    .{ "create_string_buffer", m.wrap("(runtime.ctypes.create_string_buffer(__global_allocator, ", ") catch &[_]u8{})", "(runtime.ctypes.create_string_buffer(__global_allocator, 256) catch &[_]u8{})") },
-    .{ "create_unicode_buffer", m.wrap("(runtime.ctypes.create_unicode_buffer(__global_allocator, ", ") catch &[_]u32{})", "(runtime.ctypes.create_unicode_buffer(__global_allocator, 256) catch &[_]u32{})") },
+    .{ "create_string_buffer", genCreateStringBuffer },
+    .{ "create_unicode_buffer", genCreateUnicodeBuffer },
     .{ "get_errno", m.c("runtime.ctypes.get_errno()") },
     .{ "set_errno", m.wrap("runtime.ctypes.set_errno(", ")", "runtime.ctypes.set_errno(0)") },
     .{ "get_last_error", m.c("runtime.ctypes.get_errno()") },
@@ -173,4 +173,52 @@ fn genMemset(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
             }
         }.f);
     } else try self.emit("{}");
+}
+
+/// Generate create_string_buffer call
+/// Python: create_string_buffer("abc") -> buffer of len("abc")
+/// Python: create_string_buffer(10) -> buffer of size 10
+fn genCreateStringBuffer(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
+    if (args.len > 0) {
+        const arg = args[0];
+        // Check if argument is a string literal - use its length
+        if (arg == .constant and arg.constant.value == .string) {
+            var buf: [32]u8 = undefined;
+            const len_str = std.fmt.bufPrint(&buf, "{}", .{arg.constant.value.string.len}) catch "256";
+            try self.emit("(runtime.ctypes.create_string_buffer(__global_allocator, ");
+            try self.emit(len_str);
+            try self.emit(") catch &[_]u8{})");
+        } else {
+            // Assume it's a size - generate code that extracts length if string, else use directly
+            try self.emit("(runtime.ctypes.create_string_buffer(__global_allocator, @as(usize, @intCast(");
+            try self.genExpr(arg);
+            try self.emit("))) catch &[_]u8{})");
+        }
+    } else {
+        try self.emit("(runtime.ctypes.create_string_buffer(__global_allocator, 256) catch &[_]u8{})");
+    }
+}
+
+/// Generate create_unicode_buffer call
+/// Python: create_unicode_buffer("abc") -> buffer of len("abc")
+/// Python: create_unicode_buffer(10) -> buffer of size 10
+fn genCreateUnicodeBuffer(self: *m.NativeCodegen, args: []ast.Node) m.CodegenError!void {
+    if (args.len > 0) {
+        const arg = args[0];
+        // Check if argument is a string literal - use its length
+        if (arg == .constant and arg.constant.value == .string) {
+            var buf: [32]u8 = undefined;
+            const len_str = std.fmt.bufPrint(&buf, "{}", .{arg.constant.value.string.len}) catch "256";
+            try self.emit("(runtime.ctypes.create_unicode_buffer(__global_allocator, ");
+            try self.emit(len_str);
+            try self.emit(") catch &[_]u32{})");
+        } else {
+            // Assume it's a size - generate code that extracts length if string, else use directly
+            try self.emit("(runtime.ctypes.create_unicode_buffer(__global_allocator, @as(usize, @intCast(");
+            try self.genExpr(arg);
+            try self.emit("))) catch &[_]u32{})");
+        }
+    } else {
+        try self.emit("(runtime.ctypes.create_unicode_buffer(__global_allocator, 256) catch &[_]u32{})");
+    }
 }

@@ -13,6 +13,15 @@ pub fn temp_dir() []const u8 {
     return "/tmp";
 }
 
+/// Remove a file (like os.unlink/os.remove)
+pub fn unlink(path: []const u8) !void {
+    const cwd = std.fs.cwd();
+    cwd.deleteFile(path) catch |err| switch (err) {
+        error.FileNotFound => {}, // Ignore if file doesn't exist
+        else => return err,
+    };
+}
+
 /// Environment variable context manager
 /// Used to temporarily set/unset environment variables in tests
 pub const EnvironmentVarGuard = struct {

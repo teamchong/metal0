@@ -3,6 +3,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+/// Maximum number of arguments for ctypes function calls
+pub const CTYPES_MAX_ARGCOUNT = 1024;
+
 /// Dynamic library handle wrapper
 pub const CDLL = struct {
     handle: ?std.DynLib = null,
