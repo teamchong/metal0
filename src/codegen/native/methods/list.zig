@@ -258,6 +258,10 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf({s}), {s}); ", .{ label2, callable_temp, callable_temp });
                 try self.emitInlineBlockEnd();
             } else {
+                // Regular case - emit try obj.append(alloc, arg)
+                try self.emit("try ");
+                try emitObjExpr(self, obj);
+                try self.emit(".append(__global_allocator, ");
                 try self.genExpr(args[0]);
             }
 
