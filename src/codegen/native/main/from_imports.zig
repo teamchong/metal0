@@ -1576,8 +1576,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         rel_len += zig_suffix.len;
                         const rel_path = rel_path_buf[0..rel_len];
 
-                        // Get the gen path: .metal0/gen/{rel_path}
-                        const gen_path = build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
+                        // Find project root from source file path to get correct .metal0/gen location
+                        const project_root = if (self.source_file_path) |sfp|
+                            (build_dirs.findProjectRoot(self.allocator, sfp) catch null)
+                        else
+                            null;
+
+                        // Get the gen path with project root awareness
+                        const gen_path = if (project_root) |root|
+                            build_dirs.projectZigPathFromRelative(self.allocator, root.path, rel_path) catch continue
+                        else
+                            build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
                         defer self.allocator.free(gen_path);
 
                         // Convert to absolute path for reliable imports
@@ -1822,8 +1831,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     rel_len += zig_suffix.len;
                     const rel_path = rel_path_buf[0..rel_len];
 
-                    // Get the gen path: .metal0/gen/{rel_path}
-                    const gen_path = build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
+                    // Find project root from source file path to get correct .metal0/gen location
+                    const project_root = if (self.source_file_path) |sfp|
+                        (build_dirs.findProjectRoot(self.allocator, sfp) catch null)
+                    else
+                        null;
+
+                    // Get the gen path with project root awareness
+                    const gen_path = if (project_root) |root|
+                        build_dirs.projectZigPathFromRelative(self.allocator, root.path, rel_path) catch continue
+                    else
+                        build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
                     defer self.allocator.free(gen_path);
 
                     // Convert to absolute path for reliable imports
