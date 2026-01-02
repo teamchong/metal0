@@ -19,8 +19,17 @@
 ///   const result = try metal0.compileWithSchema(allocator, python_source, schema, .{});
 ///
 const std = @import("std");
-const compile = @import("main/compile.zig");
+const builtin = @import("builtin");
 const native_types = @import("analysis/native_types.zig");
+const lexer = @import("lexer.zig");
+const parser = @import("parser.zig");
+const compiler = @import("compiler.zig");
+const native_codegen = @import("codegen/native/main.zig");
+const semantic_types = @import("analysis/types.zig");
+const lifetime_analysis = @import("analysis/lifetime.zig");
+const c_interop = @import("c_interop");
+const utils = @import("main/utils.zig");
+const build_dirs = @import("build_dirs.zig");
 
 /// Column type from external schema (e.g., Lance file)
 pub const ColumnType = enum {
@@ -226,76 +235,119 @@ pub fn compileWithSchema(
     schema: SchemaTypeHints,
     options: SchemaCompileOptions,
 ) !CompileResult {
-    _ = options;
+    _ = schema; // Schema hints for future type inference enhancement
 
-    // Generate type-annotated Python source by injecting schema hints
-    const annotated_source = try injectSchemaAnnotations(allocator, python_source, schema);
-    defer allocator.free(annotated_source);
-
-    // Use existing compilation pipeline with schema-aware codegen
+    // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
+    const aa = arena.allocator();
 
-    // For now, generate Zig source only (phase 1)
-    // TODO: Add full compilation pipeline
-    const zig_source = try generateZigWithSchema(arena.allocator(), annotated_source, schema);
+    // PHASE 1: Lexer - Tokenize source code
+    var lex = try lexer.Lexer.init(aa, python_source);
+    const tokens = try lex.tokenize();
 
-    // Copy to caller's allocator
-    const result_source = try allocator.dupe(u8, zig_source);
+    // PHASE 2: Parser - Build AST
+    var p = parser.Parser.init(aa, tokens);
+    defer p.deinit();
+    const tree = try p.parse();
+
+    if (tree != .module) {
+        return error.InvalidAST;
+    }
+
+    // PHASE 2.5: C Library Import Detection
+    var import_ctx = c_interop.ImportContext.init(aa);
+    try utils.detectImports(&import_ctx, tree);
+
+    // PHASE 3: Semantic Analysis - Analyze variable lifetimes and mutations
+    var semantic_info = semantic_types.SemanticInfo.init(aa);
+    _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
+
+    // PHASE 4: Type Inference
+    var type_inferrer = try native_types.TypeInferrer.init(aa);
+    try type_inferrer.analyze(tree.module);
+
+    // PHASE 5: Native Codegen - Generate native Zig code
+    var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, "/tmp/logic_table.py");
+    defer native_gen.deinit();
+
+    // Enable @logic_table export wrappers
+    native_gen.emit_logic_table_exports = true;
+    native_gen.mode = .module;
+    native_gen.module_name = null; // No struct wrapper - exports at module level
+
+    // Pass import context to codegen
+    native_gen.setImportContext(&import_ctx);
+
+    // Build call graph for unified function analysis
+    try native_gen.buildCallGraph(tree.module);
+
+    // Generate Zig code
+    const zig_code = try native_gen.generate(tree.module);
+
+    // Copy Zig source to caller's allocator
+    const result_source = try allocator.dupe(u8, zig_code);
+
+    // Extract exported function names from generated code
+    var exports = std.ArrayList([]const u8).init(allocator);
+    errdefer {
+        for (exports.items) |name| allocator.free(name);
+        exports.deinit();
+    }
+    try extractExportedFunctions(allocator, zig_code, &exports);
+
+    // Compile to output format if requested
+    var output_path: ?[]const u8 = null;
+    if (options.output == .shared_library) {
+        // Generate unique temp path for shared library
+        const timestamp = std.time.milliTimestamp();
+        const lib_ext = switch (builtin.os.tag) {
+            .macos => ".dylib",
+            .windows => ".dll",
+            else => ".so",
+        };
+        const lib_path = try std.fmt.allocPrint(aa, "/tmp/logic_table_{d}{s}", .{ timestamp, lib_ext });
+
+        // Initialize build directories
+        try build_dirs.init();
+
+        // Get C libraries from codegen
+        const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
+
+        // Compile to shared library
+        try compiler.compileZigSharedLib(aa, zig_code, lib_path, c_libs, null);
+
+        // Copy path to caller's allocator
+        output_path = try allocator.dupe(u8, lib_path);
+    }
 
     return CompileResult{
         .zig_source = result_source,
-        .output_path = null,
-        .exported_functions = try allocator.alloc([]const u8, 0),
+        .output_path = output_path,
+        .exported_functions = try exports.toOwnedSlice(),
         .warnings = try allocator.alloc([]const u8, 0),
     };
 }
 
-/// Inject schema type annotations into Python source
-fn injectSchemaAnnotations(
-    allocator: std.mem.Allocator,
-    source: []const u8,
-    schema: SchemaTypeHints,
-) ![]const u8 {
-    // For now, return source unchanged
-    // TODO: Parse and inject type annotations based on schema
-    _ = schema;
-    return try allocator.dupe(u8, source);
+/// Extract exported function names from generated Zig code
+/// Looks for patterns like: export fn ClassName_methodName(
+fn extractExportedFunctions(allocator: std.mem.Allocator, zig_code: []const u8, exports: *std.ArrayList([]const u8)) !void {
+    const export_marker = "export fn ";
+    var pos: usize = 0;
+
+    while (std.mem.indexOfPos(u8, zig_code, pos, export_marker)) |start| {
+        const name_start = start + export_marker.len;
+        // Find end of function name (opening paren)
+        if (std.mem.indexOfPos(u8, zig_code, name_start, "(")) |paren_pos| {
+            const name = zig_code[name_start..paren_pos];
+            try exports.append(try allocator.dupe(u8, name));
+            pos = paren_pos;
+        } else {
+            break;
+        }
+    }
 }
 
-/// Generate Zig code with schema-aware types
-fn generateZigWithSchema(
-    allocator: std.mem.Allocator,
-    python_source: []const u8,
-    schema: SchemaTypeHints,
-) ![]const u8 {
-    _ = python_source;
-
-    // Generate optimized Zig code with concrete types
-    var code = std.ArrayListUnmanaged(u8){};
-    const writer = code.writer(allocator);
-
-    try writer.writeAll("// Generated by metal0 with schema hints\n");
-    try writer.writeAll("// Schema columns:\n");
-
-    for (schema.columns) |col| {
-        try writer.print("//   {s}: {s}\n", .{ col.name, col.type.toZigType() });
-    }
-
-    try writer.writeAll("\nconst std = @import(\"std\");\n\n");
-
-    // Generate column accessor struct
-    try writer.writeAll("pub const Columns = struct {\n");
-    for (schema.columns) |col| {
-        try writer.print("    {s}: [*]const {s},\n", .{ col.name, col.type.toZigType() });
-    }
-    try writer.writeAll("};\n\n");
-
-    // TODO: Generate actual function implementations from Python AST
-    try writer.writeAll("// TODO: Generate functions from Python source\n");
-
-    return code.toOwnedSlice(allocator);
-}
 
 // Tests
 test "ColumnType.toZigType" {
