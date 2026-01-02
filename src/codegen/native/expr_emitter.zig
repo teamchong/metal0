@@ -121,7 +121,8 @@ pub const ExprEmitter = struct {
 
     /// Create a labeled block with a temp variable for the expression
     /// Use when you need to evaluate an expression once and use it multiple times
-    /// Pattern: label_N: { const temp = expr; break :label_N result; }
+    /// Pattern: label_N: { const temp_N = expr; break :label_N result; }
+    /// NOTE: temp_var gets label_id appended to prevent shadowing in nested blocks
     pub fn labeledBlock(
         self: *ExprEmitter,
         comptime prefix: []const u8,
@@ -131,8 +132,8 @@ pub const ExprEmitter = struct {
         const label_id = self.codegen.block_label_counter;
         self.codegen.block_label_counter += 1;
 
-        // Emit block start with temp variable
-        try self.codegen.emitFmt("({s}_{d}: {{ const {s} = ", .{ prefix, label_id, temp_var });
+        // Emit block start with temp variable (unique per block to prevent shadowing)
+        try self.codegen.emitFmt("({s}_{d}: {{ const {s}_{d} = ", .{ prefix, label_id, temp_var, label_id });
         try genExpr(self.codegen, expr);
         try self.codegen.emit("; ");
 
@@ -140,6 +141,7 @@ pub const ExprEmitter = struct {
             .emitter = self,
             .label_id = label_id,
             .prefix = prefix,
+            .temp_var = temp_var,
         };
     }
 
@@ -342,6 +344,12 @@ pub const LabeledBlock = struct {
     emitter: *ExprEmitter,
     label_id: usize,
     prefix: []const u8,
+    temp_var: []const u8 = "",
+
+    /// Get the unique temp variable name (temp_var + label_id)
+    pub fn getTempVarName(self: *const LabeledBlock, buf: *[64]u8) []const u8 {
+        return std.fmt.bufPrint(buf, "{s}_{d}", .{ self.temp_var, self.label_id }) catch self.temp_var;
+    }
 
     /// Emit a break with a formatted value
     pub fn breakWithFmt(self: *LabeledBlock, comptime fmt: []const u8, args: anytype) CodegenError!void {
