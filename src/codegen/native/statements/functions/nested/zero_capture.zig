@@ -305,6 +305,10 @@ pub fn genZeroCaptureClosure(
 
     // Check if this is a generator function (contains yield)
     const is_generator = signature.hasYieldStatement(func.body);
+    // Track generator closures for listFromSlice wrapping during assignment
+    if (is_generator) {
+        try self.generator_closure_vars.put(func_name_copy_early, {});
+    }
     const saved_in_generator = self.in_generator_function;
     if (is_generator) {
         self.in_generator_function = true;
@@ -542,10 +546,13 @@ pub fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print("__name__: []const u8 = \"{s}\",\n", .{func.name});
         try self.emitIndent();
         try self.emit("__dict__: ?*anyopaque = null,\n");
-        // Add __isabstractmethod__ if function has @abstractmethod decorator
+        // Add __isabstractmethod__ field - always present (Python accesses this on all callables)
+        // Set to true only if function has @abstractmethod decorator
+        try self.emitIndent();
         if (hasAbstractmethodDecorator(func.decorators)) {
-            try self.emitIndent();
             try self.emit("__isabstractmethod__: bool = true,\n");
+        } else {
+            try self.emit("__isabstractmethod__: bool = false,\n");
         }
         try self.emitIndent();
         try self.output.writer(self.allocator).print("pub fn call(_: @This(), {s}: anytype) !{s} {{\n", .{ unique_param, return_type_str.items });
@@ -599,10 +606,13 @@ pub fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print("__name__: []const u8 = \"{s}\",\n", .{func.name});
         try self.emitIndent();
         try self.emit("__dict__: ?*anyopaque = null,\n");
-        // Add __isabstractmethod__ if function has @abstractmethod decorator
+        // Add __isabstractmethod__ field - always present (Python accesses this on all callables)
+        // Set to true only if function has @abstractmethod decorator
+        try self.emitIndent();
         if (hasAbstractmethodDecorator(func.decorators)) {
-            try self.emitIndent();
             try self.emit("__isabstractmethod__: bool = true,\n");
+        } else {
+            try self.emit("__isabstractmethod__: bool = false,\n");
         }
         try self.emitIndent();
         try self.emit("pub fn call(_: @This()");
@@ -857,9 +867,12 @@ pub fn genModuleLevelZeroCaptureClosure(
     // Add __name__ and __dict__ fields for Python function attribute compatibility
     try self.output.writer(self.allocator).print("    __name__: []const u8 = \"{s}\",\n", .{func.name});
     try self.emit("    __dict__: ?*anyopaque = null,\n");
-    // Add __isabstractmethod__ if function has @abstractmethod decorator
+    // Add __isabstractmethod__ field - always present (Python accesses this on all callables)
+    // Set to true only if function has @abstractmethod decorator
     if (hasAbstractmethodDecorator(func.decorators)) {
         try self.emit("    __isabstractmethod__: bool = true,\n");
+    } else {
+        try self.emit("    __isabstractmethod__: bool = false,\n");
     }
     try self.emit("    pub fn call(_: @This()");
 
