@@ -265,7 +265,15 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         if (isTailRecursiveCall(self, value.*)) |call| {
             // Emit: return @call(.always_tail, func_name, .{args})
             try b.emitRaw("return @call(.always_tail, ");
-            try b.emitRaw(call.func.name.id);
+            const func_name = call.func.name.id;
+            // Check if we're inside a class and the function name shadows a module function.
+            // In Python, bare name `func()` calls the module function, not `self.func()`.
+            // If module_level_funcs contains this name, use __mod_<name> to avoid ambiguity.
+            if (self.current_class_name != null and self.module_level_funcs.contains(func_name)) {
+                try b.writeFmt("__mod_{s}", .{func_name});
+            } else {
+                try b.emitRaw(func_name);
+            }
             try b.emitRaw(", .{");
 
             // Generate arguments

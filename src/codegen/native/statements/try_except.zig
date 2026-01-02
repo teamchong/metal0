@@ -1025,6 +1025,17 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             actual_var_name = renamed;
         }
 
+        // Check for method/module shadowing (e.g., "stop" -> "stop_", "main" -> "main_")
+        // This ensures the declaration matches how the variable is referenced in expressions
+        // and how assignments are generated (both use writeLocalVarName)
+        if (!self.var_renames.contains(var_name)) {
+            if (zig_keywords.wouldShadowMethod(var_name) or zig_keywords.wouldShadowModule(var_name)) {
+                const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_", .{var_name});
+                try self.var_renames.put(try self.arena.allocator().dupe(u8, var_name), renamed);
+                actual_var_name = renamed;
+            }
+        }
+
         // If rename ends with ".*", this variable is already a pointer parameter in an enclosing
         // TryHelper. Skip local declaration - it will be accessed through the pointer.
         if (std.mem.endsWith(u8, actual_var_name, ".*")) {
@@ -1040,7 +1051,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
         try self.emitIndent();
         try self.emit("var ");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_var_name);
+        // Use writeLocalVarName to apply method-shadowing renames (e.g., "stop" -> "stop_")
+        // This ensures the declaration matches how the variable is referenced in expressions
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_var_name);
         try self.emit(": ");
         try self.emit(zig_type);
         try self.emit(" = undefined;\n");
@@ -1050,7 +1063,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // (e.g., else: hit_else = True when exception IS raised, else never runs).
         try self.emitIndent();
         try self.emit("_ = &");
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_var_name);
+        // Use writeLocalVarName for consistency with the declaration above
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), decl_var_name);
         try self.emit(";\n");
 
         // Mark as hoisted so assignment generation skips declaration

@@ -979,6 +979,30 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         }
     }
 
+    // Check if any method names shadow module-level function names.
+    // If so, emit aliases BEFORE the struct to avoid ambiguous references.
+    // e.g., if class has method 'roots' and there's a module function 'roots':
+    //   const __mod_roots = &roots;  // Capture module function before struct
+    //   const MyClass = struct { pub fn roots(...) { return __mod_roots(...); } };
+    var shadowed_mod_funcs = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer shadowed_mod_funcs.deinit();
+    for (class.body) |stmt| {
+        if (stmt == .function_def) {
+            const method_name = stmt.function_def.name;
+            if (self.module_level_funcs.contains(method_name)) {
+                try shadowed_mod_funcs.put(method_name, {});
+            }
+        }
+    }
+
+    // Emit aliases for shadowed module functions
+    var shadow_iter = shadowed_mod_funcs.iterator();
+    while (shadow_iter.next()) |entry| {
+        const func_name = entry.key_ptr.*;
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("const __mod_{s} = &{s};\n", .{ func_name, func_name });
+    }
+
     // Generate: const ClassName = struct {
     // Use pub const for top-level classes in module mode so they're accessible from importers
     try self.emitIndent();
@@ -1501,6 +1525,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emit("pub const ");
                         try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), alias_name);
                         try self.emit(" = ");
+                        // Use @This().method_name to disambiguate when method shadows a module-level function
+                        if (self.module_level_funcs.contains(target_method)) {
+                            try self.emit("@This().");
+                        }
                         try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
                         try self.emit(";\n");
                     }
