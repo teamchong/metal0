@@ -41,27 +41,44 @@ pub fn genAssert(self: *NativeCodegen, assert_node: ast.Node.Assert) CodegenErro
     try b.writeIndent();
     if (assert_node.msg) |msg| {
         // assert x, "message"
+        // Capture message expression once
+        const msg_expr = try self.captureExpr(msg.*);
+
         try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", ");
         // Generate message expression - if it's a string literal, emit directly
         if (msg.* == .constant and msg.constant.value == .string) {
             try b.emitRaw("\"");
             try b.emitRaw(msg.constant.value.string);
             try b.emitRaw("\"");
+            try b.emitRaw(", @src().line);\n");
+            try b.writeIndent();
+            // Set exception info and return error (so it can be caught by try/except)
+            try b.emitRaw("runtime.exceptions.setException(\"AssertionError\", \"");
+            try b.emitRaw(msg.constant.value.string);
+            try b.emitRaw("\");\n");
+            try b.writeIndent();
+            try b.emitRaw("return error.AssertionError;\n");
         } else {
-            // For non-string messages, convert to string representation
-            try b.emitRaw("\"assertion failed\"");
+            // For non-string messages (tuples, etc.), convert to Python repr format at runtime
+            try b.emitRaw("(try runtime.builtins.pyRepr(__global_allocator, ");
+            try b.emitValue(msg_expr, .{});
+            try b.emitRaw(")), @src().line);\n");
+            try b.writeIndent();
+            // Set exception info with repr message and return error (so it can be caught)
+            try b.emitRaw("runtime.exceptions.setException(\"AssertionError\", try runtime.builtins.pyRepr(__global_allocator, ");
+            try b.emitValue(msg_expr, .{});
+            try b.emitRaw("));\n");
+            try b.writeIndent();
+            try b.emitRaw("return error.AssertionError;\n");
         }
-        try b.emitRaw(", @src().line);\n");
-        try b.writeIndent();
-        try b.emitRaw("std.debug.panic(\"AssertionError: {any}\", .{");
-        const msg_expr = try self.captureExpr(msg.*);
-        try b.emitValue(msg_expr, .{});
-        try b.emitRaw("});\n");
     } else {
         // assert x
         try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"AssertionError\", \"assertion failed\", @src().line);\n");
         try b.writeIndent();
-        try b.emitRaw("std.debug.panic(\"AssertionError\", .{});\n");
+        // Set exception info and return error (so it can be caught by try/except)
+        try b.emitRaw("runtime.exceptions.setException(\"AssertionError\", \"assertion failed\");\n");
+        try b.writeIndent();
+        try b.emitRaw("return error.AssertionError;\n");
     }
 
     b.dedent();

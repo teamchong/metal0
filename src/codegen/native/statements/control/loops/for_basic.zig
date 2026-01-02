@@ -1577,8 +1577,23 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 break :blk self.var_renames.get(var_name) orelse var_name;
             };
 
+            // Check if loop variable is reassigned in body (e.g., `ary = asanyarray(ary)`)
+            // If so, use 'var' instead of 'const' to allow mutation
+            const is_reassigned_in_body = blk: {
+                for (for_stmt.body) |stmt| {
+                    if (stmt == .assign) {
+                        for (stmt.assign.targets) |target| {
+                            if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
+                                break :blk true;
+                            }
+                        }
+                    }
+                }
+                break :blk false;
+            };
+
             if (!is_hoisted_vararg) {
-                try self.emit("const ");
+                try self.emit(if (is_reassigned_in_body) "var " else "const ");
             }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name_vararg);
             try self.output.writer(self.allocator).print(
@@ -1588,6 +1603,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
             // Register loop variable type as unknown (comptime types can vary)
             try self.type_inferrer.putScopedVar(for_stmt.target.name.id, .unknown);
+
+            // Mark loop variable as declared to prevent redeclaration in loop body
+            // (e.g., when Python code does `ary = asanyarray(ary)`)
+            if (!is_hoisted_vararg) try self.declareVar(actual_name_vararg);
 
             // Track this variable as coming from vararg iteration
             // Used by call codegen to generate c.init(...) instead of c(...)

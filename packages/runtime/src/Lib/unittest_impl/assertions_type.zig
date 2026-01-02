@@ -2,6 +2,8 @@
 const std = @import("std");
 const runner = @import("../unittest/runner.zig");
 const basic = @import("assertions_basic/assertions_basic.zig");
+const exceptions = @import("../../runtime/exceptions.zig");
+const PyException = exceptions.PyException;
 
 /// Assertion: assertCountEqual(a, b) - sequences have same elements (order independent)
 pub fn assertCountEqual(a: anytype, b: anytype) !void {
@@ -88,6 +90,23 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) !void {
     const actual_type_name = @typeName(T);
 
     const matches = blk: {
+        // Special case: ?*PyException - check the exception's type_name field
+        // This handles: assertIsInstance(e.__context__, TypeError)
+        if (T == ?*PyException) {
+            if (obj) |exc| {
+                break :blk std.mem.eql(u8, exc.type_name, expected_type_name);
+            }
+            break :blk false; // null is not an instance of anything
+        }
+        // Also handle non-optional *PyException
+        if (T == *PyException) {
+            break :blk std.mem.eql(u8, obj.type_name, expected_type_name);
+        }
+        // Handle PyException value directly
+        if (T == PyException) {
+            break :blk std.mem.eql(u8, obj.type_name, expected_type_name);
+        }
+
         if (std.mem.eql(u8, actual_type_name, expected_type_name)) break :blk true;
 
         // Handle fully qualified type names (e.g., "module.class.inner" matches "inner")
