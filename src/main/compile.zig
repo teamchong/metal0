@@ -877,6 +877,12 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
+    // Set emit_logic_table_exports when --emit-logic-table-shared is passed
+    // This enables C-callable export wrappers for @logic_table methods
+    if (opts.emit_logic_table_shared) {
+        native_gen.emit_logic_table_exports = true;
+    }
+
     // Copy module traits from pre-compilation phase to native_gen
     for (mod_registry2.modules.keys()) |mod_name| {
         if (mod_registry2.modules.get(mod_name)) |mod_info| {
@@ -939,7 +945,24 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
 
     // Compile to WASM, shared library (.so), or binary
-    if (is_wasm_target) {
+    // --emit-logic-table-shared: compile @logic_table to shared library for JIT loading
+    if (opts.emit_logic_table_shared) {
+        std.debug.print("Compiling @logic_table to shared library...\n", .{});
+        // Use output_file directly if provided, otherwise generate default path
+        const lib_path = opts.output_file orelse blk: {
+            const basename = std.fs.path.basename(opts.input_file);
+            const stem = if (std.mem.lastIndexOf(u8, basename, ".")) |idx| basename[0..idx] else basename;
+            const ext = switch (@import("builtin").os.tag) {
+                .macos => ".dylib",
+                .windows => ".dll",
+                else => ".so",
+            };
+            break :blk try std.fmt.allocPrint(aa, "/tmp/logic_table_{s}{s}", .{ stem, ext });
+        };
+        try compiler.compileZigSharedLib(aa, zig_code, lib_path, c_libs, null);
+        std.debug.print("✓ Compiled @logic_table to: {s}\n", .{lib_path});
+        return;
+    } else if (is_wasm_target) {
         std.debug.print("Compiling to WebAssembly ({s})...\n", .{@tagName(opts.target)});
         const wasm_path = try output.getWasmOutputPath(aa, opts.input_file, opts.output_file);
         try compiler.compileWasmWithTarget(aa, zig_code, wasm_path, opts.target, &.{});
