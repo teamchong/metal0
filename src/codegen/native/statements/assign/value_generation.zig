@@ -922,8 +922,44 @@ pub fn emitVarDeclaration(
     const needs_pyvalue_wrap = !expr_produces_pyvalue and !is_string_concat and !is_anytype_init_call and (type_traits.isUnknown(value_type) or
         (is_primitive and self.shouldUsePyValue(var_name) and !string_traits.isString(value_type)) or
         (is_container and self.shouldUsePyValue(var_name)));
+
+    // Check if RHS is a call to a generator function (returns []PyValue)
+    // Generator calls need listFromSlice instead of from
+    const is_generator_call = if (value_expr) |expr| blk: {
+        if (expr == .call) {
+            const call = expr.call;
+            // Direct call: gen()
+            if (call.func.* == .name) {
+                const func_name = call.func.name.id;
+                // Check both call graph and generator_closure_vars
+                // (nested generator closures are tracked in generator_closure_vars)
+                break :blk self.funcIsGenerator(func_name) or self.generator_closure_vars.contains(func_name);
+            }
+            // Attribute call: self.gen() or cap.gen.call()
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                // Check if it's a closure .call() pattern
+                if (std.mem.eql(u8, attr.attr, "call")) {
+                    // The base is the closure, which may be a generator
+                    // For cap.gen pattern, check if gen is a generator
+                    if (attr.value.* == .attribute) {
+                        const inner_attr = attr.value.attribute;
+                        break :blk self.funcIsGenerator(inner_attr.attr) or self.generator_closure_vars.contains(inner_attr.attr);
+                    }
+                }
+                // Regular method call: check if the method is a generator
+                break :blk self.funcIsGenerator(attr.attr) or self.generator_closure_vars.contains(attr.attr);
+            }
+        }
+        break :blk false;
+    } else false;
+
     if (needs_pyvalue_wrap) {
-        try self.emit(": runtime.PyValue = runtime.PyValue.from(");
+        if (is_generator_call) {
+            try self.emit(": runtime.PyValue = try runtime.PyValue.listFromSlice(__global_allocator, ");
+        } else {
+            try self.emit(": runtime.PyValue = runtime.PyValue.from(");
+        }
         return true; // Wrapper opened - caller must close with ")"
     }
     // If expression produces PyValue, emit type annotation without wrapper

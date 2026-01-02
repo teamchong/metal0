@@ -527,10 +527,21 @@ pub const ErrorContext = struct {
     }
 };
 
+/// Unraisable exception info (matches Python's sys.UnraisableHookArgs)
+pub const UnraisableHookArgs = struct {
+    /// Exception type name (e.g., "RuntimeWarning", "ValueError")
+    exc_type: []const u8 = "GenericError",
+    exc_value: ?anyerror = null,
+    exc_tb: ?*anyopaque = null,
+    err_msg: ?[]const u8 = null,
+    object: ?*anyopaque = null,
+};
+
 /// Context manager for catching unraisable exceptions
 /// Used in tests like: with support.catch_unraisable_exception() as cm:
 pub const UnraisableExceptionContext = struct {
-    unraisable: ?anyerror = null,
+    /// The unraisable exception info - will be populated when an unraisable exception occurs
+    unraisable: UnraisableHookArgs = .{},
 
     pub fn __enter__(self: UnraisableExceptionContext) !UnraisableExceptionContext {
         return self;

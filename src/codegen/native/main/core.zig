@@ -410,6 +410,9 @@ pub const NativeCodegen = struct {
     // Track closures that return void (no catch needed)
     void_closure_vars: FnvVoidMap,
 
+    // Track closures that are generators (return []PyValue)
+    generator_closure_vars: FnvVoidMap,
+
     // Track which variables hold callables (PyCallable - for .call() generation)
     callable_vars: FnvVoidMap,
 
@@ -1096,6 +1099,7 @@ pub const NativeCodegen = struct {
             .closure_vars = FnvVoidMap.init(aa),
             .hoisted_dynamic_closures = FnvVoidMap.init(aa),
             .void_closure_vars = FnvVoidMap.init(aa),
+            .generator_closure_vars = FnvVoidMap.init(aa),
             .callable_vars = FnvVoidMap.init(aa),
             .error_callable_vars = FnvVoidMap.init(aa),
             .recursive_closure_vars = hashmap_helper.StringHashMap([][]const u8).init(aa),

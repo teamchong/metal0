@@ -171,6 +171,13 @@ pub fn genStandardClosure(
         }
     }
 
+    // Track generator closures for listFromSlice wrapping during assignment
+    const signature = @import("../generators/signature.zig");
+    if (signature.hasYieldStatement(func.body)) {
+        const func_name_copy = try self.arena.allocator().dupe(u8, func.name);
+        try self.generator_closure_vars.put(func_name_copy, {});
+    }
+
     // Generate comptime closure using runtime.Closure1 helper
     const closure_impl_name = try std.fmt.allocPrint(
         self.allocator,

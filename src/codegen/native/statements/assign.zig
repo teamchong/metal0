@@ -1478,8 +1478,41 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
                     try self.emit(" = ");
                     // TWO-FLOW TYPE SYSTEM: Open PyValue.from() wrapper for reassignment if needed
+                    // Check if RHS is a generator call (returns []PyValue) - use listFromSlice instead
+                    const is_generator_call = blk: {
+                        if (assign.value.* == .call) {
+                            const call = assign.value.call;
+                            // Direct call: gen()
+                            if (call.func.* == .name) {
+                                const func_name = call.func.name.id;
+                                // Check both call graph and generator_closure_vars
+                                // (nested generator closures are tracked in generator_closure_vars)
+                                break :blk self.funcIsGenerator(func_name) or self.generator_closure_vars.contains(func_name);
+                            }
+                            // Attribute call: self.gen() or cap.gen.call()
+                            if (call.func.* == .attribute) {
+                                const attr = call.func.attribute;
+                                // Check if it's a closure .call() pattern
+                                if (std.mem.eql(u8, attr.attr, "call")) {
+                                    // The base is the closure, which may be a generator
+                                    // For cap.gen pattern, check if gen is a generator
+                                    if (attr.value.* == .attribute) {
+                                        const inner_attr = attr.value.attribute;
+                                        break :blk self.funcIsGenerator(inner_attr.attr) or self.generator_closure_vars.contains(inner_attr.attr);
+                                    }
+                                }
+                                // Regular method call: check if the method is a generator
+                                break :blk self.funcIsGenerator(attr.attr) or self.generator_closure_vars.contains(attr.attr);
+                            }
+                        }
+                        break :blk false;
+                    };
                     if (reassign_pyvalue_wrap) {
-                        try self.emit("runtime.PyValue.from(");
+                        if (is_generator_call) {
+                            try self.emit("try runtime.PyValue.listFromSlice(__global_allocator, ");
+                        } else {
+                            try self.emit("runtime.PyValue.from(");
+                        }
                     }
                     // UNIFIED INT: Open UnifiedInt wrapper for reassignment if needed
                     if (reassign_unified_int_wrap) {

@@ -605,6 +605,25 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         const module_name = self.var_renames.get(raw_name) orelse raw_name;
         const attr_name = attr.attr;
 
+        // If raw_name was renamed to "call", it's a recursive function.
+        // Accessing attributes on a function object (e.g., f.x) raises AttributeError
+        // for unknown attributes. Generate runtime error.
+        if (std.mem.eql(u8, module_name, "call") and !std.mem.eql(u8, raw_name, "call")) {
+            // Check for known function attributes first
+            if (std.mem.eql(u8, attr_name, "__name__")) {
+                try self.emitFmt("\"{s}\"", .{raw_name});
+                return;
+            }
+            if (std.mem.eql(u8, attr_name, "__doc__")) {
+                try self.emit("null");
+                return;
+            }
+            // Unknown attribute on function - raise AttributeError
+            // Use a helper that throws the error when evaluated as expression
+            try self.emit("(if (true) return error.AttributeError else unreachable)");
+            return;
+        }
+
         // Check if this is a lazy class attribute access (C.items, C.y)
         // Lazy attrs are methods, so C.attr becomes (try C.attr(__global_allocator))
         // Use __global_allocator since the calling context may not have __alloc in scope

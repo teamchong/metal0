@@ -146,6 +146,96 @@ fn exprReferencesSelf(expr: ast.Node) bool {
     };
 }
 
+/// Get the variable name assigned by a statement (for simple assignments only)
+fn getAssignedVarName(stmt: ast.Node) ?[]const u8 {
+    if (stmt == .assign) {
+        const assign = stmt.assign;
+        if (assign.targets.len > 0 and assign.targets[0] == .name) {
+            return assign.targets[0].name.id;
+        }
+    }
+    return null;
+}
+
+/// Check if an expression references a specific variable name
+fn exprUsesVar(expr: ast.Node, var_name: []const u8) bool {
+    return switch (expr) {
+        .name => |n| std.mem.eql(u8, n.id, var_name),
+        .attribute => |attr| exprUsesVar(attr.value.*, var_name),
+        .binop => |b| exprUsesVar(b.left.*, var_name) or exprUsesVar(b.right.*, var_name),
+        .unaryop => |u| exprUsesVar(u.operand.*, var_name),
+        .boolop => |bo| blk: {
+            for (bo.values) |v| if (exprUsesVar(v, var_name)) break :blk true;
+            break :blk false;
+        },
+        .compare => |c| blk: {
+            if (exprUsesVar(c.left.*, var_name)) break :blk true;
+            for (c.comparators) |comp| if (exprUsesVar(comp, var_name)) break :blk true;
+            break :blk false;
+        },
+        .call => |c| blk: {
+            if (exprUsesVar(c.func.*, var_name)) break :blk true;
+            for (c.args) |arg| if (exprUsesVar(arg, var_name)) break :blk true;
+            for (c.keyword_args) |kw| if (exprUsesVar(kw.value, var_name)) break :blk true;
+            break :blk false;
+        },
+        .subscript => |s| blk: {
+            if (exprUsesVar(s.value.*, var_name)) break :blk true;
+            switch (s.slice) {
+                .index => |idx| if (exprUsesVar(idx.*, var_name)) break :blk true,
+                .slice => |sr| {
+                    if (sr.lower) |l| if (exprUsesVar(l.*, var_name)) break :blk true;
+                    if (sr.upper) |u| if (exprUsesVar(u.*, var_name)) break :blk true;
+                    if (sr.step) |st| if (exprUsesVar(st.*, var_name)) break :blk true;
+                },
+            }
+            break :blk false;
+        },
+        .if_expr => |ie| exprUsesVar(ie.condition.*, var_name) or
+            exprUsesVar(ie.body.*, var_name) or
+            exprUsesVar(ie.orelse_value.*, var_name),
+        .list => |l| blk: {
+            for (l.elts) |el| if (exprUsesVar(el, var_name)) break :blk true;
+            break :blk false;
+        },
+        .tuple => |t| blk: {
+            for (t.elts) |el| if (exprUsesVar(el, var_name)) break :blk true;
+            break :blk false;
+        },
+        .dict => |d| blk: {
+            for (d.keys, d.values) |k, v| {
+                if (exprUsesVar(k, var_name) or exprUsesVar(v, var_name)) break :blk true;
+            }
+            break :blk false;
+        },
+        .set => |s| blk: {
+            for (s.elts) |el| if (exprUsesVar(el, var_name)) break :blk true;
+            break :blk false;
+        },
+        .lambda => false, // Don't look inside lambdas
+        else => false,
+    };
+}
+
+/// Check if a statement uses a specific variable name
+fn stmtUsesVar(stmt: ast.Node, var_name: []const u8) bool {
+    return switch (stmt) {
+        .expr_stmt => |e| exprUsesVar(e.value.*, var_name),
+        .assign => |a| exprUsesVar(a.value.*, var_name),
+        .aug_assign => |aug| exprUsesVar(aug.value.*, var_name),
+        else => false,
+    };
+}
+
+/// Check if a statement uses any variable from a set of deferred variables
+fn stmtUsesDeferredVar(stmt: ast.Node, deferred_vars: hashmap_helper.StringHashMap(void)) bool {
+    var iter = deferred_vars.iterator();
+    while (iter.next()) |entry| {
+        if (stmtUsesVar(stmt, entry.key_ptr.*)) return true;
+    }
+    return false;
+}
+
 /// Check if a statement references bare `self`
 /// Used to detect statements like super().__init__(), parent_class.__init__(self)
 /// that can't be executed before struct initialization
@@ -616,8 +706,8 @@ pub fn genInitMethod(
         // e.g., `def __init__(self, d): if not d: d = {}` - the `d = {}` would shadow param
         const shadows_local_assign = param_analyzer.isNameAssignedInInitBody(init_def.body, arg.name);
 
-        // Check if parameter is used in init body (excluding parent __init__ calls)
-        // Parent calls are skipped in codegen, so params only used there are unused
+        // Check if parameter is used in init body
+        // Parameters passed to parent __init__ calls ARE used (parent calls are generated)
         const is_used = param_analyzer.isNameUsedInInitBody(init_def.body, arg.name);
         if (!is_used) {
             // Zig requires unused params to be named just "_", not "_name"
@@ -761,6 +851,20 @@ pub fn genInitMethod(
     var deferred_self_stmts = std.ArrayListUnmanaged(ast.Node){};
     defer deferred_self_stmts.deinit(self.allocator);
 
+    // Track variables defined in deferred statements (those that reference self)
+    // Any statement that uses these variables must also be deferred
+    var deferred_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer deferred_vars.deinit();
+
+    // Pre-pass: collect all variables defined in self-referencing statements
+    for (init_def.body[body_start_idx..]) |stmt| {
+        if (stmtReferencesSelf(stmt)) {
+            if (getAssignedVarName(stmt)) |var_name| {
+                try deferred_vars.put(var_name, {});
+            }
+        }
+    }
+
     for (init_def.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
@@ -778,12 +882,17 @@ pub fn genInitMethod(
         // Check if statement references self (e.g., super().__init__(), parent_class.__init__(self))
         const references_self = stmtReferencesSelf(stmt);
 
-        // Generate non-field statements that don't reference self
-        // Statements that reference self are deferred until after struct creation
-        if (!is_field_assign and !references_self) {
+        // Check if statement depends on a variable defined in a deferred statement
+        // e.g., `data.extend(marshal.dumps(code_object))` depends on `code_object`
+        // which is defined in `code_object = compile(self.source, ...)` (a deferred stmt)
+        const depends_on_deferred = stmtUsesDeferredVar(stmt, deferred_vars);
+
+        // Generate non-field statements that don't reference self and don't depend on deferred vars
+        // Statements that reference self OR depend on deferred vars are deferred until after struct creation
+        if (!is_field_assign and !references_self and !depends_on_deferred) {
             try self.generateStmt(stmt);
-        } else if (!is_field_assign and references_self) {
-            // Defer statements that reference self (e.g., parent __init__ calls)
+        } else if (!is_field_assign and (references_self or depends_on_deferred)) {
+            // Defer statements that reference self OR depend on deferred variables
             try deferred_self_stmts.append(self.allocator, stmt);
         }
     }
@@ -1080,7 +1189,7 @@ pub fn genInitMethodWithBuiltinBase(
             try self.emit(", ");
 
             // Check if parameter is used in init body (excluding parent __init__ calls)
-            // Parent calls are skipped in codegen, so params only used there are unused
+            // Parameters passed to parent __init__ calls ARE used (parent calls are generated)
             // EXCEPTION: For builtin subclasses, the first parameter is always used for __base_value__
             const is_base_value_param = is_first_param and builtin_base != null;
             const is_used = is_base_value_param or param_analyzer.isNameUsedInInitBody(init.body, arg.name);
@@ -1334,6 +1443,20 @@ pub fn genInitMethodWithBuiltinBase(
     var deferred_self_stmts_builtin = std.ArrayListUnmanaged(ast.Node){};
     defer deferred_self_stmts_builtin.deinit(self.allocator);
 
+    // Track variables defined in deferred statements (those that reference self)
+    // Any statement that uses these variables must also be deferred
+    var deferred_vars_builtin = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer deferred_vars_builtin.deinit();
+
+    // Pre-pass: collect all variables defined in self-referencing statements
+    for (init.body[body_start_idx..]) |stmt| {
+        if (stmtReferencesSelf(stmt)) {
+            if (getAssignedVarName(stmt)) |var_name| {
+                try deferred_vars_builtin.put(var_name, {});
+            }
+        }
+    }
+
     for (init.body[body_start_idx..]) |stmt| {
         const is_field_assign = blk: {
             if (stmt == .assign) {
@@ -1351,14 +1474,17 @@ pub fn genInitMethodWithBuiltinBase(
         // Check if statement references self (e.g., super().__init__(), parent_class.__init__(self))
         const references_self = stmtReferencesSelf(stmt);
 
-        // Generate non-field statements that don't reference self
-        // Statements that reference self are deferred until after struct creation
-        if (!is_field_assign and !references_self) {
+        // Check if statement depends on a variable defined in a deferred statement
+        const depends_on_deferred = stmtUsesDeferredVar(stmt, deferred_vars_builtin);
+
+        // Generate non-field statements that don't reference self and don't depend on deferred vars
+        // Statements that reference self OR depend on deferred vars are deferred until after struct creation
+        if (!is_field_assign and !references_self and !depends_on_deferred) {
             try self.generateStmt(stmt);
             // If statement terminated control flow, skip remaining statements
             if (self.control_flow_terminated) break;
-        } else if (!is_field_assign and references_self) {
-            // Defer statements that reference self (e.g., parent __init__ calls)
+        } else if (!is_field_assign and (references_self or depends_on_deferred)) {
+            // Defer statements that reference self OR depend on deferred variables
             try deferred_self_stmts_builtin.append(self.allocator, stmt);
         }
     }

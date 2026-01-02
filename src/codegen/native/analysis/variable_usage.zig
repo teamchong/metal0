@@ -579,9 +579,13 @@ pub fn isNameUsedInBodyExcludingYield(body: []const ast.Node, name: []const u8) 
     return isNameUsedInBodyWithConfig(body, name, .{ .skip_yield = true });
 }
 
-/// Check if name is used in __init__ body, excluding parent __init__ calls
+/// Check if name is used in __init__ body
+/// NOTE: We do NOT skip parent __init__ calls because they ARE generated and
+/// parameters passed to them ARE used. Previously this used skip_parent_init=true
+/// which caused parameters like `path` in `super().__init__(path)` to be incorrectly
+/// marked as unused.
 pub fn isNameUsedInInitBody(body: []const ast.Node, name: []const u8) bool {
-    return isNameUsedInBodyWithConfig(body, name, .{ .skip_parent_init = true });
+    return isNameUsedInBodyWithConfig(body, name, .{});
 }
 
 /// Check if name is used in __new__ body for field assignments only

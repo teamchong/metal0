@@ -1158,6 +1158,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
             try self.type_inferrer.putScopedVar(var_name, context_type);
 
+            // Track as func_local_vars so needsVMFallback returns false for this var
+            try self.func_local_vars.put(original_name, {});
+
             // NOTE: with-target variable was already hoisted BEFORE hoistWithBodyVars
             // (at the start of genWith) to ensure body variables can reference it
 
