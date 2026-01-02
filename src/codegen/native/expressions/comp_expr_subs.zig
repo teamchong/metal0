@@ -376,6 +376,35 @@ fn genBuiltinCallWithSubs(
         // setattr(obj, name, value) in comprehension - use dynamic_attrs dispatch
         const dynamic_attrs = @import("../builtins/dynamic_attrs.zig");
         try dynamic_attrs.genSetattr(self, c.args);
+    } else if (std.mem.eql(u8, func_name, "next") and c.args.len >= 1) {
+        // next(iterator) in comprehension - call iterator's .next() method
+        try self.emit("((");
+        try genExprWithSubs(self, c.args[0], subs);
+        try self.emit(").next() orelse ");
+        if (c.args.len >= 2) {
+            // next(iter, default) - use default value if iterator exhausted
+            try genExprWithSubs(self, c.args[1], subs);
+        } else {
+            // next(iter) with no default - return 0 as fallback (or could error)
+            try self.emit("0");
+        }
+        try self.emit(")");
+    } else if (std.mem.eql(u8, func_name, "slice") and c.args.len >= 1) {
+        // slice(start, end) or slice(stop) - create slice object
+        // In comprehensions, this is typically used as slice(start, end) for indexing
+        if (c.args.len == 1) {
+            // slice(stop) - slice from 0 to stop
+            try self.emit(".{ .start = 0, .stop = @as(usize, @intCast(");
+            try genExprWithSubs(self, c.args[0], subs);
+            try self.emit(")) }");
+        } else {
+            // slice(start, end)
+            try self.emit(".{ .start = @as(usize, @intCast(");
+            try genExprWithSubs(self, c.args[0], subs);
+            try self.emit(")), .stop = @as(usize, @intCast(");
+            try genExprWithSubs(self, c.args[1], subs);
+            try self.emit(")) }");
+        }
     } else {
         // Fallback: generate call with substituted args
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);

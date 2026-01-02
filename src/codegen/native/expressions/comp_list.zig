@@ -717,6 +717,23 @@ fn genIterLoop(
         try self.emit("| {\n");
         self.indent();
 
+        // Emit discard for loop variable to handle cases where it's not used in body
+        // This prevents "unused capture" errors in Zig
+        if (gen.target.* == .name) {
+            const loop_var_name = gen.target.name.id;
+            // Don't emit discard for explicit _ capture
+            if (!std.mem.eql(u8, loop_var_name, "_")) {
+                try self.emitIndent();
+                try self.emit("_ = &");
+                if (maybe_mangled) |mangled| {
+                    try self.emit(mangled);
+                } else {
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), loop_var_name);
+                }
+                try self.emit(";\n");
+            }
+        }
+
         // If loop target shadows an imported module, register the rename mapping
         if (maybe_mangled) |mangled_name| {
             if (gen.target.* == .name) {
