@@ -905,6 +905,12 @@ pub fn genStandardClosure(
         // Declare the alias name (using unique name if redefinition) - skip if hoisted
         if (!is_hoisted_closure) {
             try self.declareVar(alias_name);
+
+            // Suppress unused local constant warning for the alias
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emitIdent(alias_name);
+            try self.emit(";\n");
         }
 
         // Mark this variable as a closure so calls use .call() syntax

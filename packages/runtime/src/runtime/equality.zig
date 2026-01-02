@@ -292,9 +292,12 @@ pub fn pyIdentical(a: anytype, b: anytype) bool {
 
     // Cross-type exception comparison (PyException vs ExceptionClass)
     // Both have exception_id field for identity tracking
+    // Must check pointer child is struct before @hasField (anyopaque doesn't support it)
     const is_a_optional_exception = a_info == .optional and @typeInfo(a_info.optional.child) == .pointer and
+        @typeInfo(@typeInfo(a_info.optional.child).pointer.child) == .@"struct" and
         @hasField(@typeInfo(a_info.optional.child).pointer.child, "exception_id");
     const is_b_optional_exception = b_info == .optional and @typeInfo(b_info.optional.child) == .pointer and
+        @typeInfo(@typeInfo(b_info.optional.child).pointer.child) == .@"struct" and
         @hasField(@typeInfo(b_info.optional.child).pointer.child, "exception_id");
     const is_a_ptr_exception = a_info == .pointer and @typeInfo(a_info.pointer.child) == .@"struct" and
         @hasField(a_info.pointer.child, "exception_id");
