@@ -1370,6 +1370,20 @@ pub fn genInitMethodWithBuiltinBase(
         }
     }
 
+    // Add *args parameter if present (e.g., def __init__(self, *args))
+    if (init.vararg) |vararg_name| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+        try self.emit(": runtime.PyValue");
+    }
+
+    // Add **kwargs parameter if present (e.g., def __init__(self, **kwargs))
+    if (init.kwarg) |kwarg_name| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+        try self.emit(": runtime.PyValue");
+    }
+
     // Detect type-check-raise patterns at the start of the function body for anytype params
     // These need comptime branching to prevent invalid type instantiations from being analyzed
     // Do this BEFORE emitting return type since it affects whether we need error union
