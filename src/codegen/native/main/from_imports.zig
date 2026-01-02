@@ -1559,7 +1559,7 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     try self.emit("const ");
                     try self.emitIdent(symbol_name);
                     try self.emit(" = ");
-                    try self.emit(from_imp.module);
+                    try self.emitDottedIdent(from_imp.module);
                     try self.emit(".");
                     try self.emitIdent(name);
                     try self.emit(";\n");

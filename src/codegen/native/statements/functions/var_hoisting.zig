@@ -1140,7 +1140,20 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         }
 
         try self.emitIndent();
-        try self.emit("var ");
+        // Check if this hoisted variable is actually mutated - if not, use const
+        // func_local_mutations is populated by analyzeFunctionLocalMutations before this runs
+        // It stores both bare names (for aug_assign) and scoped keys (for multiple assignments)
+        // Check all formats: bare name, scoped key "name:0" (function scope)
+        var scoped_key_buf: [256]u8 = undefined;
+        const scoped_key = std.fmt.bufPrint(&scoped_key_buf, "{s}:0", .{escaped.name}) catch escaped.name;
+        const is_mutated = self.func_local_mutations.contains(escaped.name) or
+            self.func_local_mutations.contains(actual_name) or
+            self.func_local_mutations.contains(scoped_key);
+        if (is_mutated) {
+            try self.emit("var ");
+        } else {
+            try self.emit("const ");
+        }
         // Use writeEscapedIdent to handle Zig keywords (like "packed")
         // Note: actual_name already has method-shadowing suffix if needed
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);

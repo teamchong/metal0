@@ -34,6 +34,51 @@ threadlocal var last_syntax_error_end_offset: ?i64 = null;
 /// Thread-local buffer for formatted exception messages (e.g., with repr values)
 threadlocal var exception_message_buffer: [512]u8 = undefined;
 
+/// Unraisable exception info - used by sys.unraisablehook
+/// This is for exceptions that occur in contexts where they can't be propagated
+/// (e.g., in __del__ methods, during garbage collection, etc.)
+pub const UnraisableInfo = struct {
+    exc_type: []const u8 = "Exception",
+    exc_value: ?[]const u8 = null,
+    err_msg: ?[]const u8 = null,
+    object: ?*anyopaque = null,
+};
+
+/// Thread-local hook for capturing unraisable exceptions
+/// When set, exceptions that would normally be "unraisable" (from __del__, etc.)
+/// are passed to this hook instead of being silently discarded
+threadlocal var unraisable_hook: ?*const fn (info: UnraisableInfo) void = null;
+
+/// Set the unraisable hook (used by catch_unraisable_exception context manager)
+pub fn setUnraisableHook(hook: ?*const fn (info: UnraisableInfo) void) void {
+    unraisable_hook = hook;
+}
+
+/// Get the current unraisable hook
+pub fn getUnraisableHook() ?*const fn (info: UnraisableInfo) void {
+    return unraisable_hook;
+}
+
+/// Call the unraisable hook if set, otherwise print to stderr
+/// This should be called when an exception occurs in a context where it can't propagate
+pub fn callUnraisableHook(exc_type: []const u8, exc_value: ?[]const u8) void {
+    const info = UnraisableInfo{
+        .exc_type = exc_type,
+        .exc_value = exc_value,
+    };
+    if (unraisable_hook) |hook| {
+        hook(info);
+    } else {
+        // Default behavior: print to stderr (Python's default)
+        std.debug.print("Exception ignored in: <unknown>\n", .{});
+        if (exc_value) |val| {
+            std.debug.print("{s}: {s}\n", .{ exc_type, val });
+        } else {
+            std.debug.print("{s}\n", .{exc_type});
+        }
+    }
+}
+
 /// Set the last exception message (call before returning an error)
 pub fn setExceptionMessage(msg: []const u8) void {
     last_exception_message = msg;

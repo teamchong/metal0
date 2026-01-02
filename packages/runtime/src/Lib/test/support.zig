@@ -537,28 +537,55 @@ pub const UnraisableHookArgs = struct {
     object: ?*anyopaque = null,
 };
 
+// Import runtime exceptions for hook system
+const runtime_exceptions = @import("../../runtime/exceptions.zig");
+
+/// Thread-local storage for the unraisable exception context
+/// Both the context manager and hook callback use this shared storage
+threadlocal var unraisable_context: UnraisableExceptionContext = .{};
+
+/// Static callback function for the unraisable hook
+/// This captures exception info into the thread-local context
+fn unraisableHookCallback(info: runtime_exceptions.UnraisableInfo) void {
+    unraisable_context.unraisable.exc_type = info.exc_type;
+    unraisable_context.unraisable.err_msg = info.err_msg;
+    unraisable_context.unraisable.object = info.object;
+}
+
 /// Context manager for catching unraisable exceptions
 /// Used in tests like: with support.catch_unraisable_exception() as cm:
 pub const UnraisableExceptionContext = struct {
-    /// The unraisable exception info - will be populated when an unraisable exception occurs
+    /// The unraisable exception info - written to by the hook callback
     unraisable: UnraisableHookArgs = .{},
+    /// Previous hook to restore on exit
+    _prev_hook: ?*const fn (runtime_exceptions.UnraisableInfo) void = null,
 
-    pub fn __enter__(self: UnraisableExceptionContext) !UnraisableExceptionContext {
+    /// Enter the context - returns pointer to thread-local context
+    pub fn __enter__(self: *UnraisableExceptionContext) !*UnraisableExceptionContext {
+        // Reset the unraisable info
+        self.unraisable = .{};
+        // Save current hook and set our callback
+        self._prev_hook = runtime_exceptions.getUnraisableHook();
+        runtime_exceptions.setUnraisableHook(&unraisableHookCallback);
         return self;
     }
 
-    pub fn __exit__(self: UnraisableExceptionContext, exc_type: anytype, exc_val: anytype, exc_tb: anytype) !bool {
-        _ = self;
+    pub fn __exit__(self: *UnraisableExceptionContext, exc_type: anytype, exc_val: anytype, exc_tb: anytype) !bool {
         _ = exc_type;
         _ = exc_val;
         _ = exc_tb;
+        // Restore previous hook
+        runtime_exceptions.setUnraisableHook(self._prev_hook);
         return false;
     }
 };
 
 /// Create a catch_unraisable_exception context manager
-pub fn catch_unraisable_exception() UnraisableExceptionContext {
-    return .{};
+/// Returns a pointer to thread-local storage, allowing the hook to update it
+pub fn catch_unraisable_exception() *UnraisableExceptionContext {
+    // Reset and return the thread-local context
+    unraisable_context = .{};
+    return &unraisable_context;
 }
 
 // ============================================================================

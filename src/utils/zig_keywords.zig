@@ -126,6 +126,7 @@ const zig_keywords = std.StaticStringMap(void).initComptime(.{
     .{ "c_short", {} },
     .{ "c_ushort", {} },
     .{ "c_char", {} },
+    .{ "c_longdouble", {} },
     .{ "bool", {} },
 });
 
