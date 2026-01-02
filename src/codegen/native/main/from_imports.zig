@@ -1524,6 +1524,51 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 continue;
             }
 
+            // Check if root module is already @imported (compiled Python package)
+            // e.g., from numpy._core.numerictypes import sctypes
+            // If numpy is @imported, we can reference numpy._core.numerictypes.sctypes directly
+            const is_imported_submodule = blk: {
+                var iter = std.mem.splitScalar(u8, from_imp.module, '.');
+                if (iter.next()) |root_module| {
+                    // Check if root is in imported_modules (compiled and @imported)
+                    if (self.imported_modules.contains(root_module)) {
+                        break :blk true;
+                    }
+                    // Also check import_aliases (e.g., np -> numpy)
+                    if (self.import_aliases.contains(root_module)) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+
+            if (is_imported_submodule) {
+                // Root module is @imported - generate const symbol = module.path.symbol;
+                // e.g., const sctypes = numpy._core.numerictypes.sctypes;
+                for (from_imp.names, 0..) |name, i| {
+                    if (std.mem.eql(u8, name, "*")) continue;
+                    const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
+                        from_imp.asnames[i].?
+                    else
+                        name;
+                    if (generated_symbols.contains(symbol_name)) continue;
+
+                    // Convert Python module path to Zig path (dots to underscores for internal modules)
+                    // numpy._core.numerictypes -> numpy._core.numerictypes
+                    if (self.mode == .module) try self.emit("pub ");
+                    try self.emit("const ");
+                    try self.emitIdent(symbol_name);
+                    try self.emit(" = ");
+                    try self.emit(from_imp.module);
+                    try self.emit(".");
+                    try self.emitIdent(name);
+                    try self.emit(";\n");
+                    try generated_symbols.put(symbol_name, {});
+                    try self.module_level_from_imports.put(symbol_name, {});
+                }
+                continue;
+            }
+
             // Module not in registry - check if it's a known pure Python subpackage
             // that needs runtime import (e.g., numpy.testing.NUMPY_ROOT is a Path)
             const is_known_subpackage = blk: {
