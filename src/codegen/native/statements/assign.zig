@@ -2673,6 +2673,14 @@ fn isDynamicAttrAssign(self: *NativeCodegen, attr: ast.Node.Attribute) !bool {
 
     const class_name = obj_type.class_instance;
 
+    // Check if this is a property - properties with setters should use __dict__.put() pattern
+    // (genExpr on property target would call the getter with (), which is invalid on LHS)
+    if (self.type_inferrer.class_fields.get(class_name)) |info| {
+        if (info.property_methods.get(attr.attr)) |_| {
+            return true; // Property - use __dict__.put() for setter
+        }
+    }
+
     // Check if class has this field (including inherited fields)
     const has_field = blk: {
         // Check own class fields
