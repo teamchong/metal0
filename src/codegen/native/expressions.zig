@@ -366,7 +366,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), final_name);
                     } else if (self.var_renames.get(n.id)) |renamed| {
                         // Has explicit rename - use the renamed name directly
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
+                        // Use writeLocalVarName to handle capture field access like "__m22_cap_check.expected"
+                        // which should be emitted as field access, not a single escaped identifier
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
                     } else {
                         // Use writeLocalVarName to handle keywords AND method shadowing consistently
                         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), final_name);

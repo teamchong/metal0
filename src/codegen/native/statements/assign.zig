@@ -586,7 +586,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         // Use var_renames if available (for outer scope variables like in exception handlers)
                         // Otherwise use writeLocalVarName which applies shadowing rename
                         if (self.var_renames.get(var_name)) |renamed| {
-                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
+                            // Use writeLocalVarName to handle capture field access like "__m22_cap_check.expected"
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
                         } else {
                             try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                         }
