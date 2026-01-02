@@ -772,6 +772,17 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     }
     const var_name = sanitizeVarName(for_stmt.target.name.id);
 
+    // Track var_renames for underscore variable (Python's _ -> Zig's _unused)
+    // This ensures references to _ in the loop body are translated to _unused
+    const original_var_name = for_stmt.target.name.id;
+    const is_underscore_var = std.mem.eql(u8, original_var_name, "_");
+    if (is_underscore_var) {
+        try self.var_renames.put("_", "_unused");
+    }
+    defer if (is_underscore_var) {
+        _ = self.var_renames.swapRemove("_");
+    };
+
     // Check iter type first (needed for tuple special case)
     const iter_type = try self.type_inferrer.inferExpr(for_stmt.iter.*);
 

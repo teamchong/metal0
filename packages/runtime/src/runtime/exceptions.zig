@@ -126,6 +126,60 @@ pub fn hasActiveException() bool {
     return exception_stack_len > 0;
 }
 
+/// Map exception type name to Zig error type for bare raise re-raising
+/// This allows the correct error to propagate through catch blocks
+pub fn getErrorFromTypeName(type_name: []const u8) anyerror {
+    // Common exceptions (ordered by frequency)
+    if (std.mem.eql(u8, type_name, "TypeError")) return error.TypeError;
+    if (std.mem.eql(u8, type_name, "ValueError")) return error.ValueError;
+    if (std.mem.eql(u8, type_name, "KeyError")) return error.KeyError;
+    if (std.mem.eql(u8, type_name, "IndexError")) return error.IndexError;
+    if (std.mem.eql(u8, type_name, "AttributeError")) return error.AttributeError;
+    if (std.mem.eql(u8, type_name, "RuntimeError")) return error.RuntimeError;
+    if (std.mem.eql(u8, type_name, "NameError")) return error.NameError;
+    if (std.mem.eql(u8, type_name, "ZeroDivisionError")) return error.ZeroDivisionError;
+    if (std.mem.eql(u8, type_name, "OverflowError")) return error.OverflowError;
+    if (std.mem.eql(u8, type_name, "StopIteration")) return error.StopIteration;
+    if (std.mem.eql(u8, type_name, "AssertionError")) return error.AssertionError;
+    if (std.mem.eql(u8, type_name, "ImportError")) return error.ImportError;
+    if (std.mem.eql(u8, type_name, "ModuleNotFoundError")) return error.ModuleNotFoundError;
+    if (std.mem.eql(u8, type_name, "OSError")) return error.OSError;
+    if (std.mem.eql(u8, type_name, "IOError")) return error.IOError;
+    if (std.mem.eql(u8, type_name, "FileNotFoundError")) return error.FileNotFoundError;
+    if (std.mem.eql(u8, type_name, "PermissionError")) return error.PermissionError;
+    if (std.mem.eql(u8, type_name, "NotImplementedError")) return error.NotImplementedError;
+    if (std.mem.eql(u8, type_name, "LookupError")) return error.LookupError;
+    if (std.mem.eql(u8, type_name, "UnicodeError")) return error.UnicodeError;
+    if (std.mem.eql(u8, type_name, "UnicodeDecodeError")) return error.UnicodeDecodeError;
+    if (std.mem.eql(u8, type_name, "UnicodeEncodeError")) return error.UnicodeEncodeError;
+    if (std.mem.eql(u8, type_name, "SystemError")) return error.SystemError;
+    if (std.mem.eql(u8, type_name, "RecursionError")) return error.RecursionError;
+    if (std.mem.eql(u8, type_name, "MemoryError")) return error.MemoryError;
+    if (std.mem.eql(u8, type_name, "BufferError")) return error.BufferError;
+    if (std.mem.eql(u8, type_name, "ConnectionError")) return error.ConnectionError;
+    if (std.mem.eql(u8, type_name, "TimeoutError")) return error.TimeoutError;
+    if (std.mem.eql(u8, type_name, "ArithmeticError")) return error.ArithmeticError;
+    if (std.mem.eql(u8, type_name, "EOFError")) return error.EOFError;
+    if (std.mem.eql(u8, type_name, "GeneratorExit")) return error.GeneratorExit;
+    if (std.mem.eql(u8, type_name, "SystemExit")) return error.SystemExit;
+    if (std.mem.eql(u8, type_name, "KeyboardInterrupt")) return error.KeyboardInterrupt;
+    if (std.mem.eql(u8, type_name, "SyntaxError")) return error.SyntaxError;
+    if (std.mem.eql(u8, type_name, "IndentationError")) return error.IndentationError;
+    if (std.mem.eql(u8, type_name, "TabError")) return error.TabError;
+    if (std.mem.eql(u8, type_name, "UnboundLocalError")) return error.UnboundLocalError;
+    if (std.mem.eql(u8, type_name, "FloatingPointError")) return error.FloatingPointError;
+    if (std.mem.eql(u8, type_name, "FileExistsError")) return error.FileExistsError;
+    if (std.mem.eql(u8, type_name, "IsADirectoryError")) return error.IsADirectoryError;
+    if (std.mem.eql(u8, type_name, "NotADirectoryError")) return error.NotADirectoryError;
+    if (std.mem.eql(u8, type_name, "BrokenPipeError")) return error.BrokenPipeError;
+    if (std.mem.eql(u8, type_name, "ConnectionAbortedError")) return error.ConnectionAbortedError;
+    if (std.mem.eql(u8, type_name, "ConnectionRefusedError")) return error.ConnectionRefusedError;
+    if (std.mem.eql(u8, type_name, "ConnectionResetError")) return error.ConnectionResetError;
+    if (std.mem.eql(u8, type_name, "BaseException")) return error.BaseException;
+    // Default fallback for unknown or custom exceptions
+    return error.Exception;
+}
+
 // ============================================================================
 // Exception Message Storage
 // ============================================================================

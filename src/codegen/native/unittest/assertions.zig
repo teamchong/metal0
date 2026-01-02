@@ -1317,6 +1317,7 @@ pub fn genAssertIsSubclass(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
 /// Generate code for self.assertRaises(exception_type, callable, *args)
 /// For AOT compilation, we check if the callable is a builtin like eval
 /// and generate a try-catch block to verify an error is raised
+/// HANDLES: bool/int/float builtins with special calling convention
 pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     _ = obj;
     if (args.len < 2) {
@@ -1392,6 +1393,69 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     const prev_assert_raises = self.in_assert_raises_context;
     self.in_assert_raises_context = true;
 
+    // Special handling for Python builtin type constructors (bool, int, float)
+    // These have special calling conventions: builtin(first, .{rest...})
+    if (args[1] == .name) {
+        const callable_name = args[1].name.id;
+        const builtin_info: ?struct { fn_name: []const u8, needs_alloc: bool } = blk2: {
+            if (std.mem.eql(u8, callable_name, "bool")) break :blk2 .{ .fn_name = "runtime.boolBuiltinCall", .needs_alloc = false };
+            if (std.mem.eql(u8, callable_name, "int")) break :blk2 .{ .fn_name = "runtime.intBuiltinCall", .needs_alloc = true };
+            if (std.mem.eql(u8, callable_name, "float")) break :blk2 .{ .fn_name = "runtime.floatBuiltinCall", .needs_alloc = false };
+            break :blk2 null;
+        };
+
+        if (builtin_info) |info| {
+            // Generate: runtime.*BuiltinCall([alloc,] first_arg, .{rest_args...}) catch |err| ...
+            const bb = try self.getBuilder();
+            try bb.write("{\n");
+            try bb.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+            try bb.write("        _ = ");
+            try bb.write(info.fn_name);
+            try bb.write("(");
+            if (info.needs_alloc) {
+                try bb.write("__global_allocator, ");
+            }
+            // First arg (or empty struct if no args)
+            if (call_args.len > 0) {
+                try self.flushBuilder();
+                try parent.genExpr(self, call_args[0]);
+                const bb2 = try self.getBuilder();
+                try bb2.write(", .{");
+                // Rest of args
+                for (call_args[1..], 0..) |arg, i| {
+                    if (i > 0) try bb2.write(", ");
+                    try self.flushBuilder();
+                    try parent.genExpr(self, arg);
+                }
+                const bb3 = try self.getBuilder();
+                try bb3.write("}");
+            } else {
+                try bb.write("{}, .{}");
+            }
+            try self.flushBuilder();
+            const bb4 = try self.getBuilder();
+            try bb4.write(") catch |err| break :__ar_blk err;\n");
+            try bb4.write("        break :__ar_blk null;\n");
+            try bb4.write("    };\n");
+            if (exception_name) |exc_name| {
+                try bb4.write("    if (__ar_error) |_| {\n");
+                try bb4.write("        const __exc_type = runtime.exceptions.getExceptionType();\n");
+                try bb4.writeFmt("        if (!std.mem.eql(u8, __exc_type, \"{s}\")) {{\n", .{exc_name});
+                try bb4.write("            return error.WrongExceptionType;\n");
+                try bb4.write("        }\n");
+                try bb4.write("    } else {\n");
+                try bb4.write("        return error.ExpectedExceptionNotRaised;\n");
+                try bb4.write("    }\n");
+            } else {
+                try bb4.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");
+            }
+            try bb4.write("}\n");
+            try self.flushBuilder();
+            self.in_assert_raises_context = prev_assert_raises;
+            return;
+        }
+    }
+
     // Use ZigBuilder for structured code generation
     const b = try self.getBuilder();
 
@@ -1448,47 +1512,98 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
 /// For closures: emits the resolved variable name + .call method reference
 /// For functions: emits the resolved function name
 fn emitCallableRaw(self: *NativeCodegen, callable: ast.Node) CodegenError!void {
+    // Flush any pending builder content first
+    try self.flushBuilder();
+
     if (callable == .name) {
         const name = callable.name.id;
+        // Special handling for Python builtin type constructors
+        // These need runtime.*BuiltinCall wrappers, not raw Zig types
+        if (std.mem.eql(u8, name, "bool")) {
+            try self.emit("runtime.boolBuiltinCall");
+            return;
+        }
+        if (std.mem.eql(u8, name, "int")) {
+            try self.emit("runtime.intBuiltinCall");
+            return;
+        }
+        if (std.mem.eql(u8, name, "float")) {
+            try self.emit("runtime.floatBuiltinCall");
+            return;
+        }
         // Check if it's a closure/callable variable - need .call suffix
-        if (self.callable_vars.contains(name)) {
+        // Any name that's not a builtin/module function is likely a closure
+        // This includes: callable_vars, locally declared functions, captured closures
+        const is_builtin_or_module = isModuleFunc(self, name);
+        if (!is_builtin_or_module) {
             // Use genExpr to get the resolved variable name, then add .call
-            try self.flushBuilder();
             try parent.genExpr(self, callable);
-            const b = try self.getBuilder();
-            try b.write(".call");
+            // Use direct emit for .call to ensure correct sequencing
+            try self.emit(".call");
         } else {
             // Regular function - just emit the resolved name
-            try self.flushBuilder();
             try parent.genExpr(self, callable);
         }
     } else if (callable == .lambda) {
         // Lambda expression - capture it first then reference .call
-        const b = try self.getBuilder();
-        try b.write("(");
-        try self.flushBuilder();
+        try self.emit("(");
         try parent.genExpr(self, callable);
-        const b2 = try self.getBuilder();
-        try b2.write(").call");
+        try self.emit(").call");
     } else if (callable == .attribute) {
         // Method call - emit the attribute access
-        try self.flushBuilder();
         try parent.genExpr(self, callable);
     } else {
         // Fallback - just emit the expression
-        try self.flushBuilder();
         try parent.genExpr(self, callable);
     }
-    try self.flushBuilder();
+}
+
+/// Check if name is a module-level function (not a closure)
+fn isModuleFunc(self: *NativeCodegen, name: []const u8) bool {
+    // Module functions are registered in import_registry or are builtin
+    if (self.import_registry.lookup(name) != null) return true;
+    // Check for known builtins
+    const builtins = [_][]const u8{
+        "len",      "range",     "print",  "str",    "int",    "float",
+        "bool",     "list",      "dict",   "set",    "tuple",  "type",
+        "abs",      "min",       "max",    "sum",    "sorted", "reversed",
+        "enumerate", "zip",      "map",    "filter", "any",    "all",
+        "isinstance", "issubclass", "hasattr", "getattr", "setattr", "delattr",
+        "repr",     "chr",       "ord",    "hex",    "oct",    "bin",
+        "round",    "pow",       "divmod", "input",  "open",   "format",
+    };
+    for (builtins) |builtin| {
+        if (std.mem.eql(u8, name, builtin)) return true;
+    }
+    return false;
 }
 
 /// Emit call arguments for assertRaises
+/// Wraps integer literals in @as(i64, ...) to avoid comptime evaluation issues
 fn emitCallArgs(self: *NativeCodegen, args: []const ast.Node) CodegenError!void {
     const b = try self.getBuilder();
     for (args, 0..) |arg, i| {
         if (i > 0) try b.write(", ");
         try self.flushBuilder();
-        try parent.genExpr(self, arg);
+        // Wrap integer literals in @as(i64, ...) to avoid comptime_int return types
+        // which force comptime evaluation (can't set exceptions at comptime)
+        if (arg == .constant and arg.constant.value == .int) {
+            try self.emit("@as(i64, ");
+            try parent.genExpr(self, arg);
+            try self.emit(")");
+        } else if (arg == .unaryop and arg.unaryop.op == .USub) {
+            // Handle negative integers like -1
+            const operand = arg.unaryop.operand.*;
+            if (operand == .constant and operand.constant.value == .int) {
+                try self.emit("@as(i64, ");
+                try parent.genExpr(self, arg);
+                try self.emit(")");
+            } else {
+                try parent.genExpr(self, arg);
+            }
+        } else {
+            try parent.genExpr(self, arg);
+        }
     }
     try self.flushBuilder();
 }

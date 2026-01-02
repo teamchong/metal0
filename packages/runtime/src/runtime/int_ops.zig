@@ -715,7 +715,11 @@ pub fn int__new__(cls: anytype, value: anytype) PythonError!@TypeOf(value) {
     // "int.__new__(bool) is not safe, use bool.__new__()"
     const ClsType = @TypeOf(cls);
     if (ClsType == type and cls == bool) {
-        exceptions.setException("TypeError", "int.__new__(bool): bool is not a subtype of int");
+        // Only set exception at runtime (not comptime)
+        // Note: this branch may be evaluated at comptime if value is comptime_int
+        if (!@inComptime()) {
+            exceptions.setException("TypeError", "int.__new__(bool): bool is not a subtype of int");
+        }
         return PythonError.TypeError;
     }
     // For string type name checks

@@ -1445,6 +1445,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emit("pub fn __bool__(_: *const @This()) runtime.PythonError!bool {\n");
                         self.indent();
                         try self.emitIndent();
+                        try self.emit("runtime.exceptions.setException(\"TypeError\", \"__bool__ is None\");\n");
+                        try self.emitIndent();
                         try self.emit("return runtime.PythonError.TypeError;\n");
                         self.dedent();
                         try self.emitIndent();
@@ -1456,6 +1458,8 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         try self.emitIndent();
                         try self.emit("pub fn __len__(_: *const @This()) runtime.PythonError!i64 {\n");
                         self.indent();
+                        try self.emitIndent();
+                        try self.emit("runtime.exceptions.setException(\"TypeError\", \"__len__ is None\");\n");
                         try self.emitIndent();
                         try self.emit("return runtime.PythonError.TypeError;\n");
                         self.dedent();

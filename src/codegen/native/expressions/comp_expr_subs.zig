@@ -14,6 +14,7 @@ const BinOpStrings = shared.BinOpStrings;
 
 // Trait imports for type checking
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
+const string_traits_mod = @import("../../../analysis/traits/string_traits.zig");
 
 /// Generate expression with variable substitutions for comprehensions
 pub fn genExprWithSubs(
@@ -710,37 +711,101 @@ fn genCompareWithSubs(
         const parent = @import("../expressions.zig");
         try parent.genExpr(self, expr);
     } else {
-        // Simple single-operator comparisons with auto-close pattern
-        const CmpCtx = struct {
-            s: *NativeCodegen,
-            sb: *const hashmap_helper.StringHashMap([]const u8),
-            left: ast.Node,
-            ops: []const ast.CompareOp,
-            comparators: []ast.Node,
-        };
-        try self.withParensCtx(CmpCtx{
-            .s = self,
-            .sb = subs,
-            .left = cmp.left.*,
-            .ops = cmp.ops,
-            .comparators = cmp.comparators,
-        }, struct {
-            pub fn f(_: *NativeCodegen, ctx: CmpCtx) CodegenError!void {
-                try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
-                for (ctx.ops, 0..) |op, idx| {
-                    const op_str = switch (op) {
-                        .Eq => " == ",
-                        .NotEq => " != ",
-                        .Lt => " < ",
-                        .LtEq => " <= ",
-                        .Gt => " > ",
-                        .GtEq => " >= ",
-                        else => " == ", // Fallback (shouldn't reach here)
-                    };
-                    try ctx.s.emit(op_str);
-                    try genExprWithSubs(ctx.s, ctx.comparators[idx], ctx.sb);
+        // Check for string comparisons that need std.mem.eql
+        // This handles cases like: meth[0] != "_" or name == "test"
+        const left_type = self.type_inferrer.inferExpr(cmp.left.*) catch .unknown;
+        const right_type = self.type_inferrer.inferExpr(cmp.comparators[0]) catch .unknown;
+
+        // Check if left is a subscript with integer index (e.g., meth[0]) and right is a single-char string literal
+        // This handles the common pattern of character-to-string comparison in Python
+        const is_char_to_string_compare = blk: {
+            // Check if left is an integer subscript (e.g., x[0])
+            if (cmp.left.* == .subscript) {
+                const slice = cmp.left.subscript.slice;
+                // Check if it's an integer index (not a slice)
+                if (slice == .index) {
+                    const idx_node = slice.index.*;
+                    if (idx_node == .constant and idx_node.constant.value == .int) {
+                        // Check if right is a single-character string literal
+                        if (cmp.comparators[0] == .constant) {
+                            const val = cmp.comparators[0].constant.value;
+                            if (val == .string and val.string.len == 1) {
+                                break :blk true;
+                            }
+                        }
+                    }
                 }
             }
-        }.f);
+            break :blk false;
+        };
+
+        // Check if both sides are strings (full string comparison)
+        const is_string_compare = string_traits_mod.isStringLike(left_type) and string_traits_mod.isStringLike(right_type);
+
+        if (is_char_to_string_compare) {
+            // Character to single-char string: convert string to character
+            // e.g., meth[0] != "_" becomes meth[0] != '_'
+            const op = cmp.ops[0];
+            if (op == .NotEq) {
+                try self.emit("(");
+            }
+            try genExprWithSubs(self, cmp.left.*, subs);
+            try self.emit(switch (op) {
+                .Eq => " == '",
+                .NotEq => " != '",
+                else => " == '", // Fallback
+            });
+            // Emit the single character
+            const char_str = cmp.comparators[0].constant.value.string;
+            try self.emit(char_str);
+            try self.emit("'");
+            if (op == .NotEq) {
+                try self.emit(")");
+            }
+        } else if (is_string_compare) {
+            // Full string comparison: use std.mem.eql
+            const op = cmp.ops[0];
+            if (op == .NotEq) {
+                try self.emit("!");
+            }
+            try self.emit("std.mem.eql(u8, ");
+            try genExprWithSubs(self, cmp.left.*, subs);
+            try self.emit(", ");
+            try genExprWithSubs(self, cmp.comparators[0], subs);
+            try self.emit(")");
+        } else {
+            // Simple single-operator comparisons with auto-close pattern
+            const CmpCtx = struct {
+                s: *NativeCodegen,
+                sb: *const hashmap_helper.StringHashMap([]const u8),
+                left: ast.Node,
+                ops: []const ast.CompareOp,
+                comparators: []ast.Node,
+            };
+            try self.withParensCtx(CmpCtx{
+                .s = self,
+                .sb = subs,
+                .left = cmp.left.*,
+                .ops = cmp.ops,
+                .comparators = cmp.comparators,
+            }, struct {
+                pub fn f(_: *NativeCodegen, ctx: CmpCtx) CodegenError!void {
+                    try genExprWithSubs(ctx.s, ctx.left, ctx.sb);
+                    for (ctx.ops, 0..) |op, idx| {
+                        const op_str = switch (op) {
+                            .Eq => " == ",
+                            .NotEq => " != ",
+                            .Lt => " < ",
+                            .LtEq => " <= ",
+                            .Gt => " > ",
+                            .GtEq => " >= ",
+                            else => " == ", // Fallback (shouldn't reach here)
+                        };
+                        try ctx.s.emit(op_str);
+                        try genExprWithSubs(ctx.s, ctx.comparators[idx], ctx.sb);
+                    }
+                }
+            }.f);
+        }
     }
 }

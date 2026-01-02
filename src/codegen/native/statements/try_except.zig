@@ -1185,6 +1185,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
 
                 if (exists_in_outer) {
                     // Variable exists in outer scope - pass as pointer
+                    // Skip Python's discard pattern - _ is not a real variable
+                    if (std.mem.eql(u8, name, "_")) continue;
                     try written_outer_vars.append(self.allocator, name);
                 } else {
                     // Variable doesn't exist yet - needs to be hoisted/declared
@@ -1211,7 +1213,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // Note: 'self' and '__self' are method parameters - always available when referenced
                 // NOTE: Do NOT include func_local_vars - those are variables that WILL be declared
                 // later in the function, not variables that are already available
-                try read_only_vars.append(self.allocator, name);
+                // Skip Python's discard pattern - _ is not a real variable
+                if (!std.mem.eql(u8, name, "_")) {
+                    try read_only_vars.append(self.allocator, name);
+                }
             }
 
             // If this is a nested class with captured variables, also capture those variables
@@ -1910,7 +1915,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 try self.emit("{\n");
                 self.indent();
                 try self.emitIndent();
-                try self.emit("runtime.exceptions.pushException(\"Exception\", runtime.exceptions.getExceptionMessage());\n");
+                try self.emit("runtime.exceptions.pushException(runtime.exceptions.getExceptionType(), runtime.exceptions.getExceptionMessage());\n");
                 try self.emitIndent();
                 try self.emit("defer runtime.exceptions.popException();\n");
 

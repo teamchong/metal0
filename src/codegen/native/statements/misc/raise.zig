@@ -112,7 +112,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, exc.type_name, exc.message, @src().line);\n");
             try b.writeIndent();
-            try b.writeFmt("        break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
+            try b.writeFmt("        break :__finally_blk_{d} runtime.exceptions.getErrorFromTypeName(exc.type_name);\n", .{self.current_finally_id});
             try b.writeIndent();
             try b.emitRaw("    } else {\n");
             try b.writeIndent();
@@ -120,7 +120,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, \"RuntimeError\", \"No active exception to re-raise\", @src().line);\n");
             try b.writeIndent();
-            try b.writeFmt("        break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
+            try b.writeFmt("        break :__finally_blk_{d} error.RuntimeError;\n", .{self.current_finally_id});
             try b.writeIndent();
             try b.emitRaw("    }\n");
             try b.writeIndent();
@@ -167,7 +167,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, exc.type_name, exc.message, @src().line);\n");
             try b.writeIndent();
-            try b.writeFmt("        __pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
+            try b.writeFmt("        __pending_exception_{d} = runtime.exceptions.getErrorFromTypeName(exc.type_name);\n", .{self.current_try_finally_id});
             try b.writeIndent();
             try b.emitRaw("    } else {\n");
             try b.writeIndent();
@@ -175,7 +175,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, \"RuntimeError\", \"No active exception to re-raise\", @src().line);\n");
             try b.writeIndent();
-            try b.writeFmt("        __pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
+            try b.writeFmt("        __pending_exception_{d} = error.RuntimeError;\n", .{self.current_try_finally_id});
             try b.writeIndent();
             try b.emitRaw("    }\n");
             try b.writeIndent();
@@ -297,7 +297,8 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try b.writeIndent();
         try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, exc.type_name, exc.message, @src().line);\n");
         try b.writeIndent();
-        try b.emitRaw("        return error.Exception;\n");
+        // Return the correct Zig error based on exception type name
+        try b.emitRaw("        return runtime.exceptions.getErrorFromTypeName(exc.type_name);\n");
         try b.writeIndent();
         try b.emitRaw("    } else {\n");
         try b.writeIndent();
@@ -305,7 +306,7 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try b.writeIndent();
         try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, \"RuntimeError\", \"No active exception to re-raise\", @src().line);\n");
         try b.writeIndent();
-        try b.emitRaw("        return error.Exception;\n");
+        try b.emitRaw("        return error.RuntimeError;\n");
         try b.writeIndent();
         try b.emitRaw("    }\n");
         try b.writeIndent();

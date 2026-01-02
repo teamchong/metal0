@@ -532,12 +532,14 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
 
     // Get the metal0 installation directory from the self exe path
     // Module paths in MODULES are relative to this directory
+    // Path: zig-out/bin/metal0 -> bin -> zig-out -> metal0 (need 3 dirname calls)
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const self_exe = std.fs.selfExePath(&path_buf) catch null;
-    const metal0_dir: ?[]const u8 = if (self_exe) |exe|
-        std.fs.path.dirname(std.fs.path.dirname(exe) orelse exe) // zig-out/bin/metal0 -> zig-out -> metal0
-    else
-        null;
+    const metal0_dir: ?[]const u8 = if (self_exe) |exe| blk: {
+        const bin_dir = std.fs.path.dirname(exe) orelse break :blk null; // zig-out/bin
+        const zig_out_dir = std.fs.path.dirname(bin_dir) orelse break :blk null; // zig-out
+        break :blk std.fs.path.dirname(zig_out_dir); // metal0 root
+    } else null;
 
     const result = try std.process.Child.run(.{
         .allocator = aa,

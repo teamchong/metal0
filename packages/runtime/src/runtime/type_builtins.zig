@@ -139,13 +139,20 @@ fn toBoolWithDunder(value: anytype) PythonError!bool {
                 const len_result = value.__len__();
                 const LenType = @TypeOf(len_result);
                 if (@typeInfo(LenType) == .error_union) {
-                    const len = len_result catch return PythonError.TypeError;
+                    // If __len__ raised an error, propagate it (exception already set by __len__)
+                    const len = len_result catch |err| return err;
                     // Python raises ValueError if __len__ returns negative
-                    if (len < 0) return PythonError.ValueError;
+                    if (len < 0) {
+                        exceptions.setException("ValueError", "__len__() should return >= 0");
+                        return PythonError.ValueError;
+                    }
                     return len > 0;
                 }
                 // Non-error-union __len__ result
-                if (len_result < 0) return PythonError.ValueError;
+                if (len_result < 0) {
+                    exceptions.setException("ValueError", "__len__() should return >= 0");
+                    return PythonError.ValueError;
+                }
                 return len_result > 0;
             }
         }
