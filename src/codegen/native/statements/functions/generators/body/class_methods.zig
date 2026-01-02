@@ -2442,6 +2442,11 @@ fn inheritMethodsFromClass(
             if (is_classmethod) self.inside_classmethod = true;
             defer self.inside_classmethod = prev_inside_classmethod;
 
+            // Set current function name for variable shadowing detection
+            const prev_func_name = self.current_function_name;
+            self.current_function_name = parent_method.name;
+            defer self.current_function_name = prev_func_name;
+
             // For inherited methods, pass the parent class name so method body can call its constructor
             // (e.g., aug_test.__add__ returns aug_test(...) - when inherited to aug_test4,
             // the method body needs to know aug_test is a nested class for allocator handling)

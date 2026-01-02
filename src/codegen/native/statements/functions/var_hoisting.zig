@@ -1099,7 +1099,29 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         // Also track method-shadowing renames (e.g., "stop" -> "stop_")
         // This ensures body code uses the same renamed identifier
         // Check both method shadowing AND module shadowing (e.g., 'main' shadows pub fn main())
-        if (zig_keywords.wouldShadowMethod(actual_name) or zig_keywords.wouldShadowModule(actual_name)) {
+        // Also check if hoisted var would shadow a sibling method in the current class
+        const shadows_class_method = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                if (stmt == .function_def) {
+                    const method_name = stmt.function_def.name;
+                    // Skip current method name in loop - check it separately below
+                    if (self.current_function_name) |fn_name| {
+                        if (std.mem.eql(u8, method_name, fn_name)) continue;
+                    }
+                    if (std.mem.eql(u8, actual_name, method_name)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+        // Check if the hoisted variable shadows the current method name itself
+        // e.g., inside method `loader`, a variable named `loader` should be renamed
+        const shadows_current_function = if (self.current_function_name) |fn_name|
+            std.mem.eql(u8, actual_name, fn_name)
+        else
+            false;
+        if (shadows_current_function or shadows_class_method or zig_keywords.wouldShadowMethod(actual_name) or zig_keywords.wouldShadowModule(actual_name)) {
             const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_", .{actual_name});
             if (!self.var_renames.contains(escaped.name)) {
                 try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), renamed);

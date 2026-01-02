@@ -148,6 +148,7 @@ pub const available_modules = [_][]const u8{
     "pydoc", // @import("Lib/pydoc.zig")
     "pydoc_data", // @import("Lib/pydoc_data.zig")
     "pyexpat", // @import("Lib/pyexpat.zig")
+    "pytest", // @import("Lib/pytest.zig")
     "queue", // @import("Lib/queue.zig")
     "quopri", // @import("Lib/quopri.zig")
     "random", // @import("Lib/random.zig")
@@ -220,4 +221,4 @@ pub const available_modules = [_][]const u8{
     "zoneinfo", // @import("Lib/zoneinfo.zig")
 };
 
-pub const module_count: usize = 203;
+pub const module_count: usize = 204;

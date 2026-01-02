@@ -745,6 +745,7 @@ pub fn emitVarDeclaration(
     const shadows_vararg_param = self.vararg_params.contains(var_name) or self.kwarg_params.contains(var_name);
     // Also check if var_name would shadow a class-level attribute (becomes lazy method)
     // e.g., class has `MIN = fromHex(...)` → generates `pub fn MIN(...)` which local `MIN = self.MIN` would shadow
+    // Also check for method names: local var `ins` would shadow `pub fn ins(self)` method
     const shadows_class_member = if (self.current_class_body) |class_body| blk: {
         for (class_body) |stmt| {
             if (stmt == .assign) {
@@ -752,6 +753,16 @@ pub fn emitVarDeclaration(
                     if (target == .name and std.mem.eql(u8, target.name.id, var_name)) {
                         break :blk true;
                     }
+                }
+            } else if (stmt == .function_def) {
+                // Check for method definitions
+                const method_name = stmt.function_def.name;
+                // Skip current method - already handled by shadows_current_function
+                if (self.current_function_name) |fn_name| {
+                    if (std.mem.eql(u8, method_name, fn_name)) continue;
+                }
+                if (std.mem.eql(u8, var_name, method_name)) {
+                    break :blk true;
                 }
             }
         }

@@ -124,6 +124,9 @@ pub const equality_mod = @import("runtime/equality.zig");
 /// Hash operations module
 pub const hash_ops = @import("runtime/hash_ops.zig");
 
+/// Traceback field stubs for AOT compilation
+pub const traceback_stub = @import("runtime/traceback_stub.zig");
+
 /// Type operations module
 pub const type_ops = @import("runtime/type_ops.zig");
 
@@ -1150,6 +1153,7 @@ pub const Lib = struct {
     pub const stat = @import("Lib/stat.zig");
     pub const dataclasses = @import("Lib/dataclasses.zig");
     pub const pprint = @import("Lib/pprint.zig");
+    pub const pytest = @import("Lib/pytest.zig");
     pub const difflib = @import("Lib/difflib.zig");
     pub const functools = @import("Lib/functools.zig");
     pub const random = @import("Lib/random.zig");

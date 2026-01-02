@@ -627,8 +627,34 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
     if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
         // Check if var_name shadows a module-level function
         const shadows_module_func = self.module_level_funcs.contains(var_name);
+
+        // Check if var_name shadows the current function/method name
+        // e.g., inside method `loader`, a variable named `loader` should be renamed
+        const shadows_current_function = if (self.current_function_name) |fn_name|
+            std.mem.eql(u8, var_name, fn_name)
+        else
+            false;
+
+        // Check if var_name shadows a sibling method in the current class
+        const shadows_class_method = if (self.current_class_body) |class_body| blk: {
+            for (class_body) |stmt| {
+                if (stmt == .function_def) {
+                    const method_name = stmt.function_def.name;
+                    // Skip current method - already handled by shadows_current_function
+                    if (self.current_function_name) |fn_name| {
+                        if (std.mem.eql(u8, method_name, fn_name)) continue;
+                    }
+                    if (std.mem.eql(u8, var_name, method_name)) {
+                        break :blk true;
+                    }
+                }
+            }
+            break :blk false;
+        } else false;
+
+        const needs_rename = shadows_module_func or shadows_current_function or shadows_class_method;
         var actual_name = var_name;
-        if (shadows_module_func and !self.var_renames.contains(var_name)) {
+        if (needs_rename and !self.var_renames.contains(var_name)) {
             const prefixed_name = try self.name_gen.local(var_name);
             try self.var_renames.put(var_name, prefixed_name);
             actual_name = prefixed_name;

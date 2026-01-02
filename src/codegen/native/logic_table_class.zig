@@ -113,6 +113,11 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
             try methods.append(allocator, .{ .name = method.name, .func = method, .needs_allocator = needs_allocator });
             const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(method, class.name);
 
+            // Set current function name for variable shadowing detection
+            const prev_func_name = self.current_function_name;
+            self.current_function_name = method.name;
+            defer self.current_function_name = prev_func_name;
+
             // Generate method signature - treat as staticmethod since @logic_table methods are pure functions
             // The mutates_self=false since we don't have a real self
             // NOTE: For @logic_table, methods don't use self, so we generate them as static methods

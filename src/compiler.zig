@@ -452,6 +452,9 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     const out_stem = if (std.mem.lastIndexOf(u8, out_basename, ".")) |idx| out_basename[0..idx] else out_basename;
     const tmp_path = try std.fmt.allocPrint(aa, "{s}/metal0_main_{s}_{d}.zig", .{ src_dir, out_stem, std.time.milliTimestamp() });
 
+    // Ensure the source directory exists before creating the temp file
+    std.fs.cwd().makePath(src_dir) catch {};
+
     const tmp_file = try std.fs.cwd().createFile(tmp_path, .{});
     defer tmp_file.close();
     try tmp_file.writeAll(zig_code);
