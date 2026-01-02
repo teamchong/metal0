@@ -1474,8 +1474,10 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         }
                     }
 
-                    // Use writeEscapedIdent to handle Zig keywords (e.g., "packed" -> @"packed")
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                    // Use writeLocalVarName to handle Zig keywords AND shadowing names
+                    // (e.g., "packed" -> @"packed", "init" -> "init_")
+                    // IMPORTANT: Must match the escaping used in declarations (emitVarName)
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(" = ");
                     // TWO-FLOW TYPE SYSTEM: Open PyValue.from() wrapper for reassignment if needed
                     // Check if RHS is a generator call (returns []PyValue) - use listFromSlice instead
