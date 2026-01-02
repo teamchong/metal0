@@ -424,7 +424,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.register("locale", .zig_runtime, "runtime.Lib.locale", null);
     try registry.register("codecs", .zig_runtime, "runtime.Lib.codecs", null);
     try registry.register("binascii", .zig_runtime, null, null); // No Lib implementation yet
-    try registry.register("errno", .zig_runtime, null, null); // Uses inline dispatch
+    try registry.register("errno", .zig_runtime, "runtime.Lib.errno", null);
     try registry.register("gc", .zig_runtime, null, null); // Uses inline dispatch
     try registry.register("select", .zig_runtime, null, null); // No Lib implementation yet
     try registry.register("mmap", .zig_runtime, null, null); // No Lib implementation yet

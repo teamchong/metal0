@@ -205,7 +205,16 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         if (ret.value != null) {
             try b2.write("return __return_value;\n");
         } else {
-            try b2.write("return;\n");
+            // For __init__ methods, bare return should return self
+            if (self.current_function_name) |fn_name| {
+                if (std.mem.eql(u8, fn_name, "__init__") or std.mem.eql(u8, fn_name, "init")) {
+                    try b2.write("return __self;\n");
+                } else {
+                    try b2.write("return;\n");
+                }
+            } else {
+                try b2.write("return;\n");
+            }
         }
         const output2 = try b2.getBodyDupe();
         try self.output.appendSlice(self.allocator, output2);
@@ -374,7 +383,16 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             }
         }
     } else {
-        try b.emitRaw("return ");
+        // For __init__ methods, bare return should return self
+        if (self.current_function_name) |fn_name| {
+            if (std.mem.eql(u8, fn_name, "__init__") or std.mem.eql(u8, fn_name, "init")) {
+                try b.emitRaw("return __self");
+            } else {
+                try b.emitRaw("return ");
+            }
+        } else {
+            try b.emitRaw("return ");
+        }
     }
     try b.emitRaw(";\n");
 

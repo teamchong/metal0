@@ -1100,6 +1100,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
                     try self.output.writer(self.allocator).print("const __inner_{s}_{d}: runtime.PyValue = runtime.PyValue.from(__m{d}_loop_val);\n", .{ var_name, loop_var_id, loop_var_id });
                     try self.heterogeneous_loop_vars.put(var_name, {});
+                    // Add discard to prevent "unused local constant" error
+                    try self.emitIndent();
+                    try self.output.writer(self.allocator).print("_ = &__inner_{s}_{d};\n", .{ var_name, loop_var_id });
                 } else {
                     try self.output.writer(self.allocator).print("const __inner_{s}_{d} = __m{d}_loop_val;\n", .{ var_name, loop_var_id, loop_var_id });
                 }
@@ -1113,6 +1116,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                     try self.output.writer(self.allocator).print(": runtime.PyValue = runtime.PyValue.from(__m{d}_loop_val);\n", .{loop_var_id});
                     try self.heterogeneous_loop_vars.put(var_name, {});
+                    // Add discard to prevent "unused local constant" error
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try self.emit(";\n");
                 } else {
                     try self.emit("const ");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);

@@ -1141,6 +1141,7 @@ pub const Lib = struct {
     pub const operator = @import("Lib/operator.zig");
     pub const inspect = @import("Lib/inspect.zig");
     pub const doctest = @import("Lib/doctest.zig");
+    pub const errno = @import("Lib/errno.zig");
     pub const importlib = @import("Lib/importlib.zig");
     pub const abc = @import("Lib/abc.zig");
     pub const _py_abc = @import("Lib/_py_abc.zig");

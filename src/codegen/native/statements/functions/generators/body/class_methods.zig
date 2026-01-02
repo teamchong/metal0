@@ -63,6 +63,65 @@ fn bodyCanRaise(stmts: []const ast.Node) bool {
     return false;
 }
 
+/// Check if a statement contains a bare return (return without a value)
+/// Used to detect early returns in __init__ methods
+fn stmtContainsBareReturn(stmt: ast.Node) bool {
+    switch (stmt) {
+        .return_stmt => |ret| {
+            // Bare return has no value
+            return ret.value == null;
+        },
+        .if_stmt => |if_stmt| {
+            for (if_stmt.body) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+            for (if_stmt.else_body) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+        },
+        .for_stmt => |for_stmt| {
+            for (for_stmt.body) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+            if (for_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (stmtContainsBareReturn(s)) return true;
+                }
+            }
+        },
+        .while_stmt => |while_stmt| {
+            for (while_stmt.body) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+            if (while_stmt.orelse_body) |orelse_body| {
+                for (orelse_body) |s| {
+                    if (stmtContainsBareReturn(s)) return true;
+                }
+            }
+        },
+        .with_stmt => |with_stmt| {
+            for (with_stmt.body) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+        },
+        .try_stmt => |try_stmt| {
+            for (try_stmt.body) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+            for (try_stmt.handlers) |handler| {
+                for (handler.body) |s| {
+                    if (stmtContainsBareReturn(s)) return true;
+                }
+            }
+            for (try_stmt.finalbody) |s| {
+                if (stmtContainsBareReturn(s)) return true;
+            }
+        },
+        else => {},
+    }
+    return false;
+}
+
 /// Check if a call is super() or super().__method__()
 /// super() implicitly references self, even without explicit self argument
 fn isSuperCall(call: ast.Node.Call) bool {
@@ -1850,10 +1909,20 @@ pub fn genInitMethodWithBuiltinBase(
         _ = self.var_renames.swapRemove("self");
     }
 
+    // Check if body contains any bare return statements - if so, skip adding final return
+    // This handles early return patterns like: if isinstance(x, cls): ... return
+    // The bare return gets converted to 'return __self;' so we don't need another one
+    const body_has_bare_return = blk: {
+        for (init.body) |stmt| {
+            if (stmtContainsBareReturn(stmt)) break :blk true;
+        }
+        break :blk false;
+    };
+
     if (is_nested) {
         try self.emitIndent();
         try self.emit("return __ptr;\n");
-    } else if (needs_self_pattern_builtin) {
+    } else if (needs_self_pattern_builtin and !body_has_bare_return) {
         try self.emitIndent();
         try self.emit("return __self;\n");
     }
