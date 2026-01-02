@@ -178,6 +178,15 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
             if (ne.target.* == .name) {
                 const var_name = ne.target.name.id;
                 if (!self.isDeclared(var_name)) {
+                    // Check if var_name would shadow a module-level import/from-import
+                    // If so, rename to avoid Zig's shadowing error
+                    var actual_name = var_name;
+                    if (self.module_level_vars.contains(var_name) or self.module_level_from_imports.contains(var_name)) {
+                        const shadow_name = try self.name_gen.hoisted(var_name);
+                        try self.var_renames.put(try self.arena.allocator().dupe(u8, var_name), shadow_name);
+                        actual_name = shadow_name;
+                    }
+
                     // Infer the type from the value
                     const value_type = try self.type_inferrer.inferExpr(ne.value.*);
 
@@ -186,7 +195,7 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
 
                     try self.emitIndent();
                     try self.emit("var ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
                     try self.emit(": ");
 
                     if (is_uncertain) {

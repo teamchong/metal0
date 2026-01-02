@@ -786,10 +786,32 @@ pub fn genInitMethod(
     // Generates: var d: @TypeOf(__m2_p_d) = __m2_p_d;
     for (renamed_params.items) |entry| {
         if (entry.needs_mutable_copy) {
+            // Check if param name would shadow a class method (e.g., 'variable' in poly1d)
+            const shadows_class_method = if (self.current_class_body) |cb_check| blk: {
+                for (cb_check) |stmt| {
+                    if (stmt == .function_def) {
+                        const method_name = stmt.function_def.name;
+                        if (std.mem.eql(u8, entry.original, method_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            } else false;
+
+            // Determine the actual local variable name to use
+            var local_name: []const u8 = entry.original;
+            if (shadows_class_method) {
+                // Rename to avoid shadowing the class method
+                const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_local", .{entry.original});
+                try self.var_renames.put(entry.original, renamed);
+                local_name = renamed;
+            }
+
             try self.emitIndent();
             try self.emit("var ");
             // Use writeLocalVarName for consistency with variable references (shadowing names like copy become copy_)
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), entry.original);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), local_name);
             try self.emit(": @TypeOf(");
             try self.emit(entry.renamed);
             try self.emit(") = ");
@@ -1307,10 +1329,32 @@ pub fn genInitMethodWithBuiltinBase(
     // Generates: var d: @TypeOf(__m2_p_d) = __m2_p_d;
     for (renamed_params.items) |entry| {
         if (entry.needs_mutable_copy) {
+            // Check if param name would shadow a class method (e.g., 'variable' in poly1d)
+            const shadows_class_method = if (self.current_class_body) |cb_check| blk: {
+                for (cb_check) |stmt| {
+                    if (stmt == .function_def) {
+                        const method_name = stmt.function_def.name;
+                        if (std.mem.eql(u8, entry.original, method_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            } else false;
+
+            // Determine the actual local variable name to use
+            var local_name: []const u8 = entry.original;
+            if (shadows_class_method) {
+                // Rename to avoid shadowing the class method
+                const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_local", .{entry.original});
+                try self.var_renames.put(entry.original, renamed);
+                local_name = renamed;
+            }
+
             try self.emitIndent();
             try self.emit("var ");
             // Use writeLocalVarName for consistency with variable references (shadowing names like copy become copy_)
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), entry.original);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), local_name);
             try self.emit(": @TypeOf(");
             try self.emit(entry.renamed);
             try self.emit(") = ");
@@ -1933,10 +1977,32 @@ pub fn genInitMethodFromNew(
     // Generates: var d: @TypeOf(__m2_p_d) = __m2_p_d;
     for (renamed_params.items) |entry| {
         if (entry.needs_mutable_copy) {
+            // Check if param name would shadow a class method (e.g., 'variable' in poly1d)
+            const shadows_class_method = if (self.current_class_body) |cb_check| blk: {
+                for (cb_check) |stmt| {
+                    if (stmt == .function_def) {
+                        const method_name = stmt.function_def.name;
+                        if (std.mem.eql(u8, entry.original, method_name)) {
+                            break :blk true;
+                        }
+                    }
+                }
+                break :blk false;
+            } else false;
+
+            // Determine the actual local variable name to use
+            var local_name: []const u8 = entry.original;
+            if (shadows_class_method) {
+                // Rename to avoid shadowing the class method
+                const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_local", .{entry.original});
+                try self.var_renames.put(entry.original, renamed);
+                local_name = renamed;
+            }
+
             try self.emitIndent();
             try self.emit("var ");
             // Use writeLocalVarName for consistency with variable references (shadowing names like copy become copy_)
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), entry.original);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), local_name);
             try self.emit(": @TypeOf(");
             try self.emit(entry.renamed);
             try self.emit(") = ");

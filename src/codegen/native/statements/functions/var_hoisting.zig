@@ -1099,7 +1099,9 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         // If so, rename the local to avoid Zig's shadowing error
         // Use NameGen for consistent unique naming across the codebase
         var actual_name = escaped.name;
-        if (self.module_level_vars.contains(escaped.name)) {
+        // Check both module_level_vars AND module_level_from_imports
+        // module_level_from_imports contains "from X import Y" symbols like dtype, equal, transpose
+        if (self.module_level_vars.contains(escaped.name) or self.module_level_from_imports.contains(escaped.name)) {
             const shadow_name = try self.name_gen.hoisted(escaped.name);
             try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), shadow_name);
             actual_name = shadow_name;
