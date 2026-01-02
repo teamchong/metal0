@@ -5,6 +5,7 @@ const CodegenError = core.CodegenError;
 const hashmap_helper = @import("utils.hashmap_helper");
 const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("utils.zig_keywords");
+const build_dirs = @import("../../../build_dirs.zig");
 
 /// Parse __all__ list from a Python source file
 /// Returns a list of exported symbol names, or null if __all__ not found
@@ -1545,6 +1546,58 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             if (is_imported_submodule) {
                 // Root module is @imported - generate const symbol = module.path.symbol;
                 // e.g., const sctypes = numpy._core.numerictypes.sctypes;
+
+                // First, ensure the full dotted module path is imported
+                // emitDottedIdent converts "numpy._core.numerictypes" to @"numpy__core_numerictypes"
+                // but this identifier must be imported first
+                if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
+                    // Convert module path to escaped Zig identifier
+                    var escaped_buf: [512]u8 = undefined;
+                    var esc_len: usize = 0;
+                    for (from_imp.module) |c| {
+                        escaped_buf[esc_len] = if (c == '.') '_' else c;
+                        esc_len += 1;
+                    }
+                    const escaped_name = escaped_buf[0..esc_len];
+
+                    // Check if module is in import_registry (uses runtime.Lib.X) or already imported
+                    const is_registry_mod = self.import_registry.lookup(from_imp.module) != null;
+                    if (!is_registry_mod and !self.imported_modules.contains(escaped_name)) {
+                        // Generate @import for the submodule using absolute path
+                        // Convert dots to slashes: numpy._core.numerictypes -> numpy/_core/numerictypes.zig
+                        var rel_path_buf: [512]u8 = undefined;
+                        var rel_len: usize = 0;
+                        for (from_imp.module) |c| {
+                            rel_path_buf[rel_len] = if (c == '.') '/' else c;
+                            rel_len += 1;
+                        }
+                        const zig_suffix = ".zig";
+                        @memcpy(rel_path_buf[rel_len..][0..zig_suffix.len], zig_suffix);
+                        rel_len += zig_suffix.len;
+                        const rel_path = rel_path_buf[0..rel_len];
+
+                        // Get the gen path: .metal0/gen/{rel_path}
+                        const gen_path = build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
+                        defer self.allocator.free(gen_path);
+
+                        // Convert to absolute path for reliable imports
+                        const abs_path = std.fs.cwd().realpathAlloc(self.allocator, gen_path) catch {
+                            // File doesn't exist yet or path error - skip
+                            continue;
+                        };
+                        defer self.allocator.free(abs_path);
+
+                        try self.emit("const @\"");
+                        try self.emit(escaped_name);
+                        try self.emit("\" = @import(\"");
+                        try self.emit(abs_path);
+                        try self.emit("\");\n");
+
+                        const esc_copy = try self.arena.allocator().dupe(u8, escaped_name);
+                        try self.imported_modules.put(esc_copy, {});
+                    }
+                }
+
                 for (from_imp.names, 0..) |name, i| {
                     if (std.mem.eql(u8, name, "*")) continue;
                     const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
@@ -1731,6 +1784,64 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     std.mem.eql(u8, symbol_name, "VT"))
                 {
                     continue;
+                }
+            }
+
+            // For dotted modules (e.g., numpy._core.numerictypes), we need to ensure the
+            // full module path is imported before referencing it.
+            // emitDottedIdent converts "numpy._core.numerictypes" to @"numpy__core_numerictypes"
+            // but this escaped identifier is never imported - we must import it first.
+            //
+            // SKIP this for modules already handled by import_registry (they use runtime.Lib.X)
+            // Also skip if the module is already in imported_modules
+            if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
+                // Convert module path to escaped Zig identifier: numpy._core.numerictypes -> numpy__core_numerictypes
+                var escaped_name_buf: [512]u8 = undefined;
+                var escaped_len: usize = 0;
+                for (from_imp.module) |c| {
+                    escaped_name_buf[escaped_len] = if (c == '.') '_' else c;
+                    escaped_len += 1;
+                }
+                const escaped_module_name = escaped_name_buf[0..escaped_len];
+
+                // Check if module is handled by import_registry (uses runtime.Lib.X)
+                const is_registry_module = self.import_registry.lookup(from_imp.module) != null;
+
+                // Check if this escaped module name is already imported
+                if (!is_registry_module and !self.imported_modules.contains(escaped_module_name)) {
+                    // Generate @import using absolute path for reliable imports
+                    // Convert dots to slashes: numpy._core.numerictypes -> numpy/_core/numerictypes.zig
+                    var rel_path_buf: [512]u8 = undefined;
+                    var rel_len: usize = 0;
+                    for (from_imp.module) |c| {
+                        rel_path_buf[rel_len] = if (c == '.') '/' else c;
+                        rel_len += 1;
+                    }
+                    const zig_suffix = ".zig";
+                    @memcpy(rel_path_buf[rel_len..][0..zig_suffix.len], zig_suffix);
+                    rel_len += zig_suffix.len;
+                    const rel_path = rel_path_buf[0..rel_len];
+
+                    // Get the gen path: .metal0/gen/{rel_path}
+                    const gen_path = build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
+                    defer self.allocator.free(gen_path);
+
+                    // Convert to absolute path for reliable imports
+                    const abs_path = std.fs.cwd().realpathAlloc(self.allocator, gen_path) catch {
+                        // File doesn't exist yet or path error - skip
+                        continue;
+                    };
+                    defer self.allocator.free(abs_path);
+
+                    try self.emit("const @\"");
+                    try self.emit(escaped_module_name);
+                    try self.emit("\" = @import(\"");
+                    try self.emit(abs_path);
+                    try self.emit("\");\n");
+
+                    // Track this module as imported to avoid duplicates
+                    const escaped_copy = try self.arena.allocator().dupe(u8, escaped_module_name);
+                    try self.imported_modules.put(escaped_copy, {});
                 }
             }
 

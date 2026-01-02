@@ -100,9 +100,31 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.writeFmt("break :__finally_blk_{d} error.{s};\n", .{ self.current_finally_id, exc_name });
         } else {
-            // Bare raise - re-raise the current exception (use generic error)
+            // Bare raise - re-raise the current exception from exception stack
             try b.writeIndent();
-            try b.writeFmt("break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
+            try b.emitRaw("{\n");
+            try b.writeIndent();
+            try b.emitRaw("    const __current_exc = runtime.exceptions.getCurrentException();\n");
+            try b.writeIndent();
+            try b.emitRaw("    if (__current_exc) |exc| {\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.exceptions.setException(exc.type_name, exc.message);\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, exc.type_name, exc.message, @src().line);\n");
+            try b.writeIndent();
+            try b.writeFmt("        break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
+            try b.writeIndent();
+            try b.emitRaw("    } else {\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.exceptions.setException(\"RuntimeError\", \"No active exception to re-raise\");\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, \"RuntimeError\", \"No active exception to re-raise\", @src().line);\n");
+            try b.writeIndent();
+            try b.writeFmt("        break :__finally_blk_{d} error.Exception;\n", .{self.current_finally_id});
+            try b.writeIndent();
+            try b.emitRaw("    }\n");
+            try b.writeIndent();
+            try b.emitRaw("}\n");
         }
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
@@ -133,9 +155,31 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
             try b.writeIndent();
             try b.writeFmt("__pending_exception_{d} = error.{s};\n", .{ self.current_try_finally_id, exc_name });
         } else {
-            // Bare raise - store generic exception
+            // Bare raise - re-raise the current exception from exception stack
             try b.writeIndent();
-            try b.writeFmt("__pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
+            try b.emitRaw("{\n");
+            try b.writeIndent();
+            try b.emitRaw("    const __current_exc = runtime.exceptions.getCurrentException();\n");
+            try b.writeIndent();
+            try b.emitRaw("    if (__current_exc) |exc| {\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.exceptions.setException(exc.type_name, exc.message);\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, exc.type_name, exc.message, @src().line);\n");
+            try b.writeIndent();
+            try b.writeFmt("        __pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
+            try b.writeIndent();
+            try b.emitRaw("    } else {\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.exceptions.setException(\"RuntimeError\", \"No active exception to re-raise\");\n");
+            try b.writeIndent();
+            try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, \"RuntimeError\", \"No active exception to re-raise\", @src().line);\n");
+            try b.writeIndent();
+            try b.writeFmt("        __pending_exception_{d} = error.Exception;\n", .{self.current_try_finally_id});
+            try b.writeIndent();
+            try b.emitRaw("    }\n");
+            try b.writeIndent();
+            try b.emitRaw("}\n");
         }
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
@@ -241,11 +285,31 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try b.writeIndent();
         try b.emitRaw("return error.Exception;\n");
     } else {
-        // bare raise - use generic error (re-raise preserves existing exception info)
+        // bare raise - re-raise the currently active exception from exception stack
         try b.writeIndent();
-        try b.emitRaw("runtime.debug_reader.printPythonError(__global_allocator, \"Exception\", \"\", @src().line);\n");
+        try b.emitRaw("{\n");
         try b.writeIndent();
-        try b.emitRaw("return error.Exception;\n");
+        try b.emitRaw("    const __current_exc = runtime.exceptions.getCurrentException();\n");
+        try b.writeIndent();
+        try b.emitRaw("    if (__current_exc) |exc| {\n");
+        try b.writeIndent();
+        try b.emitRaw("        runtime.exceptions.setException(exc.type_name, exc.message);\n");
+        try b.writeIndent();
+        try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, exc.type_name, exc.message, @src().line);\n");
+        try b.writeIndent();
+        try b.emitRaw("        return error.Exception;\n");
+        try b.writeIndent();
+        try b.emitRaw("    } else {\n");
+        try b.writeIndent();
+        try b.emitRaw("        runtime.exceptions.setException(\"RuntimeError\", \"No active exception to re-raise\");\n");
+        try b.writeIndent();
+        try b.emitRaw("        runtime.debug_reader.printPythonError(__global_allocator, \"RuntimeError\", \"No active exception to re-raise\", @src().line);\n");
+        try b.writeIndent();
+        try b.emitRaw("        return error.Exception;\n");
+        try b.writeIndent();
+        try b.emitRaw("    }\n");
+        try b.writeIndent();
+        try b.emitRaw("}\n");
     }
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);

@@ -79,6 +79,57 @@ pub fn callUnraisableHook(exc_type: []const u8, exc_value: ?[]const u8) void {
     }
 }
 
+// ============================================================================
+// Exception Stack - for tracking active exceptions (bare raise re-raise)
+// ============================================================================
+
+/// Maximum depth of nested exception handlers
+const MAX_EXCEPTION_DEPTH = 8;
+
+/// Entry in the exception stack
+pub const ExceptionStackEntry = struct {
+    type_name: []const u8,
+    message: []const u8,
+};
+
+/// Thread-local exception stack for tracking active exceptions
+/// Used by bare `raise` to know what exception to re-raise
+threadlocal var exception_stack: [MAX_EXCEPTION_DEPTH]ExceptionStackEntry = undefined;
+threadlocal var exception_stack_len: usize = 0;
+
+/// Push an exception onto the stack (called when entering an except handler)
+pub fn pushException(type_name: []const u8, message: []const u8) void {
+    if (exception_stack_len < MAX_EXCEPTION_DEPTH) {
+        exception_stack[exception_stack_len] = .{ .type_name = type_name, .message = message };
+        exception_stack_len += 1;
+    }
+}
+
+/// Pop an exception from the stack (called when exiting an except handler)
+pub fn popException() void {
+    if (exception_stack_len > 0) {
+        exception_stack_len -= 1;
+    }
+}
+
+/// Get the currently active exception (for bare raise)
+/// Returns null if no exception is active (raise outside except handler)
+pub fn getCurrentException() ?ExceptionStackEntry {
+    if (exception_stack_len > 0) {
+        return exception_stack[exception_stack_len - 1];
+    }
+    return null;
+}
+
+/// Check if we're inside an exception handler
+pub fn hasActiveException() bool {
+    return exception_stack_len > 0;
+}
+
+// ============================================================================
+// Exception Message Storage
+// ============================================================================
+
 /// Set the last exception message (call before returning an error)
 pub fn setExceptionMessage(msg: []const u8) void {
     last_exception_message = msg;

@@ -1806,6 +1806,17 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         }
                     }
                 }
+                // Push exception onto stack for bare raise support (use defer to ensure pop on any exit)
+                try self.emitIndent();
+                try self.emit("{\n");
+                self.indent();
+                try self.emitIndent();
+                try self.emit("runtime.exceptions.pushException(\"");
+                try self.emit(exc_type);
+                try self.emit("\", runtime.exceptions.getExceptionMessage());\n");
+                try self.emitIndent();
+                try self.emit("defer runtime.exceptions.popException();\n");
+
                 for (handler.body) |stmt| {
                     // Skip function_def if it was already hoisted during Phase 5.1
                     // (function definitions in except handlers are hoisted to module level)
@@ -1814,9 +1825,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                     try self.generateStmt(stmt);
                 }
+
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}\n");
+
                 // If inside assertRaises context, break out of the __ar_blk block
                 // to indicate the exception was successfully caught (test passes)
-                if (self.in_assert_raises_context) {
+                if (self.in_assert_raises_context and !self.control_flow_terminated) {
                     try self.emitIndent();
                     try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
                 }
@@ -1889,6 +1905,15 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         }
                     }
                 }
+                // Push exception onto stack for bare raise support (use defer to ensure pop on any exit)
+                try self.emitIndent();
+                try self.emit("{\n");
+                self.indent();
+                try self.emitIndent();
+                try self.emit("runtime.exceptions.pushException(\"Exception\", runtime.exceptions.getExceptionMessage());\n");
+                try self.emitIndent();
+                try self.emit("defer runtime.exceptions.popException();\n");
+
                 for (handler.body) |stmt| {
                     // Skip function_def if it was already hoisted during Phase 5.1
                     // (function definitions in except handlers are hoisted to module level)
@@ -1897,9 +1922,14 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                     try self.generateStmt(stmt);
                 }
+
+                self.dedent();
+                try self.emitIndent();
+                try self.emit("}\n");
+
                 // If inside assertRaises context, break out of the __ar_blk block
                 // to indicate the exception was successfully caught (test passes)
-                if (self.in_assert_raises_context) {
+                if (self.in_assert_raises_context and !self.control_flow_terminated) {
                     try self.emitIndent();
                     try self.emitFmt("break :__ar_blk_{d} {{}}; // Exception caught by except handler\n", .{self.current_assert_raises_block_id});
                 }
