@@ -583,10 +583,12 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             break :blk false;
         };
 
+        // Use unique temp var name to avoid shadowing in nested attribute access
+        const obj_var = try self.name_gen.temp();
         var em = self.exprEmitter();
-        var block = try em.labeledBlock("attr", "__obj", attr.value.*);
+        var block = try em.labeledBlockDyn("attr", obj_var, attr.value.*);
         try block.emit("break :");
-        try block.emitFmt("{s}_{d} __obj.", .{ block.prefix, block.label_id });
+        try block.emitFmt("{s}_{d} {s}.", .{ block.prefix, block.label_id, obj_var });
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
         // For ABC properties on class instances, call as method
         if (is_abc_property_block and is_class_call) {

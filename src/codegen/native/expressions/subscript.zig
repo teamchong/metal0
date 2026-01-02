@@ -226,8 +226,10 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
 
     if (base_is_block) {
         // Wrap the entire subscript in a block with unique label
+        // Use unique temp var name to avoid shadowing in nested subscripts
+        const base_var = try self.name_gen.temp();
         var em = self.exprEmitter();
-        var block = try em.labeledBlock("sub", "__base", subscript.value.*);
+        var block = try em.labeledBlockDyn("sub", base_var, subscript.value.*);
         try block.startBreak();
 
         switch (subscript.slice) {
@@ -237,7 +239,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 const index_type = self.type_inferrer.inferExpr(index) catch .unknown;
 
                 // Check if the index is a string constant - use field access for struct-like access
-                // This handles patterns like locale.localeconv()['decimal_point'] -> __base.decimal_point
+                // This handles patterns like locale.localeconv()['decimal_point'] -> base_var.decimal_point
                 // But only if the string is a valid identifier (no spaces, special chars)
                 if (index == .constant and index.constant.value == .string) {
                     const key_str = index.constant.value.string;
@@ -269,12 +271,12 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         break :blk true;
                     };
                     if (is_valid_ident) {
-                        try self.emit("__base.");
+                        try self.emitFmt("{s}.", .{base_var});
                         // Escape field name if it's a Zig keyword (e.g., 'const', 'type', etc.)
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), field_name);
                     } else {
                         // Invalid identifier (has spaces, etc.) - use .get() for dict access
-                        try self.emit("__base.get(\"");
+                        try self.emitFmt("{s}.get(\"", .{base_var});
                         try self.emit(field_name);
                         try self.emit("\").?");
                     }
@@ -291,30 +293,32 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     const is_int_index = (index_tag == .int) or (index_tag == .usize);
 
                     if (is_tuple and index == .constant and index.constant.value == .int) {
-                        // Tuple indexing with constant integer: __base.@"0"
-                        try self.output.writer(self.allocator).print("__base.@\"{d}\"", .{index.constant.value.int});
+                        // Tuple indexing with constant integer: base_var.@"0"
+                        try self.output.writer(self.allocator).print("{s}.@\"{d}\"", .{ base_var, index.constant.value.int });
                     } else if (is_bytes and is_int_index) {
                         // Bytes indexing: use .get() method
-                        try self.emitCallCtx("__base.get", index, struct {
+                        var call_buf: [64]u8 = undefined;
+                        const call_str = std.fmt.bufPrint(&call_buf, "{s}.get", .{base_var}) catch base_var;
+                        try self.emitCallCtx(call_str, index, struct {
                             pub fn emit(s: *NativeCodegen, idx: ast.Node) CodegenError!void {
                                 try emitAsUsize(s, idx);
                             }
                         }.emit);
                     } else if (is_list and is_int_index) {
                         // List (ArrayList) indexing: use .items[idx]
-                        try self.emit("__base");
+                        try self.emit(base_var);
                         try emitArrayListIndex(self, index);
                     } else if ((is_unknown or is_pyvalue) and is_int_index) {
                         // Unknown type or PyValue with int index - use PyValue.pyAt() method
                         // This handles PyValue containing tuple/list uniformly
-                        try self.emit("if (@TypeOf(__base) == runtime.PyValue) __base.pyAt(");
+                        try self.emitFmt("if (@TypeOf({s}) == runtime.PyValue) {s}.pyAt(", .{ base_var, base_var });
                         try emitAsUsize(self, index);
-                        try self.emit(") else __base");
+                        try self.emitFmt(") else {s}", .{base_var});
                         try emitArrayIndex(self, index);
                     } else {
                         const needs_cast = type_traits.isIntegral(index_type);
 
-                        try self.emit("__base[");
+                        try self.emitFmt("{s}[", .{base_var});
                         if (needs_cast) {
                             try self.emit("@as(usize, @intCast(");
                         }
@@ -333,8 +337,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                 const is_bytes = string_traits.isBytes(base_type);
 
                 if (is_bytes) {
-                    // Bytes slicing: __base.sliceRange(start, end)
-                    try self.emit("__base.sliceRange(");
+                    // Bytes slicing: base_var.sliceRange(start, end)
+                    try self.emitFmt("{s}.sliceRange(", .{base_var});
                     if (slice.lower) |lower| {
                         try self.emit("@as(usize, @intCast(");
                         try genExpr(self, lower.*);
@@ -348,7 +352,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genExpr(self, upper.*);
                         try self.emit("))");
                     } else {
-                        try self.emit("__base.len()");
+                        try self.emitFmt("{s}.len()", .{base_var});
                     }
                     try self.emit(")");
                 } else {
@@ -366,9 +370,9 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                     };
 
                     if (needs_to_array) {
-                        try self.emit("runtime.PyValue.from(__base.toArray()[");
+                        try self.emitFmt("(try runtime.PyValue.listFromSlice(__global_allocator, {s}.toArray()[", .{base_var});
                     } else {
-                        try self.emit("__base[");
+                        try self.emitFmt("{s}[", .{base_var});
                     }
                     if (slice.lower) |lower| {
                         const needs_cast = blk: {
@@ -392,13 +396,13 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         if (needs_cast) try self.emit("))");
                     } else {
                         if (needs_to_array) {
-                            try self.emit("__base.toArray().len");
+                            try self.emitFmt("{s}.toArray().len", .{base_var});
                         } else {
-                            try self.emit("__base.len");
+                            try self.emitFmt("{s}.len", .{base_var});
                         }
                     }
                     if (needs_to_array) {
-                        try self.emit("])");  // Close both slice and PyValue.from()
+                        try self.emit("]))");  // Close slice, listFromSlice, and try parens
                     } else {
                         try self.emit("]");
                     }
@@ -731,8 +735,8 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
             if (subscript.value.* == .attribute) {
                 const attr = subscript.value.attribute;
                 if (std.mem.eql(u8, attr.attr, "version_info")) {
-                    // Use .toArray() for slicing support, wrapped in PyValue.from()
-                    try self.emit("runtime.PyValue.from(");
+                    // Use .toArray() for slicing support, wrapped in listFromSlice with allocator
+                    try self.emit("(try runtime.PyValue.listFromSlice(__global_allocator, ");
                     try genExpr(self, subscript.value.*);
                     try self.emit(".toArray()[");
                     // Emit slice bounds
@@ -746,7 +750,7 @@ pub fn genSubscript(self: *NativeCodegen, subscript: ast.Node.Subscript) Codegen
                         try genExpr(self, upper.*);
                     }
                     // Note: step is not supported for array slicing, ignore if present
-                    try self.emit("])");  // Close both slice and PyValue.from()
+                    try self.emit("]))");  // Close slice, listFromSlice, and try parens
                     return;
                 }
             }
