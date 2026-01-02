@@ -10,6 +10,20 @@ const var_tracking = @import("var_tracking.zig");
 const type_traits = @import("../../../../../analysis/traits/type_traits.zig");
 const signature = @import("../generators/signature.zig");
 
+/// Check if a function has the @abstractmethod decorator
+/// Returns true if any decorator is "abstractmethod" or "abc.abstractmethod"
+fn hasAbstractmethodDecorator(decorators: []ast.Node) bool {
+    for (decorators) |dec| {
+        if (dec == .name) {
+            if (std.mem.eql(u8, dec.name.id, "abstractmethod")) return true;
+        } else if (dec == .attribute) {
+            // Handle abc.abstractmethod
+            if (std.mem.eql(u8, dec.attribute.attr, "abstractmethod")) return true;
+        }
+    }
+    return false;
+}
+
 /// Generate zero-capture closure using comptime ZeroClosure
 pub fn genZeroCaptureClosure(
     self: *NativeCodegen,
@@ -528,6 +542,11 @@ pub fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print("__name__: []const u8 = \"{s}\",\n", .{func.name});
         try self.emitIndent();
         try self.emit("__dict__: ?*anyopaque = null,\n");
+        // Add __isabstractmethod__ if function has @abstractmethod decorator
+        if (hasAbstractmethodDecorator(func.decorators)) {
+            try self.emitIndent();
+            try self.emit("__isabstractmethod__: bool = true,\n");
+        }
         try self.emitIndent();
         try self.output.writer(self.allocator).print("pub fn call(_: @This(), {s}: anytype) !{s} {{\n", .{ unique_param, return_type_str.items });
         self.indent();
@@ -580,6 +599,11 @@ pub fn genZeroCaptureClosure(
         try self.output.writer(self.allocator).print("__name__: []const u8 = \"{s}\",\n", .{func.name});
         try self.emitIndent();
         try self.emit("__dict__: ?*anyopaque = null,\n");
+        // Add __isabstractmethod__ if function has @abstractmethod decorator
+        if (hasAbstractmethodDecorator(func.decorators)) {
+            try self.emitIndent();
+            try self.emit("__isabstractmethod__: bool = true,\n");
+        }
         try self.emitIndent();
         try self.emit("pub fn call(_: @This()");
         for (param_names.items) |unique_name| {
@@ -833,6 +857,10 @@ pub fn genModuleLevelZeroCaptureClosure(
     // Add __name__ and __dict__ fields for Python function attribute compatibility
     try self.output.writer(self.allocator).print("    __name__: []const u8 = \"{s}\",\n", .{func.name});
     try self.emit("    __dict__: ?*anyopaque = null,\n");
+    // Add __isabstractmethod__ if function has @abstractmethod decorator
+    if (hasAbstractmethodDecorator(func.decorators)) {
+        try self.emit("    __isabstractmethod__: bool = true,\n");
+    }
     try self.emit("    pub fn call(_: @This()");
 
     // Parameter list for wrapper
