@@ -1210,6 +1210,15 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
     // then extract the type name from it
     if (args[1] == .name) {
         const type_var = args[1].name.id;
+
+        // Check if variable holds an exception type (e.g., context = IndexError)
+        // If so, use the exception type name directly as a string literal
+        if (self.exception_type_vars.get(type_var)) |exc_type_name| {
+            try b.emitAssertIsInstanceStmt(obj_value, exc_type_name);
+            try self.flushBuilder();
+            return;
+        }
+
         // Check if this is a user-defined variable (not a builtin type name)
         if (!isBuiltinTypeName(type_var)) {
             // For user-defined classes, use the class's __name__ constant

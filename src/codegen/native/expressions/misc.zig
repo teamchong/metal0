@@ -453,6 +453,19 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Special case: exception_type_var.__name__ -> "ExceptionTypeName"
+    // When a variable holds an exception type (e.g., context = IndexError),
+    // accessing .__name__ should return the type name as a string literal
+    if (std.mem.eql(u8, attr.attr, "__name__") and attr.value.* == .name) {
+        const var_name = attr.value.name.id;
+        if (self.exception_type_vars.get(var_name)) |exc_type_name| {
+            try self.emit("\"");
+            try self.emit(exc_type_name);
+            try self.emit("\"");
+            return;
+        }
+    }
+
     // EARLY CHECK: traceback field access (tb_next, tb_frame, tb_lineno, tb_lasti)
     // In AOT compilation, tracebacks are PyValue stubs - use runtime.traceback_stub
     // to access their fields (returns null/0 for AOT compatibility)

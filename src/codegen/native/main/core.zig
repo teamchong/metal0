@@ -453,6 +453,10 @@ pub const NativeCodegen = struct {
     // Track exception variable names (from "except X as name:") - typed as PyException
     exception_vars: FnvVoidMap,
 
+    // Track variables that hold exception type classes (e.g., context = IndexError)
+    // Maps var_name -> exception type name (e.g., "context" -> "IndexError")
+    exception_type_vars: FnvStringMap,
+
     // Track first assignments that may need discards (var_name -> emitted_name)
     // Discards are emitted at end of scope after checking if variable was actually used
     pending_discards: FnvStringMap,
@@ -1105,6 +1109,7 @@ pub const NativeCodegen = struct {
             .hoisted_vars = FnvVoidMap.init(aa),
             .pyvalue_hoisted_vars = FnvVoidMap.init(aa),
             .exception_vars = FnvVoidMap.init(aa),
+            .exception_type_vars = FnvStringMap.init(aa),
             .pending_discards = FnvStringMap.init(aa),
             .vm_fallback_used_vars = FnvVoidMap.init(aa),
             .discarded_params = FnvVoidMap.init(aa),

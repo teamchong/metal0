@@ -162,3 +162,8 @@ pub const ValuesView = struct {
 pub const ItemsView = struct {
     pub const __abstractmethods__ = &[_][]const u8{ "__len__", "__iter__", "__contains__" };
 };
+
+/// Marker for buffer types (PEP 688)
+pub const Buffer = struct {
+    pub const __abstractmethods__ = &[_][]const u8{"__buffer__"};
+};

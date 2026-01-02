@@ -1064,6 +1064,8 @@ pub fn genFunctionBody(
 
             // Check if this param appears as a complete identifier in the generated body
             // Note: Also check for renamed version if it would shadow a method (e.g., "stop" -> "stop_")
+            // Also check for {name}_param version for parameters with defaults
+            const has_default = arg.default != null;
             const param_is_used = blk: {
                 // Helper to check if a name appears as complete identifier
                 const checkName = struct {
@@ -1088,6 +1090,20 @@ pub fn genFunctionBody(
                     break :blk true;
                 }
 
+                // If param has a default, also check for {name}_param version
+                // (signature uses {name}_param: ?Type for optional params)
+                if (has_default) {
+                    var param_name_buf: [256]u8 = undefined;
+                    const param_name_len = arg.name.len + 6; // "_param"
+                    if (param_name_len <= param_name_buf.len) {
+                        @memcpy(param_name_buf[0..arg.name.len], arg.name);
+                        @memcpy(param_name_buf[arg.name.len..][0..6], "_param");
+                        if (checkName(body_output, param_name_buf[0..param_name_len])) {
+                            break :blk true;
+                        }
+                    }
+                }
+
                 // If name would be renamed (e.g., "stop" -> "stop_", "main" -> "main_"), check renamed version
                 if (zig_keywords.wouldShadowMethod(arg.name) or zig_keywords.wouldShadowModule(arg.name)) {
                     // Build renamed name with "_" suffix
@@ -1107,6 +1123,7 @@ pub fn genFunctionBody(
 
             if (!param_is_used) {
                 // Param not used - emit discard
+                // For params with defaults, use {name}_param since that's the signature name
                 // Use writeLocalVarName for consistency with signature generation (handles "stop" -> "stop_")
                 if (ends_with_return) {
                     // Body ends with return - insert at body_start_pos
@@ -1114,6 +1131,9 @@ pub fn genFunctionBody(
                     var discard_buf = std.ArrayList(u8){};
                     try discard_buf.appendSlice(self.allocator, "    _ = ");
                     try zig_keywords.writeLocalVarName(discard_buf.writer(self.allocator), arg.name);
+                    if (has_default) {
+                        try discard_buf.appendSlice(self.allocator, "_param");
+                    }
                     try discard_buf.appendSlice(self.allocator, ";\n");
                     const discard = try discard_buf.toOwnedSlice(self.allocator);
                     defer self.allocator.free(discard);
@@ -1124,6 +1144,9 @@ pub fn genFunctionBody(
                     try self.emitIndent();
                     try self.emit("_ = ");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+                    if (has_default) {
+                        try self.emit("_param");
+                    }
                     try self.emit(";\n");
                 }
             }

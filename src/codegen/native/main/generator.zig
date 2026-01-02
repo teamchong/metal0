@@ -533,7 +533,8 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
-    // PHASE 3.7.1: Emit import aliases (import X as Y -> const Y = @"X";)
+    // PHASE 3.7.1: Emit import aliases (import X as Y -> const Y = X;)
+    // For dotted names like numpy._core.numeric, emit nested field access: numpy._core.numeric
     // Skip C extension modules - they don't have Zig aliases, they're called via c_interop
     for (self.import_aliases.keys()) |alias| {
         const module_name = self.import_aliases.get(alias).?;
@@ -544,7 +545,22 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         try self.emit("const ");
         try self.emitIdent(alias);
         try self.emit(" = ");
-        try self.emitDottedIdent(module_name);
+        // For dotted module names like numpy._core.numeric, emit as nested field access
+        // numpy._core.numeric instead of @"numpy__core_numeric"
+        if (std.mem.indexOfScalar(u8, module_name, '.') != null) {
+            // Split on dots and emit as nested field access
+            var iter = std.mem.splitScalar(u8, module_name, '.');
+            var first = true;
+            while (iter.next()) |part| {
+                if (!first) {
+                    try self.emit(".");
+                }
+                try self.emitIdent(part);
+                first = false;
+            }
+        } else {
+            try self.emitIdent(module_name);
+        }
         try self.emit(";\n");
     }
 

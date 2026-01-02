@@ -17,6 +17,7 @@ const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const type_traits = @import("../../../analysis/traits/type_traits.zig");
 const imports = @import("misc/imports.zig");
+const expressions = @import("../expressions.zig");
 
 // Re-export submodules
 pub const genAugAssign = @import("assign/aug_assign.zig").genAugAssign;
@@ -678,6 +679,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit(rhs_name);
                     try self.emit(" (skipped - functions are compile-time constants)\n");
                     continue;
+                }
+                // Track when exception type is assigned to variable (e.g., context = IndexError)
+                if (expressions.isPythonExceptionType(rhs_name)) {
+                    const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
+                    const rhs_name_copy = try self.arena.allocator().dupe(u8, rhs_name);
+                    try self.exception_type_vars.put(var_name_copy, rhs_name_copy);
                 }
             }
 

@@ -1386,37 +1386,39 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             continue;
         }
 
-        // Handle collections.abc module - expand "from collections.abc import *"
+        // Handle collections.abc module - expand "from collections.abc import X" or "import *"
         if (std.mem.eql(u8, from_imp.module, "collections.abc")) {
+            const abc_exports = [_][]const u8{
+                "Hashable",
+                "Awaitable",
+                "Coroutine",
+                "AsyncIterable",
+                "AsyncIterator",
+                "AsyncGenerator",
+                "Iterable",
+                "Iterator",
+                "Reversible",
+                "Generator",
+                "Container",
+                "Sized",
+                "Callable",
+                "Collection",
+                "Sequence",
+                "MutableSequence",
+                "ByteString",
+                "Set",
+                "MutableSet",
+                "Mapping",
+                "MutableMapping",
+                "MappingView",
+                "KeysView",
+                "ValuesView",
+                "ItemsView",
+                "Buffer",
+            };
             for (from_imp.names) |name| {
                 if (std.mem.eql(u8, name, "*")) {
-                    const abc_exports = [_][]const u8{
-                        "Hashable",
-                        "Awaitable",
-                        "Coroutine",
-                        "AsyncIterable",
-                        "AsyncIterator",
-                        "AsyncGenerator",
-                        "Iterable",
-                        "Iterator",
-                        "Reversible",
-                        "Generator",
-                        "Container",
-                        "Sized",
-                        "Callable",
-                        "Collection",
-                        "Sequence",
-                        "MutableSequence",
-                        "ByteString",
-                        "Set",
-                        "MutableSet",
-                        "Mapping",
-                        "MutableMapping",
-                        "MappingView",
-                        "KeysView",
-                        "ValuesView",
-                        "ItemsView",
-                    };
+                    // Import all ABC types
                     for (abc_exports) |exp_name| {
                         if (generated_symbols.contains(exp_name)) continue;
                         try self.emit("const ");
@@ -1425,6 +1427,26 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         try self.emit(exp_name);
                         try self.emit(";\n");
                         try generated_symbols.put(exp_name, {});
+                    }
+                } else {
+                    // Import specific ABC type (e.g., from collections.abc import Coroutine)
+                    // Check if name is a known ABC export
+                    var is_abc_type = false;
+                    for (abc_exports) |exp_name| {
+                        if (std.mem.eql(u8, name, exp_name)) {
+                            is_abc_type = true;
+                            break;
+                        }
+                    }
+                    if (is_abc_type) {
+                        if (!generated_symbols.contains(name)) {
+                            try self.emit("const ");
+                            try self.emit(name);
+                            try self.emit(" = collections.abc.");
+                            try self.emit(name);
+                            try self.emit(";\n");
+                            try generated_symbols.put(name, {});
+                        }
                     }
                 }
             }
