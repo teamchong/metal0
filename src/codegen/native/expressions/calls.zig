@@ -2406,30 +2406,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Use renamed func_name for output, with special handling for main
         const output_name = if (std.mem.eql(u8, raw_func_name, "main")) "__user_main" else func_name;
 
-        // Check if we need to disambiguate: calling a module-level function from a method
-        // that has the same name as the function (e.g., poly1d.roots() calling roots(...))
-        // If the method shadows a module-level function, use __mod_<name> which should be
-        // defined at the start of the struct
-        const needs_module_prefix = blk: {
-            if (self.current_class_name != null and self.current_function_name != null) {
-                // We're inside a class method
-                if (std.mem.eql(u8, self.current_function_name.?, raw_func_name)) {
-                    // The method name matches the function being called
-                    // Only qualify if the function is module-level (not a recursive method call)
-                    if (self.module_level_funcs.contains(raw_func_name)) {
-                        break :blk true;
-                    }
-                }
-            }
-            break :blk false;
-        };
-
         // Async functions need _async suffix for the wrapper function
         // Escape Zig reserved keywords (e.g., "test" -> @"test")
-        // When inside a method that shadows a module function, use __mod_ prefix
-        if (needs_module_prefix) {
-            try self.emit("__mod_");
-        }
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
         if (is_async_func) {
             try self.emit("_async");
