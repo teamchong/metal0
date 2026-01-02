@@ -352,9 +352,15 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                         return;
                     }
                     // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
+                    // Only use writeEscapedIdent when there's an explicit var_renames entry (like from try-except hoisting)
+                    // Regular local variables should use writeLocalVarName for consistent shadowing rename handling
                     if (self.imported_modules.contains(name_to_use)) {
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), final_name);
+                    } else if (self.var_renames.get(n.id)) |renamed| {
+                        // Has explicit rename - use the renamed name directly
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
                     } else {
+                        // Use writeLocalVarName to handle keywords AND method shadowing consistently
                         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), final_name);
                     }
                     if (self.nested_class_names.contains(name_to_use)) {

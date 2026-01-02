@@ -115,6 +115,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     defer imported_modules.deinit(self.allocator);
     std.debug.print("generate(): Phase 1.6 complete - {d} imports collected.\n", .{imported_modules.items.len});
 
+    // PHASE 1.7: Pre-scan star imports to populate module_level_from_imports BEFORE function generation
+    // This ensures wouldParamShadow() correctly detects shadowing even when star import is at end of file
+    std.debug.print("generate(): Phase 1.7 - Pre-scanning star imports...\n", .{});
+    try self.prescanStarImports(module.body, source_file_dir);
+    std.debug.print("generate(): Phase 1.7 complete.\n", .{});
+
     // Store compiled module structs for later emission
     std.debug.print("generate(): Initializing inlined_modules list...\n", .{});
     var inlined_modules = std.ArrayList([]const u8){};
@@ -340,9 +346,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
-    // PHASE 3.6: Generate c_interop import if C extension modules are used
+    // PHASE 3.6: Generate c_interop import
+    // Always emit c_interop import - DCE will remove if unused
+    // This is needed because C extension method calls are detected during codegen (after imports)
+    try self.emit("const c_interop = @import(\"c_interop\");\n");
     if (self.c_extension_modules.count() > 0) {
-        try self.emit("const c_interop = @import(\"c_interop\");\n");
 
         // PHASE 3.6.1: Generate C extension module imports
         // import numpy as np -> var np: ?*c_interop.PyObject = null;
@@ -713,9 +721,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             try self.emit("var __global_allocator: std.mem.Allocator = __gpa.allocator();\n");
         }
 
-        // Module mode: emit sys.platform constant (computed at compile time)
-        // This is used when modules reference sys.platform at module level
+        // Module mode: emit sys.platform and sys.byteorder constants (computed at compile time)
+        // These are used when modules reference sys.platform or sys.byteorder at module level
         try self.emit("const __sys_platform: []const u8 = switch (@import(\"builtin\").os.tag) { .linux => \"linux\", .macos => \"darwin\", .windows => \"win32\", .freebsd => \"freebsd\", else => \"unknown\" };\n");
+        try self.emit("const __sys_byteorder: []const u8 = if (@import(\"builtin\").cpu.arch.endian() == .little) \"little\" else \"big\";\n");
 
         if (self.module_name) |mod_name| {
             try self.emit("pub const ");

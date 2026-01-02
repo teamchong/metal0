@@ -8,7 +8,7 @@ const zig_keywords = @import("utils.zig_keywords");
 
 /// Parse __all__ list from a Python source file
 /// Returns a list of exported symbol names, or null if __all__ not found
-fn parseAllList(allocator: std.mem.Allocator, py_path: []const u8) ?std.ArrayList([]const u8) {
+pub fn parseAllList(allocator: std.mem.Allocator, py_path: []const u8) ?std.ArrayList([]const u8) {
     const file = std.fs.cwd().openFile(py_path, .{}) catch return null;
     defer file.close();
 

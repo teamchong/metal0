@@ -985,6 +985,9 @@ fn handleComplexParentMethodCall(self: *NativeCodegen, call: ast.Node.Call, meth
 fn genCExtensionMethodCall(self: *NativeCodegen, obj: ast.Node, method_name: []const u8, args: []ast.Node) CodegenError!void {
     const expressions = @import("../expressions.zig");
 
+    // Mark that c_interop import is needed
+    self.needs_c_interop = true;
+
     // Use runtime.PyValue.from() for proper type conversion from *PyObject to PyValue
     // The obj might be a PyValue, so use toPtr() to get the underlying *anyopaque
     // Use orelse @panic instead of .? for safer null handling with clear error message

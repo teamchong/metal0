@@ -1172,6 +1172,10 @@ pub fn genFunctionSignature(
                 // NameGen renames don't include _param suffix, so add it if has default
                 if (arg.default != null) {
                     try self.emit("_param");
+                    // Update var_renames with full name so body references use it
+                    // e.g., "copy" -> "copy_" becomes "copy" -> "copy__param"
+                    const full_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{renamed});
+                    try self.var_renames.put(arg.name, full_name);
                 }
             } else if (shadows_local_scope or shadows_module_level or shadows_class_member) {
                 // Parameter shadows local variable/module-level decl/class member - rename to avoid Zig error

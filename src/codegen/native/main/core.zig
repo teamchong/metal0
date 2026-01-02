@@ -934,6 +934,9 @@ pub const NativeCodegen = struct {
     // These are loaded at runtime via PyImport_ImportModule
     c_extension_modules: FnvStringMap,
 
+    // Track if c_interop import is needed (for C extension method calls)
+    needs_c_interop: bool,
+
     // Track root modules that need explicit variables even when aliased
     // e.g., "import numpy as np" + "import numpy._core.include" needs BOTH np AND numpy vars
     // When a submodule is imported, the root module must have its own variable for direct access
@@ -1231,6 +1234,7 @@ pub const NativeCodegen = struct {
             .skipped_functions = FnvVoidMap.init(aa),
             .codegen_only_modules = FnvVoidMap.init(aa),
             .c_extension_modules = FnvStringMap.init(aa),
+            .needs_c_interop = false,
             .c_extension_root_modules = FnvStringMap.init(aa),
             .c_extension_from_imports = hashmap_helper.StringHashMap(CExtFromImport).init(aa),
             .local_var_types = hashmap_helper.StringHashMap(NativeType).init(aa),
@@ -1608,6 +1612,76 @@ pub const NativeCodegen = struct {
         // Check all scopes via full lookup (ignores nested function boundaries)
         // Don't check hoisted_vars - it's method-local state that isn't valid during signature generation
         return self.symbol_table.lookup(name) != null;
+    }
+
+    /// Pre-scan all star imports in module body to populate module_level_from_imports
+    /// This ensures parameter shadowing is correctly detected even when star imports appear
+    /// at the end of a file (after function definitions that use shadowing parameter names)
+    pub fn prescanStarImports(self: *NativeCodegen, body: []const ast.Node, source_dir: ?[]const u8) CodegenError!void {
+        const from_imports = @import("from_imports.zig");
+
+        for (body) |stmt| {
+            if (stmt != .import_from) continue;
+
+            const import_from = stmt.import_from;
+
+            // Check if this is a star import
+            var has_star = false;
+            for (import_from.names) |name| {
+                if (std.mem.eql(u8, name, "*")) {
+                    has_star = true;
+                    break;
+                }
+            }
+            if (!has_star) continue;
+
+            // Handle both relative imports (.fromnumeric) and potentially absolute ones
+            // For relative imports, module starts with "." or is empty (bare ".")
+            const is_relative = import_from.module.len == 0 or import_from.module[0] == '.';
+            if (!is_relative) continue;
+
+            // Extract submodule name (e.g., ".fromnumeric" -> "fromnumeric")
+            const submodule = if (std.mem.indexOfScalar(u8, import_from.module, '.')) |idx|
+                if (idx + 1 < import_from.module.len) import_from.module[idx + 1 ..] else continue
+            else
+                continue;
+
+            if (submodule.len == 0) continue;
+
+            // Try to find __all__ list from the source file
+            const sdir = source_dir orelse continue;
+
+            // Try {dir}/{submodule}.py first
+            const py_file = std.fmt.allocPrint(self.allocator, "{s}/{s}.py", .{ sdir, submodule }) catch continue;
+            defer self.allocator.free(py_file);
+
+            var all_list = from_imports.parseAllList(self.allocator, py_file);
+
+            // If not found, try {dir}/{submodule}/__init__.py
+            if (all_list == null) {
+                const init_file = std.fmt.allocPrint(self.allocator, "{s}/{s}/__init__.py", .{ sdir, submodule }) catch continue;
+                defer self.allocator.free(init_file);
+                all_list = from_imports.parseAllList(self.allocator, init_file);
+            }
+
+            if (all_list) |*list| {
+                defer {
+                    for (list.items) |item| {
+                        self.allocator.free(item);
+                    }
+                    list.deinit(self.allocator);
+                }
+
+                // Pre-register all exported symbols for shadowing detection
+                for (list.items) |symbol| {
+                    // Skip if already registered
+                    if (self.module_level_from_imports.contains(symbol)) continue;
+                    // Dupe the string to ensure it lives beyond the defer
+                    const duped_symbol = try self.allocator.dupe(u8, symbol);
+                    try self.module_level_from_imports.put(duped_symbol, {});
+                }
+            }
+        }
     }
 
     /// CONSOLIDATED: Check if a parameter name would shadow any ACTUAL declaration

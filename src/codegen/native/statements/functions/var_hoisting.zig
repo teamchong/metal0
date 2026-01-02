@@ -1007,10 +1007,18 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
             // Check if we're in a method context (current_class_body is set)
             if (self.current_class_body == null) {
                 // Function context: rename to {name}_param
-                const zig_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{param.name});
-                try safe_vars.put(zig_name, {});
-                // Add to var_renames so all references to the Python name get translated
-                try self.var_renames.put(param.name, zig_name);
+                // BUT: If var_renames already has an entry (e.g., from wouldShadowModule),
+                // use that instead - it may have additional suffixes like copy_ -> copy__param
+                if (self.var_renames.get(param.name)) |existing| {
+                    // Signature already computed the correct name (e.g., copy__param)
+                    try safe_vars.put(existing, {});
+                } else {
+                    // No existing rename - use simple {name}_param
+                    const zig_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{param.name});
+                    try safe_vars.put(zig_name, {});
+                    // Add to var_renames so all references to the Python name get translated
+                    try self.var_renames.put(param.name, zig_name);
+                }
             } else {
                 // Method context: use original name (signature uses `n: ?Type`)
                 try safe_vars.put(param.name, {});

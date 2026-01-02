@@ -583,7 +583,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.emit("const ");
                             try self.declareVar(var_name);
                         }
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                        // Use var_renames if available (for outer scope variables like in exception handlers)
+                        // Otherwise use writeLocalVarName which applies shadowing rename
+                        if (self.var_renames.get(var_name)) |renamed| {
+                            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), renamed);
+                        } else {
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                        }
                         try self.emit(" = ");
                         try self.emit(tmp_name);
                         try self.emit(";\n");
@@ -1390,6 +1396,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Normal reassignment
                     // Use renamed version if in var_renames map (for exception handling)
                     const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    // Track if we got name from var_renames (indicates it's already properly declared)
+                    const has_rename = self.var_renames.contains(var_name);
 
                     // TWO-FLOW TYPE SYSTEM: Check if reassigning a PyValue variable
                     // If so, we need to wrap the RHS in runtime.PyValue.from()
@@ -1477,7 +1485,13 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Use writeLocalVarName to handle Zig keywords AND shadowing names
                     // (e.g., "packed" -> @"packed", "init" -> "init_")
                     // IMPORTANT: Must match the escaping used in declarations (emitVarName)
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                    // EXCEPTION: If variable has a var_renames entry, it's already properly declared
+                    // (e.g., in try-except handlers) - use the exact name without shadowing rename
+                    if (has_rename) {
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                    } else {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
+                    }
                     try self.emit(" = ");
                     // TWO-FLOW TYPE SYSTEM: Open PyValue.from() wrapper for reassignment if needed
                     // Check if RHS is a generator call (returns []PyValue) - use listFromSlice instead

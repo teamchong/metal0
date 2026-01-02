@@ -445,6 +445,32 @@ fn findMutatingMethodCalls(expr: ast.Node, vars: *FnvVoidMap) !void {
     }
 }
 
+/// Helper to recursively add all variable names from an unpacking target (name, tuple, list, starred)
+fn addTargetVarsToLocals(target: ast.Node, vars: *FnvVoidMap) !void {
+    switch (target) {
+        .name => |name| {
+            try vars.put(name.id, {});
+        },
+        .tuple => |tuple| {
+            // Handle tuple unpacking: for a, b in items
+            for (tuple.elts) |elt| {
+                try addTargetVarsToLocals(elt, vars);
+            }
+        },
+        .list => |list| {
+            // Handle list unpacking: for [a, b] in items
+            for (list.elts) |elt| {
+                try addTargetVarsToLocals(elt, vars);
+            }
+        },
+        .starred => |starred| {
+            // Handle starred: for *rest in items or for a, *rest in items
+            try addTargetVarsToLocals(starred.value.*, vars);
+        },
+        else => {},
+    }
+}
+
 /// Find all variables locally declared within statements (for-loop targets, imports)
 /// These are variables that should NOT be captured from outer scope
 /// NOTE: We only track for-loop targets and imports here, NOT assignment targets,
@@ -457,16 +483,7 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
             // The declared_var_set handles first-time declarations separately.
             .for_stmt => |for_stmt| {
                 // For-loop target variables are locally declared
-                if (for_stmt.target.* == .name) {
-                    try vars.put(for_stmt.target.name.id, {});
-                } else if (for_stmt.target.* == .tuple) {
-                    // Handle tuple unpacking: for a, b in items
-                    for (for_stmt.target.tuple.elts) |elt| {
-                        if (elt == .name) {
-                            try vars.put(elt.name.id, {});
-                        }
-                    }
-                }
+                try addTargetVarsToLocals(for_stmt.target.*, vars);
                 try findLocallyDeclaredVars(for_stmt.body, vars);
                 if (for_stmt.orelse_body) |orelse_body| {
                     try findLocallyDeclaredVars(orelse_body, vars);
@@ -501,16 +518,7 @@ fn findLocallyDeclaredVars(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                 // This variable is created inside the try block by the with statement,
                 // not captured from outer scope
                 if (with_stmt.optional_vars) |target| {
-                    if (target.* == .name) {
-                        try vars.put(target.name.id, {});
-                    } else if (target.* == .tuple) {
-                        // Handle tuple unpacking: with cm as (a, b, c):
-                        for (target.tuple.elts) |elt| {
-                            if (elt == .name) {
-                                try vars.put(elt.name.id, {});
-                            }
-                        }
-                    }
+                    try addTargetVarsToLocals(target.*, vars);
                 }
                 try findLocallyDeclaredVars(with_stmt.body, vars);
             },
@@ -1597,6 +1605,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         // This ensures outer try's renames are preserved when inner try clears its own
         for (saved_written_outer_renames.items) |saved| {
             try self.var_renames.put(saved.name, saved.rename);
+        }
+
+        // CRITICAL: Add written_outer_vars and declared_vars back to func_local_vars AND var_renames
+        // These are outer scope variables that will be assigned in exception handlers.
+        // Without this, the assignment codegen treats them as first assignments and
+        // applies shadowing renames (e.g., stop -> stop_) which causes undeclared identifier errors.
+        // The var_renames entry maps the Python name to itself, indicating the variable is already
+        // declared and shouldn't have shadowing rename applied.
+        for (written_outer_vars.items) |var_name| {
+            try self.func_local_vars.put(var_name, {});
+            // Add to var_renames so assignment uses the actual declared name
+            if (!self.var_renames.contains(var_name)) {
+                try self.var_renames.put(var_name, var_name);
+            }
+        }
+        for (declared_vars.items) |hoisted| {
+            try self.func_local_vars.put(hoisted.name, {});
+            // Add to var_renames so assignment uses the actual declared name
+            if (!self.var_renames.contains(hoisted.name)) {
+                try self.var_renames.put(hoisted.name, hoisted.name);
+            }
         }
 
         self.dedent();
