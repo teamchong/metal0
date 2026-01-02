@@ -210,6 +210,12 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                         try self.emit(type_buf.items);
                     }
                     try self.emit(" = undefined;\n");
+                    // Emit discard to suppress "local variable is never mutated" warning
+                    // Hoisted variables need `var` for assignment in branches but may only be assigned once
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                    try self.emit(";\n");
                     try self.declareVar(var_name);
                 }
             }
@@ -427,6 +433,9 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
                 "var {s}: runtime.DynamicClosure = undefined;\n",
                 .{func_name},
             );
+            // Emit discard to suppress "local variable is never mutated" warning
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("_ = &{s};\n", .{func_name});
             try self.declareVar(func_name);
             // Mark as closure so calls use .call() syntax
             const func_copy = try self.arena.allocator().dupe(u8, func_name);
@@ -491,6 +500,11 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             try self.emit(": ");
             try self.emit(type_buf.items);
             try self.emit(" = undefined;\n");
+            // Emit discard to suppress "local variable is never mutated" warning
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), v.name);
+            try self.emit(";\n");
             try self.declareVar(v.name);
         }
     }

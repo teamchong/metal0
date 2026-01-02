@@ -426,6 +426,9 @@ pub fn genStandardClosure(
                 const local_name = try self.name_gen.mutable(arg.name);
                 try self.emitIndent();
                 try self.emitFmt("var {s} = {s};\n", .{ local_name, renamed });
+                // Emit discard to suppress "unused local variable" warning
+                try self.emitIndent();
+                try self.emitFmt("_ = &{s};\n", .{local_name});
                 // Update rename to use local copy
                 try param_renames.put(arg.name, local_name);
 
@@ -1174,6 +1177,9 @@ pub fn genNestedFunctionWithOuterCapture(
                 const local_name = try self.name_gen.mutable(arg.name);
                 try self.emitIndent();
                 try self.emitFmt("var {s} = {s};\n", .{ local_name, renamed });
+                // Emit discard to suppress "unused local variable" warning
+                try self.emitIndent();
+                try self.emitFmt("_ = &{s};\n", .{local_name});
                 try param_renames.put(arg.name, local_name);
 
                 // Register the mutable copy's type in scoped type map

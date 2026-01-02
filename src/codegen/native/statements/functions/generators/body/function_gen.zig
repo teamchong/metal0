@@ -581,6 +581,16 @@ pub fn genFunctionBody(
     self.nested_class_captures.clearRetainingCapacity();
     try nested_captures.analyzeNestedClassCaptures(self, func);
 
+    // Remove renamed parameters from func_local_vars so var_renames lookup is used
+    // in expressions.zig. Without this, func_local_vars.contains() returns true
+    // for the original name, bypassing the var_renames lookup for the renamed name.
+    // This must happen AFTER analyzeNestedClassCaptures which populates func_local_vars.
+    for (func.args) |arg| {
+        if (self.var_renames.contains(arg.name)) {
+            _ = self.func_local_vars.swapRemove(arg.name);
+        }
+    }
+
     self.indent();
 
     // Push new scope for function body
@@ -764,6 +774,13 @@ pub fn genFunctionBody(
                             if (default_is_none) {
                                 try self.none_default_params.put(arg.name, {});
                             }
+                            // Emit discard to prevent "unused function parameter" warning
+                            // The parameter may not be directly used in generated Zig if the
+                            // function uses external modules that aren't fully compiled
+                            try self.emitIndent();
+                            try self.emit("_ = &");
+                            try self.emit(renamed);
+                            try self.emit(";\n");
                             try self.declareVar(arg.name);
                             continue;
                         }
@@ -844,6 +861,12 @@ pub fn genFunctionBody(
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
             }
             try self.emit(";\n");
+            // Emit discard to suppress "unused local variable" warning
+            // This can happen when the parameter is shadowed by a loop variable (e.g., `for kind in ...`)
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(mut_name);
+            try self.emit(";\n");
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, mut_name);
             // Remove from func_local_vars so expressions.zig uses var_renames lookup
@@ -873,6 +896,11 @@ pub fn genFunctionBody(
             try self.emit(" = ");
             try self.emit(vararg_name);
             try self.emit(";\n");
+            // Emit discard to suppress "unused local variable" warning
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(mut_name);
+            try self.emit(";\n");
             // Rename all references to use the mutable copy
             try self.var_renames.put(vararg_name, mut_name);
             // Remove from func_local_vars so expressions use var_renames lookup
@@ -889,6 +917,11 @@ pub fn genFunctionBody(
             try self.emit(mut_name);
             try self.emit(" = ");
             try self.emit(kwarg_name);
+            try self.emit(";\n");
+            // Emit discard to suppress "unused local variable" warning
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(mut_name);
             try self.emit(";\n");
             try self.var_renames.put(kwarg_name, mut_name);
             _ = self.func_local_vars.swapRemove(kwarg_name);
@@ -1932,6 +1965,11 @@ fn genMethodBodyWithAllocatorInfoAndContext(
                 try self.emit(actual_param_name);
                 try self.emit(";\n");
             }
+            // Emit discard to suppress "unused local variable" warning
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(mut_name);
+            try self.emit(";\n");
             // Rename all references to use the mutable copy
             try self.var_renames.put(arg.name, mut_name);
             // Remove from func_local_vars so expressions.zig uses var_renames lookup

@@ -177,6 +177,26 @@ pub fn genZeroCaptureClosure(
         self.func_local_vars = saved_func_local_vars;
     }
 
+    // Save outer function's var_renames - nested function has its own parameter renames
+    // Without this, when we remove nested param renames after body generation (lines 469-476),
+    // we would also remove outer function's renames for params with the same name
+    // (e.g., if both outer and nested have `width` param, outer's `width -> width_param` gets removed)
+    const VarRenameEntry = struct { key: []const u8, value: []const u8 };
+    var saved_var_renames = std.ArrayListUnmanaged(VarRenameEntry){};
+    {
+        var iter = self.var_renames.iterator();
+        while (iter.next()) |entry| {
+            saved_var_renames.append(self.allocator, .{ .key = entry.key_ptr.*, .value = entry.value_ptr.* }) catch {};
+        }
+    }
+    defer {
+        // Restore outer function's var_renames
+        for (saved_var_renames.items) |entry| {
+            self.var_renames.put(entry.key, entry.value) catch {};
+        }
+        saved_var_renames.deinit(self.allocator);
+    }
+
     // Save and clear nested_class_captures for this nested function
     // Each nested function needs its own capture analysis
     const saved_nested_class_captures = self.nested_class_captures;

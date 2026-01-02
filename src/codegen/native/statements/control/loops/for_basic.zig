@@ -1714,6 +1714,13 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 try self.emit("const ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
+                // Emit discard to prevent "unused local constant" error
+                // The loop variable may not be used directly if body contains tuple unpacking
+                // that references a different temp variable (codegen bug workaround)
+                try self.emitIndent();
+                try self.emit("_ = &");
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), decl_name);
+                try self.emit(";\n");
             }
         }
 
