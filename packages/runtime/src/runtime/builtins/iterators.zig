@@ -255,6 +255,7 @@ pub fn GenericIterator(comptime T: type) type {
 }
 
 /// Helper to get the item type from an iterator
+/// Returns error union with both StopIteration and TypeError since next() can return either
 pub fn IteratorItem(comptime T: type) type {
     const info = @typeInfo(T);
     if (info == .pointer) {
@@ -262,29 +263,29 @@ pub fn IteratorItem(comptime T: type) type {
         const child_info = @typeInfo(Child);
         if (child_info == .@"struct" or child_info == .@"enum" or child_info == .@"union" or child_info == .@"opaque") {
             if (@hasDecl(Child, "Item")) {
-                return error{StopIteration}!Child.Item;
+                return error{ StopIteration, TypeError }!Child.Item;
             }
             if (@hasDecl(Child, "next")) {
                 const next_fn = @typeInfo(@TypeOf(@field(Child, "next")));
                 if (next_fn == .@"fn") {
                     const ReturnType = next_fn.@"fn".return_type.?;
                     if (@typeInfo(ReturnType) == .optional) {
-                        return error{StopIteration}!@typeInfo(ReturnType).optional.child;
+                        return error{ StopIteration, TypeError }!@typeInfo(ReturnType).optional.child;
                     }
                 }
             }
         }
-        return error{StopIteration, TypeError}!void;
+        return error{ StopIteration, TypeError }!void;
     }
     if (info == .@"struct" or info == .@"enum" or info == .@"union" or info == .@"opaque") {
         if (@hasDecl(T, "Item")) {
-            return error{StopIteration}!T.Item;
+            return error{ StopIteration, TypeError }!T.Item;
         }
     }
     if (@hasDecl(T, "Item")) {
-        return error{StopIteration}!T.Item;
+        return error{ StopIteration, TypeError }!T.Item;
     }
-    return error{StopIteration}!void;
+    return error{ StopIteration, TypeError }!void;
 }
 
 /// Get next item from an iterator

@@ -120,22 +120,24 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
             // isinstance(x, int) checks if @TypeOf(x) is an integer type or bool
             // Also handles PyValue.int and PyValue.bool for vtable dispatch
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+            // Use __chk_type_{id} instead of T to avoid shadowing class methods named T
+            try self.emitFmt("__m{d}_blk: {{ const __chk_type_{d} = @TypeOf(", .{ id, id });
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk if (T == runtime.PyValue) (", .{id});
+            try self.emitFmt("); break :__m{d}_blk if (__chk_type_{d} == runtime.PyValue) (", .{ id, id });
             try self.genExpr(args[0]);
             try self.emitFmt(" == .int or ", .{});
             try self.genExpr(args[0]);
-            try self.emitFmt(" == .bool) else (@typeInfo(T) == .int or @typeInfo(T) == .comptime_int or T == bool); }}", .{});
+            try self.emitFmt(" == .bool) else (@typeInfo(__chk_type_{d}) == .int or @typeInfo(__chk_type_{d}) == .comptime_int or __chk_type_{d} == bool); }}", .{ id, id, id });
             return;
         } else if (std.mem.eql(u8, tname, "float")) {
             // Also handles PyValue.float for vtable dispatch
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+            // Use __chk_type_{id} instead of T to avoid shadowing class methods named T
+            try self.emitFmt("__m{d}_blk: {{ const __chk_type_{d} = @TypeOf(", .{ id, id });
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk if (T == runtime.PyValue) (", .{id});
+            try self.emitFmt("); break :__m{d}_blk if (__chk_type_{d} == runtime.PyValue) (", .{ id, id });
             try self.genExpr(args[0]);
-            try self.emitFmt(" == .float) else (@typeInfo(T) == .float or @typeInfo(T) == .comptime_float); }}", .{});
+            try self.emitFmt(" == .float) else (@typeInfo(__chk_type_{d}) == .float or @typeInfo(__chk_type_{d}) == .comptime_float); }}", .{ id, id });
             return;
         } else if (std.mem.eql(u8, tname, "str")) {
             if (is_unknown_type) {
@@ -191,9 +193,10 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 // ABCMeta class - use runtime check to support virtual subclasses
                 // isinstance(x, ABCClass) must check ABC registry for registered virtual subclasses
                 const id = self.nextNameId();
-                try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+                // Use __chk_type_{id} instead of T to avoid shadowing class methods named T
+                try self.emitFmt("__m{d}_blk: {{ const __chk_type_{d} = @TypeOf(", .{ id, id });
                 try self.genExpr(args[0]);
-                try self.emitFmt("); break :__m{d}_blk runtime.isSubclass(T, ", .{id});
+                try self.emitFmt("); break :__m{d}_blk runtime.isSubclass(__chk_type_{d}, ", .{ id, id });
                 try self.emit(tname);
                 try self.emit("); }");
                 return;
@@ -201,13 +204,14 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
             // Regular class (no ABCMeta) - use fast compile-time check
             const id = self.nextNameId();
-            try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+            // Use __chk_type_{id} instead of T to avoid shadowing class methods named T
+            try self.emitFmt("__m{d}_blk: {{ const __chk_type_{d} = @TypeOf(", .{ id, id });
             try self.genExpr(args[0]);
-            try self.emitFmt("); break :__m{d}_blk T == ", .{id});
+            try self.emitFmt("); break :__m{d}_blk __chk_type_{d} == ", .{ id, id });
             try self.emit(tname);
-            try self.emit(" or T == *");
+            try self.emitFmt(" or __chk_type_{d} == *", .{id});
             try self.emit(tname);
-            try self.emit(" or T == *const ");
+            try self.emitFmt(" or __chk_type_{d} == *const ", .{id});
             try self.emit(tname);
             try self.emit("; }");
             return;
@@ -231,9 +235,10 @@ pub fn genIsinstance(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
                 if (current_has_abc) {
                     // ABCMeta class - use runtime check
                     const id = self.nextNameId();
-                    try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+                    // Use __chk_type_{id} instead of T to avoid shadowing class methods named T
+                    try self.emitFmt("__m{d}_blk: {{ const __chk_type_{d} = @TypeOf(", .{ id, id });
                     try self.genExpr(args[0]);
-                    try self.emitFmt("); break :__m{d}_blk runtime.isSubclass(T, @This()); }}", .{id});
+                    try self.emitFmt("); break :__m{d}_blk runtime.isSubclass(__chk_type_{d}, @This()); }}", .{ id, id });
                     return;
                 }
 
@@ -560,12 +565,13 @@ fn genNumbersABCIsinstance(self: *NativeCodegen, obj: ast.Node, abc_name: []cons
     const id = self.nextNameId();
 
     // Get the type to check its structure
-    try self.emitFmt("__m{d}_blk: {{ const T = @TypeOf(", .{id});
+    // Use __chk_type_{id} instead of T to avoid shadowing class methods named T
+    try self.emitFmt("__m{d}_blk: {{ const __chk_type_{d} = @TypeOf(", .{ id, id });
     try self.genExpr(obj);
-    try self.emit("); const info = @typeInfo(T); ");
+    try self.emitFmt("); const info = @typeInfo(__chk_type_{d}); ", .{id});
 
     // Check for pointer to struct (common case for class instances)
-    try self.emit("const ChildType = if (info == .pointer and info.pointer.size == .one) info.pointer.child else T; ");
+    try self.emitFmt("const ChildType = if (info == .pointer and info.pointer.size == .one) info.pointer.child else __chk_type_{d}; ", .{id});
     try self.emit("const child_info = @typeInfo(ChildType); ");
     try self.emit("if (child_info != .@\"struct\") { ");
     // For non-struct types, check if it's a numeric primitive

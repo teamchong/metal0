@@ -703,6 +703,7 @@ pub const stdlib_module_names = [_][]const u8{
     "numbers.type_checking",
     "numbers.types",
     "numbers.utils",
+    "numpy_testing",
     "opcode",
     "operator",
     "optparse",
@@ -1979,7 +1980,7 @@ pub const stdlib_module_names = [_][]const u8{
 };
 
 /// Number of discovered stdlib modules
-pub const stdlib_module_count: usize = 1959;
+pub const stdlib_module_count: usize = 1960;
 
 /// Check if a module name exists in stdlib
 pub fn hasModule(name: []const u8) bool {
@@ -3417,6 +3418,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "numbers.type_checking",
     "numbers.types",
     "numbers.utils",
+    "numpy_testing",
     "opcode",
     "optparse",
     "optparse.option",
@@ -3882,4 +3884,4 @@ pub const auto_registrable_modules = [_][]const u8{
     "zoneinfo._zoneinfo",
 };
 
-pub const auto_registrable_count: usize = 1889;
+pub const auto_registrable_count: usize = 1890;

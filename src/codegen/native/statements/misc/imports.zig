@@ -212,33 +212,51 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 else
                     name;
 
-                // Skip if already declared in current scope (avoids shadowing error)
+                // Check if this variable was hoisted due to scope escape
+                // (e.g., import inside if/else that's used after the block)
+                const is_hoisted = self.hoisted_vars.contains(alias);
+
+                // Skip if already declared (but not hoisted) in current scope (avoids shadowing error)
                 // Check:
                 // 1. isDeclared - hoisted vars, symbol table
                 // 2. module_level_from_imports - module-level from X import Y bindings
                 // For local imports inside functions that duplicate module-level imports
                 // (e.g., "from test.support import import_helper" in both module and function),
                 // skip generating the local const to avoid shadowing.
-                if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias)) {
+                // BUT: if the variable is hoisted, we need to generate an assignment to it
+                if (!is_hoisted and (self.isDeclared(alias) or self.module_level_from_imports.contains(alias))) {
                     continue;
                 }
 
                 // Escape Zig keywords like c_int, c_char, etc.
                 const escaped_alias = try zig_keywords.escapeIfKeyword(self.allocator, alias);
                 try b.writeIndent();
-                try b.emitRaw("const ");
-                try b.emitRaw(escaped_alias);
-                try b.emitRaw(" = ");
-                try b.emitRaw(path);
-                try b.emitRaw(".");
-                try b.emitRaw(name);
-                try b.emitRaw(";\n");
-                // Emit discard immediately to suppress "unused constant" error
-                // Local from-imports may not be used if they're only for type hints
-                try b.writeIndent();
-                try b.emitRaw("_ = &");
-                try b.emitRaw(escaped_alias);
-                try b.emitRaw(";\n");
+
+                if (is_hoisted) {
+                    // For hoisted variables, generate assignment not declaration
+                    // func = runtime.math.sqrt;
+                    try b.emitRaw(escaped_alias);
+                    try b.emitRaw(" = runtime.PyValue.from(");
+                    try b.emitRaw(path);
+                    try b.emitRaw(".");
+                    try b.emitRaw(name);
+                    try b.emitRaw(");\n");
+                } else {
+                    // Normal case: generate const declaration
+                    try b.emitRaw("const ");
+                    try b.emitRaw(escaped_alias);
+                    try b.emitRaw(" = ");
+                    try b.emitRaw(path);
+                    try b.emitRaw(".");
+                    try b.emitRaw(name);
+                    try b.emitRaw(";\n");
+                    // Emit discard immediately to suppress "unused constant" error
+                    // Local from-imports may not be used if they're only for type hints
+                    try b.writeIndent();
+                    try b.emitRaw("_ = &");
+                    try b.emitRaw(escaped_alias);
+                    try b.emitRaw(";\n");
+                }
             }
 
             const output = try b.getBodyDupe();
@@ -272,13 +290,14 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
             else
                 name;
 
-            // Skip if already declared in current scope or at module level
-            if (self.isDeclared(alias) or self.module_level_from_imports.contains(alias)) {
+            // Check if variable was hoisted (e.g., for imports inside if/else or try blocks)
+            const was_hoisted = self.hoisted_vars.contains(alias);
+
+            // Skip if already declared (but not hoisted) in current scope or at module level
+            // If hoisted, we need to generate an assignment to the hoisted variable
+            if (!was_hoisted and (self.isDeclared(alias) or self.module_level_from_imports.contains(alias))) {
                 continue;
             }
-
-            // Check if variable was hoisted (e.g., for imports inside try blocks)
-            const was_hoisted = self.hoisted_vars.contains(alias);
             try b.writeIndent();
             if (!was_hoisted) {
                 try b.emitRaw("const ");

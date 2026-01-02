@@ -125,6 +125,7 @@ pub const available_modules = [_][]const u8{
     "ntpath", // @import("Lib/ntpath.zig")
     "nturl2path", // @import("Lib/nturl2path.zig")
     "numbers", // @import("Lib/numbers.zig")
+    "numpy_testing", // @import("Lib/numpy_testing.zig")
     "opcode", // @import("Lib/opcode.zig")
     "operator", // @import("Lib/operator.zig")
     "optparse", // @import("Lib/optparse.zig")
@@ -221,4 +222,4 @@ pub const available_modules = [_][]const u8{
     "zoneinfo", // @import("Lib/zoneinfo.zig")
 };
 
-pub const module_count: usize = 204;
+pub const module_count: usize = 205;

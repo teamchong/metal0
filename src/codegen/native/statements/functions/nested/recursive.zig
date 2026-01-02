@@ -45,8 +45,6 @@ pub fn genRecursiveClosure(
             continue;
         }
 
-        const b2 = try self.getBuilder();
-        try b2.writeIndent();
         // Use @TypeOf to get the correct type from the outer variable
         const outer_var_name = blk: {
             if (self.var_renames.get(var_name)) |renamed| {
@@ -54,6 +52,13 @@ pub fn genRecursiveClosure(
             }
             break :blk var_name;
         };
+
+        // Skip discards (_) and class types - they can't be captured at runtime
+        if (outer_var_name.len == 1 and outer_var_name[0] == '_') continue;
+        if (self.nested_class_defs.get(outer_var_name) != null) continue;
+
+        const b2 = try self.getBuilder();
+        try b2.writeIndent();
         try b2.writeFmt("var __c_{s}: @TypeOf({s}) = undefined;\n", .{ var_name, outer_var_name });
         const output2 = try b2.getBodyDupe();
         try self.output.appendSlice(self.allocator, output2);
@@ -153,9 +158,17 @@ pub fn genRecursiveClosure(
     defer capture_renames.deinit(self.allocator);
 
     for (captured_vars) |var_name| {
-        const rename = try std.fmt.allocPrint(self.allocator, "__c_{s}", .{var_name});
-        try capture_renames.append(self.allocator, rename);
-        try self.var_renames.put(var_name, rename);
+        const outer_name = self.var_renames.get(var_name) orelse var_name;
+        // Skip discards and class types - don't add __c_ rename
+        const is_skip = (outer_name.len == 1 and outer_name[0] == '_') or
+            self.nested_class_defs.get(outer_name) != null;
+        if (is_skip) {
+            try capture_renames.append(self.allocator, var_name);
+        } else {
+            const rename = try std.fmt.allocPrint(self.allocator, "__c_{s}", .{var_name});
+            try capture_renames.append(self.allocator, rename);
+            try self.var_renames.put(var_name, rename);
+        }
     }
 
     // Save outer scope param renames (to restore later)
@@ -186,9 +199,9 @@ pub fn genRecursiveClosure(
             // If the parameter is reassigned, we need a var copy
             if (is_reassigned) {
                 // Create a mutable variable name
-                const var_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_id });
-                try reassigned_params.append(self.allocator, var_name);
-                try self.var_renames.put(arg.name, var_name);
+                const mutable_name = try std.fmt.allocPrint(self.allocator, "__v_{s}_{d}", .{ arg.name, saved_id });
+                try reassigned_params.append(self.allocator, mutable_name);
+                try self.var_renames.put(arg.name, mutable_name);
             } else {
                 try self.var_renames.put(arg.name, rename);
             }
@@ -217,8 +230,8 @@ pub fn genRecursiveClosure(
     }
 
     // Free the reassigned param var names
-    for (reassigned_params.items) |var_name| {
-        self.allocator.free(var_name);
+    for (reassigned_params.items) |mutable_name| {
+        self.allocator.free(mutable_name);
     }
 
     // Clean up renames
@@ -270,15 +283,14 @@ pub fn genRecursiveClosure(
             continue;
         }
 
+        const value_name = self.var_renames.get(var_name) orelse var_name;
+        // Skip discards and class types
+        if (value_name.len == 1 and value_name[0] == '_') continue;
+        if (self.nested_class_defs.get(value_name) != null) continue;
+
         const b7 = try self.getBuilder();
         try b7.writeIndent();
-        try b7.writeFmt("{s}.__c_{s} = ", .{ func.name, var_name });
-        if (self.var_renames.get(var_name)) |renamed| {
-            try b7.write(renamed);
-        } else {
-            try b7.write(var_name);
-        }
-        try b7.write(";\n");
+        try b7.writeFmt("{s}.__c_{s} = {s};\n", .{ func.name, var_name, value_name });
         const output7 = try b7.getBodyDupe();
         try self.output.appendSlice(self.allocator, output7);
     }

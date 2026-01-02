@@ -1090,6 +1090,8 @@ fn collectInnerScopeDecls(
             }
             // Recursively check body for more inner scopes
             for (with.body) |stmt| {
+                try collectAssignments(decls, stmt, .with_stmt, allocator);
+                try collectImportFromDecls(decls, stmt, .with_stmt);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
         },
@@ -1097,6 +1099,7 @@ fn collectInnerScopeDecls(
             // Variables assigned in try/except body
             for (try_s.body) |stmt| {
                 try collectAssignments(decls, stmt, .try_except, allocator);
+                try collectImportFromDecls(decls, stmt, .try_except);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
 
@@ -1121,25 +1124,30 @@ fn collectInnerScopeDecls(
                 for (handler.body) |stmt| {
                     // Pass exception names so assignments like `e = exc` get marked
                     try collectAssignmentsWithExceptionVars(decls, stmt, .try_except, &exception_names);
+                    try collectImportFromDecls(decls, stmt, .try_except);
                     try collectInnerScopeDecls(decls, stmt, allocator);
                 }
             }
             for (try_s.else_body) |stmt| {
                 try collectAssignments(decls, stmt, .try_except, allocator);
+                try collectImportFromDecls(decls, stmt, .try_except);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
             for (try_s.finalbody) |stmt| {
                 try collectAssignments(decls, stmt, .try_except, allocator);
+                try collectImportFromDecls(decls, stmt, .try_except);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
         },
         .if_stmt => |if_s| {
             for (if_s.body) |stmt| {
                 try collectAssignments(decls, stmt, .if_stmt, allocator);
+                try collectImportFromDecls(decls, stmt, .if_stmt);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
             for (if_s.else_body) |stmt| {
                 try collectAssignments(decls, stmt, .if_stmt, allocator);
+                try collectImportFromDecls(decls, stmt, .if_stmt);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
         },
@@ -1183,11 +1191,13 @@ fn collectInnerScopeDecls(
             }
             for (for_s.body) |stmt| {
                 try collectAssignments(decls, stmt, .for_loop, allocator);
+                try collectImportFromDecls(decls, stmt, .for_loop);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
             if (for_s.orelse_body) |orelse_body| {
                 for (orelse_body) |stmt| {
                     try collectAssignments(decls, stmt, .for_loop, allocator);
+                    try collectImportFromDecls(decls, stmt, .for_loop);
                     try collectInnerScopeDecls(decls, stmt, allocator);
                 }
             }
@@ -1195,11 +1205,13 @@ fn collectInnerScopeDecls(
         .while_stmt => |while_s| {
             for (while_s.body) |stmt| {
                 try collectAssignments(decls, stmt, .if_stmt, allocator);
+                try collectImportFromDecls(decls, stmt, .if_stmt);
                 try collectInnerScopeDecls(decls, stmt, allocator);
             }
             if (while_s.orelse_body) |orelse_body| {
                 for (orelse_body) |stmt| {
                     try collectAssignments(decls, stmt, .if_stmt, allocator);
+                    try collectImportFromDecls(decls, stmt, .if_stmt);
                     try collectInnerScopeDecls(decls, stmt, allocator);
                 }
             }
@@ -1208,6 +1220,7 @@ fn collectInnerScopeDecls(
             for (match_s.cases) |case| {
                 for (case.body) |stmt| {
                     try collectAssignments(decls, stmt, .if_stmt, allocator);
+                    try collectImportFromDecls(decls, stmt, .if_stmt);
                     try collectInnerScopeDecls(decls, stmt, allocator);
                 }
             }
@@ -1292,6 +1305,35 @@ fn collectAssignmentsWithExceptionVars(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Collect variables declared by import_from statements
+/// e.g., `from X import Y as Z` creates variable Z (or Y if no alias)
+fn collectImportFromDecls(
+    decls: *hashmap_helper.StringHashMap(EscapedVar),
+    node: ast.Node,
+    source: EscapedSource,
+) !void {
+    if (node == .import_from) {
+        const import_from = node.import_from;
+        // Each imported name creates a variable
+        for (import_from.names, 0..) |name, i| {
+            // Use alias if provided, otherwise use original name
+            const var_name = if (i < import_from.asnames.len and import_from.asnames[i] != null)
+                import_from.asnames[i].?
+            else
+                name;
+
+            // Only add if not already declared
+            if (!decls.contains(var_name)) {
+                try decls.put(var_name, .{
+                    .name = var_name,
+                    .init_expr = null, // Import doesn't have an expression for @TypeOf
+                    .source = source,
+                });
             }
         }
     }
