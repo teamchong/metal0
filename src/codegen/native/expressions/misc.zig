@@ -484,6 +484,30 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         return;
     }
 
+    // EARLY CHECK: Exception attribute access (e.__context__, e.__cause__, etc.)
+    // Must happen BEFORE block expression handling to prevent double attribute access
+    // Exception variables from `except X as e:` are typed as runtime.PyException
+    if (attr.value.* == .name) {
+        const exc_var_name = attr.value.name.id;
+        if (self.exception_vars.contains(exc_var_name)) {
+            const exc_attrs_early = [_][]const u8{ "__traceback__", "__context__", "__cause__", "__suppress_context__", "args", "type_name", "message" };
+            for (exc_attrs_early) |exc_attr| {
+                if (std.mem.eql(u8, attr.attr, exc_attr)) {
+                    // Direct field access on PyException struct
+                    // Check var_renames first - inside TryHelper structs, exception vars are renamed
+                    if (self.var_renames.get(exc_var_name)) |renamed| {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
+                    } else {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), exc_var_name);
+                    }
+                    try self.emit(".");
+                    try self.emit(attr.attr);
+                    return;
+                }
+            }
+        }
+    }
+
     // Check if value produces a block expression - need to wrap in temp variable
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     // Wrap in parentheses to prevent "label:" from being parsed as named argument when used in fn calls

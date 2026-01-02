@@ -1961,6 +1961,11 @@ pub const NativeCodegen = struct {
                     if (self.local_from_imports.contains(var_name)) {
                         return false;
                     }
+                    // Exception variables (from `except X as e:`) are handled natively
+                    // Don't fall back to VM - it can't access local Zig variables
+                    if (self.exception_vars.contains(var_name)) {
+                        return false;
+                    }
                     if (self.isVarUncertain(var_name)) {
                         return true;
                     }
@@ -2422,8 +2427,15 @@ pub const NativeCodegen = struct {
                     return builder_mod.ZigValue.raw(try self.arena.allocator().dupe(u8, full_name));
                 }
 
+                // Disambiguate module-level references that conflict with module wrapper struct name
+                // E.g., in version.py: `version` -> `_version` when module is also named `version`
+                const final_name = if (self.current_function_name == null and self.isModuleNameConflict(name))
+                    self.getModuleLevelName(name)
+                else
+                    name;
+
                 // Return named reference (will be emitted as variable name)
-                return builder_mod.ZigValue.fromName(name);
+                return builder_mod.ZigValue.fromName(final_name);
             },
             // Binary operations - use builder.binOp for type-aware emission
             .binop => |b| {
@@ -3130,6 +3142,56 @@ pub const NativeCodegen = struct {
             else => |e| return e,
         };
         try self.emit(fbs.getWritten());
+    }
+
+    /// Check if a name conflicts with the module wrapper struct name.
+    /// In module mode, we wrap everything in `pub const <module_name> = struct { ... };`
+    /// If a variable inside has the same name as the module, it creates ambiguous reference.
+    /// Returns true if the name matches the module name (conflict exists).
+    pub fn isModuleNameConflict(self: *NativeCodegen, name: []const u8) bool {
+        if (self.mode != .module) return false;
+        if (self.module_name) |mod_name| {
+            return std.mem.eql(u8, name, mod_name);
+        }
+        return false;
+    }
+
+    /// Get the disambiguated name for a module-level declaration.
+    /// If the name conflicts with the module wrapper struct name, prefix with underscore.
+    /// E.g., in version.py: `version = "2.3.4"` becomes `_version = "2.3.4"`
+    pub fn getModuleLevelName(self: *NativeCodegen, name: []const u8) []const u8 {
+        if (self.isModuleNameConflict(name)) {
+            // Return prefixed name - allocate in arena so it persists
+            const prefixed = std.fmt.allocPrint(self.arena.allocator(), "_{s}", .{name}) catch name;
+            return prefixed;
+        }
+        return name;
+    }
+
+    /// Check if a local variable name would shadow a module-level import.
+    /// This includes `from X import Y` and `import X as Y` at module level.
+    /// When inside a function, we need to detect if a local variable shadows these.
+    pub fn shadowsModuleLevelImport(self: *NativeCodegen, name: []const u8) bool {
+        // Only applies when we're inside a function
+        if (self.current_function_name == null) return false;
+        // Check if name matches a module-level from-import symbol
+        if (self.module_level_from_imports.contains(name)) return true;
+        // Check if name matches an imported module name
+        if (self.imported_modules.contains(name)) return true;
+        // Check if name matches an import alias
+        if (self.import_aliases.contains(name)) return true;
+        return false;
+    }
+
+    /// Get a disambiguated local variable name that doesn't shadow module-level imports.
+    /// If the name shadows a module-level import, prefix with underscore.
+    pub fn getLocalVarName(self: *NativeCodegen, name: []const u8) []const u8 {
+        if (self.shadowsModuleLevelImport(name)) {
+            // Return prefixed name - allocate in arena so it persists
+            const prefixed = std.fmt.allocPrint(self.arena.allocator(), "_{s}", .{name}) catch name;
+            return prefixed;
+        }
+        return name;
     }
 
     /// Emit a dotted identifier with proper escaping (e.g., "test.support" -> "@\"test\".@\"support\"").
