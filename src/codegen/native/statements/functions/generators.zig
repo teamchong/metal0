@@ -1066,6 +1066,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (std.mem.eql(u8, base_name, "Exception")) continue;
             if (std.mem.eql(u8, base_name, "BaseException")) continue;
             if (std.mem.endsWith(u8, base_name, "Error")) continue;
+            if (std.mem.endsWith(u8, base_name, "Warning")) continue;
             valid_base_count += 1;
         }
 
@@ -1090,6 +1091,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (std.mem.eql(u8, base_name, "Exception")) continue;
                 if (std.mem.eql(u8, base_name, "BaseException")) continue;
                 if (std.mem.endsWith(u8, base_name, "Error")) continue;
+                if (std.mem.endsWith(u8, base_name, "Warning")) continue;
                 if (!first) try self.emit(", ");
                 first = false;
                 // Resolve nested class name to its hoisted/aliased name

@@ -788,7 +788,8 @@ pub fn genInitMethod(
         if (entry.needs_mutable_copy) {
             try self.emitIndent();
             try self.emit("var ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
+            // Use writeLocalVarName for consistency with variable references (shadowing names like copy become copy_)
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), entry.original);
             try self.emit(": @TypeOf(");
             try self.emit(entry.renamed);
             try self.emit(") = ");
@@ -1308,7 +1309,8 @@ pub fn genInitMethodWithBuiltinBase(
         if (entry.needs_mutable_copy) {
             try self.emitIndent();
             try self.emit("var ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
+            // Use writeLocalVarName for consistency with variable references (shadowing names like copy become copy_)
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), entry.original);
             try self.emit(": @TypeOf(");
             try self.emit(entry.renamed);
             try self.emit(") = ");
@@ -1933,7 +1935,8 @@ pub fn genInitMethodFromNew(
         if (entry.needs_mutable_copy) {
             try self.emitIndent();
             try self.emit("var ");
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), entry.original);
+            // Use writeLocalVarName for consistency with variable references (shadowing names like copy become copy_)
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), entry.original);
             try self.emit(": @TypeOf(");
             try self.emit(entry.renamed);
             try self.emit(") = ");
@@ -1962,12 +1965,13 @@ pub fn genInitMethodFromNew(
     // Emit discards for __new__ params that appear used in Python but may not be
     // used in generated init body (e.g., metaclass __new__ using dict param for dict['x'] = ...)
     // The codegen doesn't fully implement all metaclass patterns, so params may appear unused
-    for (new_method.args) |arg| {
-        // Skip cls/self (first param)
-        if (std.mem.eql(u8, arg.name, "cls") or std.mem.eql(u8, arg.name, "self")) continue;
-        // Only emit discard if the param is named (not already anonymous "_:")
-        // Check if it was used in Python source but with a pattern we don't fully codegen
-        if (param_analyzer.isNameUsedInBody(new_method.body, arg.name)) {
+    for (new_method.args, 0..) |arg, idx| {
+        // Skip first param (cls/self/subtype - represents the class type, uses _: anytype in signature)
+        if (idx == 0) continue;
+        // Only emit discard if the param is used for init purposes (field assignments)
+        // Must match isNameUsedInNewForInit used in signature generation, else we emit
+        // discard for a param that was made anonymous in the signature
+        if (param_analyzer.isNameUsedInNewForInit(new_method.body, arg.name)) {
             // Skip params that have mutable copies - the parameter IS used to initialize the copy
             // e.g., `var sign = __m65_p_sign;` - __m65_p_sign is used here
             const has_mutable_copy = for (renamed_params.items) |entry| {

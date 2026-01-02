@@ -647,17 +647,9 @@ pub fn genFunctionBody(
     for (func.args) |arg| {
         // Skip params made anonymous in signature (not used in Python source)
         if (!param_analyzer.isNameUsedInBody(func.body, arg.name)) continue;
-        // For params with defaults, use the renamed param name (includes _param suffix)
-        if (arg.default != null) {
-            // Get the actual parameter name used in signature (may have _param suffix)
-            if (self.var_renames.get(arg.name)) |renamed| {
-                try self.emitParamDiscard(renamed);
-            } else {
-                // Param with default uses {name}_param in signature
-                const param_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
-                try self.emitParamDiscard(param_name);
-            }
-        } else {
+        // Skip params with defaults - they're used in the local initialization below
+        // Only emit discard if this is NOT a param with default
+        if (arg.default == null) {
             // Emit discard for this param
             try self.emitParamDiscard(arg.name);
         }
@@ -709,10 +701,17 @@ pub fn genFunctionBody(
 
             if (needs_rename) {
                 if (is_param_unused) {
-                    // Parameter is unused - skip entirely
-                    // The signature already made this an anonymous parameter (_: type),
-                    // so there's nothing to discard. Emitting "_ = arg_param;" would be
-                    // an error since arg_param was never declared.
+                    // Parameter appears in Python source but not used in generated Zig
+                    // This can happen when the param is used in VM eval strings
+                    // Emit discard for the param to suppress unused warning
+                    // Note: signature may have named this param, so we need to discard it
+                    const param_name = if (self.var_renames.get(arg.name)) |renamed|
+                        renamed
+                    else blk: {
+                        const name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
+                        break :blk name;
+                    };
+                    try self.emitParamDiscard(param_name);
                 } else {
                     // Rename local variable to avoid shadowing module-level variable
                     // Use NameGen for consistent unique naming
