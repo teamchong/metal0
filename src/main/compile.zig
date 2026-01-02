@@ -564,8 +564,11 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
         // Skip main file
         if (std.mem.eql(u8, mod_info.path, input_file)) continue;
 
-        // Get output path
-        const zig_out_path = build_dirs.projectZigPath(aa, project_root.?.path, mod_info.path) catch continue;
+        // Get output path (use project root if available, else source-relative)
+        const zig_out_path = if (project_root) |root|
+            build_dirs.projectZigPath(aa, root.path, mod_info.path) catch continue
+        else
+            build_dirs.zigPath(aa, mod_info.path) catch continue;
         defer aa.free(zig_out_path);
 
         // Check if needs compilation
@@ -603,7 +606,11 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
         path_len += 4;
         const rel_path = path_buf[0..path_len];
 
-        const zig_out_path = build_dirs.projectZigPathFromRelative(aa, project_root.?.path, rel_path) catch continue;
+        // Get output path (use project root if available, else source-relative)
+        const zig_out_path = if (project_root) |root|
+            build_dirs.projectZigPathFromRelative(aa, root.path, rel_path) catch continue
+        else
+            build_dirs.zigPathFromRelative(aa, rel_path) catch continue;
         defer aa.free(zig_out_path);
 
         // Check if stub already exists
@@ -832,7 +839,11 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         path_len += 4;
         const rel_path = path_buf[0..path_len];
 
-        const zig_out_path = build_dirs.projectZigPathFromRelative(aa, project_root.?.path, rel_path) catch continue;
+        // Get output path (use project root if available, else source-relative)
+        const zig_out_path = if (project_root) |root|
+            build_dirs.projectZigPathFromRelative(aa, root.path, rel_path) catch continue
+        else
+            build_dirs.zigPathFromRelative(aa, rel_path) catch continue;
         defer aa.free(zig_out_path);
 
         // Check if stub already exists

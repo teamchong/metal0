@@ -344,6 +344,14 @@ pub fn zigPath(allocator: std.mem.Allocator, source_path: []const u8) ![]const u
     }
 }
 
+/// Get Zig output path from a relative path (fallback when no project root)
+/// The rel_path should already be in the desired form (e.g., "numpy/_core/_multiarray_umath.zig")
+/// e.g., rel_path="numpy/_core/_multiarray_umath.zig"
+///       -> ".metal0/gen/numpy/_core/_multiarray_umath.zig"
+pub fn zigPathFromRelative(allocator: std.mem.Allocator, rel_path: []const u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator, OUTPUT_DIR ++ "/" ++ SRC_SUBDIR ++ "/{s}", .{rel_path});
+}
+
 /// Get path for compiled object file
 /// e.g., "tests/cpython/test_bool.py" -> "tests/cpython/.metal0/test_bool.o"
 pub fn objectPath(allocator: std.mem.Allocator, source_path: []const u8) ![]const u8 {

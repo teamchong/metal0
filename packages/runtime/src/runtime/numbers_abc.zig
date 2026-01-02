@@ -43,12 +43,58 @@ const BuiltinRegistration = struct {
 /// Pre-registered built-in types with their most specific ABC
 /// int is Integral, float is Real, Decimal is Number (not in strict hierarchy)
 const builtin_registrations = [_]BuiltinRegistration{
+    // Python built-in types
     .{ .type_name = "int", .abc = .Integral },
     .{ .type_name = "bool", .abc = .Integral }, // bool is subclass of int
     .{ .type_name = "float", .abc = .Real },
     .{ .type_name = "complex", .abc = .Complex },
     .{ .type_name = "Decimal", .abc = .Number }, // Decimal registers as Number
     .{ .type_name = "Fraction", .abc = .Rational },
+    // NumPy abstract types
+    .{ .type_name = "number", .abc = .Number }, // np.number
+    .{ .type_name = "inexact", .abc = .Complex }, // np.inexact (floats + complex)
+    .{ .type_name = "complexfloating", .abc = .Complex }, // np.complexfloating
+    .{ .type_name = "floating", .abc = .Real }, // np.floating
+    .{ .type_name = "integer", .abc = .Integral }, // np.integer
+    .{ .type_name = "signedinteger", .abc = .Integral }, // np.signedinteger
+    .{ .type_name = "unsignedinteger", .abc = .Integral }, // np.unsignedinteger
+    // NumPy scalar types - integers
+    .{ .type_name = "int8", .abc = .Integral },
+    .{ .type_name = "int16", .abc = .Integral },
+    .{ .type_name = "int32", .abc = .Integral },
+    .{ .type_name = "int64", .abc = .Integral },
+    .{ .type_name = "uint8", .abc = .Integral },
+    .{ .type_name = "uint16", .abc = .Integral },
+    .{ .type_name = "uint32", .abc = .Integral },
+    .{ .type_name = "uint64", .abc = .Integral },
+    .{ .type_name = "intp", .abc = .Integral },
+    .{ .type_name = "uintp", .abc = .Integral },
+    .{ .type_name = "byte", .abc = .Integral },
+    .{ .type_name = "ubyte", .abc = .Integral },
+    .{ .type_name = "short", .abc = .Integral },
+    .{ .type_name = "ushort", .abc = .Integral },
+    .{ .type_name = "intc", .abc = .Integral },
+    .{ .type_name = "uintc", .abc = .Integral },
+    .{ .type_name = "longlong", .abc = .Integral },
+    .{ .type_name = "ulonglong", .abc = .Integral },
+    // NumPy scalar types - floats
+    .{ .type_name = "float16", .abc = .Real },
+    .{ .type_name = "float32", .abc = .Real },
+    .{ .type_name = "float64", .abc = .Real },
+    .{ .type_name = "float128", .abc = .Real },
+    .{ .type_name = "half", .abc = .Real },
+    .{ .type_name = "single", .abc = .Real },
+    .{ .type_name = "double", .abc = .Real },
+    .{ .type_name = "longdouble", .abc = .Real },
+    .{ .type_name = "longfloat", .abc = .Real },
+    // NumPy scalar types - complex
+    .{ .type_name = "complex64", .abc = .Complex },
+    .{ .type_name = "complex128", .abc = .Complex },
+    .{ .type_name = "complex256", .abc = .Complex },
+    .{ .type_name = "csingle", .abc = .Complex },
+    .{ .type_name = "cdouble", .abc = .Complex },
+    .{ .type_name = "clongdouble", .abc = .Complex },
+    .{ .type_name = "clongfloat", .abc = .Complex },
 };
 
 /// Check if a built-in type is a subclass of a numbers ABC

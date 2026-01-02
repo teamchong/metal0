@@ -285,6 +285,8 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerFull("unittest", .zig_runtime, "runtime.unittest", "runtime.Lib.unittest", null, false, &UnittestFuncMeta);
     try registry.register("pytest", .zig_runtime, "runtime.Lib.pytest", null);
     try registry.register("numpy.testing", .zig_runtime, "runtime.Lib.numpy_testing", null);
+    // Python numbers module (ABC numeric tower: Number, Complex, Real, Rational, Integral)
+    try registry.registerDirect("numbers", .zig_runtime, "runtime.Lib.numbers", "runtime.Lib.numbers", null);
 
     // Tier 2: C library wrappers (CPython stdlib modules only)
     // c_interop modules use c_interop.modules.xxx namespace for DCE
