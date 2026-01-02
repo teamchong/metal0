@@ -134,6 +134,37 @@ pub fn assertEqual(a: anytype, b: anytype) !void {
     }
 
     // =========================================================================
+    // Exception type comparison: ExceptionClass("Name") == "Name" string
+    // Handles assertEqual(ZeroDivisionError, cm.unraisable.exc_type)
+    // =========================================================================
+    if (a_info == .@"struct" and @hasDecl(A, "name")) {
+        // A is an exception class type with .name field
+        if (isStringType(B)) {
+            // Compare exception class name with string
+            if (std.mem.eql(u8, A.name, b)) {
+                if (runner.global_result) |result| result.addPass();
+                return;
+            }
+            std.debug.print("AssertionError: {s} != {s}\n", .{ A.name, b });
+            if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+            return error.AssertionFailed;
+        }
+    }
+    if (b_info == .@"struct" and @hasDecl(B, "name")) {
+        // B is an exception class type with .name field
+        if (isStringType(A)) {
+            // Compare string with exception class name
+            if (std.mem.eql(u8, a, B.name)) {
+                if (runner.global_result) |result| result.addPass();
+                return;
+            }
+            std.debug.print("AssertionError: {s} != {s}\n", .{ a, B.name });
+            if (runner.global_result) |result| result.addFail("assertEqual failed") catch {};
+            return error.AssertionFailed;
+        }
+    }
+
+    // =========================================================================
     // FAST PATHS for common concrete types (reduces monomorphization)
     // These dispatch to comparison_ops which compile ONCE, not per call site
     // =========================================================================
