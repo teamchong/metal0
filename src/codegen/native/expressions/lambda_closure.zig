@@ -473,6 +473,16 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
     const return_type = try inferReturnType(self, lambda.body.*);
     try self.output.writer(self.allocator).print(") {s} {{\n", .{return_type});
 
+    // Emit discards for unused closure struct and parameters to avoid warnings
+    if (!self_only_for_unittest) {
+        try self.emit("        _ = &__cl;\n");
+    }
+    for (lambda.args) |arg| {
+        try self.emit("        _ = &");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
+        try self.emit(";\n");
+    }
+
     // Body - don't use return for void or !void functions (assertRaises generates its own return)
     if (std.mem.eql(u8, return_type, "void") or std.mem.eql(u8, return_type, "!void")) {
         try self.emit("        ");
