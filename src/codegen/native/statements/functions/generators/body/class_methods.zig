@@ -826,6 +826,20 @@ pub fn genInitMethod(
         }
     }
 
+    // Add *args parameter if present (e.g., def __init__(self, *args))
+    if (init_def.vararg) |vararg_name| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), vararg_name);
+        try self.emit(": runtime.PyValue");
+    }
+
+    // Add **kwargs parameter if present (e.g., def __init__(self, **kwargs))
+    if (init_def.kwarg) |kwarg_name| {
+        try self.emit(", ");
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), kwarg_name);
+        try self.emit(": runtime.PyValue");
+    }
+
     // Use @This() for self-referential return type - heap-allocate for nested classes
     // Add error union if __init__ body can raise exceptions
     const can_raise = bodyCanRaise(init_def.body);

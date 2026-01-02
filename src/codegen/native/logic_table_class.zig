@@ -146,6 +146,7 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
 
     // Generate C-callable export wrappers at module level ONLY when --emit-logic-table is used
     // These are free functions with export linkage that call the struct methods
+    std.debug.print("emit_logic_table_exports = {}\n", .{self.emit_logic_table_exports});
     if (self.emit_logic_table_exports) {
         try self.emit("// __logic_table_exports_begin__\n");
         for (methods.items) |m| {
