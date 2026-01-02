@@ -508,6 +508,41 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // Handle chained exception attribute access: e.__context__.__context__
+    // The first access (e.__context__) returns ?*PyException, so we need optional handling
+    if (attr.value.* == .attribute) {
+        const inner_attr = attr.value.attribute;
+        if (inner_attr.value.* == .name) {
+            const exc_var_name = inner_attr.value.name.id;
+            if (self.exception_vars.contains(exc_var_name)) {
+                const exc_attrs = [_][]const u8{ "__traceback__", "__context__", "__cause__", "__suppress_context__", "args", "type_name", "message" };
+                const inner_is_exc_attr = for (exc_attrs) |exc_attr| {
+                    if (std.mem.eql(u8, inner_attr.attr, exc_attr)) break true;
+                } else false;
+                const outer_is_exc_attr = for (exc_attrs) |exc_attr| {
+                    if (std.mem.eql(u8, attr.attr, exc_attr)) break true;
+                } else false;
+
+                if (inner_is_exc_attr and outer_is_exc_attr) {
+                    // Chained exception attr: e.__context__.__context__
+                    // Generate: if (e.__context__) |ctx| ctx.__context__ else null
+                    try self.emit("(if (");
+                    if (self.var_renames.get(exc_var_name)) |renamed| {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
+                    } else {
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), exc_var_name);
+                    }
+                    try self.emit(".");
+                    try self.emit(inner_attr.attr);
+                    try self.emit(") |__ctx| __ctx.");
+                    try self.emit(attr.attr);
+                    try self.emit(" else null)");
+                    return;
+                }
+            }
+        }
+    }
+
     // Check if value produces a block expression - need to wrap in temp variable
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     // Wrap in parentheses to prevent "label:" from being parsed as named argument when used in fn calls

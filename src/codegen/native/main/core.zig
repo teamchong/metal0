@@ -1625,6 +1625,8 @@ pub const NativeCodegen = struct {
         if (self.module_level_vars.contains(param_name)) return true;
         if (self.imported_modules.contains(param_name)) return true;
         if (self.module_level_from_imports.contains(param_name)) return true;
+        // Check import aliases (e.g., "import numpy._core.numeric as N")
+        if (self.import_aliases.contains(param_name)) return true;
 
         return false;
     }
