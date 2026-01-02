@@ -62,6 +62,13 @@ pub const genPopleft = list.genPopleft;
 pub const genExtendleft = list.genExtendleft;
 pub const genRotate = list.genRotate;
 
+// Unknown-typed list operations (for module-level vars in closures)
+pub const genAppendUnknown = list.genAppendUnknown;
+pub const genExtendUnknown = list.genExtendUnknown;
+pub const genInsertUnknown = list.genInsertUnknown;
+pub const genPopUnknown = list.genPopUnknown;
+pub const genClearUnknown = list.genClearUnknown;
+
 // Dict methods
 pub const genGet = dict.genGet;
 pub const genKeys = dict.genKeys;

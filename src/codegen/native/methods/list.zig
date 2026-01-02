@@ -689,3 +689,67 @@ pub fn genRotate(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
     }
     try self.emit(")))");
 }
+
+// ============================================================================
+// Unknown-typed list operations (for module-level variables in closures)
+// These generate runtime calls that work with any list-like PyValue
+// ============================================================================
+
+/// Generate code for list.append(item) on unknown-typed objects
+/// Used when type inference returns .unknown (e.g., module-level vars in closures)
+/// Generates: runtime.pyListAppendPV(__global_allocator, &obj, runtime.PyValue.from(item))
+pub fn genAppendUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Use the same PyValue-first API as uncertain types
+    // In defer blocks, 'try' is not allowed - use catch unreachable instead
+    try emitPyListAppendPV(self, obj, args[0], !self.inside_defer, self.inside_defer);
+}
+
+/// Generate code for list.extend(iterable) on unknown-typed objects
+/// Generates: runtime.pyListExtendPV(__global_allocator, &obj, runtime.PyValue.from(arg))
+pub fn genExtendUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 1) return error.UnsupportedSyntax;
+
+    // Use the same PyValue-first API as uncertain types
+    try emitPyListExtendPV(self, obj, args[0]);
+}
+
+/// Generate code for list.insert(idx, item) on unknown-typed objects
+/// Generates: runtime.pyListInsertPV(__global_allocator, &obj, idx, runtime.PyValue.from(item))
+pub fn genInsertUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    if (args.len != 2) return error.UnsupportedSyntax;
+
+    // Use the same PyValue-first API as uncertain types
+    try emitPyListInsertPV(self, obj, args[0], args[1]);
+}
+
+/// Generate code for list.pop() on unknown-typed objects
+/// Generates: runtime.pyListPopPV(&obj, idx) or runtime.pyListPopPV(&obj, null)
+pub fn genPopUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    const at_module_level = self.current_function_name == null;
+
+    if (!at_module_level) try self.emit("try ");
+    try self.emit("runtime.pyListPopPV(&");
+    try emitObjExpr(self, obj);
+    try self.emit(", ");
+    if (args.len > 0) {
+        // list.pop(idx) - pop at specific index
+        try self.genExpr(args[0]);
+    } else {
+        // list.pop() - pop last item (null means last)
+        try self.emit("null");
+    }
+    try self.emit(")");
+    if (at_module_level) try self.emit(" catch unreachable");
+}
+
+/// Generate code for list.clear() on unknown-typed objects
+/// Generates: runtime.pyListClearPV(&obj)
+pub fn genClearUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
+    _ = args;
+
+    try self.emit("runtime.pyListClearPV(&");
+    try emitObjExpr(self, obj);
+    try self.emit(")");
+}

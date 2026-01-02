@@ -624,13 +624,39 @@ pub fn tryDispatch(self: *NativeCodegen, call: ast.Node.Call) CodegenError!bool 
         }
     }
 
+    // Handle unknown-typed list operations via PyValue helpers
+    // This catches module-level variables accessed from closures that return .unknown type
+    // These need PyValue-based dispatch since we can't determine the actual type at codegen time
+    if (type_traits.isUnknown(obj_type)) {
+        if (std.mem.eql(u8, method_name, "append")) {
+            try methods.genAppendUnknown(self, obj, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "extend")) {
+            try methods.genExtendUnknown(self, obj, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "insert")) {
+            try methods.genInsertUnknown(self, obj, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "pop")) {
+            try methods.genPopUnknown(self, obj, call.args);
+            return true;
+        }
+        if (std.mem.eql(u8, method_name, "clear")) {
+            try methods.genClearUnknown(self, obj, call.args);
+            return true;
+        }
+    }
+
     // Try list methods - but NOT if we know it's a dict, set, or uncertain type
     // Two-Flow: Skip list dispatch for PyValue/unknown to let them fall through to runtime
     if (ListMethods.get(method_name)) |handler| {
         // Skip list dispatch for dict/set types to avoid list.pop() on dicts
-        // Keep unknown types - they may be empty list literals like [] which need list methods
+        // Skip unknown types - they're handled above via PyValue helpers
         if (!container_traits.isDict(obj_type) and !container_traits.isSet(obj_type) and
-            obj_type != .counter and obj_type != .pyvalue)
+            obj_type != .counter and obj_type != .pyvalue and !type_traits.isUnknown(obj_type))
         {
             handler(self, obj, call.args) catch |err| {
                 if (err == error.UnsupportedSyntax) return false;
