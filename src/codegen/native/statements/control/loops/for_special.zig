@@ -234,18 +234,34 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
         const nested_elts = if (target_elts[1] == .tuple) target_elts[1].tuple.elts else target_elts[1].list.elts;
         for (nested_elts, 0..) |elt, i| {
             if (elt == .name) {
+                const name = elt.name.id;
                 const b = try self.getBuilder();
                 try b.writeIndent();
                 try b.emitRaw("const ");
-                try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), elt.name.id);
+                // Use writeLocalVarName to apply _ suffix for names that shadow methods/modules
+                try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), name);
                 try b.emitRaw(" = ");
                 try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), item_var);
                 try b.writeFmt(".@\"{d}\";\n", .{i});
                 const output = try b.getBodyDupe();
                 try self.output.appendSlice(self.allocator, output);
+
+                // If name would shadow method/module, add to var_renames so body uses same name
+                if (zig_keywords.wouldShadowMethod(name) or zig_keywords.wouldShadowModule(name)) {
+                    const renamed = try std.fmt.allocPrint(self.allocator, "{s}_", .{name});
+                    try self.var_renames.put(name, renamed);
+                }
+
                 // Only suppress unused warning if variable is NOT used in body
-                if (!param_analyzer.isNameUsedInBody(body, elt.name.id)) {
-                    try emitIndentWithIdent(self, "_ = ", elt.name.id, ";\n");
+                if (!param_analyzer.isNameUsedInBody(body, name)) {
+                    // Use writeLocalVarName for consistency
+                    const b2 = try self.getBuilder();
+                    try b2.writeIndent();
+                    try b2.emitRaw("_ = ");
+                    try zig_keywords.writeLocalVarName(b2.body.writer(b2.allocator), name);
+                    try b2.emitRaw(";\n");
+                    const output2 = try b2.getBodyDupe();
+                    try self.output.appendSlice(self.allocator, output2);
                 }
             }
         }
@@ -396,7 +412,8 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.emitRaw("const ");
-        try zig_keywords.writeEscapedIdent(b.body.writer(b.allocator), var_name);
+        // Use writeLocalVarName to apply _ suffix for names that shadow methods/modules
+        try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
         try b.writeFmt(" = __zip_iter_{d}", .{i});
         if (iter_is_list[i]) try b.emitRaw(".items");
         try b.emitRaw("[__zip_idx];\n");
@@ -406,6 +423,12 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
         // Add variable to symbol table so nested scopes can detect shadowing
         if (elt == .name and !std.mem.eql(u8, var_name, "_")) {
             try self.declareVar(var_name);
+        }
+
+        // If name would shadow method/module, add to var_renames so body uses same name
+        if (elt == .name and (zig_keywords.wouldShadowMethod(var_name) or zig_keywords.wouldShadowModule(var_name))) {
+            const renamed = try std.fmt.allocPrint(self.allocator, "{s}_", .{var_name});
+            try self.var_renames.put(var_name, renamed);
         }
 
         // Check if variable is used in body - if not, track for warning suppression
@@ -419,7 +442,14 @@ pub fn genZipLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node, body
 
     // Emit _ = &var; for any unused variables to suppress Zig warnings
     for (unused_vars.items) |var_name| {
-        try emitIndentWithIdent(self, "_ = &", var_name, ";\n");
+        // Use writeLocalVarName for consistency
+        const b2 = try self.getBuilder();
+        try b2.writeIndent();
+        try b2.emitRaw("_ = &");
+        try zig_keywords.writeLocalVarName(b2.body.writer(b2.allocator), var_name);
+        try b2.emitRaw(";\n");
+        const output2 = try b2.getBodyDupe();
+        try self.output.appendSlice(self.allocator, output2);
     }
 
     // Generate body statements

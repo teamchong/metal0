@@ -90,7 +90,8 @@ const PyTypeNames = std.StaticStringMap([]const u8).initComptime(.{
     // Special values
     .{ "None", "null" },
     .{ "NoneType", "null" },
-    .{ "NotImplemented", "runtime.NotImplemented" },
+    .{ "NotImplemented", "runtime.Lib.types.NotImplemented" },
+    .{ "Ellipsis", "runtime.Lib.types.Ellipsis" },
     .{ "object", "runtime.builtins.object" },
 });
 
@@ -222,6 +223,13 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 if (self.var_renames.get(n.id)) |renamed| break :blk renamed;
                 break :blk n.id;
             };
+
+            // Check if this is a Python builtin type/constant that needs special translation
+            // e.g., NotImplemented -> runtime.NotImplemented, Ellipsis -> runtime.Ellipsis
+            if (PyTypeNames.get(name_to_use)) |replacement| {
+                try self.emit(replacement);
+                return;
+            }
 
             // Disambiguate module-level references that conflict with module wrapper struct name
             // E.g., in version.py: `__version__ = version` needs to use `_version` (the renamed const)

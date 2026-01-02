@@ -2419,6 +2419,12 @@ pub const NativeCodegen = struct {
                 if (std.mem.eql(u8, orig_name, "None")) {
                     return builder_mod.ZigValue.null_();
                 }
+                if (std.mem.eql(u8, orig_name, "NotImplemented")) {
+                    return builder_mod.ZigValue.raw("runtime.Lib.types.NotImplemented");
+                }
+                if (std.mem.eql(u8, orig_name, "Ellipsis")) {
+                    return builder_mod.ZigValue.raw("runtime.Lib.types.Ellipsis");
+                }
 
                 // Apply var_renames (same logic as expressions.zig)
                 // Comprehension/param renames take precedence over func_local_vars
