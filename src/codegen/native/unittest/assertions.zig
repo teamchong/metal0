@@ -1434,7 +1434,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             }
             try self.flushBuilder();
             const bb4 = try self.getBuilder();
-            try bb4.write(") catch |err| break :__ar_blk err;\n");
+            try bb4.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
             try bb4.write("        break :__ar_blk null;\n");
             try bb4.write("    };\n");
             if (exception_name) |exc_name| {
@@ -1485,7 +1485,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         try self.flushBuilder();
         try emitCallArgs(self, call_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
         try b3.write("        break :__ar_blk null;\n");
         try b3.write("    };\n");
         try b3.write("    if (__ar_error) |_| {\n");
@@ -1523,7 +1523,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         try self.flushBuilder();
         try emitCallArgs(self, call_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
         try b3.write("        break :__ar_blk null;\n");
         try b3.write("    };\n");
         try b3.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");
@@ -1686,7 +1686,7 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         try self.flushBuilder();
         try emitCallArgsWithKwargs(self, call_args, keyword_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
         try b3.write("        break :__ar_blk null;\n");
         try b3.write("    };\n");
         try b3.write("    if (__ar_error) |_| {\n");
@@ -1712,7 +1712,7 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         try self.flushBuilder();
         try emitCallArgsWithKwargs(self, call_args, keyword_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
         try b3.write("        break :__ar_blk null;\n");
         try b3.write("    };\n");
         try b3.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");

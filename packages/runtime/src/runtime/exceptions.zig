@@ -624,6 +624,7 @@ pub const ExceptionTypeId = enum(i64) {
     IOError = -1000009,
     RuntimeError = -1000010,
     StopIteration = -1000011,
+    StopAsyncIteration = -1000033,
     NotImplementedError = -1000012,
     AssertionError = -1000013,
     OverflowError = -1000014,
@@ -649,7 +650,7 @@ pub const ExceptionTypeId = enum(i64) {
 
     /// Check if an i64 value represents an exception type
     pub fn isExceptionType(value: i64) bool {
-        return value <= -1000001 and value >= -1000032;
+        return value <= -1000001 and value >= -1000033;
     }
 };
 
@@ -751,8 +752,10 @@ pub const AttributeError = ExceptionClass("AttributeError");
 pub const NameError = ExceptionClass("NameError");
 pub const FileNotFoundError = ExceptionClass("FileNotFoundError");
 pub const IOError = ExceptionClass("IOError");
+pub const BlockingIOError = ExceptionClass("BlockingIOError");
 pub const RuntimeError = ExceptionClass("RuntimeError");
 pub const StopIteration = ExceptionClass("StopIteration");
+pub const StopAsyncIteration = ExceptionClass("StopAsyncIteration");
 pub const NotImplementedError = ExceptionClass("NotImplementedError");
 pub const AssertionError = ExceptionClass("AssertionError");
 pub const OverflowError = ExceptionClass("OverflowError");

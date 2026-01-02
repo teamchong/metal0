@@ -292,23 +292,24 @@ pub fn pyIdentical(a: anytype, b: anytype) bool {
 
     // Cross-type exception comparison (PyException vs ExceptionClass)
     // Both have exception_id field for identity tracking
-    const is_a_exception = a_info == .optional and @typeInfo(a_info.optional.child) == .pointer and
+    const is_a_optional_exception = a_info == .optional and @typeInfo(a_info.optional.child) == .pointer and
         @hasField(@typeInfo(a_info.optional.child).pointer.child, "exception_id");
-    const is_b_exception = b_info == .@"struct" and @hasField(B, "exception_id");
+    const is_b_optional_exception = b_info == .optional and @typeInfo(b_info.optional.child) == .pointer and
+        @hasField(@typeInfo(b_info.optional.child).pointer.child, "exception_id");
     const is_a_ptr_exception = a_info == .pointer and @typeInfo(a_info.pointer.child) == .@"struct" and
         @hasField(a_info.pointer.child, "exception_id");
     const is_b_ptr_exception = b_info == .pointer and @typeInfo(b_info.pointer.child) == .@"struct" and
         @hasField(b_info.pointer.child, "exception_id");
 
     // ?*PyException vs *ExceptionClass (or similar)
-    if (is_a_exception and is_b_ptr_exception) {
+    if (is_a_optional_exception and is_b_ptr_exception) {
         if (a) |unwrapped_a| {
             return unwrapped_a.exception_id != 0 and unwrapped_a.exception_id == b.exception_id;
         }
         return false;
     }
     // *ExceptionClass vs ?*PyException
-    if (is_a_ptr_exception and is_b_exception) {
+    if (is_a_ptr_exception and is_b_optional_exception) {
         if (b) |unwrapped_b| {
             return a.exception_id != 0 and a.exception_id == unwrapped_b.exception_id;
         }

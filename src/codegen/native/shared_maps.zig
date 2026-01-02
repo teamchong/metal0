@@ -148,7 +148,7 @@ pub const RuntimeExceptions = std.StaticStringMap(void).initComptime(.{
     .{ "IndexError", {} },      .{ "AttributeError", {} },    .{ "NameError", {} },
     .{ "IOError", {} },         .{ "OSError", {} },           .{ "FileNotFoundError", {} },
     .{ "PermissionError", {} }, .{ "ZeroDivisionError", {} }, .{ "OverflowError", {} },
-    .{ "NotImplementedError", {} }, .{ "StopIteration", {} }, .{ "AssertionError", {} },
+    .{ "NotImplementedError", {} }, .{ "StopIteration", {} }, .{ "StopAsyncIteration", {} }, .{ "AssertionError", {} },
     .{ "ImportError", {} },     .{ "ModuleNotFoundError", {} }, .{ "LookupError", {} },
     .{ "UnicodeError", {} },    .{ "UnicodeDecodeError", {} }, .{ "UnicodeEncodeError", {} },
     .{ "SystemError", {} },     .{ "RecursionError", {} },    .{ "MemoryError", {} },

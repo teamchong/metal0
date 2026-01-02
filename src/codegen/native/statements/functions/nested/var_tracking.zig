@@ -1306,6 +1306,7 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             }
             break :blk false;
         },
+        .await_expr => |a| isParamUsedInNode(param_name, a.value.*),
         else => false,
     };
 }
@@ -1553,6 +1554,9 @@ fn collectReferencedVarsInNode(
                 // So the current function needs to pass it through
                 try referenced.append(self.allocator, ref_name);
             }
+        },
+        .await_expr => |a| {
+            try collectReferencedVarsInNode(self, a.value.*, referenced);
         },
         else => {},
     }
