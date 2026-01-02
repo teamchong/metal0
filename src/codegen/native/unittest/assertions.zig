@@ -1464,11 +1464,24 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         // Closure.call() always returns !PyValue, so catch always works
         try b.write("{\n");
         try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
-        try b.write("        _ = ");
-        try self.flushBuilder();
-        try emitCallableRaw(self, args[1]);
-        const b2 = try self.getBuilder();
-        try b2.write("(");
+        // Check if callable might produce a labeled block (attribute access, getattr call, etc.)
+        // If so, store in temp var first to avoid: __m_getattr: { ... }() (invalid Zig syntax)
+        const callable = args[1];
+        const needs_temp_var = callable == .attribute or callable == .call;
+        if (needs_temp_var) {
+            try b.write("        const __callable = ");
+            try self.flushBuilder();
+            try emitCallableRaw(self, callable);
+            const b1a = try self.getBuilder();
+            try b1a.write(";\n");
+            try b1a.write("        _ = __callable(");
+        } else {
+            try b.write("        _ = ");
+            try self.flushBuilder();
+            try emitCallableRaw(self, callable);
+            const b2 = try self.getBuilder();
+            try b2.write("(");
+        }
         try self.flushBuilder();
         try emitCallArgs(self, call_args);
         const b3 = try self.getBuilder();
@@ -1490,11 +1503,23 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         // Just check that ANY error was raised
         try b.write("{\n");
         try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
-        try b.write("        _ = ");
-        try self.flushBuilder();
-        try emitCallableRaw(self, args[1]);
-        const b2 = try self.getBuilder();
-        try b2.write("(");
+        // Check if callable might produce a labeled block (attribute access, getattr call, etc.)
+        const callable2 = args[1];
+        const needs_temp_var2 = callable2 == .attribute or callable2 == .call;
+        if (needs_temp_var2) {
+            try b.write("        const __callable = ");
+            try self.flushBuilder();
+            try emitCallableRaw(self, callable2);
+            const b1b = try self.getBuilder();
+            try b1b.write(";\n");
+            try b1b.write("        _ = __callable(");
+        } else {
+            try b.write("        _ = ");
+            try self.flushBuilder();
+            try emitCallableRaw(self, callable2);
+            const b2 = try self.getBuilder();
+            try b2.write("(");
+        }
         try self.flushBuilder();
         try emitCallArgs(self, call_args);
         const b3 = try self.getBuilder();

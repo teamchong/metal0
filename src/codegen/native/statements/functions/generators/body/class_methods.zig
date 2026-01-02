@@ -760,6 +760,12 @@ pub fn genInitMethod(
     }
     self.indent();
 
+    // Set current function name for TryHelper capture logic to know we're in __init__
+    // (so it doesn't capture 'self' which doesn't exist until struct creation at end)
+    const prev_func_name = self.current_function_name;
+    self.current_function_name = "__init__";
+    defer self.current_function_name = prev_func_name;
+
     // Push a new scope for this init method to isolate variable declarations
     // This prevents variables from one class's init leaking into another class's init
     try self.pushScope();
