@@ -90,21 +90,33 @@ pub fn assertIsInstance(obj: anytype, expected_type_name: []const u8) !void {
     const actual_type_name = @typeName(T);
 
     const matches = blk: {
-        // Special case: ?*PyException - check the exception's type_name field
+        // Special case: PyException types - check the exception's type_name field
+        // Use @typeName string matching to handle different module import paths
         // This handles: assertIsInstance(e.__context__, TypeError)
-        if (T == ?*PyException) {
-            if (obj) |exc| {
-                break :blk std.mem.eql(u8, exc.type_name, expected_type_name);
+        if (comptime std.mem.indexOf(u8, actual_type_name, "PyException") != null) {
+            // It's some form of PyException (optional pointer, pointer, or value)
+            const type_info = @typeInfo(T);
+            if (type_info == .optional) {
+                // ?*PyException or ?PyException
+                if (obj) |unwrapped| {
+                    const inner_info = @typeInfo(@TypeOf(unwrapped));
+                    if (inner_info == .pointer) {
+                        // ?*PyException - unwrapped is *PyException
+                        const exc_type_name = unwrapped.type_name;
+                        break :blk std.mem.eql(u8, exc_type_name, expected_type_name);
+                    } else {
+                        // ?PyException (value)
+                        break :blk std.mem.eql(u8, unwrapped.type_name, expected_type_name);
+                    }
+                }
+                break :blk false; // null is not an instance of anything
+            } else if (type_info == .pointer) {
+                // *PyException
+                break :blk std.mem.eql(u8, obj.type_name, expected_type_name);
+            } else if (type_info == .@"struct") {
+                // PyException value
+                break :blk std.mem.eql(u8, obj.type_name, expected_type_name);
             }
-            break :blk false; // null is not an instance of anything
-        }
-        // Also handle non-optional *PyException
-        if (T == *PyException) {
-            break :blk std.mem.eql(u8, obj.type_name, expected_type_name);
-        }
-        // Handle PyException value directly
-        if (T == PyException) {
-            break :blk std.mem.eql(u8, obj.type_name, expected_type_name);
         }
 
         if (std.mem.eql(u8, actual_type_name, expected_type_name)) break :blk true;

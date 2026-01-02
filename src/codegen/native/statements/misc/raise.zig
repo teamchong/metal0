@@ -39,10 +39,10 @@ fn genRaiseCause(self: *NativeCodegen, b: anytype, cause: *const ast.Node) Codeg
         try b.emitRaw("runtime.exceptions.setExceptionCause(null);\n");
     } else if (cause.* == .name) {
         // `raise X from exc` where exc is a variable name
-        // Check if it's an exception type (like KeyError) vs an instance
+        // Check if it's an exception type (like KeyError) vs an instance vs user class
         const name = cause.name.id;
         if (ExceptionTypes.has(name)) {
-            // It's an exception type name - create PyException with that type
+            // It's a built-in exception type name - create PyException with that type
             try b.writeIndent();
             try b.emitRaw("{\n");
             b.indent();
@@ -55,32 +55,40 @@ fn genRaiseCause(self: *NativeCodegen, b: anytype, cause: *const ast.Node) Codeg
             b.dedent();
             try b.writeIndent();
             try b.emitRaw("}\n");
-        } else {
-            // It's a variable - assume it's a PyException and copy from it
-            // Use the current exception on the stack if available
+        } else if (self.nested_class_names.contains(name) or self.class_registry.getClass(name) != null) {
+            // It's a user-defined exception class - use @typeName to get string
+            // Note: In Python, this would instantiate the class, but we simplify
+            // by just using the class name as the cause type
             try b.writeIndent();
             try b.emitRaw("{\n");
             b.indent();
             try b.writeIndent();
-            try b.emitRaw("// Get cause from current exception context\n");
+            try b.emitRaw("// User-defined exception class as cause\n");
             try b.writeIndent();
-            try b.emitRaw("const __maybe_cause = runtime.exceptions.getCurrentException();\n");
-            try b.writeIndent();
-            try b.emitRaw("if (__maybe_cause) |__cause_entry| {\n");
-            b.indent();
-            try b.writeIndent();
-            try b.emitRaw("var __cause_exc = runtime.exceptions.PyException.initWithId(__cause_entry.type_name, __cause_entry.message, __cause_entry.exception_id);\n");
-            try b.writeIndent();
-            try b.emitRaw("runtime.exceptions.setExceptionCause(&__cause_exc);\n");
-            b.dedent();
-            try b.writeIndent();
-            try b.emitRaw("} else {\n");
-            b.indent();
-            try b.writeIndent();
-            try b.emitRaw("runtime.exceptions.setExceptionCause(null);\n");
+            try b.emitRaw("runtime.exceptions.setExceptionCauseFromData(@typeName(");
+            try b.emitRaw(name);
+            try b.emitRaw("), \"\", 0);\n");
             b.dedent();
             try b.writeIndent();
             try b.emitRaw("}\n");
+        } else {
+            // It's a variable - use the variable's exception data directly
+            // The variable should be a PyException captured in an except handler
+            // Check for variable renames (e.g., inside TryHelper: cause -> __local_cause_22)
+            const actual_name = self.var_renames.get(name) orelse name;
+            try b.writeIndent();
+            try b.emitRaw("{\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("// Get cause from the exception variable\n");
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setExceptionCauseFromData(");
+            try b.emitRaw(actual_name);
+            try b.emitRaw(".type_name, ");
+            try b.emitRaw(actual_name);
+            try b.emitRaw(".message, ");
+            try b.emitRaw(actual_name);
+            try b.emitRaw(".exception_id);\n");
             b.dedent();
             try b.writeIndent();
             try b.emitRaw("}\n");

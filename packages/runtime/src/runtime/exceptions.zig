@@ -154,9 +154,12 @@ pub fn hasActiveException() bool {
 // Exception Cause Tracking (for `raise X from Y` syntax)
 // ============================================================================
 
-/// Thread-local storage for exception cause (set by `raise X from Y`)
-/// When set, the next raised exception will have __cause__ set to this value
-threadlocal var pending_exception_cause: ?*PyException = null;
+/// Thread-local storage for exception cause data (set by `raise X from Y`)
+/// We store the data, not a pointer, to avoid stack lifetime issues
+threadlocal var pending_cause_type_name: []const u8 = "";
+threadlocal var pending_cause_message: []const u8 = "";
+threadlocal var pending_cause_id: u64 = 0;
+threadlocal var pending_has_cause: bool = false;
 
 /// Thread-local storage for __suppress_context__ (set by `raise X from Y` or `raise X from None`)
 /// When true, __context__ won't be displayed even if set
@@ -166,20 +169,50 @@ threadlocal var pending_suppress_context: bool = false;
 /// `raise X from None` is different from just `raise X`
 threadlocal var pending_cause_is_none: bool = false;
 
-/// Set the exception cause for the next raised exception
+/// Set the exception cause for the next raised exception (from PyException pointer)
 /// Called during `raise X from Y` processing
 pub fn setExceptionCause(cause: ?*PyException) void {
-    pending_exception_cause = cause;
+    if (cause) |c| {
+        pending_cause_type_name = c.type_name;
+        pending_cause_message = c.message;
+        pending_cause_id = c.exception_id;
+        pending_has_cause = true;
+    } else {
+        pending_has_cause = false;
+    }
     pending_suppress_context = true; // `raise X from Y` always sets __suppress_context__ = True
     pending_cause_is_none = cause == null;
 }
 
-/// Get the pending exception cause (and clear it)
-/// Called when constructing the PyException object
-pub fn consumeExceptionCause() ?*PyException {
-    const cause = pending_exception_cause;
-    pending_exception_cause = null;
-    return cause;
+/// Set the exception cause from type name and message directly
+/// Used when we don't have a full PyException object
+pub fn setExceptionCauseFromData(type_name: []const u8, message: []const u8, exc_id: u64) void {
+    pending_cause_type_name = type_name;
+    pending_cause_message = message;
+    pending_cause_id = exc_id;
+    pending_has_cause = true;
+    pending_suppress_context = true;
+    pending_cause_is_none = false;
+}
+
+/// Check if there's a pending cause
+pub fn hasPendingCause() bool {
+    return pending_has_cause;
+}
+
+/// Get the pending cause type name
+pub fn getPendingCauseTypeName() []const u8 {
+    return pending_cause_type_name;
+}
+
+/// Get the pending cause message
+pub fn getPendingCauseMessage() []const u8 {
+    return pending_cause_message;
+}
+
+/// Get the pending cause exception ID
+pub fn getPendingCauseId() u64 {
+    return pending_cause_id;
 }
 
 /// Get the pending suppress_context flag (and clear it)
@@ -197,7 +230,10 @@ pub fn wasCauseExplicitlyNone() bool {
 
 /// Clear all pending cause state
 pub fn clearPendingCause() void {
-    pending_exception_cause = null;
+    pending_cause_type_name = "";
+    pending_cause_message = "";
+    pending_cause_id = 0;
+    pending_has_cause = false;
     pending_suppress_context = false;
     pending_cause_is_none = false;
 }
@@ -465,14 +501,33 @@ pub fn setExceptionFull(exc: PyException) void {
     last_exception_message = exc.message;
 }
 
+/// Thread-local storage for the cause PyException (so we can return a pointer)
+/// Use direct struct initialization to avoid calling runtime functions at comptime
+threadlocal var cause_exception_storage: PyException = .{
+    .type_name = "",
+    .message = "",
+};
+
 /// Get the full exception object (returns default if none set)
 /// Also applies pending __cause__ and __suppress_context__ from `raise X from Y`
 pub fn getExceptionFull() PyException {
     var exc = last_exception_full orelse PyException.fromCurrent();
     // Apply pending cause from `raise X from Y`
     if (pending_suppress_context) {
-        exc.__cause__ = consumeExceptionCause();
         exc.__suppress_context__ = true;
+        if (pending_has_cause) {
+            // Create the cause exception in thread-local storage
+            cause_exception_storage = PyException.initWithId(
+                pending_cause_type_name,
+                pending_cause_message,
+                pending_cause_id,
+            );
+            exc.__cause__ = &cause_exception_storage;
+        } else {
+            exc.__cause__ = null;
+        }
+        // Clear pending state
+        clearPendingCause();
     }
     return exc;
 }

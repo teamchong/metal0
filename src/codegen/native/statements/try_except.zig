@@ -339,6 +339,8 @@ fn findWrittenVarsInStmts(stmts: []ast.Node, vars: *FnvVoidMap) !void {
                 }
             },
             .for_stmt => |for_stmt| {
+                // For loop target is written at each iteration (e.g., "for k in range(...)" writes to k)
+                try addTargetVarsToLocals(for_stmt.target.*, vars);
                 try findWrittenVarsInStmts(for_stmt.body, vars);
                 if (for_stmt.orelse_body) |orelse_body| {
                     try findWrittenVarsInStmts(orelse_body, vars);
