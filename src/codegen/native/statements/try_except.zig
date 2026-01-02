@@ -1101,6 +1101,48 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         try self.output.writer(self.allocator).print("_ = &__pending_exception_{d};\n", .{helper_id});
     }
 
+    // Phase H: Track exception variables that need outer-scope declaration
+    // When an exception variable (from "except X as name:") is used AFTER the try block
+    // (in else_body or finalbody), we must declare it at the outer scope as var,
+    // not as const inside the catch block (which would go out of scope).
+    var outer_scope_exc_vars = hashmap_helper.StringHashMap([]const u8).init(self.allocator);
+    defer outer_scope_exc_vars.deinit();
+
+    for (try_node.handlers) |handler| {
+        if (handler.name) |exc_name| {
+            // Check if this exception var will be used after the try block
+            const used_in_else = isNameUsedInStmts(try_node.else_body, exc_name, self.allocator);
+            const used_in_finally = isNameUsedInStmts(try_node.finalbody, exc_name, self.allocator);
+            if (used_in_else or used_in_finally) {
+                // Check if this name is NOT already accessible (hoisted or passed as pointer)
+                const is_hoisted_this_block = blk: {
+                    for (declared_vars.items) |hoisted| {
+                        if (std.mem.eql(u8, hoisted.name, exc_name)) break :blk true;
+                    }
+                    break :blk false;
+                };
+                const was_declared_elsewhere = self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+                const has_pointer_rename = if (self.var_renames.get(exc_name)) |renamed| std.mem.endsWith(u8, renamed, ".*") else false;
+                const is_accessible = is_hoisted_this_block or (was_declared_elsewhere and has_pointer_rename);
+
+                if (!is_accessible) {
+                    // Declare scoped var at outer scope BEFORE the TryHelper
+                    const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
+                    try outer_scope_exc_vars.put(exc_name, scoped_name);
+                    try self.emitIndent();
+                    try self.emit("var ");
+                    try self.emit(scoped_name);
+                    try self.emit(": runtime.PyException = undefined;\n");
+                    // Suppress "unused" warning
+                    try self.emitIndent();
+                    try self.emit("_ = &");
+                    try self.emit(scoped_name);
+                    try self.emit(";\n");
+                }
+            }
+        }
+    }
+
     // Generate try block with exception handling
     if (try_node.handlers.len > 0) {
         // Collect read-only captured variables (not written in try block)
@@ -1823,19 +1865,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             }
                             try self.emit(" = runtime.getExceptionFull();\n");
                         } else {
-                            // Declare new const - either not declared elsewhere, or declared but not accessible
-                            // Use scoped name to avoid shadowing outer variables with the same name
-                            const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
-                            try self.emit("const ");
-                            try self.emit(scoped_name);
-                            try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
-                            // Suppress "unused local constant" error - variable may be used or just declared for Python compat
-                            try self.emitIndent();
-                            try self.emit("_ = &");
-                            try self.emit(scoped_name);
-                            try self.emit(";\n");
-                            // Add to var_renames so handler body references use the scoped name
-                            try self.var_renames.put(exc_name, scoped_name);
+                            // Check if already declared at outer scope (Phase H - used in else/finally)
+                            if (outer_scope_exc_vars.get(exc_name)) |scoped_name| {
+                                // Just assign - already declared at outer scope as var
+                                try self.emit(scoped_name);
+                                try self.emit(" = runtime.getExceptionFull();\n");
+                                try self.var_renames.put(exc_name, scoped_name);
+                            } else {
+                                // Declare new const - only used within handler body
+                                // Use scoped name to avoid shadowing outer variables with the same name
+                                const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
+                                try self.emit("const ");
+                                try self.emit(scoped_name);
+                                try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
+                                // Suppress "unused local constant" error - variable may be used or just declared for Python compat
+                                try self.emitIndent();
+                                try self.emit("_ = &");
+                                try self.emit(scoped_name);
+                                try self.emit(";\n");
+                                // Add to var_renames so handler body references use the scoped name
+                                try self.var_renames.put(exc_name, scoped_name);
+                            }
                         }
                     }
                 }
@@ -1922,19 +1972,27 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                             }
                             try self.emit(" = runtime.getExceptionFull();\n");
                         } else {
-                            // Declare new const - either not declared elsewhere, or declared but not accessible
-                            // Use scoped name to avoid shadowing outer variables with the same name
-                            const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
-                            try self.emit("const ");
-                            try self.emit(scoped_name);
-                            try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
-                            // Suppress "unused local constant" error - variable may be used or just declared for Python compat
-                            try self.emitIndent();
-                            try self.emit("_ = &");
-                            try self.emit(scoped_name);
-                            try self.emit(";\n");
-                            // Add to var_renames so handler body references use the scoped name
-                            try self.var_renames.put(exc_name, scoped_name);
+                            // Check if already declared at outer scope (Phase H - used in else/finally)
+                            if (outer_scope_exc_vars.get(exc_name)) |scoped_name| {
+                                // Just assign - already declared at outer scope as var
+                                try self.emit(scoped_name);
+                                try self.emit(" = runtime.getExceptionFull();\n");
+                                try self.var_renames.put(exc_name, scoped_name);
+                            } else {
+                                // Declare new const - only used within handler body
+                                // Use scoped name to avoid shadowing outer variables with the same name
+                                const scoped_name = try std.fmt.allocPrint(self.allocator, "__exc_{s}_{d}", .{ exc_name, helper_id });
+                                try self.emit("const ");
+                                try self.emit(scoped_name);
+                                try self.emit(": runtime.PyException = runtime.getExceptionFull();\n");
+                                // Suppress "unused local constant" error - variable may be used or just declared for Python compat
+                                try self.emitIndent();
+                                try self.emit("_ = &");
+                                try self.emit(scoped_name);
+                                try self.emit(";\n");
+                                // Add to var_renames so handler body references use the scoped name
+                                try self.var_renames.put(exc_name, scoped_name);
+                            }
                         }
                     }
                 }

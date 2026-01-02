@@ -285,6 +285,14 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 }
             }
 
+            // Handle 'cls' in init generated from __new__ - 'cls' becomes @This()
+            // When __new__(cls, ...) is converted to init(allocator, ...), 'cls' parameter is removed
+            // Any reference to 'cls' in the body should become @This() (the struct type)
+            if (std.mem.eql(u8, name_to_use, "cls") and self.inside_init_method) {
+                try self.emit("@This()");
+                return;
+            }
+
             // Handle Python builtin constants
             if (std.mem.eql(u8, name_to_use, "Ellipsis")) {
                 // Python Ellipsis constant - emit void value (like ellipsis_literal)

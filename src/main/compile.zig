@@ -900,8 +900,15 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
     // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
     // WASM needs script mode (with main/_start entry point)
+    // --emit-logic-table-shared: use module mode but WITHOUT module_name wrapper
+    // This allows export functions to be at module level, not inside a struct
     const is_wasm_target = opts.wasm or opts.target == .wasm_browser or opts.target == .wasm_edge;
-    if (!opts.binary and !is_wasm_target and std.mem.eql(u8, opts.mode, "build")) {
+    if (opts.emit_logic_table_shared) {
+        // @logic_table shared lib: module mode without struct wrapper
+        // Export functions must be at module level, not inside a struct
+        native_gen.mode = .module;
+        native_gen.module_name = null; // No struct wrapper
+    } else if (!opts.binary and !is_wasm_target and std.mem.eql(u8, opts.mode, "build")) {
         native_gen.mode = .module;
         // For packages (__init__.py), use the package name (parent dir), not "__init__"
         // e.g., "numpy/__init__.py" -> module_name = "numpy"

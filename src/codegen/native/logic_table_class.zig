@@ -144,9 +144,8 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
     try self.emitIndent();
     try self.emit("};\n\n");
 
-    // Generate C-callable export wrappers at module level ONLY when --emit-logic-table is used
+    // Generate C-callable export wrappers at module level ONLY when --emit-logic-table-shared is used
     // These are free functions with export linkage that call the struct methods
-    std.debug.print("emit_logic_table_exports = {}\n", .{self.emit_logic_table_exports});
     if (self.emit_logic_table_exports) {
         try self.emit("// __logic_table_exports_begin__\n");
         for (methods.items) |m| {
@@ -227,16 +226,14 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
     self.indent_level += 1;
 
     // Generate call to struct method
-    // The struct method has signature: fn(self, [allocator], args...) !ReturnType
+    // The struct method has signature: fn(self, args...) !ReturnType
     // Pass undefined for self since @logic_table methods don't actually use it
-    // Only pass allocator if the method needs it
-    // Use catch to convert error union to plain value (return 0/NaN on error)
+    // @logic_table methods may return error unions due to runtime operations
+    // Always use catch to convert to plain value for C ABI compatibility
+    _ = needs_allocator; // Unused - @logic_table methods don't take allocator param
+
     try self.emitIndent();
-    if (needs_allocator) {
-        try self.emitFmt("return {s}.{s}(undefined, __global_allocator", .{ class_name, method_name });
-    } else {
-        try self.emitFmt("return {s}.{s}(undefined", .{ class_name, method_name });
-    }
+    try self.emitFmt("return {s}.{s}(undefined", .{ class_name, method_name });
 
     // Forward parameters
     for (func.args) |arg| {
@@ -254,12 +251,8 @@ fn genExportWrapper(self: *NativeCodegen, class_name: []const u8, method_name: [
         }
     }
 
-    // Only use catch if method returns error union (needs_allocator implies error return)
-    if (needs_allocator) {
-        try self.emit(") catch 0.0;\n");
-    } else {
-        try self.emit(");\n");
-    }
+    // Always use catch for @logic_table methods since they may return error unions
+    try self.emit(") catch 0.0;\n");
 
     self.indent_level -= 1;
     try self.emitIndent();
