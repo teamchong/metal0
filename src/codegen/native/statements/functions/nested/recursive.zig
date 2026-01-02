@@ -256,7 +256,11 @@ pub fn genRecursiveClosure(
         } else {
             _ = self.var_renames.swapRemove(var_name);
         }
-        self.allocator.free(capture_renames.items[i]);
+        // Only free if it was allocated (starts with __c_)
+        const item = capture_renames.items[i];
+        if (item.len >= 4 and std.mem.eql(u8, item[0..4], "__c_")) {
+            self.allocator.free(item);
+        }
     }
 
     self.popScope();
