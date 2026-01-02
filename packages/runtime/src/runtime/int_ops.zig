@@ -8,6 +8,7 @@ const PyObject = runtime_core.PyObject;
 const PyString = runtime_core.pystring.PyString;
 const PyValue = @import("../Objects/object.zig").PyValue;
 const type_predicates = @import("type_predicates.zig");
+const exceptions = @import("exceptions.zig");
 
 /// Convert any value to i64 (supports __int__ protocol)
 /// Two-Flow: Handles PyValue for uncertain types
@@ -714,11 +715,13 @@ pub fn int__new__(cls: anytype, value: anytype) PythonError!@TypeOf(value) {
     // "int.__new__(bool) is not safe, use bool.__new__()"
     const ClsType = @TypeOf(cls);
     if (ClsType == type and cls == bool) {
+        exceptions.setException("TypeError", "int.__new__(bool): bool is not a subtype of int");
         return PythonError.TypeError;
     }
     // For string type name checks
     if (ClsType == []const u8 or ClsType == *const [4:0]u8) {
         if (std.mem.eql(u8, cls, "bool")) {
+            exceptions.setException("TypeError", "int.__new__(bool): bool is not a subtype of int");
             return PythonError.TypeError;
         }
     }

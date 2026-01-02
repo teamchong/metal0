@@ -382,6 +382,7 @@ pub fn validateBoolReturn(value: anytype) PythonError!bool {
         return value;
     }
     // Python 3: __bool__ MUST return bool (True or False)
+    exceptions.setException("TypeError", "__bool__ should return bool, returned nontype");
     return PythonError.TypeError;
 }
 

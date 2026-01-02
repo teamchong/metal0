@@ -6,6 +6,7 @@ const hashmap_helper = @import("utils.hashmap_helper");
 const import_resolver = @import("../../../import_resolver.zig");
 const zig_keywords = @import("utils.zig_keywords");
 const build_dirs = @import("../../../build_dirs.zig");
+const generator = @import("generator.zig");
 
 /// Parse __all__ list from a Python source file
 /// Returns a list of exported symbol names, or null if __all__ not found
@@ -1547,10 +1548,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                 // Root module is @imported - generate const symbol = module.path.symbol;
                 // e.g., const sctypes = numpy._core.numerictypes.sctypes;
 
-                // First, ensure the full dotted module path is imported
-                // emitDottedIdent converts "numpy._core.numerictypes" to @"numpy__core_numerictypes"
-                // but this identifier must be imported first
-                if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
+                // Check if from_imp.module is a submodule of an already-imported root module
+                // e.g., if "numpy" is imported, don't register "numpy._core.numerictypes" separately
+                // Zig's module system errors on overlapping file paths between modules
+                var root_already_imported = false;
+                if (std.mem.indexOfScalar(u8, from_imp.module, '.')) |first_dot| {
+                    const root_mod = from_imp.module[0..first_dot];
+                    root_already_imported = self.imported_modules.contains(root_mod);
+                }
+
+                // Only register submodule separately if root is NOT already imported
+                if (!root_already_imported and std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
                     // Convert module path to escaped Zig identifier
                     var escaped_buf: [512]u8 = undefined;
                     var esc_len: usize = 0;
@@ -1589,17 +1597,22 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                             build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
                         defer self.allocator.free(gen_path);
 
-                        // Convert to absolute path for reliable imports
+                        // Convert to absolute path for the manifest, but use module name in @import()
+                        // Zig rejects @import() with absolute paths outside module search path
                         const abs_path = std.fs.cwd().realpathAlloc(self.allocator, gen_path) catch {
                             // File doesn't exist yet or path error - skip
                             continue;
                         };
                         defer self.allocator.free(abs_path);
 
+                        // Register module in manifest for compiler to add -M flag
+                        generator.writePackageModuleEntry(escaped_name, abs_path) catch {};
+
+                        // Use module name in @import() - will be resolved via -M flag
                         try self.emit("const @\"");
                         try self.emit(escaped_name);
                         try self.emit("\" = @import(\"");
-                        try self.emit(abs_path);
+                        try self.emit(escaped_name);
                         try self.emit("\");\n");
 
                         const esc_copy = try self.arena.allocator().dupe(u8, escaped_name);
@@ -1615,13 +1628,26 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         name;
                     if (generated_symbols.contains(symbol_name)) continue;
 
-                    // Convert Python module path to Zig path (dots to underscores for internal modules)
-                    // numpy._core.numerictypes -> numpy._core.numerictypes
                     if (self.mode == .module) try self.emit("pub ");
                     try self.emit("const ");
                     try self.emitIdent(symbol_name);
                     try self.emit(" = ");
-                    try self.emitDottedIdent(from_imp.module);
+
+                    // When root module is already imported, use nested dot access
+                    // numpy._core.numerictypes.sctypes instead of @"numpy__core_numerictypes".sctypes
+                    if (root_already_imported) {
+                        // Emit as: rootmod._submod1._submod2.symbol
+                        // Split by dots and emit each part
+                        var iter = std.mem.splitScalar(u8, from_imp.module, '.');
+                        var first = true;
+                        while (iter.next()) |part| {
+                            if (!first) try self.emit(".");
+                            try self.emitIdent(part);
+                            first = false;
+                        }
+                    } else {
+                        try self.emitDottedIdent(from_imp.module);
+                    }
                     try self.emit(".");
                     try self.emitIdent(name);
                     try self.emit(";\n");
@@ -1801,9 +1827,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             // emitDottedIdent converts "numpy._core.numerictypes" to @"numpy__core_numerictypes"
             // but this escaped identifier is never imported - we must import it first.
             //
+            // Check if root module is already imported (to avoid module file overlap)
+            var alt_root_already_imported = false;
+            if (std.mem.indexOfScalar(u8, from_imp.module, '.')) |first_dot| {
+                const root_mod = from_imp.module[0..first_dot];
+                alt_root_already_imported = self.imported_modules.contains(root_mod);
+            }
+
             // SKIP this for modules already handled by import_registry (they use runtime.Lib.X)
             // Also skip if the module is already in imported_modules
-            if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
+            // Also skip if root module is already imported (to avoid overlapping module files)
+            if (!alt_root_already_imported and std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
                 // Convert module path to escaped Zig identifier: numpy._core.numerictypes -> numpy__core_numerictypes
                 var escaped_name_buf: [512]u8 = undefined;
                 var escaped_len: usize = 0;
@@ -1844,17 +1878,22 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                         build_dirs.zigPathFromRelative(self.allocator, rel_path) catch continue;
                     defer self.allocator.free(gen_path);
 
-                    // Convert to absolute path for reliable imports
+                    // Convert to absolute path for the manifest, but use module name in @import()
+                    // Zig rejects @import() with absolute paths outside module search path
                     const abs_path = std.fs.cwd().realpathAlloc(self.allocator, gen_path) catch {
                         // File doesn't exist yet or path error - skip
                         continue;
                     };
                     defer self.allocator.free(abs_path);
 
+                    // Register module in manifest for compiler to add -M flag
+                    generator.writePackageModuleEntry(escaped_module_name, abs_path) catch {};
+
+                    // Use module name in @import() - will be resolved via -M flag
                     try self.emit("const @\"");
                     try self.emit(escaped_module_name);
                     try self.emit("\" = @import(\"");
-                    try self.emit(abs_path);
+                    try self.emit(escaped_module_name);
                     try self.emit("\");\n");
 
                     // Track this module as imported to avoid duplicates
@@ -1868,10 +1907,17 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             try self.emit(" = ");
 
             // Normal case: use module const reference
-            // Use emitIdent (not emitVarName) to match module import generation in generator.zig
-            // Generator uses emitIdent, so module 'math' becomes 'const math = ...'
-            // We must also use emitIdent so from-import 'const isinf = math.isinf' matches
-            if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
+            // When root module is already imported, use nested dot access
+            if (alt_root_already_imported) {
+                // Emit as: rootmod._submod1._submod2.symbol
+                var iter = std.mem.splitScalar(u8, from_imp.module, '.');
+                var first = true;
+                while (iter.next()) |part| {
+                    if (!first) try self.emit(".");
+                    try self.emitIdent(part);
+                    first = false;
+                }
+            } else if (std.mem.indexOfScalar(u8, from_imp.module, '.') != null) {
                 try self.emitDottedIdent(from_imp.module);
             } else {
                 try self.emitIdent(from_imp.module);

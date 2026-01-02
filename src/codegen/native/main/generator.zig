@@ -41,8 +41,8 @@ const UTILS_PREFIX = "utils.";      // For utils.hashmap_helper, utils.allocator
 const PACKAGE_MODULES_MANIFEST = BUILD_DIR ++ "/package_modules.txt";
 
 /// Write a package module entry to the manifest file (append-only, thread-safe)
-/// This is called during codegen for each site-packages import
-fn writePackageModuleEntry(module_name: []const u8, abs_path: []const u8) !void {
+/// This is called during codegen for each imported module
+pub fn writePackageModuleEntry(module_name: []const u8, abs_path: []const u8) !void {
     // Buffer for formatted output
     var write_buf: [4096]u8 = undefined;
 
@@ -202,25 +202,17 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                 defer self.allocator.free(zig_path);
                 std.fs.cwd().access(zig_path, .{}) catch continue;
 
-                // Check if this is a site-packages module (external package like numpy)
-                // For batch compilation, use module name instead of absolute path
-                // The module will be registered in batch_build.zig
-                if (std.mem.indexOf(u8, zig_path, "site-packages") != null or
-                    std.mem.indexOf(u8, zig_path, ".venv") != null)
-                {
-                    // Use module name - will be registered as Zig module in batch build
-                    import_path_owned = try self.allocator.dupe(u8, root_mod_name);
+                // ALL project modules use module names (not absolute paths)
+                // Zig rejects @import() with absolute paths outside module search path
+                // Register ALL modules in the manifest for the compiler to add -M flags
+                const abs_path = std.fs.cwd().realpathAlloc(self.allocator, zig_path) catch continue;
+                defer self.allocator.free(abs_path);
 
-                    // Write module:path mapping to package_modules.txt for batch_build.zig
-                    // Use absolute path for the manifest since batch_build.zig needs it
-                    const abs_path = std.fs.cwd().realpathAlloc(self.allocator, zig_path) catch continue;
-                    defer self.allocator.free(abs_path);
-                    try writePackageModuleEntry(root_mod_name, abs_path);
-                } else {
-                    // Local module - use absolute path
-                    const abs_path = std.fs.cwd().realpathAlloc(self.allocator, zig_path) catch continue;
-                    import_path_owned = abs_path;
-                }
+                // Use module name in @import()
+                import_path_owned = try self.allocator.dupe(u8, root_mod_name);
+
+                // Write module:path mapping to package_modules.txt for compilation
+                try writePackageModuleEntry(root_mod_name, abs_path);
             } else {
                 // Module not found
                 continue;

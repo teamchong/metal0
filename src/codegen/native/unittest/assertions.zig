@@ -1392,20 +1392,105 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     const prev_assert_raises = self.in_assert_raises_context;
     self.in_assert_raises_context = true;
 
+    // Use ZigBuilder for structured code generation
+    const b = try self.getBuilder();
+
     if (exception_name) |exc_name| {
-        // Use expectSpecificError for known exception types
-        // Use if-else chain instead of switch to avoid trailing semicolon issues
-        try self.emit("{ const __ar_result = runtime.unittest.expectSpecificError(");
-        try emitCallableInvocation(self, args[1], call_args, &.{});
-        try self.emitFmt(", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}", .{exc_name});
+        // Wrap callable in catch block to capture errors properly
+        // Closure.call() always returns !PyValue, so catch always works
+        try b.write("{\n");
+        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.write("        _ = ");
+        try self.flushBuilder();
+        try emitCallableRaw(self, args[1]);
+        const b2 = try self.getBuilder();
+        try b2.write("(");
+        try self.flushBuilder();
+        try emitCallArgs(self, call_args);
+        const b3 = try self.getBuilder();
+        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write("        break :__ar_blk null;\n");
+        try b3.write("    };\n");
+        try b3.write("    if (__ar_error) |_| {\n");
+        try b3.write("        const __exc_type = runtime.exceptions.getExceptionType();\n");
+        try b3.writeFmt("        if (!std.mem.eql(u8, __exc_type, \"{s}\")) {{\n", .{exc_name});
+        try b3.write("            return error.WrongExceptionType;\n");
+        try b3.write("        }\n");
+        try b3.write("    } else {\n");
+        try b3.write("        return error.ExpectedExceptionNotRaised;\n");
+        try b3.write("    }\n");
+        try b3.write("}\n");
+        try self.flushBuilder();
     } else {
-        // Fall back to expectError for unknown exception types
-        try self.emit("if (runtime.unittest.expectError(");
-        try emitCallableInvocation(self, args[1], call_args, &.{});
-        // expectError returns true if NO error was raised (test should fail)
-        try self.emit(")) return error.ExpectedExceptionNotRaised;");
+        // Fall back to catch block for unknown exception types
+        // Just check that ANY error was raised
+        try b.write("{\n");
+        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.write("        _ = ");
+        try self.flushBuilder();
+        try emitCallableRaw(self, args[1]);
+        const b2 = try self.getBuilder();
+        try b2.write("(");
+        try self.flushBuilder();
+        try emitCallArgs(self, call_args);
+        const b3 = try self.getBuilder();
+        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write("        break :__ar_blk null;\n");
+        try b3.write("    };\n");
+        try b3.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");
+        try b3.write("}\n");
+        try self.flushBuilder();
     }
     self.in_assert_raises_context = prev_assert_raises;
+}
+
+/// Emit a callable reference (without calling it) for assertRaises
+/// For closures: emits the resolved variable name + .call method reference
+/// For functions: emits the resolved function name
+fn emitCallableRaw(self: *NativeCodegen, callable: ast.Node) CodegenError!void {
+    if (callable == .name) {
+        const name = callable.name.id;
+        // Check if it's a closure/callable variable - need .call suffix
+        if (self.callable_vars.contains(name)) {
+            // Use genExpr to get the resolved variable name, then add .call
+            try self.flushBuilder();
+            try parent.genExpr(self, callable);
+            const b = try self.getBuilder();
+            try b.write(".call");
+        } else {
+            // Regular function - just emit the resolved name
+            try self.flushBuilder();
+            try parent.genExpr(self, callable);
+        }
+    } else if (callable == .lambda) {
+        // Lambda expression - capture it first then reference .call
+        const b = try self.getBuilder();
+        try b.write("(");
+        try self.flushBuilder();
+        try parent.genExpr(self, callable);
+        const b2 = try self.getBuilder();
+        try b2.write(").call");
+    } else if (callable == .attribute) {
+        // Method call - emit the attribute access
+        try self.flushBuilder();
+        try parent.genExpr(self, callable);
+    } else {
+        // Fallback - just emit the expression
+        try self.flushBuilder();
+        try parent.genExpr(self, callable);
+    }
+    try self.flushBuilder();
+}
+
+/// Emit call arguments for assertRaises
+fn emitCallArgs(self: *NativeCodegen, args: []const ast.Node) CodegenError!void {
+    const b = try self.getBuilder();
+    for (args, 0..) |arg, i| {
+        if (i > 0) try b.write(", ");
+        try self.flushBuilder();
+        try parent.genExpr(self, arg);
+    }
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertRaises(exception_type, callable, *args, **kwargs)
@@ -1445,19 +1530,82 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
     const prev_assert_raises = self.in_assert_raises_context;
     self.in_assert_raises_context = true;
 
+    // Use ZigBuilder for structured code generation
+    const b = try self.getBuilder();
+
     if (exception_name) |exc_name| {
-        // Use expectSpecificError for known exception types
-        // Use if-else chain instead of switch to avoid trailing semicolon issues
-        try self.emit("{ const __ar_result = runtime.unittest.expectSpecificError(");
-        try emitCallableInvocation(self, args[1], call_args, keyword_args);
-        try self.emitFmt(", \"{s}\"); if (__ar_result == .no_error) return error.ExpectedExceptionNotRaised; if (__ar_result == .wrong_error) return error.WrongExceptionType; }}", .{exc_name});
+        // Wrap callable in catch block to capture errors properly
+        // Closure.call() always returns !PyValue, so catch always works
+        try b.write("{\n");
+        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.write("        _ = ");
+        try self.flushBuilder();
+        try emitCallableRaw(self, args[1]);
+        const b2 = try self.getBuilder();
+        try b2.write("(");
+        try self.flushBuilder();
+        try emitCallArgsWithKwargs(self, call_args, keyword_args);
+        const b3 = try self.getBuilder();
+        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write("        break :__ar_blk null;\n");
+        try b3.write("    };\n");
+        try b3.write("    if (__ar_error) |_| {\n");
+        try b3.write("        const __exc_type = runtime.exceptions.getExceptionType();\n");
+        try b3.writeFmt("        if (!std.mem.eql(u8, __exc_type, \"{s}\")) {{\n", .{exc_name});
+        try b3.write("            return error.WrongExceptionType;\n");
+        try b3.write("        }\n");
+        try b3.write("    } else {\n");
+        try b3.write("        return error.ExpectedExceptionNotRaised;\n");
+        try b3.write("    }\n");
+        try b3.write("}\n");
+        try self.flushBuilder();
     } else {
-        // Fall back to expectError for unknown exception types
-        try self.emit("if (runtime.unittest.expectError(");
-        try emitCallableInvocation(self, args[1], call_args, keyword_args);
-        try self.emit(")) return error.ExpectedExceptionNotRaised;");
+        // Fall back to catch block for unknown exception types
+        // Just check that ANY error was raised
+        try b.write("{\n");
+        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.write("        _ = ");
+        try self.flushBuilder();
+        try emitCallableRaw(self, args[1]);
+        const b2 = try self.getBuilder();
+        try b2.write("(");
+        try self.flushBuilder();
+        try emitCallArgsWithKwargs(self, call_args, keyword_args);
+        const b3 = try self.getBuilder();
+        try b3.write(") catch |err| break :__ar_blk err;\n");
+        try b3.write("        break :__ar_blk null;\n");
+        try b3.write("    };\n");
+        try b3.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");
+        try b3.write("}\n");
+        try self.flushBuilder();
     }
     self.in_assert_raises_context = prev_assert_raises;
+}
+
+/// Emit call arguments with keyword arguments for assertRaises
+fn emitCallArgsWithKwargs(self: *NativeCodegen, args: []const ast.Node, keyword_args: []const ast.Node.KeywordArg) CodegenError!void {
+    const b = try self.getBuilder();
+    for (args, 0..) |arg, i| {
+        if (i > 0) try b.write(", ");
+        try self.flushBuilder();
+        try parent.genExpr(self, arg);
+    }
+    // Handle keyword arguments - emit as struct initializer
+    if (keyword_args.len > 0) {
+        if (args.len > 0) try b.write(", ");
+        try b.write(".{");
+        for (keyword_args, 0..) |kwarg, i| {
+            if (i > 0) try b.write(", ");
+            try b.write(".");
+            try b.write(kwarg.name);
+            try b.write(" = ");
+            try self.flushBuilder();
+            try parent.genExpr(self, kwarg.value);
+        }
+        const b2 = try self.getBuilder();
+        try b2.write("}");
+    }
+    try self.flushBuilder();
 }
 
 /// Generate code for self.assertRaisesRegex(exception, regex, callable, *args, **kwargs)

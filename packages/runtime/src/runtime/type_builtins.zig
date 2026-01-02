@@ -58,7 +58,8 @@ pub fn complexBuiltin(arg: []const u8) []const u8 {
 
 /// Call a type builtin with an argument and return the result
 /// Used for: bool(x), int(x), str(x), etc.
-const PythonError = @import("exceptions.zig").PythonError;
+const exceptions = @import("exceptions.zig");
+const PythonError = exceptions.PythonError;
 
 /// bool() for PyValue - compiles once (no monomorphization)
 pub fn boolBuiltinCallPyValue(t: PyValue) PythonError!bool {
@@ -94,6 +95,7 @@ pub fn boolBuiltinCall(t: anytype, args: anytype) PythonError!bool {
         const fields = args_info.@"struct".fields;
         if (fields.len > 0) {
             // bool() takes at most 1 argument, but we have t + args
+            exceptions.setException("TypeError", "bool() takes at most 1 argument");
             return PythonError.TypeError;
         }
     }

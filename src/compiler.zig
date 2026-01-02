@@ -461,7 +461,22 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
 
     // Shell out to zig build-lib
     const zig_path = try findZigBinary(aa);
-    const output_flag = try std.fmt.allocPrint(aa, "-femit-bin={s}", .{output_path});
+
+    // Convert paths to absolute BEFORE changing CWD
+    // We'll change CWD to metal0 dir so relative paths won't work
+    const abs_tmp_path = try std.fs.cwd().realpathAlloc(aa, tmp_path);
+    const abs_output_path = blk: {
+        // output_path may not exist yet, so get parent dir and join
+        const parent = std.fs.path.dirname(output_path) orelse ".";
+        const basename = std.fs.path.basename(output_path);
+        const abs_parent = std.fs.cwd().realpathAlloc(aa, parent) catch {
+            // If parent doesn't exist, try to create it
+            std.fs.cwd().makePath(parent) catch {};
+            break :blk try std.fs.cwd().realpathAlloc(aa, parent);
+        };
+        break :blk try std.fs.path.join(aa, &.{ abs_parent, basename });
+    };
+    const output_flag = try std.fmt.allocPrint(aa, "-femit-bin={s}", .{abs_output_path});
 
     var args = std.ArrayList([]const u8){};
 
@@ -469,7 +484,8 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
     try args.append(aa, "build-lib");
 
     // Add all module definitions including main (C source files included)
-    try buildModuleFlags(aa, &args, tmp_path, zig_code);
+    // Use absolute path since we'll change CWD to metal0 directory
+    try buildModuleFlags(aa, &args, abs_tmp_path, zig_code);
 
     try args.append(aa, "-OReleaseFast");
     try args.append(aa, "-fno-stack-check");
@@ -514,9 +530,19 @@ pub fn compileZigSharedLib(allocator: std.mem.Allocator, zig_code: []const u8, o
 
     const argv = try args.toOwnedSlice(aa);
 
+    // Get the metal0 installation directory from the self exe path
+    // Module paths in MODULES are relative to this directory
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const self_exe = std.fs.selfExePath(&path_buf) catch null;
+    const metal0_dir: ?[]const u8 = if (self_exe) |exe|
+        std.fs.path.dirname(std.fs.path.dirname(exe) orelse exe) // zig-out/bin/metal0 -> zig-out -> metal0
+    else
+        null;
+
     const result = try std.process.Child.run(.{
         .allocator = aa,
         .argv = argv,
+        .cwd = metal0_dir,
     });
 
     switch (result.term) {
