@@ -801,6 +801,7 @@ pub const stdlib_module_names = [_][]const u8{
     "pydoc_data",
     "pydoc_data.topics",
     "pyexpat",
+    "pytest",
     "queue",
     "quopri",
     "random",
@@ -1198,6 +1199,7 @@ pub const stdlib_module_names = [_][]const u8{
     "zoneinfo._zoneinfo",
     // === Objects/ ===
     "_objects.boolobject",
+    "_objects.builtinfunc",
     "_objects.complexobject",
     "_objects.dequeobject",
     "_objects.dictobject",
@@ -1278,11 +1280,13 @@ pub const stdlib_module_names = [_][]const u8{
     "_python.bltinmodule.sequences",
     "_python.bootstrap_hash",
     "_python.brc",
+    "_python.builtins_dict",
     "_python.bytecodes",
     "_python.bytecodes.constants",
     "_python.bytecodes.init",
     "_python.bytecodes.metadata",
     "_python.bytecodes.utilities",
+    "_python.capsule",
     "_python.ceval",
     "_python.ceval.async_gen",
     "_python.ceval.frame_eval",
@@ -1296,6 +1300,7 @@ pub const stdlib_module_names = [_][]const u8{
     "_python.ceval.tracing",
     "_python.ceval.unpack",
     "_python.ceval_gil",
+    "_python.cextapi",
     "_python.codecs",
     "_python.codecs.backslash",
     "_python.codecs.encodings",
@@ -1362,6 +1367,7 @@ pub const stdlib_module_names = [_][]const u8{
     "_python.expr_parser.numeric_utils",
     "_python.expr_parser.parser",
     "_python.expr_parser.tokens",
+    "_python.ext_plugin",
     "_python.fileutils",
     "_python.fileutils.cwd",
     "_python.fileutils.dir_ops",
@@ -1376,6 +1382,7 @@ pub const stdlib_module_names = [_][]const u8{
     "_python.flowgraph.block",
     "_python.flowgraph.dominators",
     "_python.flowgraph.graph",
+    "_python.format_dispatch",
     "_python.formatter",
     "_python.formatter.float_format",
     "_python.formatter.format_spec",
@@ -1972,7 +1979,7 @@ pub const stdlib_module_names = [_][]const u8{
 };
 
 /// Number of discovered stdlib modules
-pub const stdlib_module_count: usize = 1952;
+pub const stdlib_module_count: usize = 1959;
 
 /// Check if a module name exists in stdlib
 pub fn hasModule(name: []const u8) bool {
@@ -2350,6 +2357,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "_ios_support",
     "_markupbase",
     "_objects.boolobject",
+    "_objects.builtinfunc",
     "_objects.complexobject",
     "_objects.dequeobject",
     "_objects.dictobject",
@@ -2481,11 +2489,13 @@ pub const auto_registrable_modules = [_][]const u8{
     "_python.bltinmodule.sequences",
     "_python.bootstrap_hash",
     "_python.brc",
+    "_python.builtins_dict",
     "_python.bytecodes",
     "_python.bytecodes.constants",
     "_python.bytecodes.init",
     "_python.bytecodes.metadata",
     "_python.bytecodes.utilities",
+    "_python.capsule",
     "_python.ceval",
     "_python.ceval.async_gen",
     "_python.ceval.frame_eval",
@@ -2499,6 +2509,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "_python.ceval.tracing",
     "_python.ceval.unpack",
     "_python.ceval_gil",
+    "_python.cextapi",
     "_python.codecs",
     "_python.codecs.backslash",
     "_python.codecs.encodings",
@@ -2565,6 +2576,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "_python.expr_parser.numeric_utils",
     "_python.expr_parser.parser",
     "_python.expr_parser.tokens",
+    "_python.ext_plugin",
     "_python.fileutils",
     "_python.fileutils.cwd",
     "_python.fileutils.dir_ops",
@@ -2579,6 +2591,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "_python.flowgraph.block",
     "_python.flowgraph.dominators",
     "_python.flowgraph.graph",
+    "_python.format_dispatch",
     "_python.formatter",
     "_python.formatter.float_format",
     "_python.formatter.format_spec",
@@ -3498,6 +3511,7 @@ pub const auto_registrable_modules = [_][]const u8{
     "pydoc_data",
     "pydoc_data.topics",
     "pyexpat",
+    "pytest",
     "quopri",
     "re._casefix",
     "re._compiler",
@@ -3868,4 +3882,4 @@ pub const auto_registrable_modules = [_][]const u8{
     "zoneinfo._zoneinfo",
 };
 
-pub const auto_registrable_count: usize = 1882;
+pub const auto_registrable_count: usize = 1889;

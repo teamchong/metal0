@@ -1015,6 +1015,14 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         }
     }
 
+    // Transfer C extension module info from import scanner to codegen
+    // This allows relative imports like `from ._multiarray_umath import *` to be recognized
+    var c_ext_iter2 = import_graph.c_extensions.iterator();
+    while (c_ext_iter2.next()) |entry| {
+        const module_name = entry.key_ptr.*;
+        try native_gen.markCExtensionModule(module_name, module_name);
+    }
+
     // Set mode: shared library (.so) = module mode, binary/run/wasm = script mode
     // WASM needs script mode (with main/_start entry point)
     const is_wasm_target = opts.wasm or opts.target == .wasm_browser or opts.target == .wasm_edge;

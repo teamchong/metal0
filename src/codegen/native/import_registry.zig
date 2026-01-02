@@ -283,6 +283,7 @@ pub fn createDefaultRegistry(allocator: std.mem.Allocator) !ImportRegistry {
     try registry.registerFull("time", .zig_runtime, "runtime.time", "runtime.Lib.time", null, false, &TimeFuncMeta);
     try registry.registerFull("math", .zig_runtime, "runtime.math", "runtime.Lib.math", null, false, &MathFuncMeta);
     try registry.registerFull("unittest", .zig_runtime, "runtime.unittest", "runtime.Lib.unittest", null, false, &UnittestFuncMeta);
+    try registry.register("pytest", .zig_runtime, "runtime.Lib.pytest", null);
 
     // Tier 2: C library wrappers (CPython stdlib modules only)
     // c_interop modules use c_interop.modules.xxx namespace for DCE
