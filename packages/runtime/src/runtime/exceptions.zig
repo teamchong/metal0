@@ -508,10 +508,32 @@ threadlocal var cause_exception_storage: PyException = .{
     .message = "",
 };
 
+/// Thread-local storage for the context PyException (the exception being handled when new exception raised)
+threadlocal var context_exception_storage: PyException = .{
+    .type_name = "",
+    .message = "",
+};
+
 /// Get the full exception object (returns default if none set)
 /// Also applies pending __cause__ and __suppress_context__ from `raise X from Y`
+/// and sets __context__ from the exception stack (implicit chaining)
 pub fn getExceptionFull() PyException {
     var exc = last_exception_full orelse PyException.fromCurrent();
+
+    // Apply implicit __context__ from exception stack (if raising inside except handler)
+    // This happens BEFORE __cause__ processing because __context__ is always set
+    // when raising inside an except handler (even with `from None`)
+    if (exception_stack_len > 0) {
+        const ctx = exception_stack[exception_stack_len - 1];
+        // Store context exception in thread-local storage
+        context_exception_storage = PyException.initWithId(
+            ctx.type_name,
+            ctx.message,
+            ctx.exception_id,
+        );
+        exc.__context__ = &context_exception_storage;
+    }
+
     // Apply pending cause from `raise X from Y`
     if (pending_suppress_context) {
         exc.__suppress_context__ = true;
