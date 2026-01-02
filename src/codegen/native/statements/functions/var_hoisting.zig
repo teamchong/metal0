@@ -1149,7 +1149,9 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         const is_mutated = self.func_local_mutations.contains(escaped.name) or
             self.func_local_mutations.contains(actual_name) or
             self.func_local_mutations.contains(scoped_key);
-        if (is_mutated) {
+        // Exception-assigned variables (e.g., `e = exc` where exc is from `except X as exc:`)
+        // are assigned in the exception handler, so they need to be mutable
+        if (is_mutated or escaped.is_exception_assigned) {
             try self.emit("var ");
         } else {
             try self.emit("const ");
