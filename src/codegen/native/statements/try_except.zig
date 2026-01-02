@@ -1142,8 +1142,9 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Skip locally declared variables (for-loop targets, etc.) - they don't exist outside try
             if (locally_declared.contains(name)) continue;
 
-            // Skip built-in functions
-            if (BuiltinFuncs.has(name)) continue;
+            // Skip built-in functions - but NOT 'self'/'__self' which are method parameters
+            // (PythonBuiltinNames includes "self" as a special name, but we need to capture it)
+            if (BuiltinFuncs.has(name) and !std.mem.eql(u8, name, "self") and !std.mem.eql(u8, name, "__self")) continue;
 
             // NOTE: Do NOT skip 'self' - inside TryHelper struct, self is NOT available
             // because TryHelper is a separate struct with its own scope. self needs to be
@@ -1409,6 +1410,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             // Remove from func_local_vars so var_renames lookup is used in expressions.zig
             // This ensures starred unpacking (*instances) uses __local_instances_N instead
             _ = self.func_local_vars.swapRemove(var_name);
+            // CRITICAL: Also add the RENAMED name to func_local_vars so isNameDefined can find it.
+            // When in_nameerror_context=true, expressions.zig checks isNameDefined(name_to_use)
+            // where name_to_use is the renamed value (e.g., "__local_self_26"). Without this,
+            // isNameDefined fails and emits "return error.NameError" incorrectly.
+            try self.func_local_vars.put(renamed, {});
         }
 
         // Save any existing renames for written_outer_vars before overwriting
@@ -1455,6 +1461,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.var_renames.put(var_name, renamed);
             // Remove from func_local_vars so var_renames lookup is used
             _ = self.func_local_vars.swapRemove(var_name);
+            // CRITICAL: Also add the RENAMED name to func_local_vars so isNameDefined can find it.
+            try self.func_local_vars.put(renamed, {});
         }
 
         // Save any existing import-shadowing renames for hoisted vars before overwriting
@@ -1490,6 +1498,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             try self.var_renames.put(hoisted.name, renamed);
             // Remove from func_local_vars so var_renames lookup is used
             _ = self.func_local_vars.swapRemove(hoisted.name);
+            // CRITICAL: Also add the RENAMED name to func_local_vars so isNameDefined can find it.
+            try self.func_local_vars.put(renamed, {});
         }
 
         // Check if try body contains break/continue for special handling
@@ -1549,18 +1559,25 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         self.control_flow_terminated = saved_control_flow_terminated;
 
         // Clear rename map after generating body and free allocated strings
+        // Also remove the renamed entries from func_local_vars that we added earlier
         for (read_only_vars.items) |var_name| {
             if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
+                // Also remove the renamed entry from func_local_vars
+                _ = self.func_local_vars.swapRemove(entry.value);
                 self.allocator.free(entry.value);
             }
         }
         for (written_outer_vars.items) |var_name| {
             if (self.var_renames.fetchSwapRemove(var_name)) |entry| {
+                // Also remove the renamed entry from func_local_vars
+                _ = self.func_local_vars.swapRemove(entry.value);
                 self.allocator.free(entry.value);
             }
         }
         for (declared_vars.items) |hoisted| {
             if (self.var_renames.fetchSwapRemove(hoisted.name)) |entry| {
+                // Also remove the renamed entry from func_local_vars
+                _ = self.func_local_vars.swapRemove(entry.value);
                 self.allocator.free(entry.value);
             }
         }

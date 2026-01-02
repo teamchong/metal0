@@ -453,6 +453,24 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
         }
     }
 
+    // EARLY CHECK: traceback field access (tb_next, tb_frame, tb_lineno, tb_lasti)
+    // In AOT compilation, tracebacks are PyValue stubs - use runtime.traceback_stub
+    // to access their fields (returns null/0 for AOT compatibility)
+    // This check must happen BEFORE block expression handling to intercept all cases
+    const tb_fields_early = [_][]const u8{ "tb_next", "tb_frame", "tb_lineno", "tb_lasti" };
+    const is_tb_field_early = for (tb_fields_early) |field| {
+        if (std.mem.eql(u8, attr.attr, field)) break true;
+    } else false;
+    if (is_tb_field_early) {
+        // Generate: runtime.traceback_stub.tb_next(value)
+        try self.emit("runtime.traceback_stub.");
+        try self.emit(attr.attr);
+        try self.emit("(");
+        try genExpr(self, attr.value.*);
+        try self.emit(")");
+        return;
+    }
+
     // Check if value produces a block expression - need to wrap in temp variable
     // Because Zig doesn't allow field access on block expressions: blk:{}.field is invalid
     // Wrap in parentheses to prevent "label:" from being parsed as named argument when used in fn calls

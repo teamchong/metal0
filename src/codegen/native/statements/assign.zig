@@ -1931,6 +1931,23 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 return;
             }
 
+            // Check for traceback field assignment (tb_next, tb_frame, tb_lineno, tb_lasti)
+            // In AOT compilation, tracebacks are stubs - use runtime.traceback_stub.set_tb_next
+            const tb_fields_assign = [_][]const u8{ "tb_next", "tb_frame", "tb_lineno", "tb_lasti" };
+            const is_tb_field_assign = for (tb_fields_assign) |field| {
+                if (std.mem.eql(u8, attr.attr, field)) break true;
+            } else false;
+            if (is_tb_field_assign) {
+                // Generate: runtime.traceback_stub.set_tb_next(tb, value)
+                try self.emitIndent();
+                try self.emit("runtime.traceback_stub.set_tb_next(");
+                try self.genExpr(attr.value.*);
+                try self.emit(", ");
+                try self.genExpr(assign.value.*);
+                try self.emit(");\n");
+                return;
+            }
+
             // Check for default_factory assignment (defaultdict)
             // d.default_factory = list  ->  d.default_factory = .list
             // d.default_factory = None  ->  d.default_factory = .none
