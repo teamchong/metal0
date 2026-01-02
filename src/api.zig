@@ -232,7 +232,7 @@ pub fn compileWithSchema(
     const annotated_source = try injectSchemaAnnotations(allocator, python_source, schema);
     defer allocator.free(annotated_source);
 
-    // Use existing compilation pipeline with emit_logic_table mode
+    // Use existing compilation pipeline with schema-aware codegen
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 

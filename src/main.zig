@@ -23,7 +23,6 @@ pub const CompileOptions = struct {
     emit_bytecode: bool = false, // --emit-bytecode flag (for runtime eval subprocess)
     wasm: bool = false, // --wasm/-w flag for WebAssembly output (legacy, use target instead)
     emit_zig_only: bool = false, // --emit-zig flag - generate .zig file only, no compilation
-    emit_logic_table: bool = false, // --emit-logic-table flag - emit only @logic_table structs (no runtime)
     debug: bool = false, // --debug/-g flag - emit debug info (.metal0.dbg)
     dev_mode: bool = false, // Dev mode: Debug build + .so runtime (fast iteration)
     target: Target = .native, // --target flag for cross-compilation

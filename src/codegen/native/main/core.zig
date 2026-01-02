@@ -885,7 +885,7 @@ pub const NativeCodegen = struct {
     in_logic_table_class: bool,
 
     // When true, generate C-callable export wrappers for @logic_table methods
-    // Only set when using --emit-logic-table flag
+    // Used for JIT compilation where functions need to be callable via FFI
     emit_logic_table_exports: bool,
 
     // Two-Flow: Track if current function returns PyValue (needs boxing at return)

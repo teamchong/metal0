@@ -28,8 +28,6 @@ pub fn cmdBuild(allocator: std.mem.Allocator, args: []const []const u8) !void {
             opts.debug = true;
         } else if (std.mem.eql(u8, arg, "--emit-zig")) {
             opts.emit_zig_only = true;
-        } else if (std.mem.eql(u8, arg, "--emit-logic-table")) {
-            opts.emit_logic_table = true;
         } else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--output")) {
             // Parse -o <output> or --output <output>
             i += 1;
