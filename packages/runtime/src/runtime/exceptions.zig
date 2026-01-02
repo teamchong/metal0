@@ -642,7 +642,7 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
         // These are instance fields with default values (accessed via pointer)
         type_name: []const u8 = exception_name,
         message: []const u8 = "",
-        exception_id: u64 = 0,
+        exception_id: u64 = 0, // Set to unique ID in init()
 
         const Self = @This();
 
@@ -653,7 +653,7 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
                 .allocator = allocator,
                 .type_name = exception_name,
                 .message = "",
-                .exception_id = 0,
+                .exception_id = getCurrentExceptionId(), // Unique ID for identity
             };
             return self;
         }
@@ -665,6 +665,9 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
             self.* = .{
                 .args = args_copy,
                 .allocator = allocator,
+                .type_name = exception_name,
+                .message = "",
+                .exception_id = getCurrentExceptionId(),
             };
             return self;
         }
@@ -676,6 +679,9 @@ fn ExceptionClass(comptime exception_name: []const u8) type {
             self.* = .{
                 .args = args_copy,
                 .allocator = allocator,
+                .type_name = exception_name,
+                .message = "",
+                .exception_id = getCurrentExceptionId(),
             };
             return self;
         }
