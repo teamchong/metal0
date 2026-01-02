@@ -1187,6 +1187,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     // Variable exists in outer scope - pass as pointer
                     // Skip Python's discard pattern - _ is not a real variable
                     if (std.mem.eql(u8, name, "_")) continue;
+                    // Skip 'self' in __init__ methods - self doesn't exist yet (struct created at end)
+                    const is_self_in_init_written = (std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) and
+                        self.current_function_name != null and
+                        (std.mem.eql(u8, self.current_function_name.?, "__init__") or std.mem.eql(u8, self.current_function_name.?, "init"));
+                    if (is_self_in_init_written) continue;
                     try written_outer_vars.append(self.allocator, name);
                 } else {
                     // Variable doesn't exist yet - needs to be hoisted/declared
@@ -1214,7 +1219,11 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // NOTE: Do NOT include func_local_vars - those are variables that WILL be declared
                 // later in the function, not variables that are already available
                 // Skip Python's discard pattern - _ is not a real variable
-                if (!std.mem.eql(u8, name, "_")) {
+                // Skip 'self' in __init__ methods - self doesn't exist yet (struct created at end)
+                const is_self_in_init = (std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) and
+                    self.current_function_name != null and
+                    (std.mem.eql(u8, self.current_function_name.?, "__init__") or std.mem.eql(u8, self.current_function_name.?, "init"));
+                if (!std.mem.eql(u8, name, "_") and !is_self_in_init) {
                     try read_only_vars.append(self.allocator, name);
                 }
             }
