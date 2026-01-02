@@ -86,10 +86,15 @@ pub fn callUnraisableHook(exc_type: []const u8, exc_value: ?[]const u8) void {
 /// Maximum depth of nested exception handlers
 const MAX_EXCEPTION_DEPTH = 8;
 
+/// Thread-local counter for generating unique exception IDs
+/// Used for Python identity comparison (assertIs) across re-raises
+threadlocal var next_exception_id: u64 = 1;
+
 /// Entry in the exception stack
 pub const ExceptionStackEntry = struct {
     type_name: []const u8,
     message: []const u8,
+    exception_id: u64 = 0,
 };
 
 /// Thread-local exception stack for tracking active exceptions
@@ -98,11 +103,30 @@ threadlocal var exception_stack: [MAX_EXCEPTION_DEPTH]ExceptionStackEntry = unde
 threadlocal var exception_stack_len: usize = 0;
 
 /// Push an exception onto the stack (called when entering an except handler)
+/// Assigns a unique exception ID for identity tracking
 pub fn pushException(type_name: []const u8, message: []const u8) void {
+    const id = next_exception_id;
+    next_exception_id += 1;
     if (exception_stack_len < MAX_EXCEPTION_DEPTH) {
-        exception_stack[exception_stack_len] = .{ .type_name = type_name, .message = message };
+        exception_stack[exception_stack_len] = .{ .type_name = type_name, .message = message, .exception_id = id };
         exception_stack_len += 1;
     }
+}
+
+/// Push an exception with a specific ID (for re-raises that preserve identity)
+pub fn pushExceptionWithId(type_name: []const u8, message: []const u8, id: u64) void {
+    if (exception_stack_len < MAX_EXCEPTION_DEPTH) {
+        exception_stack[exception_stack_len] = .{ .type_name = type_name, .message = message, .exception_id = id };
+        exception_stack_len += 1;
+    }
+}
+
+/// Get the exception ID of the current exception (for assertIs comparison)
+pub fn getCurrentExceptionId() u64 {
+    if (exception_stack_len > 0) {
+        return exception_stack[exception_stack_len - 1].exception_id;
+    }
+    return 0;
 }
 
 /// Pop an exception from the stack (called when exiting an except handler)
@@ -318,6 +342,8 @@ pub const PyException = struct {
     __cause__: ?*PyException = null,
     /// Whether __context__ should be suppressed when displaying (__suppress_context__ in Python)
     __suppress_context__: bool = false,
+    /// Unique ID for identity comparison (assertIs) - same ID = same exception object
+    exception_id: u64 = 0,
 
     const Self = @This();
 
@@ -326,6 +352,16 @@ pub const PyException = struct {
         return .{
             .type_name = type_name,
             .message = message,
+            .exception_id = getCurrentExceptionId(),
+        };
+    }
+
+    /// Initialize with a specific exception ID (for re-raises)
+    pub fn initWithId(type_name: []const u8, message: []const u8, id: u64) Self {
+        return .{
+            .type_name = type_name,
+            .message = message,
+            .exception_id = id,
         };
     }
 
@@ -334,6 +370,7 @@ pub const PyException = struct {
         return .{
             .type_name = last_exception_type orelse "Exception",
             .message = last_exception_message orelse "",
+            .exception_id = getCurrentExceptionId(),
         };
     }
 

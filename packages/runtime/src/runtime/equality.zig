@@ -14,6 +14,8 @@ const BigInt = bigint.BigInt;
 const PyPowResult = @import("builtins/pow.zig").PyPowResult;
 const UnifiedInt = @import("../Objects/pyint.zig").UnifiedInt;
 const type_predicates = @import("type_predicates.zig");
+const exceptions_mod = @import("exceptions.zig");
+const PyException = exceptions_mod.PyException;
 
 /// Python-style containment check for slices
 /// Handles NaN specially: both sides being NaN counts as a match (identity semantics)
@@ -335,7 +337,13 @@ fn pyIdenticalSameType(comptime T: type, a: T, b: T) bool {
     }
 
     // Structs (tuples, class instances): compare addresses
+    // Special case: PyException - compare by exception_id for Python identity semantics
     if (info == .@"struct") {
+        if (T == PyException) {
+            // Python exception identity is tracked by exception_id
+            // Same ID means same exception object (for assertIs in re-raises)
+            return a.exception_id != 0 and a.exception_id == b.exception_id;
+        }
         return &a == &b;
     }
 

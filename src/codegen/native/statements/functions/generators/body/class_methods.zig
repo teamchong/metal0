@@ -242,8 +242,19 @@ fn stmtUsesDeferredVar(stmt: ast.Node, deferred_vars: hashmap_helper.StringHashM
 fn stmtReferencesSelf(stmt: ast.Node) bool {
     return switch (stmt) {
         .expr_stmt => |e| exprReferencesSelf(e.value.*),
-        .assign => |a| exprReferencesSelf(a.value.*),
-        .aug_assign => |aug| exprReferencesSelf(aug.value.*),
+        .assign => |a| blk: {
+            // Check both the value AND the targets for self references
+            // e.g., self.attr = value should detect self in target
+            if (exprReferencesSelf(a.value.*)) break :blk true;
+            for (a.targets) |target| if (exprReferencesSelf(target)) break :blk true;
+            break :blk false;
+        },
+        .aug_assign => |aug| blk: {
+            // Check both target and value for self references
+            if (exprReferencesSelf(aug.target.*)) break :blk true;
+            if (exprReferencesSelf(aug.value.*)) break :blk true;
+            break :blk false;
+        },
         .if_stmt => |if_s| blk: {
             if (exprReferencesSelf(if_s.condition.*)) break :blk true;
             for (if_s.body) |s| if (stmtReferencesSelf(s)) break :blk true;
