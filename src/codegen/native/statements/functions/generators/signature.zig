@@ -1146,14 +1146,14 @@ pub fn genFunctionSignature(
 
         // Check if parameter is used in function body - prefix unused with "_"
         // Also check if parameter is captured by any nested class (used via closure)
-        // Note: When parameter shadows module-level function, body uses the renamed
-        // version (e.g., indices__local), so we must check for that usage too
         // For generators, always mark params as used since yield body isn't properly generated
         // IMPORTANT: If locals() is used, ALL parameters must be accessible (can't discard any)
+        // NOTE: shadowing checks (shadows_module_level, etc.) only affect HOW to name
+        // a used param, not WHETHER to discard it. We only consider direct usage + capture.
         const uses_locals = param_analyzer.usesLocalsBuiltin(func.body);
         const is_used_directly = if (is_generator or uses_locals) true else param_analyzer.isNameUsedInBody(func.body, arg.name);
         const is_captured = self.isVarCapturedByAnyNestedClass(arg.name);
-        const is_used = is_used_directly or is_captured or shadows_module_level or shadows_class_member or shadows_local_scope;
+        const is_used = is_used_directly or is_captured;
 
         // For unused parameters, use "_" (anonymous) instead of "_name" in Zig 0.15+
         // "_name" still triggers unused warnings - only "_" fully ignores
@@ -1173,8 +1173,8 @@ pub fn genFunctionSignature(
                 if (arg.default != null) {
                     try self.emit("_param");
                 }
-            } else if (shadows_local_scope) {
-                // Parameter shadows local variable from outer scope - rename to avoid Zig error
+            } else if (shadows_local_scope or shadows_module_level or shadows_class_member) {
+                // Parameter shadows local variable/module-level decl/class member - rename to avoid Zig error
                 const renamed = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
                 try self.emit(renamed);
                 try self.var_renames.put(arg.name, renamed);
