@@ -2134,6 +2134,13 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             self.dedent();
             try self.emitIndent();
             try self.emit("}\n");
+            // Pop the exception that was pushed for finally (if any was raised in try body)
+            // This is safe because we only push when storing to __pending_exception_N
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("if (__pending_exception_{d} != null) runtime.exceptions.popException();\n", .{helper_id});
+            // Propagate pending exception after finally completes
+            try self.emitIndent();
+            try self.output.writer(self.allocator).print("if (__pending_exception_{d}) |pe| return pe;\n", .{helper_id});
         }
 
         // Also handle else_body when there are no exception handlers

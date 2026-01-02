@@ -139,7 +139,28 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         if (raise_node.exc) |exc| {
             // Extract exception type name from the raise expression
             const exc_name = getExceptionName(exc);
-            // Print Python-style error message if we have one
+            // Set exception info and push to stack (for finally's bare raise to find)
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setException(\"");
+            try b.emitRaw(exc_name);
+            try b.emitRaw("\", ");
+            if (exc.* == .call) {
+                const call = exc.call;
+                if (call.args.len > 0) {
+                    try genRaiseMessage(self, b, call.args[0]);
+                } else {
+                    try b.emitRaw("\"\"");
+                }
+            } else {
+                try b.emitRaw("\"\"");
+            }
+            try b.emitRaw(");\n");
+            // Push exception to stack so finally's bare raise can find it
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.pushException(\"");
+            try b.emitRaw(exc_name);
+            try b.emitRaw("\", runtime.exceptions.getExceptionMessage());\n");
+            // Print Python-style error message
             if (exc.* == .call) {
                 const call = exc.call;
                 if (call.args.len > 0) {
@@ -185,7 +206,9 @@ pub fn genRaise(self: *NativeCodegen, raise_node: ast.Node.Raise) CodegenError!v
         try self.output.appendSlice(self.allocator, output);
         // Don't set control_flow_terminated - code after raise should still be unreachable
         // but finally block must execute, and the exception will be propagated after finally
-        self.control_flow_terminated = true;
+        // The finally generation at try_except.zig:2138 checks !control_flow_terminated
+        // so we must leave it false to allow finally code to be emitted
+        // self.control_flow_terminated stays false - finally will handle propagation
         return;
     }
 

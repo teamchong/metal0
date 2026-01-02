@@ -229,13 +229,25 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
             try self.emit(") catch unreachable");
         } else {
-            try self.emit("try ");
-            try emitObjExpr(self, obj);
-            try self.emit(".append(__global_allocator, ");
-
             if (elem_is_pyvalue) {
+                // Avoid nested try by storing fromAlloc result in temp var first
+                // Before: try obj.append(alloc, try PyValue.fromAlloc(...))
+                // After:  { const __v = try PyValue.fromAlloc(...); try obj.append(alloc, __v); }
+                const pyval_temp = try self.name_gen.temp();
+                try self.emit("{ const ");
+                try self.emit(pyval_temp);
+                try self.emit(" = ");
                 try emitPyValueFromAlloc(self, args[0]);
+                try self.emit("; try ");
+                try emitObjExpr(self, obj);
+                try self.emit(".append(__global_allocator, ");
+                try self.emit(pyval_temp);
+                try self.emit("); }");
+                return; // Complete statement, don't add extra ")" from line 263
             } else if (elem_is_callable and item_is_lambda) {
+                try self.emit("try ");
+                try emitObjExpr(self, obj);
+                try self.emit(".append(__global_allocator, ");
                 self.callable_context_param_type = "[]const u8";
                 defer self.callable_context_param_type = null;
                 // Use self.emitInlineBlockStart (not builder) to write to same output buffer
