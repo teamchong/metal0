@@ -1961,11 +1961,6 @@ pub const NativeCodegen = struct {
                     if (self.local_from_imports.contains(var_name)) {
                         return false;
                     }
-                    // Exception variables (from `except X as e:`) are handled natively
-                    // Don't fall back to VM - it can't access local Zig variables
-                    if (self.exception_vars.contains(var_name)) {
-                        return false;
-                    }
                     if (self.isVarUncertain(var_name)) {
                         return true;
                     }
@@ -3135,30 +3130,6 @@ pub const NativeCodegen = struct {
             else => |e| return e,
         };
         try self.emit(fbs.getWritten());
-    }
-
-    /// Check if a name conflicts with the module wrapper struct name.
-    /// In module mode, we wrap everything in `pub const <module_name> = struct { ... };`
-    /// If a variable inside has the same name as the module, it creates ambiguous reference.
-    /// Returns true if the name matches the module name (conflict exists).
-    pub fn isModuleNameConflict(self: *NativeCodegen, name: []const u8) bool {
-        if (self.mode != .module) return false;
-        if (self.module_name) |mod_name| {
-            return std.mem.eql(u8, name, mod_name);
-        }
-        return false;
-    }
-
-    /// Get the disambiguated name for a module-level declaration.
-    /// If the name conflicts with the module wrapper struct name, prefix with underscore.
-    /// E.g., in version.py: `version = "2.3.4"` becomes `_version = "2.3.4"`
-    pub fn getModuleLevelName(self: *NativeCodegen, name: []const u8) []const u8 {
-        if (self.isModuleNameConflict(name)) {
-            // Return prefixed name - allocate in arena so it persists
-            const prefixed = std.fmt.allocPrint(self.arena.allocator(), "_{s}", .{name}) catch name;
-            return prefixed;
-        }
-        return name;
     }
 
     /// Emit a dotted identifier with proper escaping (e.g., "test.support" -> "@\"test\".@\"support\"").

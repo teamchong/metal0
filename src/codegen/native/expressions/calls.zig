@@ -819,12 +819,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         if (needs_temp_var) {
             // Wrap in block with intermediate variable using unique label:
-            // mcall_{id}: { const __obj_{id} = <expr>; break :mcall_{id} __obj_{id}.method(args); }
+            // mcall_{id}: { const __obj = <expr>; break :mcall_{id} __obj.method(args); }
             var em = self.exprEmitter();
             var blk = try em.labeledBlock("mcall", "__obj", attr.value.*);
-            // Get the unique temp var name (e.g., __obj_123)
-            var temp_buf: [64]u8 = undefined;
-            const temp_name = blk.getTempVarName(&temp_buf);
             try blk.startBreak();
             // In defer blocks, functions returning PyValue, or module level, 'try' is not allowed
             if (emit_try and !self.inside_defer and !self.current_function_returns_pyvalue and !at_module_level_method) {
@@ -832,12 +829,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             } else if (emit_try and at_module_level_method) {
                 try self.emit("(");  // Will close with catch unreachable
             }
-            // For @staticmethod: use @TypeOf(temp_name.*).method() since staticmethod has no self parameter
+            // For @staticmethod: use @TypeOf(__obj.*).method() since staticmethod has no self parameter
             // Instance method call with no self parameter requires type-based invocation
             if (is_static_method) {
-                try self.emitFmt("@TypeOf({s}.*).", .{temp_name});
+                try self.emit("@TypeOf(__obj.*).");
             } else {
-                try self.emitFmt("{s}.", .{temp_name});
+                try self.emit("__obj.");
             }
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), attr.attr);
             try self.emit("(");

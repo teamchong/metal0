@@ -114,34 +114,30 @@ pub fn genBoolOp(self: *NativeCodegen, boolop: ast.Node.BoolOp) CodegenError!voi
         // Use unique label to avoid redefinition with nested boolean ops
         var em = self.exprEmitter();
         var blk = try em.labeledBlock("boolop", "_a", a);
-        // Get the unique temp var name (e.g., _a_123)
-        var temp_buf: [64]u8 = undefined;
-        const temp_name = blk.getTempVarName(&temp_buf);
         try blk.emit("const _b = ");
         try genExpr(self, b_val);
         try blk.emit("; ");
 
-        // Generate type-appropriate truthiness check using unique temp var name
+        // Generate type-appropriate truthiness check
         // Note: string is a tagged union with payload StringKind, so we check the tag
         // Use runtime.toBool for unknown types (handles __bool__ duck typing)
         // Two-Flow: explicit .pyvalue/.unknown cases for safety on uncertain types
-        var check_buf: [128]u8 = undefined;
-        const truthy_check = switch (a_tag) {
-            .string => std.fmt.bufPrint(&check_buf, "{s}.len > 0", .{temp_name}) catch temp_name,
-            .int, .usize => std.fmt.bufPrint(&check_buf, "{s} != 0", .{temp_name}) catch temp_name,
-            .float => std.fmt.bufPrint(&check_buf, "{s} != 0.0", .{temp_name}) catch temp_name,
-            .bool => temp_name,
-            .bigint => std.fmt.bufPrint(&check_buf, "!{s}.isZero()", .{temp_name}) catch temp_name,
-            .pyvalue, .unknown => std.fmt.bufPrint(&check_buf, "runtime.toBool({s})", .{temp_name}) catch temp_name, // Two-Flow: uncertain types use runtime
-            else => std.fmt.bufPrint(&check_buf, "runtime.toBool({s})", .{temp_name}) catch temp_name,
+        const truthy_check: []const u8 = switch (a_tag) {
+            .string => "_a.len > 0",
+            .int, .usize => "_a != 0",
+            .float => "_a != 0.0",
+            .bool => "_a",
+            .bigint => "!_a.isZero()",
+            .pyvalue, .unknown => "runtime.toBool(_a)", // Two-Flow: uncertain types use runtime
+            else => "runtime.toBool(_a)",
         };
 
         if (boolop.op == .Or) {
             // "a or b": return a if truthy, else b
-            try blk.emitFmt("break :{s}_{d} if ({s}) {s} else _b", .{ blk.getPrefix(), blk.getLabelId(), truthy_check, temp_name });
+            try blk.emitFmt("break :{s}_{d} if ({s}) _a else _b", .{ blk.getPrefix(), blk.getLabelId(), truthy_check });
         } else {
             // "a and b": return a if falsy, else b
-            try blk.emitFmt("break :{s}_{d} if (!({s})) {s} else _b", .{ blk.getPrefix(), blk.getLabelId(), truthy_check, temp_name });
+            try blk.emitFmt("break :{s}_{d} if (!({s})) _a else _b", .{ blk.getPrefix(), blk.getLabelId(), truthy_check });
         }
         try blk.close();
         return;

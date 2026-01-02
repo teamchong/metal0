@@ -223,16 +223,9 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 break :blk n.id;
             };
 
-            // Disambiguate module-level references that conflict with module wrapper struct name
-            // E.g., in version.py: `__version__ = version` needs to use `_version` (the renamed const)
-            const final_name = if (self.current_function_name == null and self.isModuleNameConflict(name_to_use))
-                self.getModuleLevelName(name_to_use)
-            else
-                name_to_use;
-
             // Handle 'self' -> '__self' in nested class methods to avoid shadowing
             // Only apply if var_renames doesn't have a more specific mapping
-            if (std.mem.eql(u8, final_name, "self") and self.method_nesting_depth > 0) {
+            if (std.mem.eql(u8, name_to_use, "self") and self.method_nesting_depth > 0) {
                 try self.emit("__self");
                 return;
             }
@@ -353,12 +346,12 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     }
                     // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
                     if (self.imported_modules.contains(name_to_use)) {
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), final_name);
+                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
                     } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), final_name);
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
                     }
                     if (self.nested_class_names.contains(name_to_use)) {
-                        try self.nested_class_zig_refs.put(final_name, {});
+                        try self.nested_class_zig_refs.put(name_to_use, {});
                     }
                 }
             } else {
@@ -371,15 +364,15 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 // For imported modules, use writeEscapedIdent (NOT writeLocalVarName which adds _ suffix)
                 // This ensures consistency with module import generation in generator.zig
                 if (self.imported_modules.contains(name_to_use)) {
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), final_name);
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), name_to_use);
                 } else {
                     // Use writeLocalVarName to handle keywords AND method shadowing
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), final_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), name_to_use);
                 }
                 // Track that we referenced this nested class in generated Zig code
                 // This is used to determine which classes need _ = ClassName; suppression
                 if (self.nested_class_names.contains(name_to_use)) {
-                    try self.nested_class_zig_refs.put(final_name, {});
+                    try self.nested_class_zig_refs.put(name_to_use, {});
                 }
             }
         },

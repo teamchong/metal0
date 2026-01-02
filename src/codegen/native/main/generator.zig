@@ -845,11 +845,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                                 // Reassignment at module level - skip (Zig doesn't allow redefinition)
                                 continue;
                             }
-                            const disambiguated_name = self.getModuleLevelName(var_name);
                             try self.declareVar(var_name);
                             try self.emitIndent();
                             try self.emit("pub const ");
-                            try self.emitIdent(disambiguated_name);
+                            try self.emitIdent(var_name);
                             try self.emitFmt(" = {s}.@\"{d}\";\n", .{ tmp_name, j });
                         }
                     }
@@ -903,13 +902,12 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
                     try self.emitIndent();
                     try self.emit("pub const ");
-                    // Generate target name - use disambiguated name if it conflicts with module name
+                    // Generate target name
                     for (stmt.assign.targets, 0..) |target, target_idx| {
                         if (target == .name) {
                             const var_name = target.name.id;
-                            const disambiguated_name = self.getModuleLevelName(var_name);
                             try self.declareVar(var_name);
-                            try self.emitIdent(disambiguated_name);
+                            try self.emitIdent(var_name);
                         }
                         if (target_idx < stmt.assign.targets.len - 1) {
                             try self.emit(", ");
