@@ -645,12 +645,22 @@ pub fn genFunctionBody(
     // By emitting discards upfront, we ensure they execute even if the function terminates early
     // The centralized tracker prevents duplicate discards, so it's safe to always emit
     for (func.args) |arg| {
-        // Skip params with defaults - they have different handling
-        if (arg.default != null) continue;
         // Skip params made anonymous in signature (not used in Python source)
         if (!param_analyzer.isNameUsedInBody(func.body, arg.name)) continue;
-        // Emit discard for this param
-        try self.emitParamDiscard(arg.name);
+        // For params with defaults, use the renamed param name (includes _param suffix)
+        if (arg.default != null) {
+            // Get the actual parameter name used in signature (may have _param suffix)
+            if (self.var_renames.get(arg.name)) |renamed| {
+                try self.emitParamDiscard(renamed);
+            } else {
+                // Param with default uses {name}_param in signature
+                const param_name = try std.fmt.allocPrint(self.allocator, "{s}_param", .{arg.name});
+                try self.emitParamDiscard(param_name);
+            }
+        } else {
+            // Emit discard for this param
+            try self.emitParamDiscard(arg.name);
+        }
     }
 
     // Also emit discards for vararg (*args) and kwarg (**kwargs) parameters
