@@ -1150,7 +1150,10 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (declared_var_set.contains(name)) continue;
 
             // Skip locally declared variables (for-loop targets, etc.) - they don't exist outside try
-            if (locally_declared.contains(name)) continue;
+            // EXCEPTION: If the variable is in hoisted_vars, it was hoisted by var_hoisting.zig
+            // BEFORE the try block (e.g., for-loop targets that escape scope). These variables
+            // DO exist outside and need to be passed as pointer parameters to the TryHelper.
+            if (locally_declared.contains(name) and !self.hoisted_vars.contains(name)) continue;
 
             // Skip built-in functions - but NOT 'self'/'__self' which are method parameters
             // (PythonBuiltinNames includes "self" as a special name, but we need to capture it)

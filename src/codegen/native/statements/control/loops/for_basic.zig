@@ -2161,6 +2161,14 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // If so, use a unique name to avoid Zig shadowing errors
     const shadows_outer = self.isDeclared(var_name) or self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
     var loop_var_name = var_name;
+
+    // Save TryHelper pointer rename before potentially overwriting with loop variable rename
+    // This is needed to access the outer variable from inside TryHelper (e.g., p_k_0.* for k)
+    const try_helper_rename: ?[]const u8 = if (self.var_renames.get(var_name)) |rename|
+        if (std.mem.startsWith(u8, rename, "p_") and std.mem.endsWith(u8, rename, ".*")) rename else null
+    else
+        null;
+
     if (shadows_outer) {
         const unique_name = try self.name_gen.loopVar(var_name);
         try self.var_renames.put(var_name, unique_name);
@@ -2173,10 +2181,18 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Otherwise, declare a new variable
     try self.emitIndent();
     if ((is_hoisted or is_declared) and !shadows_outer) {
+        // Check if there's a TryHelper pointer rename (e.g., p_k_0.* for variable k inside TryHelper)
+        // This handles for-loop targets that are hoisted outside the try block and passed as pointer params
+        const actual_var_name = if (self.var_renames.get(var_name)) |rename|
+            // Use the rename if it's a TryHelper pointer dereference (p_*_N.*)
+            if (std.mem.startsWith(u8, rename, "p_") and std.mem.endsWith(u8, rename, ".*")) rename else loop_var_name
+        else
+            loop_var_name;
+
         // Variable already exists with same name - assign with cast to match the existing type
-        try self.emit(loop_var_name);
+        try self.emit(actual_var_name);
         try self.emit(" = @as(@TypeOf(");
-        try self.emit(loop_var_name);
+        try self.emit(actual_var_name);
         try self.emit("), @intCast(");
         if (start_expr) |start| {
             try self.genExpr(start);
@@ -2259,12 +2275,22 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // This implements Python semantics where `for x in range(3): ...` leaves x as the last value assigned
     if (shadows_outer) {
         try self.emitIndent();
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-        try self.emit(" = @as(@TypeOf(");
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-        try self.emit("), @intCast(");
-        try self.emit(loop_var_name);
-        try self.emit("));\n");
+        // Use saved TryHelper pointer rename if available (e.g., p_k_0.* for variable k inside TryHelper)
+        if (try_helper_rename) |rename| {
+            try self.emit(rename);
+            try self.emit(" = @as(@TypeOf(");
+            try self.emit(rename);
+            try self.emit("), @intCast(");
+            try self.emit(loop_var_name);
+            try self.emit("));\n");
+        } else {
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit(" = @as(@TypeOf(");
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try self.emit("), @intCast(");
+            try self.emit(loop_var_name);
+            try self.emit("));\n");
+        }
     }
 
     for (body) |stmt| {
@@ -2286,6 +2312,11 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Pop scope when exiting loop - also remove rename so it doesn't leak
     if (shadows_outer) {
         _ = self.var_renames.swapRemove(var_name);
+        // Restore TryHelper pointer rename if it was present before the loop
+        // This ensures subsequent loops/code inside the same TryHelper can still access the outer var
+        if (try_helper_rename) |rename| {
+            try self.var_renames.put(var_name, rename);
+        }
     }
     self.popScope();
 

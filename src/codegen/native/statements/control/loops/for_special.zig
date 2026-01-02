@@ -220,11 +220,23 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
     }
 
     // Generate: const idx = __enum_idx_N;
-    try emitIndentWithIdentFmt(self, "const ", idx_var, " = __enum_idx_{d};\n", .{unique_id});
+    // Check if idx_var has a TryHelper pointer rename (e.g., p_k_0.* for variable k inside TryHelper)
+    // If so, assign to the pointer instead of declaring a new const (which would shadow it)
+    const try_helper_rename: ?[]const u8 = if (self.var_renames.get(idx_var)) |rename|
+        if (std.mem.startsWith(u8, rename, "p_") and std.mem.endsWith(u8, rename, ".*")) rename else null
+    else
+        null;
 
-    // Always emit discard to handle cases where variable is used in eval strings
-    // (e.g., runtime.eval("sh[cnum]") where cnum is the enum index)
-    try emitIndentWithIdent(self, "_ = &", idx_var, ";\n");
+    if (try_helper_rename) |rename| {
+        // Assign to TryHelper pointer parameter
+        try emitIndentFmt(self, "{s} = __enum_idx_{d};\n", .{ rename, unique_id });
+        // Discard is handled by the TryHelper parameter setup
+    } else {
+        try emitIndentWithIdentFmt(self, "const ", idx_var, " = __enum_idx_{d};\n", .{unique_id});
+        // Always emit discard to handle cases where variable is used in eval strings
+        // (e.g., runtime.eval("sh[cnum]") where cnum is the enum index)
+        try emitIndentWithIdent(self, "_ = &", idx_var, ";\n");
+    }
 
     // Generate: __enum_idx_N += 1;
     try emitIndentFmt(self, "__enum_idx_{d} += 1;\n", .{unique_id});
