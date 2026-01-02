@@ -1603,11 +1603,23 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 // Also skip when referencing module-level variable with same name
                 // (Python: `class Foo: dry_run = dry_run` where dry_run is module-level)
                 // This would generate `pub const dry_run = dry_run;` which is ambiguous
+                // Also skip method aliases (e.g., r = roots) - handled in method alias section above
                 if (assign.value.* == .name) {
                     const ref_name = assign.value.name.id;
                     if (PyBuiltinTypes.has(ref_name)) continue;
                     // Skip if attr_name == ref_name AND ref_name is module-level variable
                     if (std.mem.eql(u8, ref_name, attr_name) and self.module_level_vars.contains(ref_name)) continue;
+                    // Skip if ref_name is a method in this class (method alias - handled by method alias code)
+                    var is_method_alias = false;
+                    for (class.body) |check_stmt| {
+                        if (check_stmt == .function_def) {
+                            if (std.mem.eql(u8, check_stmt.function_def.name, ref_name)) {
+                                is_method_alias = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (is_method_alias) continue;
                 }
 
                 // Skip None attributes (handled below as stub methods)
@@ -1848,6 +1860,30 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (assign.value.* == .constant and assign.value.constant.value == .none and
                     !std.mem.eql(u8, attr_name, "__bool__") and
                     !std.mem.eql(u8, attr_name, "__len__")) {
+                    // Skip if __init__ assigns to self.<attr_name> - that creates a field with same name
+                    // Emitting both field and method would cause "duplicate struct member name" error
+                    const has_init_field = blk: {
+                        const init_to_check: ?ast.Node.FunctionDef = init_method orelse new_method;
+                        if (init_to_check) |init| {
+                            for (init.body) |init_stmt| {
+                                if (init_stmt == .assign) {
+                                    const init_assign = init_stmt.assign;
+                                    if (init_assign.targets.len > 0 and init_assign.targets[0] == .attribute) {
+                                        const init_attr = init_assign.targets[0].attribute;
+                                        if (init_attr.value.* == .name and
+                                            std.mem.eql(u8, init_attr.value.name.id, "self") and
+                                            std.mem.eql(u8, init_attr.attr, attr_name))
+                                        {
+                                            break :blk true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        break :blk false;
+                    };
+                    if (has_init_field) continue;
+
                     // Generate a stub method that raises TypeError
                     // Nested classes use pointer return types
                     const is_nested = self.nested_class_names.contains(class.name);

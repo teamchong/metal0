@@ -129,6 +129,21 @@ fn genClassFieldsCore(self: *NativeCodegen, class_name: []const u8, init: ast.No
                     // Skip __dict__ - it's always added separately
                     if (std.mem.eql(u8, field_name, "__dict__")) continue;
 
+                    // Skip fields that conflict with method names (e.g., Python @property)
+                    // Properties store their value in __dict__, not as struct fields
+                    if (self.current_class_body) |class_body| {
+                        var has_method = false;
+                        for (class_body) |class_stmt| {
+                            if (class_stmt == .function_def) {
+                                if (std.mem.eql(u8, class_stmt.function_def.name, field_name)) {
+                                    has_method = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (has_method) continue;
+                    }
+
                     // FIRST: Check if value is a parameter name - parameters shadow outer variables
                     // This must be checked BEFORE inferExpr to avoid picking up outer variables
                     // with the same name as parameters
