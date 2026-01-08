@@ -1393,6 +1393,11 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     const prev_assert_raises = self.in_assert_raises_context;
     self.in_assert_raises_context = true;
 
+    // Save and increment block_id for labeled breaks from raise/try_except
+    const prev_block_id = self.current_assert_raises_block_id;
+    const block_id = self.current_assert_raises_block_id;
+    self.current_assert_raises_block_id += 1;
+
     // Special handling for Python builtin type constructors (bool, int, float)
     // These have special calling conventions: builtin(first, .{rest...})
     if (args[1] == .name) {
@@ -1408,7 +1413,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             // Generate: runtime.*BuiltinCall([alloc,] first_arg, .{rest_args...}) catch |err| ...
             const bb = try self.getBuilder();
             try bb.write("{\n");
-            try bb.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+            try bb.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
             try bb.write("        _ = ");
             try bb.write(info.fn_name);
             try bb.write("(");
@@ -1434,8 +1439,8 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             }
             try self.flushBuilder();
             const bb4 = try self.getBuilder();
-            try bb4.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
-            try bb4.write("        break :__ar_blk null;\n");
+            try bb4.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
+            try bb4.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
             try bb4.write("    };\n");
             if (exception_name) |exc_name| {
                 try bb4.write("    if (__ar_error) |_| {\n");
@@ -1452,6 +1457,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             try bb4.write("}\n");
             try self.flushBuilder();
             self.in_assert_raises_context = prev_assert_raises;
+            self.current_assert_raises_block_id = prev_block_id;
             return;
         }
     }
@@ -1463,7 +1469,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         // Wrap callable in catch block to capture errors properly
         // Closure.call() always returns !PyValue, so catch always works
         try b.write("{\n");
-        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
         // Check if callable might produce a labeled block (attribute access, getattr call, etc.)
         // If so, store in temp var first to avoid: __m_getattr: { ... }() (invalid Zig syntax)
         const callable = args[1];
@@ -1485,8 +1491,8 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         try self.flushBuilder();
         try emitCallArgs(self, call_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
-        try b3.write("        break :__ar_blk null;\n");
+        try b3.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
+        try b3.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
         try b3.write("    };\n");
         try b3.write("    if (__ar_error) |_| {\n");
         try b3.write("        const __exc_type = runtime.exceptions.getExceptionType();\n");
@@ -1502,7 +1508,7 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         // Fall back to catch block for unknown exception types
         // Just check that ANY error was raised
         try b.write("{\n");
-        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
         // Check if callable might produce a labeled block (attribute access, getattr call, etc.)
         const callable2 = args[1];
         const needs_temp_var2 = callable2 == .attribute or callable2 == .call;
@@ -1523,14 +1529,15 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
         try self.flushBuilder();
         try emitCallArgs(self, call_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
-        try b3.write("        break :__ar_blk null;\n");
+        try b3.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
+        try b3.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
         try b3.write("    };\n");
         try b3.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");
         try b3.write("}\n");
         try self.flushBuilder();
     }
     self.in_assert_raises_context = prev_assert_raises;
+    self.current_assert_raises_block_id = prev_block_id;
 }
 
 /// Emit a callable reference (without calling it) for assertRaises
@@ -1670,6 +1677,11 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
     const prev_assert_raises = self.in_assert_raises_context;
     self.in_assert_raises_context = true;
 
+    // Save and increment block_id for labeled breaks from raise/try_except
+    const prev_block_id = self.current_assert_raises_block_id;
+    const block_id = self.current_assert_raises_block_id;
+    self.current_assert_raises_block_id += 1;
+
     // Use ZigBuilder for structured code generation
     const b = try self.getBuilder();
 
@@ -1677,7 +1689,7 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         // Wrap callable in catch block to capture errors properly
         // Closure.call() always returns !PyValue, so catch always works
         try b.write("{\n");
-        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
         try b.write("        _ = ");
         try self.flushBuilder();
         try emitCallableRaw(self, args[1]);
@@ -1686,8 +1698,8 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         try self.flushBuilder();
         try emitCallArgsWithKwargs(self, call_args, keyword_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
-        try b3.write("        break :__ar_blk null;\n");
+        try b3.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
+        try b3.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
         try b3.write("    };\n");
         try b3.write("    if (__ar_error) |_| {\n");
         try b3.write("        const __exc_type = runtime.exceptions.getExceptionType();\n");
@@ -1703,7 +1715,7 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         // Fall back to catch block for unknown exception types
         // Just check that ANY error was raised
         try b.write("{\n");
-        try b.write("    const __ar_error: ?anyerror = __ar_blk: {\n");
+        try b.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
         try b.write("        _ = ");
         try self.flushBuilder();
         try emitCallableRaw(self, args[1]);
@@ -1712,14 +1724,15 @@ pub fn genAssertRaisesWithKwargs(self: *NativeCodegen, obj: ast.Node, args: []as
         try self.flushBuilder();
         try emitCallArgsWithKwargs(self, call_args, keyword_args);
         const b3 = try self.getBuilder();
-        try b3.write(") catch |__ar_err| break :__ar_blk __ar_err;\n");
-        try b3.write("        break :__ar_blk null;\n");
+        try b3.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
+        try b3.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
         try b3.write("    };\n");
         try b3.write("    if (__ar_error == null) return error.ExpectedExceptionNotRaised;\n");
         try b3.write("}\n");
         try self.flushBuilder();
     }
     self.in_assert_raises_context = prev_assert_raises;
+    self.current_assert_raises_block_id = prev_block_id;
 }
 
 /// Emit call arguments with keyword arguments for assertRaises
