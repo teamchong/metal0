@@ -4,6 +4,7 @@ const runner = @import("../../unittest/runner.zig");
 const runtime = @import("../../../runtime.zig");
 
 /// Assertion: assertIs(a, b) - pointer identity check (a is b)
+/// Python's `is` operator checks object identity (same memory address)
 pub fn assertIs(a: anytype, b: anytype) !void {
     _ = runtime;
     const A = @TypeOf(a);
@@ -12,12 +13,48 @@ pub fn assertIs(a: anytype, b: anytype) !void {
         const a_info = @typeInfo(A);
         const b_info = @typeInfo(B);
 
+        // Pointer types: compare addresses directly
         if (a_info == .pointer and b_info == .pointer) {
             break :blk @intFromPtr(a) == @intFromPtr(b);
         }
 
+        // Same type comparison
         if (A == B) {
-            break :blk runtime.PyValue.from(a).eql(runtime.PyValue.from(b));
+            // For primitive types, identity == equality (they're value types)
+            if (a_info == .int or a_info == .float or a_info == .bool or
+                a_info == .comptime_int or a_info == .comptime_float or
+                a_info == .null or a_info == .void or a_info == .@"enum")
+            {
+                break :blk a == b;
+            }
+            // For single pointer type (caught above should handle, but be safe)
+            if (a_info == .pointer) {
+                break :blk @intFromPtr(a) == @intFromPtr(b);
+            }
+            // For optional pointers, compare the underlying pointers
+            if (a_info == .optional) {
+                const child_info = @typeInfo(a_info.optional.child);
+                if (child_info == .pointer) {
+                    if (a == null and b == null) break :blk true;
+                    if (a == null or b == null) break :blk false;
+                    break :blk @intFromPtr(a.?) == @intFromPtr(b.?);
+                }
+            }
+            // For structs/unions containing an 'object' or pointer field, compare those
+            if (a_info == .@"struct" and @hasField(A, "object")) {
+                const obj_a = @field(a, "object");
+                const obj_b = @field(b, "object");
+                if (@typeInfo(@TypeOf(obj_a)) == .pointer) {
+                    break :blk @intFromPtr(obj_a) == @intFromPtr(obj_b);
+                }
+            }
+            // For unions (like PyValue), use direct equality which compares tag + value
+            // This is closer to identity for value types within the union
+            if (a_info == .@"union") {
+                break :blk a == b;
+            }
+            // Fallback: use direct comparison (better than .eql() which converts to PyValue)
+            break :blk a == b;
         }
 
         if (A == *runtime.PyObject and B == bool) {
