@@ -25,6 +25,32 @@ const local_class_hoisting = @import("local_class_hoisting.zig");
 pub const hoistAllLocalClassesFromMethods = local_class_hoisting.hoistAllLocalClassesFromMethods;
 pub const hasSelfAttrAssign = local_class_hoisting.hasSelfAttrAssign;
 
+/// Check if haystack contains needle as a whole identifier (not substring)
+/// For example, "ArrayList" does not contain identifier "A", but "std.ArrayList(A)" does contain "A"
+fn containsWholeIdentifier(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return false;
+    var pos: usize = 0;
+    while (pos < haystack.len) {
+        const found = std.mem.indexOfPos(u8, haystack, pos, needle);
+        if (found == null) return false;
+        const start = found.?;
+        const end = start + needle.len;
+        // Check if preceded by non-identifier char (or at start)
+        const preceded_by_non_ident = start == 0 or !isIdentCharLocal(haystack[start - 1]);
+        // Check if followed by non-identifier char (or at end)
+        const followed_by_non_ident = end >= haystack.len or !isIdentCharLocal(haystack[end]);
+        if (preceded_by_non_ident and followed_by_non_ident) {
+            return true;
+        }
+        pos = start + 1;
+    }
+    return false;
+}
+
+fn isIdentCharLocal(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
 /// Check if a function body can raise an exception (contains raise statements)
 /// This is used to determine if init() should return !@This() instead of @This()
 fn bodyCanRaise(stmts: []const ast.Node) bool {
@@ -507,11 +533,12 @@ fn emitCapturedVarParams(self: *NativeCodegen, class_name: []const u8, captured_
             zig_type = "std.ArrayList(runtime.PyValue)";
         }
         // Check if zig_type contains a nested class name (self-referential/recursive types)
-        var has_nested_class_ref = std.mem.indexOf(u8, zig_type, class_name) != null;
+        // Use whole-word matching to avoid false positives like "ArrayList" matching class "A"
+        var has_nested_class_ref = containsWholeIdentifier(zig_type, class_name);
         if (!has_nested_class_ref) {
             var nc_iter = self.nested_class_names.iterator();
             while (nc_iter.next()) |entry| {
-                if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
+                if (containsWholeIdentifier(zig_type, entry.key_ptr.*)) {
                     has_nested_class_ref = true;
                     break;
                 }
@@ -1973,6 +2000,21 @@ pub fn genInitMethodWithBuiltinBase(
     try self.emit("}\n");
 }
 
+/// Check if a __new__ method body contains a simple `return None` statement
+/// This handles Python pattern: def __new__(*args, **kwargs): return None
+fn newReturnsNone(method_body: []const ast.Node) bool {
+    for (method_body) |stmt| {
+        if (stmt == .return_stmt) {
+            if (stmt.return_stmt.value) |val| {
+                if (val.* == .constant and val.constant.value == .none) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 /// Generate init() method from __new__ when no __init__ exists
 /// Python's __new__ is a class method that creates the instance, but metal0 needs
 /// a regular init() function. We use __new__'s parameters (skipping cls) for init.
@@ -1991,6 +2033,34 @@ pub fn genInitMethodFromNew(
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
     const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
+
+    // Check if __new__ returns None - if so, generate init that raises TypeError
+    // This handles Python classes like:
+    //   class ConstructsNone(BaseException):
+    //     def __new__(*args, **kwargs): return None
+    if (newReturnsNone(new_method.body)) {
+        try self.emit("\n");
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("pub fn init({s}: std.mem.Allocator", .{alloc_name});
+        if (is_nested) {
+            try self.emit(") !*@This() {\n");
+        } else {
+            try self.emit(") !@This() {\n");
+        }
+        self.indent();
+        try self.emitIndent();
+        try self.output.writer(self.allocator).print("_ = {s};\n", .{alloc_name});
+        try self.emitIndent();
+        try self.emit("runtime.exceptions.setException(\"TypeError\", \"calling ");
+        try self.emit(class_name);
+        try self.emit("() should have returned an instance of BaseException, not None\");\n");
+        try self.emitIndent();
+        try self.emit("return error.TypeError;\n");
+        self.dedent();
+        try self.emitIndent();
+        try self.emit("}\n");
+        return;
+    }
 
     // Track renamed params for cleanup at end (params that shadow methods or module-level decls)
     // needs_mutable_copy: true if param is reassigned in body, needs a mutable local copy
@@ -2497,8 +2567,11 @@ pub fn genClassMethods(
             // Two-Flow: Save and reset PyValue return flag for nested class methods
             // Without this, the flag from outer function bleeds into nested methods like __contains__
             const saved_returns_pyvalue = self.current_function_returns_pyvalue;
+            const saved_can_try = self.current_function_can_try;
             self.current_function_returns_pyvalue = false;
+            self.current_function_can_try = true;
             defer self.current_function_returns_pyvalue = saved_returns_pyvalue;
+            defer self.current_function_can_try = saved_can_try;
             try signature.genMethodSignatureWithSkip(self, class.name, method, mutates_self, needs_allocator, false, actually_uses_allocator);
 
             // Track method signature for default parameter handling at call sites

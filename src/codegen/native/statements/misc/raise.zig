@@ -56,14 +56,32 @@ fn genRaiseCause(self: *NativeCodegen, b: anytype, cause: *const ast.Node) Codeg
             try b.writeIndent();
             try b.emitRaw("}\n");
         } else if (self.nested_class_names.contains(name) or self.class_registry.getClass(name) != null) {
-            // It's a user-defined exception class - use @typeName to get string
-            // Note: In Python, this would instantiate the class, but we simplify
-            // by just using the class name as the cause type
+            // It's a user-defined exception class - instantiate it to get the cause
+            // Python semantics: `raise X from SomeClass` calls SomeClass() and uses
+            // the result as the cause. If __new__ returns None or invalid, raise TypeError.
             try b.writeIndent();
             try b.emitRaw("{\n");
             b.indent();
             try b.writeIndent();
-            try b.emitRaw("// User-defined exception class as cause\n");
+            try b.emitRaw("// User-defined exception class as cause - instantiate it\n");
+            try b.writeIndent();
+            try b.emitRaw("const __cause_instance = ");
+            try b.emitRaw(name);
+            try b.emitRaw(".init(__global_allocator) catch null;\n");
+            try b.writeIndent();
+            try b.emitRaw("if (__cause_instance == null) {\n");
+            b.indent();
+            try b.writeIndent();
+            try b.emitRaw("// __new__ returned None or failed - raise TypeError\n");
+            try b.writeIndent();
+            try b.emitRaw("runtime.exceptions.setException(\"TypeError\", \"calling ");
+            try b.emitRaw(name);
+            try b.emitRaw("() should have returned an instance of BaseException, not None\");\n");
+            try b.writeIndent();
+            try b.emitRaw("return error.TypeError;\n");
+            b.dedent();
+            try b.writeIndent();
+            try b.emitRaw("}\n");
             try b.writeIndent();
             try b.emitRaw("runtime.exceptions.setExceptionCauseFromData(@typeName(");
             try b.emitRaw(name);
