@@ -38,22 +38,22 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     try b.emitRaw(") = .{}, ");
 
     // append method - accepts optional allocator for compatibility with list.append dispatch
-    try b.emitRaw("pub fn append(__self: *@This(), _: std.mem.Allocator, x: ");
+    try b.emitRaw("pub fn append(__self: *@This(), _: std.mem.Allocator, __val: ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") !void { try __self.items.append(__global_allocator, x); } ");
+    try b.emitRaw(") !void { try __self.items.append(__global_allocator, __val); } ");
 
     // extend method
-    try b.emitRaw("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch @panic(\"array extend OOM\"); } ");
+    try b.emitRaw("pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |__item| __self.append(__global_allocator, __item) catch @panic(\"array extend OOM\"); } ");
 
     // insert method
-    try b.emitRaw("pub fn insert(__self: *@This(), i: usize, x: ");
+    try b.emitRaw("pub fn insert(__self: *@This(), __idx: usize, __val: ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") void { __self.items.insert(__global_allocator, i, x) catch @panic(\"array insert OOM\"); } ");
+    try b.emitRaw(") void { __self.items.insert(__global_allocator, __idx, __val) catch @panic(\"array insert OOM\"); } ");
 
     // remove method
-    try b.emitRaw("pub fn remove(__self: *@This(), x: ");
+    try b.emitRaw("pub fn remove(__self: *@This(), __val: ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") void { for (__self.items.items, 0..) |v, i| { if (v == x) { _ = __self.items.orderedRemove(i); return; } } } ");
+    try b.emitRaw(") void { for (__self.items.items, 0..) |__v, __i| { if (__v == __val) { _ = __self.items.orderedRemove(__i); return; } } } ");
 
     // pop method
     try b.emitRaw("pub fn pop(__self: *@This()) ");
@@ -61,14 +61,14 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     try b.emitRaw(" { return __self.items.pop(); } ");
 
     // index method
-    try b.emitRaw("pub fn index(__self: *@This(), x: ");
+    try b.emitRaw("pub fn index(__self: *@This(), __val: ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") ?usize { for (__self.items.items, 0..) |v, i| { if (v == x) return i; } return null; } ");
+    try b.emitRaw(") ?usize { for (__self.items.items, 0..) |__v, __i| { if (__v == __val) return __i; } return null; } ");
 
     // count method
-    try b.emitRaw("pub fn count(__self: *@This(), x: ");
+    try b.emitRaw("pub fn count(__self: *@This(), __val: ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") usize { var c: usize = 0; for (__self.items.items) |v| { if (v == x) c += 1; } return c; } ");
+    try b.emitRaw(") usize { var __cnt: usize = 0; for (__self.items.items) |__v| { if (__v == __val) __cnt += 1; } return __cnt; } ");
 
     // reverse method
     try b.emitRaw("pub fn reverse(__self: *@This()) void { std.mem.reverse(");
@@ -84,10 +84,10 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     try b.emitRaw(" { return __self.items.items; } ");
 
     // frombytes method - critical for 'B' arrays
-    try b.emitRaw("pub fn frombytes(__self: *@This(), s: []const u8) void { ");
+    try b.emitRaw("pub fn frombytes(__self: *@This(), __bytes: []const u8) void { ");
     if (typecode == 'B' or typecode == 'b') {
         // For byte arrays, copy directly (use __byte to avoid shadowing outer 'b' param)
-        try b.emitRaw("for (s) |__byte| __self.items.append(__global_allocator, ");
+        try b.emitRaw("for (__bytes) |__byte| __self.items.append(__global_allocator, ");
         if (typecode == 'b') {
             try b.emitRaw("@as(i8, @bitCast(__byte))");
         } else {
@@ -98,13 +98,13 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
         // For other types, reinterpret bytes
         try b.emitRaw("const typed_slice = std.mem.bytesAsSlice(");
         try b.emitRaw(zig_type);
-        try b.emitRaw(", s); for (typed_slice) |v| __self.items.append(__global_allocator, v) catch @panic(\"array frombytes OOM\"); } ");
+        try b.emitRaw(", __bytes); for (typed_slice) |__v| __self.items.append(__global_allocator, __v) catch @panic(\"array frombytes OOM\"); } ");
     }
 
     // fromlist method
     try b.emitRaw("pub fn fromlist(__self: *@This(), list: []");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") void { for (list) |x| __self.append(__global_allocator, x) catch @panic(\"array fromlist OOM\"); } ");
+    try b.emitRaw(") void { for (list) |__item| __self.append(__global_allocator, __item) catch @panic(\"array fromlist OOM\"); } ");
 
     // buffer_info method
     try b.emitRaw("pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } ");
@@ -116,14 +116,14 @@ fn genArrayStructDef(self: *h.NativeCodegen, typecode: u8) !void {
     try b.emitRaw("pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } ");
 
     // __getitem__ method
-    try b.emitRaw("pub fn __getitem__(__self: *@This(), i: usize) ");
+    try b.emitRaw("pub fn __getitem__(__self: *@This(), __idx: usize) ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(" { return __self.items.items[i]; } ");
+    try b.emitRaw(" { return __self.items.items[__idx]; } ");
 
     // __setitem__ method
-    try b.emitRaw("pub fn __setitem__(__self: *@This(), i: usize, v: ");
+    try b.emitRaw("pub fn __setitem__(__self: *@This(), __idx: usize, __val: ");
     try b.emitRaw(zig_type);
-    try b.emitRaw(") void { __self.items.items[i] = v; } ");
+    try b.emitRaw(") void { __self.items.items[__idx] = __val; } ");
 
     // itemsize method
     try b.emitRaw("pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(");
@@ -171,6 +171,7 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
                     try c.emitFmt("); break :{s} __arr_init", .{label});
                     return;
                 }
+                try c.emit("; ");
             }
 
             try c.emitFmt("break :{s} ", .{label});
@@ -180,7 +181,7 @@ fn genArray(self: *h.NativeCodegen, args: []ast.Node) h.CodegenError!void {
 }
 
 /// Inline struct definition for default array.array (typecode 'l')
-const array_struct_def_default = "struct { typecode: u8 = 'l', items: std.ArrayListUnmanaged(i64) = .{}, pub fn append(__self: *@This(), _: std.mem.Allocator, x: i64) !void { try __self.items.append(__global_allocator, x); } pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |x| __self.append(__global_allocator, x) catch unreachable; } pub fn insert(__self: *@This(), i: usize, x: i64) void { __self.items.insert(__global_allocator, i, x) catch unreachable; } pub fn remove(__self: *@This(), x: i64) void { for (__self.items.items, 0..) |v, i| { if (v == x) { _ = __self.items.orderedRemove(i); return; } } } pub fn pop(__self: *@This()) i64 { return __self.items.pop(); } pub fn index(__self: *@This(), x: i64) ?usize { for (__self.items.items, 0..) |v, i| { if (v == x) return i; } return null; } pub fn count(__self: *@This(), x: i64) usize { var c: usize = 0; for (__self.items.items) |v| { if (v == x) c += 1; } return c; } pub fn reverse(__self: *@This()) void { std.mem.reverse(i64, __self.items.items); } pub fn tobytes(__self: *@This()) []const u8 { return std.mem.sliceAsBytes(__self.items.items); } pub fn tolist(__self: *@This()) []i64 { return __self.items.items; } pub fn frombytes(__self: *@This(), s: []const u8) void { _ = __self; _ = s; } pub fn fromlist(__self: *@This(), list: []i64) void { for (list) |x| __self.append(__global_allocator, x) catch unreachable; } pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } pub fn byteswap(__self: *@This()) void { _ = __self; } pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } pub fn __getitem__(__self: *@This(), i: usize) i64 { return __self.items.items[i]; } pub fn __setitem__(__self: *@This(), i: usize, v: i64) void { __self.items.items[i] = v; } pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(i64); } }{}";
+const array_struct_def_default = "struct { typecode: u8 = 'l', items: std.ArrayListUnmanaged(i64) = .{}, pub fn append(__self: *@This(), _: std.mem.Allocator, __val: i64) !void { try __self.items.append(__global_allocator, __val); } pub fn extend(__self: *@This(), iterable: anytype) void { for (iterable) |__item| __self.append(__global_allocator, __item) catch unreachable; } pub fn insert(__self: *@This(), __idx: usize, __val: i64) void { __self.items.insert(__global_allocator, __idx, __val) catch unreachable; } pub fn remove(__self: *@This(), __val: i64) void { for (__self.items.items, 0..) |__v, __i| { if (__v == __val) { _ = __self.items.orderedRemove(__i); return; } } } pub fn pop(__self: *@This()) i64 { return __self.items.pop(); } pub fn index(__self: *@This(), __val: i64) ?usize { for (__self.items.items, 0..) |__v, __i| { if (__v == __val) return __i; } return null; } pub fn count(__self: *@This(), __val: i64) usize { var __cnt: usize = 0; for (__self.items.items) |__v| { if (__v == __val) __cnt += 1; } return __cnt; } pub fn reverse(__self: *@This()) void { std.mem.reverse(i64, __self.items.items); } pub fn tobytes(__self: *@This()) []const u8 { return std.mem.sliceAsBytes(__self.items.items); } pub fn tolist(__self: *@This()) []i64 { return __self.items.items; } pub fn frombytes(__self: *@This(), __bytes: []const u8) void { _ = __self; _ = __bytes; } pub fn fromlist(__self: *@This(), list: []i64) void { for (list) |__item| __self.append(__global_allocator, __item) catch unreachable; } pub fn buffer_info(__self: *@This()) struct { ptr: usize, len: usize } { return .{ .ptr = @intFromPtr(__self.items.items.ptr), .len = __self.items.items.len }; } pub fn byteswap(__self: *@This()) void { _ = __self; } pub fn __len__(__self: *@This()) usize { return __self.items.items.len; } pub fn __getitem__(__self: *@This(), __idx: usize) i64 { return __self.items.items[__idx]; } pub fn __setitem__(__self: *@This(), __idx: usize, __val: i64) void { __self.items.items[__idx] = __val; } pub fn itemsize(__self: *@This()) usize { _ = __self; return @sizeOf(i64); } }{}";
 
 pub const Funcs = std.StaticStringMap(h.H).initComptime(.{
     .{ "array", genArray },

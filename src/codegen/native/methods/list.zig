@@ -29,10 +29,11 @@ fn emitPyListAppendPV(self: *NativeCodegen, obj: ast.Node, item: ast.Node, use_t
 }
 
 /// Helper: emit runtime.pyListExtendPV(__global_allocator, &obj, runtime.PyValue.from(arg)) with bracket matching
-/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
+/// Context-aware try: use `try` only if function returns error union, otherwise `catch unreachable`
 fn emitPyListExtendPV(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
     const at_module_level = self.current_function_name == null;
-    if (!at_module_level) try self.emit("try ");
+    const can_try = !at_module_level and self.current_function_can_try;
+    if (can_try) try self.emit("try ");
     const Ctx = struct { o: ast.Node, a: ast.Node };
     try self.emitCallCtx("runtime.pyListExtendPV", Ctx{ .o = obj, .a = arg }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -45,14 +46,15 @@ fn emitPyListExtendPV(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) Codege
             }.inner);
         }
     }.f);
-    if (at_module_level) try self.emit(" catch unreachable");
+    if (!can_try) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.pyListInsertPV(__global_allocator, &obj, idx, runtime.PyValue.from(item)) with bracket matching
-/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
+/// Context-aware try: use `try` only if function returns error union, otherwise `catch unreachable`
 fn emitPyListInsertPV(self: *NativeCodegen, obj: ast.Node, idx: ast.Node, item: ast.Node) CodegenError!void {
     const at_module_level = self.current_function_name == null;
-    if (!at_module_level) try self.emit("try ");
+    const can_try = !at_module_level and self.current_function_can_try;
+    if (can_try) try self.emit("try ");
     const Ctx = struct { o: ast.Node, idx: ast.Node, i: ast.Node };
     try self.emitCallCtx("runtime.pyListInsertPV", Ctx{ .o = obj, .idx = idx, .i = item }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -67,14 +69,15 @@ fn emitPyListInsertPV(self: *NativeCodegen, obj: ast.Node, idx: ast.Node, item: 
             }.inner);
         }
     }.f);
-    if (at_module_level) try self.emit(" catch unreachable");
+    if (!can_try) try self.emit(" catch unreachable");
 }
 
 /// Helper: emit runtime.listExtendIterable(__global_allocator, &obj, arg) with bracket matching
-/// Context-aware try: at module level uses `catch unreachable`, in functions uses `try`
+/// Context-aware try: use `try` only if function returns error union, otherwise `catch unreachable`
 fn emitListExtendIterable(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) CodegenError!void {
     const at_module_level = self.current_function_name == null;
-    if (!at_module_level) try self.emit("try ");
+    const can_try = !at_module_level and self.current_function_can_try;
+    if (can_try) try self.emit("try ");
     const Ctx = struct { o: ast.Node, a: ast.Node };
     try self.emitCallCtx("runtime.listExtendIterable", Ctx{ .o = obj, .a = arg }, struct {
         pub fn f(s: *NativeCodegen, ctx: Ctx) CodegenError!void {
@@ -84,7 +87,7 @@ fn emitListExtendIterable(self: *NativeCodegen, obj: ast.Node, arg: ast.Node) Co
             try s.genExpr(ctx.a);
         }
     }.f);
-    if (at_module_level) try self.emit(" catch unreachable");
+    if (!can_try) try self.emit(" catch unreachable");
 }
 
 // emitObjExpr imported from expressions.zig (DRY consolidation)
@@ -229,6 +232,12 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
 
             try self.emit(") catch unreachable");
         } else {
+            // Check if current function can use `try` (returns error union)
+            // At module level or in error-returning functions: use try
+            // In non-error functions (like __eq__): use catch unreachable
+            const at_module_level = self.current_function_name == null;
+            const can_try = at_module_level or self.current_function_can_try;
+
             if (elem_is_pyvalue) {
                 // Avoid nested try by storing fromAlloc result in temp var first
                 // Before: try obj.append(alloc, try PyValue.fromAlloc(...))
@@ -238,14 +247,22 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 try self.emit(pyval_temp);
                 try self.emit(" = ");
                 try emitPyValueFromAlloc(self, args[0]);
-                try self.emit("; try ");
+                if (can_try) {
+                    try self.emit("; try ");
+                } else {
+                    try self.emit("; ");
+                }
                 try emitObjExpr(self, obj);
                 try self.emit(".append(__global_allocator, ");
                 try self.emit(pyval_temp);
-                try self.emit("); }");
+                if (can_try) {
+                    try self.emit("); }");
+                } else {
+                    try self.emit(") catch unreachable; }");
+                }
                 return; // Complete statement, don't add extra ")" from line 263
             } else if (elem_is_callable and item_is_lambda) {
-                try self.emit("try ");
+                if (can_try) try self.emit("try ");
                 try emitObjExpr(self, obj);
                 try self.emit(".append(__global_allocator, ");
                 self.callable_context_param_type = "[]const u8";
@@ -258,14 +275,21 @@ pub fn genAppend(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
                 try self.emitFmt("; break :{s} runtime.builtins.PyCallable.fromAny(@TypeOf({s}), {s}); ", .{ label2, callable_temp, callable_temp });
                 try self.emitInlineBlockEnd();
             } else {
-                // Regular case - emit try obj.append(alloc, arg)
-                try self.emit("try ");
+                // Regular case - emit try obj.append(alloc, arg) or with catch unreachable
+                if (can_try) try self.emit("try ");
                 try emitObjExpr(self, obj);
                 try self.emit(".append(__global_allocator, ");
                 try self.genExpr(args[0]);
             }
 
             try self.emit(")");
+            if (!can_try and !(elem_is_callable and item_is_lambda)) {
+                // For non-callable cases that don't return early, add catch unreachable
+                // The callable case already handled its own ) from emitInlineBlockEnd
+                if (!elem_is_pyvalue) try self.emit(" catch unreachable");
+            } else if (!can_try and (elem_is_callable and item_is_lambda)) {
+                try self.emit(" catch unreachable");
+            }
         }
     }
 }
@@ -414,6 +438,17 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         return;
     }
 
+    // Check if list expects PyValue or PyObject elements
+    const list_type = self.type_inferrer.inferExpr(obj) catch .unknown;
+    const elem_is_pyvalue = pyvalue: {
+        if (container_traits.isList(list_type)) {
+            const elem_type = list_type.list.*;
+            const elem_tag = @as(std.meta.Tag(@TypeOf(elem_type)), elem_type);
+            break :pyvalue (elem_tag == .pyvalue or elem_tag == .unknown);
+        }
+        break :pyvalue false;
+    };
+
     // Check if obj needs temp variable (list literal, comprehension, etc.)
     if (needsTempVariable(obj)) {
         const list_temp = try self.name_gen.temp();
@@ -422,7 +457,11 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emitFmt("; try {s}.insert(__global_allocator, @intCast(", .{list_temp});
         try self.genExpr(args[0]);
         try self.emit("), ");
-        try self.genExpr(args[1]);
+        if (elem_is_pyvalue) {
+            try emitPyValueFromAlloc(self, args[1]);
+        } else {
+            try self.genExpr(args[1]);
+        }
         try self.emit("); }");
     } else {
         // Generate: try list.insert(__global_allocator, @intCast(index), item)
@@ -432,7 +471,11 @@ pub fn genInsert(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenE
         try self.emit(".insert(__global_allocator, @intCast(");
         try self.genExpr(args[0]);
         try self.emit("), ");
-        try self.genExpr(args[1]);
+        if (elem_is_pyvalue) {
+            try emitPyValueFromAlloc(self, args[1]);
+        } else {
+            try self.genExpr(args[1]);
+        }
         try self.emit(")");
     }
 }
@@ -732,8 +775,9 @@ pub fn genInsertUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) C
 /// Generates: runtime.pyListPopPV(&obj, idx) or runtime.pyListPopPV(&obj, null)
 pub fn genPopUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenError!void {
     const at_module_level = self.current_function_name == null;
+    const cannot_use_try = at_module_level or self.inside_defer;
 
-    if (!at_module_level) try self.emit("try ");
+    if (!cannot_use_try) try self.emit("try ");
     try self.emit("runtime.pyListPopPV(&");
     try emitObjExpr(self, obj);
     try self.emit(", ");
@@ -745,7 +789,7 @@ pub fn genPopUnknown(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Code
         try self.emit("null");
     }
     try self.emit(")");
-    if (at_module_level) try self.emit(" catch unreachable");
+    if (cannot_use_try) try self.emit(" catch unreachable");
 }
 
 /// Generate code for list.clear() on unknown-typed objects

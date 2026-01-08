@@ -348,7 +348,6 @@ fn extractExportedFunctions(allocator: std.mem.Allocator, zig_code: []const u8, 
     }
 }
 
-
 // Tests
 test "ColumnType.toZigType" {
     try std.testing.expectEqualStrings("f64", ColumnType.f64.toZigType());
