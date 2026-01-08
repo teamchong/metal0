@@ -20,6 +20,7 @@ const usage_analysis = @import("usage_analysis.zig");
 const function_gen = @import("function_gen.zig");
 const param_analyzer = @import("../../param_analyzer.zig");
 const local_class_hoisting = @import("local_class_hoisting.zig");
+const var_tracking = @import("../../nested/var_tracking.zig");
 
 // Re-export from local_class_hoisting for backward compatibility
 pub const hoistAllLocalClassesFromMethods = local_class_hoisting.hoistAllLocalClassesFromMethods;
@@ -949,6 +950,47 @@ pub fn genInitMethod(
             try self.emit(";\n");
             // Mark as declared so assignment code doesn't try to redeclare
             try self.declareVar(entry.original);
+        }
+    }
+
+    // Handle ALL reassigned parameters (not just renamed ones)
+    // Parameters that are reassigned in the body but weren't renamed for shadowing still need mutable copies
+    for (init_def.args) |arg| {
+        if (std.mem.eql(u8, arg.name, "self")) continue;
+        // Skip if already handled via renamed_params
+        var already_handled = false;
+        for (renamed_params.items) |entry| {
+            if (std.mem.eql(u8, entry.original, arg.name) and entry.needs_mutable_copy) {
+                already_handled = true;
+                break;
+            }
+        }
+        if (already_handled) continue;
+
+        // Check if this parameter is reassigned in the function body
+        if (var_tracking.isParamReassignedInStmts(arg.name, init_def.body)) {
+            // Create a mutable copy of the parameter
+            const mut_name = try self.name_gen.mutable(arg.name);
+            try self.emitIndent();
+            try self.emit("var ");
+            try self.emit(mut_name);
+            try self.emit(" = ");
+            // Get the actual parameter name in generated code (might be renamed)
+            if (self.var_renames.get(arg.name)) |renamed| {
+                try self.emit(renamed);
+            } else {
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
+            }
+            try self.emit(";\n");
+            // Emit discard to suppress "unused local variable" warning
+            try self.emitIndent();
+            try self.emit("_ = &");
+            try self.emit(mut_name);
+            try self.emit(";\n");
+            // Rename all references to use the mutable copy
+            try self.var_renames.put(arg.name, mut_name);
+            // Mark as declared so assignment code doesn't try to redeclare
+            try self.declareVar(arg.name);
         }
     }
 
