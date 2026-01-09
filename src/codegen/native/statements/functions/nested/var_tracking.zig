@@ -1307,6 +1307,9 @@ fn isParamUsedInNode(param_name: []const u8, node: ast.Node) bool {
             break :blk false;
         },
         .await_expr => |a| isParamUsedInNode(param_name, a.value.*),
+        // Handle yield statements and expressions (parameter used in yield value)
+        .yield_stmt => |y| if (y.value) |val| isParamUsedInNode(param_name, val.*) else false,
+        .yield_from_stmt => |y| isParamUsedInNode(param_name, y.value.*),
         else => false,
     };
 }
