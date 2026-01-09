@@ -234,17 +234,10 @@ pub fn genBytes(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     // For integers, create bytes of that length filled with zeros
     if (type_traits.isIntegral(arg_type)) {
         // bytes(n) creates a bytes object of n null bytes
-        const alloc_name = "__global_allocator";
-        var em = self.exprEmitter();
-        const bytes_label_id = em.reserveLabelId();
-        try self.emitFmt("bytes_{d}: {{\n", .{bytes_label_id});
-        try self.emitFmt("const _len: usize = @intCast(", .{});
+        // Use runtime.builtins.PyBytes.zeros() helper to avoid labeled block parsing issues
+        try self.emit("(try runtime.builtins.PyBytes.zeros(__global_allocator, ");
         try self.genExpr(args[0]);
-        try self.emit(");\n");
-        try self.emitFmt("const _buf = try {s}.alloc(u8, _len);\n", .{alloc_name});
-        try self.emit("@memset(_buf, 0);\n");
-        try self.emitFmt("break :bytes_{d} _buf;\n", .{bytes_label_id});
-        try self.emit("}");
+        try self.emit("))");
         return;
     }
 
@@ -305,9 +298,11 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
     }
 
     // Two-Flow: For unknown/PyValue types, use runtime bytearray conversion
+    // Note: runtime.builtins.bytearray takes only one argument (no allocator)
     if (type_traits.isUnknown(arg_type) or arg_type == .pyvalue) {
-        const alloc_name = "__global_allocator";
-        try emitTryRuntimeCall(self, "builtins.bytearray", alloc_name, args[0]);
+        try self.emit("runtime.builtins.bytearray(");
+        try self.genExpr(args[0]);
+        try self.emit(")");
         return;
     }
 

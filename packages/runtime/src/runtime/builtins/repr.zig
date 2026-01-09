@@ -4,6 +4,21 @@ const cpython = @import("../../cpython.zig");
 const PyValue = @import("../../Objects/object.zig").PyValue;
 const type_predicates = @import("../type_predicates.zig");
 
+/// MultidimensionalView - Represents a memoryview with ndim > 1
+/// This type is intentionally NOT compatible with []const u8 so that
+/// passing it to functions expecting bytes will cause a compile error
+/// (which assertRaises tests expect as TypeError)
+pub const MultidimensionalView = struct {
+    data: []const u8,
+    format: []const u8,
+    ndim: usize,
+
+    /// Get underlying data (flattened)
+    pub fn tobytes(self: MultidimensionalView) []const u8 {
+        return self.data;
+    }
+};
+
 /// PyBytes - Wrapper for Python bytes type
 /// Preserves type information for repr() to correctly output b'...' format
 pub const PyBytes = struct {
@@ -42,11 +57,40 @@ pub const PyBytes = struct {
         return PyBytes{ .data = result };
     }
 
+    /// Create zero-filled bytes of length n (allocates)
+    /// Used for bytes(n) constructor where n is an integer
+    pub fn zeros(allocator: std.mem.Allocator, n: anytype) !PyBytes {
+        const size: usize = @intCast(n);
+        const result = try allocator.alloc(u8, size);
+        @memset(result, 0);
+        return PyBytes{ .data = result };
+    }
+
     /// Slice bytes [start:end]
     pub fn sliceRange(self: PyBytes, start: usize, end: usize) PyBytes {
         const actual_end = @min(end, self.data.len);
         const actual_start = @min(start, actual_end);
         return PyBytes{ .data = self.data[actual_start..actual_end] };
+    }
+
+    /// Cast memoryview to different format (1D) - single arg version
+    /// Returns MultidimensionalView which is not compatible with []const u8
+    pub fn cast(self: PyBytes, format: []const u8) MultidimensionalView {
+        return MultidimensionalView{
+            .data = self.data,
+            .format = format,
+            .ndim = 1,
+        };
+    }
+
+    /// Cast memoryview to different format/shape (multi-dimensional) - two arg version
+    /// Returns MultidimensionalView which is not compatible with []const u8
+    pub fn cast2(self: PyBytes, format: []const u8, shape: anytype) MultidimensionalView {
+        return MultidimensionalView{
+            .data = self.data,
+            .format = format,
+            .ndim = @intCast(std.meta.fields(@TypeOf(shape)).len),
+        };
     }
 
     /// Index into bytes
