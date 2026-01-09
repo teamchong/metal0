@@ -52,6 +52,15 @@ fn isIdentCharLocal(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
+/// Get depth-aware allocator parameter name to avoid shadowing in nested classes
+/// class_nesting_depth=1 (regular class) -> "__alloc"
+/// class_nesting_depth=2 (nested class) -> "__alloc2"
+/// class_nesting_depth=3+ (deeply nested) -> "__alloc3", etc.
+fn getAllocName(self: *const NativeCodegen, buf: *[16]u8) []const u8 {
+    if (self.class_nesting_depth <= 1) return "__alloc";
+    return std.fmt.bufPrint(buf, "__alloc{d}", .{self.class_nesting_depth}) catch "__alloc";
+}
+
 /// Check if a function body can raise an exception (contains raise statements)
 /// This is used to determine if init() should return !@This() instead of @This()
 fn bodyCanRaise(stmts: []const ast.Node) bool {
@@ -600,7 +609,9 @@ pub fn genDefaultInitMethod(self: *NativeCodegen, class_name: []const u8) Codege
     // Check if class is nested (defined inside a function/method)
     // Nested classes need heap allocation for Python reference semantics
     const is_nested = self.nested_class_names.contains(class_name);
-    const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
+    // Use depth-aware allocator name to avoid shadowing in nested classes
+    var __alloc_buf: [16]u8 = undefined;
+    const alloc_name = getAllocName(self, &__alloc_buf);
 
     try self.emit("\n");
     try self.emitIndent();
@@ -662,7 +673,9 @@ pub fn genDefaultInitMethodWithBuiltinBase(self: *NativeCodegen, class_name: []c
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
-    const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
+    // Use depth-aware allocator name to avoid shadowing in nested classes
+    var __alloc_buf: [16]u8 = undefined;
+    const alloc_name = getAllocName(self, &__alloc_buf);
 
     try self.emit("\n");
     try self.emitIndent();
@@ -777,7 +790,9 @@ pub fn genInitMethod(
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
-    const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
+    // Use depth-aware allocator name to avoid shadowing in nested classes
+    var __alloc_buf: [16]u8 = undefined;
+    const alloc_name = getAllocName(self, &__alloc_buf);
 
     try self.emit("\n");
     try self.emitIndent();
@@ -1351,7 +1366,9 @@ pub fn genInitMethodWithBuiltinBase(
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
-    const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
+    // Use depth-aware allocator name to avoid shadowing in nested classes
+    var __alloc_buf: [16]u8 = undefined;
+    const alloc_name = getAllocName(self, &__alloc_buf);
 
     // Track renamed params for cleanup at end (params that shadow methods or module-level decls)
     // needs_mutable_copy: true if param is reassigned in body, needs a mutable local copy
@@ -2096,7 +2113,9 @@ pub fn genInitMethodFromNew(
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
-    const alloc_name = "__alloc"; // Always use __alloc to avoid shadowing local `allocator` in main()
+    // Use depth-aware allocator name to avoid shadowing in nested classes
+    var __alloc_buf: [16]u8 = undefined;
+    const alloc_name = getAllocName(self, &__alloc_buf);
 
     // Check if __new__ returns None - if so, generate init that raises TypeError
     // This handles Python classes like:
