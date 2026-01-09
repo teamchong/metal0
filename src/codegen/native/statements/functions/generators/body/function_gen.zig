@@ -546,6 +546,9 @@ pub fn genFunctionBody(
     // (e.g., def f() in one method shouldn't affect f = Foo() in another method)
     self.closure_vars.clearRetainingCapacity();
     self.void_closure_vars.clearRetainingCapacity();
+    // Clear current_scope_classes to avoid cross-method pollution
+    // (e.g., class C in one method shouldn't affect class C detection in another method)
+    self.current_scope_classes.clearRetainingCapacity();
     // Clear discarded params tracking for new function scope
     self.clearDiscardedParams();
     // NOTE: var_renames is NOT cleared here anymore.

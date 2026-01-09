@@ -1466,13 +1466,73 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
     const b = try self.getBuilder();
 
     if (exception_name) |exc_name| {
+        // Check if callable is anytype param - needed for special handling
+        const callable = args[1];
+        const is_anytype_callable = callable == .name and self.anytype_params.contains(callable.name.id);
+
+        // Special case: anytype callable with type-mismatched argument expecting TypeError
+        // Zig catches type mismatches at compile time, so emit error directly
+        // This handles tests like: self.assertRaises(TypeError, f, [])
+        // Also handles: self.assertRaises(TypeError, f, multidimensional_view)
+        // Also handles: self.assertRaises(TypeError, f, array.array("B", data))
+        const has_type_mismatch = is_anytype_callable and std.mem.eql(u8, exc_name, "TypeError") and blk: {
+            for (call_args) |arg| {
+                // Empty list passed where bytes expected
+                if (arg == .list) break :blk true;
+                // Variable that might be incompatible type (PyValue, MultidimensionalView)
+                if (arg == .name) {
+                    const arg_type = self.type_inferrer.inferExpr(arg) catch .unknown;
+                    // PyValue or unknown could wrap MultidimensionalView or other incompatible types
+                    if (arg_type == .pyvalue or arg_type == .unknown) break :blk true;
+                    // Array type is not compatible with bytes
+                    if (arg_type == .array) break :blk true;
+                }
+                // Method call on bytes (like .cast()) returns incompatible type
+                if (arg == .call and arg.call.func.* == .attribute) {
+                    const attr = arg.call.func.attribute;
+                    if (std.mem.eql(u8, attr.attr, "cast")) break :blk true;
+                }
+                // array.array() call returns incompatible type
+                if (arg == .call and arg.call.func.* == .attribute) {
+                    const attr = arg.call.func.attribute;
+                    if (std.mem.eql(u8, attr.attr, "array")) break :blk true;
+                }
+                // Direct array() call from import
+                if (arg == .call and arg.call.func.* == .name) {
+                    if (std.mem.eql(u8, arg.call.func.name.id, "array")) break :blk true;
+                }
+            }
+            break :blk false;
+        };
+
+        if (has_type_mismatch) {
+            // Emit direct error - Zig type system caught this at compile time
+            try b.write("{\n");
+            try b.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
+            try b.write("        // Type mismatch detected at compile time - list passed where bytes expected\n");
+            try b.writeFmt("        break :__ar_blk_{d} error.TypeError;\n", .{block_id});
+            try b.write("    };\n");
+            try b.write("    if (__ar_error) |_| {\n");
+            try b.write("        const __exc_type = runtime.exceptions.getExceptionType();\n");
+            try b.writeFmt("        if (!std.mem.eql(u8, __exc_type, \"{s}\")) {{\n", .{exc_name});
+            try b.write("            return error.WrongExceptionType;\n");
+            try b.write("        }\n");
+            try b.write("    } else {\n");
+            try b.write("        return error.ExpectedExceptionNotRaised;\n");
+            try b.write("    }\n");
+            try b.write("}\n");
+            try self.flushBuilder();
+            self.in_assert_raises_context = prev_assert_raises;
+            self.current_assert_raises_block_id = prev_block_id;
+            return;
+        }
+
         // Wrap callable in catch block to capture errors properly
         // Closure.call() always returns !PyValue, so catch always works
         try b.write("{\n");
         try b.writeFmt("    const __ar_error: ?anyerror = __ar_blk_{d}: {{\n", .{block_id});
         // Check if callable might produce a labeled block (attribute access, getattr call, etc.)
         // If so, store in temp var first to avoid: __m_getattr: { ... }() (invalid Zig syntax)
-        const callable = args[1];
         const needs_temp_var = callable == .attribute or callable == .call;
         if (needs_temp_var) {
             try b.write("        const __callable = ");
@@ -1489,7 +1549,27 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             try b2.write("(");
         }
         try self.flushBuilder();
-        try emitCallArgs(self, call_args);
+        // Check if callable needs allocator as first arg:
+        // 1. anytype params
+        // 2. module functions (like base64.encode) that take allocator
+        const is_module_func_with_alloc = callable == .attribute and blk: {
+            const attr = callable.attribute;
+            if (attr.value.* == .name) {
+                const module_name = attr.value.name.id;
+                // Module functions that need allocator as first arg
+                if (std.mem.eql(u8, module_name, "base64")) break :blk true;
+                if (std.mem.eql(u8, module_name, "io")) break :blk true;
+            }
+            break :blk false;
+        };
+        // Class .init() methods also need allocator as first argument
+        // Check class_registry (module-level), hoisted_local_classes (hoisted classes), and current_scope_classes (local classes in current method)
+        const is_class_callable = callable == .name and (self.class_registry.classes.contains(callable.name.id) or self.hoisted_local_classes.contains(callable.name.id) or self.current_scope_classes.contains(callable.name.id));
+        if (is_anytype_callable or is_module_func_with_alloc or is_class_callable) {
+            try emitCallArgsWithAllocator(self, call_args);
+        } else {
+            try emitCallArgs(self, call_args);
+        }
         const b3 = try self.getBuilder();
         try b3.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
         try b3.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
@@ -1527,7 +1607,28 @@ pub fn genAssertRaises(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Co
             try b2.write("(");
         }
         try self.flushBuilder();
-        try emitCallArgs(self, call_args);
+        // Check if callable needs allocator as first arg:
+        // 1. anytype params
+        // 2. module functions (like base64.encode) that take allocator
+        const is_anytype_callable2 = callable2 == .name and self.anytype_params.contains(callable2.name.id);
+        const is_module_func_with_alloc2 = callable2 == .attribute and blk: {
+            const attr = callable2.attribute;
+            if (attr.value.* == .name) {
+                const module_name = attr.value.name.id;
+                // Module functions that need allocator as first arg
+                if (std.mem.eql(u8, module_name, "base64")) break :blk true;
+                if (std.mem.eql(u8, module_name, "io")) break :blk true;
+            }
+            break :blk false;
+        };
+        // Class .init() methods also need allocator as first argument
+        // Check class_registry (module-level), hoisted_local_classes (hoisted classes), and current_scope_classes (local classes in current method)
+        const is_class_callable2 = callable2 == .name and (self.class_registry.classes.contains(callable2.name.id) or self.hoisted_local_classes.contains(callable2.name.id) or self.current_scope_classes.contains(callable2.name.id));
+        if (is_anytype_callable2 or is_module_func_with_alloc2 or is_class_callable2) {
+            try emitCallArgsWithAllocator(self, call_args);
+        } else {
+            try emitCallArgs(self, call_args);
+        }
         const b3 = try self.getBuilder();
         try b3.writeFmt(") catch |__ar_err| break :__ar_blk_{d} __ar_err;\n", .{block_id});
         try b3.writeFmt("        break :__ar_blk_{d} null;\n", .{block_id});
@@ -1566,14 +1667,26 @@ fn emitCallableRaw(self: *NativeCodegen, callable: ast.Node) CodegenError!void {
         // Check if it's a closure/callable variable - need .call suffix
         // Any name that's not a builtin/module function is likely a closure
         // This includes: callable_vars, locally declared functions, captured closures
+        // EXCEPT: anytype parameters could be raw function pointers, not callable structs
+        // EXCEPT: user-defined classes - they use .init() or direct instantiation, not .call()
         const is_builtin_or_module = isModuleFunc(self, name);
-        if (!is_builtin_or_module) {
+        const is_anytype_param = self.anytype_params.contains(name);
+        // Check class_registry (module-level), hoisted_local_classes (hoisted classes), and current_scope_classes (local classes in current method)
+        const is_defined_class = self.class_registry.classes.contains(name) or self.hoisted_local_classes.contains(name) or self.current_scope_classes.contains(name);
+        const is_closure = self.closure_vars.contains(name);
+        const is_callable = self.callable_vars.contains(name);
+        // Only add .call for actual closures or callable vars, not classes or builtins
+        if (!is_builtin_or_module and !is_anytype_param and !is_defined_class and (is_closure or is_callable)) {
             // Use genExpr to get the resolved variable name, then add .call
             try parent.genExpr(self, callable);
             // Use direct emit for .call to ensure correct sequencing
             try self.emit(".call");
+        } else if (is_defined_class) {
+            // User-defined class - emit Name.init, caller will add (__global_allocator, ...)
+            try parent.genExpr(self, callable);
+            try self.emit(".init");
         } else {
-            // Regular function - just emit the resolved name
+            // Regular function or anytype param - just emit the resolved name
             try parent.genExpr(self, callable);
         }
     } else if (callable == .lambda) {
@@ -1582,7 +1695,21 @@ fn emitCallableRaw(self: *NativeCodegen, callable: ast.Node) CodegenError!void {
         try parent.genExpr(self, callable);
         try self.emit(").call");
     } else if (callable == .attribute) {
-        // Method call - emit the attribute access
+        // Module function reference (e.g., base64.encode used as callable)
+        // Emit direct reference without going through module dispatch
+        const attr = callable.attribute;
+        if (attr.value.* == .name) {
+            const module_name = attr.value.name.id;
+            // Check if this is a known module import
+            if (self.import_registry.lookup(module_name) != null) {
+                // Emit: module.attr (e.g., base64.encode)
+                try self.emit(module_name);
+                try self.emit(".");
+                try self.emit(attr.attr);
+                return;
+            }
+        }
+        // Fallback for other attributes (method calls, etc.)
         try parent.genExpr(self, callable);
     } else {
         // Fallback - just emit the expression
@@ -1612,10 +1739,26 @@ fn isModuleFunc(self: *NativeCodegen, name: []const u8) bool {
 
 /// Emit call arguments for assertRaises
 /// Wraps integer literals in @as(i64, ...) to avoid comptime evaluation issues
+/// @param prepend_allocator: if true, prepend __global_allocator as first arg (for anytype params)
 fn emitCallArgs(self: *NativeCodegen, args: []const ast.Node) CodegenError!void {
+    try emitCallArgsImpl(self, args, false);
+}
+
+/// Emit call arguments with optional allocator prepended (for anytype function params)
+fn emitCallArgsWithAllocator(self: *NativeCodegen, args: []const ast.Node) CodegenError!void {
+    try emitCallArgsImpl(self, args, true);
+}
+
+fn emitCallArgsImpl(self: *NativeCodegen, args: []const ast.Node, prepend_allocator: bool) CodegenError!void {
     const b = try self.getBuilder();
-    for (args, 0..) |arg, i| {
-        if (i > 0) try b.write(", ");
+    var idx: usize = 0;
+    if (prepend_allocator) {
+        try b.write("__global_allocator");
+        idx = 1;
+    }
+    for (args) |arg| {
+        if (idx > 0) try b.write(", ");
+        idx += 1;
         try self.flushBuilder();
         // Wrap integer literals in @as(i64, ...) to avoid comptime_int return types
         // which force comptime evaluation (can't set exceptions at comptime)

@@ -30,6 +30,10 @@ const unified_int_ops = @import("../expressions/operators/unified_int_ops.zig");
 const shared_maps = @import("../shared_maps.zig");
 const method_categories = @import("../dispatch/method_categories.zig");
 
+// Multi-pass analysis system (consolidated const/var, hoisting, capture analysis)
+const pass_analysis = @import("../../passes/analysis.zig");
+pub const PassAnalysisResult = pass_analysis.AnalysisResult;
+
 // MIGRATED TO ZIGBUILDER
 // NOTE: emitConst/emitFmtConst are DEPRECATED - use self.emit()/self.emitFmt() instead
 // These file-level wrappers exist only for backward compatibility during migration.
@@ -276,6 +280,9 @@ pub const TestClassInfo = struct {
     /// True if this class came from a factory function (tuple unpacking)
     /// Factory-returned classes are PyValue types, requiring runtime dispatch
     is_factory_returned: bool = false,
+    /// True if this class is defined inside a conditional block (e.g., if sys.platform == 'win32')
+    /// Conditional classes are skipped in test runner generation to avoid undeclared identifier errors
+    is_conditional: bool = false,
     /// For factory-returned classes: the original struct name inside the factory function
     /// This is the actual Zig struct with .init() and test methods, as opposed to
     /// class_name which may be the PyValue variable name from tuple unpacking
@@ -636,6 +643,10 @@ pub const NativeCodegen = struct {
     // Maps variable name -> mutation info
     mutation_info: ?*const @import("../../../analysis/native_types/mutation_analyzer.zig").MutationMap,
 
+    // Multi-pass analysis results (const/var inference, hoisting, captures, declaration order)
+    // Initialized from IR-based analysis in generate(), replaces redundant AST-based systems
+    pass_analysis_result: ?*PassAnalysisResult,
+
     // Track if we're inside a 'with self.assertRaises' context
     // When true, error-producing operations should use catch instead of try
     in_assert_raises_context: bool,
@@ -731,6 +742,10 @@ pub const NativeCodegen = struct {
     // Maps original class name -> actual generated name (which may be renamed due to collisions)
     // These classes should be skipped during normal body generation
     hoisted_local_classes: FnvStringMap,
+
+    // Track local classes defined in the current method scope (cleared between methods)
+    // Used by assertRaises to detect when callable is a local class type
+    current_scope_classes: FnvVoidMap,
 
     // Track factory test classes hoisted to module scope
     // Maps original class name -> module-scope scoped name (e.g., "TestLegacyAPI" -> "test_factory__TestLegacyAPI")
@@ -891,6 +906,11 @@ pub const NativeCodegen = struct {
     // Two-Flow: Track if current function returns PyValue (needs boxing at return)
     // Set when function has uncertain params or mixed return types
     current_function_returns_pyvalue: bool,
+
+    // Track if current function can use `try` (returns error union)
+    // When false, fallible operations must use `catch unreachable` instead of `try`
+    // Set based on return type when generating function signatures
+    current_function_can_try: bool,
 
     // Track if we're inside a try block body
     // When true, error-returning builtins use 'try' instead of 'catch default'
@@ -1163,6 +1183,7 @@ pub const NativeCodegen = struct {
             .module_alias_map = FnvStringMap.init(aa),
             .module_level_from_imports = FnvVoidMap.init(aa),
             .mutation_info = null,
+            .pass_analysis_result = null,
             .in_assert_raises_context = false,
             .assert_raises_block_id = 0,
             .current_assert_raises_block_id = 0,
@@ -1187,6 +1208,7 @@ pub const NativeCodegen = struct {
             .nested_class_names = FnvVoidMap.init(aa),
             .nested_class_aliases = FnvStringMap.init(aa),
             .hoisted_local_classes = FnvStringMap.init(aa),
+            .current_scope_classes = FnvVoidMap.init(aa),
             .factory_hoisted_classes = FnvStringMap.init(aa),
             .bigint_vars = FnvVoidMap.init(aa),
             .pyvalue_vars = FnvVoidMap.init(aa),
@@ -1225,6 +1247,7 @@ pub const NativeCodegen = struct {
             .in_logic_table_class = false,
             .emit_logic_table_exports = false,
             .current_function_returns_pyvalue = false,
+            .current_function_can_try = true, // Default to true for functions with error returns
             .inside_try_body = false,
             .in_nameerror_context = false,
             .inside_try_with_finally = false,
@@ -1614,6 +1637,71 @@ pub const NativeCodegen = struct {
         return self.symbol_table.lookup(name) != null;
     }
 
+    // =========================================================================
+    // Multi-Pass Analysis Helpers
+    // =========================================================================
+    // These methods delegate to the IR-based pass analysis results when available,
+    // providing a unified interface for const/var decisions, hoisting, and captures.
+
+    /// Check if a variable should be declared as const (single assignment, no hoisting)
+    /// Uses IR-based pass analysis when available, otherwise defaults to conservative (var)
+    pub fn passAnalysisShouldBeConst(self: *NativeCodegen, name: []const u8) bool {
+        if (self.pass_analysis_result) |result| {
+            return result.shouldBeConst(name);
+        }
+        // Fallback: conservative (allow mutation)
+        return false;
+    }
+
+    /// Check if a variable needs hoisting to function scope (Python->Zig scope conversion)
+    /// Variables assigned in inner scopes but used in outer scopes need hoisting
+    pub fn passAnalysisNeedsHoisting(self: *NativeCodegen, name: []const u8) bool {
+        if (self.pass_analysis_result) |result| {
+            return result.needsHoisting(name);
+        }
+        return false;
+    }
+
+    /// Get hoisting info for a variable (target scope, source type, init expression)
+    pub fn passAnalysisGetHoistInfo(self: *NativeCodegen, name: []const u8) ?pass_analysis.HoistedInfo {
+        if (self.pass_analysis_result) |result| {
+            return result.getHoistInfo(name);
+        }
+        return null;
+    }
+
+    /// Check if a function is a closure (captures outer scope variables)
+    pub fn passAnalysisIsClosure(self: *NativeCodegen, func_name: []const u8) bool {
+        if (self.pass_analysis_result) |result| {
+            return result.isClosure(func_name);
+        }
+        return false;
+    }
+
+    /// Get closure info for a function (captured variables, forward refs, deferred needs)
+    pub fn passAnalysisGetClosureInfo(self: *NativeCodegen, func_name: []const u8) ?pass_analysis.ClosureInfo {
+        if (self.pass_analysis_result) |result| {
+            return result.getClosureInfo(func_name);
+        }
+        return null;
+    }
+
+    /// Get capture info for a variable (is_mutated, is_nonlocal, capture_type)
+    pub fn passAnalysisGetCaptureInfo(self: *NativeCodegen, name: []const u8) ?pass_analysis.CaptureInfo {
+        if (self.pass_analysis_result) |result| {
+            return result.getCaptureInfo(name);
+        }
+        return null;
+    }
+
+    /// Get declaration order for safe emission (topologically sorted)
+    pub fn passAnalysisGetDeclarationOrder(self: *NativeCodegen) []const []const u8 {
+        if (self.pass_analysis_result) |result| {
+            return result.getDeclarationOrder();
+        }
+        return &.{};
+    }
+
     /// Pre-scan all star imports in module body to populate module_level_from_imports
     /// This ensures parameter shadowing is correctly detected even when star imports appear
     /// at the end of a file (after function definitions that use shadowing parameter names)
@@ -1776,6 +1864,12 @@ pub const NativeCodegen = struct {
     /// Check if a variable has uncertain type confidence (needs PyValue)
     /// Returns true if the variable's type cannot be proven certain at compile time
     /// Uses the Two-Flow Type System: uncertain = use PyValue, certain = use raw Zig types
+    ///
+    /// Decision hierarchy:
+    /// 1. pyvalue_vars (VM fallback) → always uncertain
+    /// 2. Type tag .pyvalue/.unknown → always uncertain (runtime type IS PyValue)
+    /// 3. Concrete type + uncertain confidence → uncertain (type widening)
+    /// 4. Concrete type + certain/untracked confidence → certain
     pub fn isVarUncertain(self: *NativeCodegen, name: []const u8) bool {
         // Variables assigned from VM fallback are always uncertain (return PyValue)
         if (self.pyvalue_vars.contains(name)) {
@@ -1786,14 +1880,29 @@ pub const NativeCodegen = struct {
         if (self.pyvalue_vars.contains(renamed_name)) {
             return true;
         }
-        // CONSERVATIVE: Only return true for explicitly uncertain or unknown typed variables
-        // If variable isn't tracked, DON'T assume uncertain - let Zig compiler catch type mismatches
-        // This avoids false positives for loop variables (e.g., from file.readlines()) that have
-        // Zig-native types but aren't in the confidence map
+
+        // Check type tags FIRST - if type is explicitly pyvalue or unknown, always uncertain
+        // This takes precedence over confidence because the runtime type IS PyValue
         const var_type = self.type_inferrer.getScopedVar(name) orelse
             self.type_inferrer.var_types.get(name);
         if (var_type) |vt| {
-            return vt == .pyvalue or vt == .unknown;
+            // Type tag indicates PyValue - must use PyValue operations regardless of confidence
+            if (vt == .pyvalue or vt == .unknown) {
+                return true;
+            }
+
+            // Type is concrete (int, float, string, etc.)
+            // NOW check confidence - if explicitly uncertain (from widening), treat as uncertain
+            // This handles cases like: x = 1; x = "hello" → type widened, confidence degraded
+            if (self.type_inferrer.hasTrackedConfidence(name)) {
+                return self.type_inferrer.isUncertain(name);
+            }
+            if (self.type_inferrer.hasTrackedConfidence(renamed_name)) {
+                return self.type_inferrer.isUncertain(renamed_name);
+            }
+
+            // Concrete type with no tracked confidence → assume certain
+            return false;
         }
         // Variable not in type map - don't assume uncertain
         return false;
@@ -2818,6 +2927,13 @@ pub const NativeCodegen = struct {
 
             // Attribute access - infer attribute type confidence and type hint
             .attribute => |a| {
+                // Check if VM fallback will be used - if so, return uncertain
+                // This ensures confidence matches what genExpr will actually generate
+                // Without this, type analysis might return .certain but genExpr uses runtime.eval()
+                if (self.needsVMFallback(node)) {
+                    return try self.captureExprTyped(node, .uncertain);
+                }
+
                 // Check if accessing a known type's attribute
                 const obj_type = self.inferExprScoped(a.value.*) catch .unknown;
 
@@ -2940,10 +3056,11 @@ pub const NativeCodegen = struct {
                                 // Known primitive field type - mark as certain with type hint
                                 break :blk .{ .confidence = .certain, .type_hint = nativeTypeToCertainType(field_type) };
                             }
-                        } else {
+                            // Field not found in known class - uncertain
+                            break :blk .{ .confidence = .uncertain, .type_hint = null };
                         }
-                        // Field not found - assume certain to avoid PyValue overhead
-                        break :blk .{ .confidence = .certain, .type_hint = null };
+                        // Class not in registry (local/nested class) - uncertain
+                        break :blk .{ .confidence = .uncertain, .type_hint = null };
                     }
 
                     // Unknown type -> uncertain
@@ -3960,8 +4077,18 @@ pub const NativeCodegen = struct {
     }
 
     /// Check if a variable is mutated (reassigned after first assignment)
-    /// Checks both module-level semantic info AND function-local mutations
+    /// Uses BOTH IR-based pass analysis AND function-local mutations (conservative OR)
     pub fn isVarMutated(self: *NativeCodegen, var_name: []const u8) bool {
+        // Check pass analysis result first - if it says mutated, return true immediately
+        if (self.pass_analysis_result) |result| {
+            if (!result.shouldBeConst(var_name)) {
+                return true;
+            }
+        }
+
+        // Also check function-local mutations (fallback/supplement)
+        // This catches cases the IR analysis might miss
+
         // When inside a non-function scope (loop body), check scope-specific mutations first
         // Variables declared inside loops are fresh each iteration, so they're not mutated
         // unless there's a mutation (aug_assign or multiple assignments) in the SAME scope
@@ -4171,6 +4298,70 @@ pub const NativeCodegen = struct {
         }
         // Clear pending discards after emitting
         self.pending_discards.clearRetainingCapacity();
+    }
+
+    /// Post-process output to fix `_ = varname;` patterns that cause "pointless discard" errors
+    /// This converts `_ = identifier;` to `_ = &identifier;` which is always valid in Zig.
+    /// Only applies to simple identifiers (not expressions like `_ = foo.bar;` or `_ = func();`)
+    pub fn fixPointlessDiscards(self: *NativeCodegen) !void {
+        const discard_prefix = "_ = ";
+        var search_pos: usize = 0;
+
+        // Process each occurrence - need to re-read items each iteration since we modify buffer
+        while (true) {
+            const output_slice = self.output.items[search_pos..];
+            const rel_idx = std.mem.indexOf(u8, output_slice, discard_prefix) orelse break;
+            const abs_idx = search_pos + rel_idx;
+            const after_prefix = abs_idx + discard_prefix.len;
+
+            // Check if this is already `_ = &` (correct pattern)
+            if (after_prefix < self.output.items.len and self.output.items[after_prefix] == '&') {
+                search_pos = after_prefix + 1; // Skip past `_ = &`
+                continue;
+            }
+
+            // Find the semicolon that ends this statement
+            var end_pos = after_prefix;
+            while (end_pos < self.output.items.len and self.output.items[end_pos] != ';' and self.output.items[end_pos] != '\n') {
+                end_pos += 1;
+            }
+
+            if (end_pos >= self.output.items.len or self.output.items[end_pos] != ';') {
+                search_pos = after_prefix;
+                continue;
+            }
+
+            // Extract the content between `_ = ` and `;`
+            const content = self.output.items[after_prefix..end_pos];
+
+            // Check if content is a simple identifier (only alphanumeric + underscore, no dots/parens/operators)
+            // and not an empty string
+            if (content.len == 0) {
+                search_pos = after_prefix;
+                continue;
+            }
+
+            var is_simple_ident = true;
+            for (content) |c| {
+                if (!std.ascii.isAlphanumeric(c) and c != '_') {
+                    is_simple_ident = false;
+                    break;
+                }
+            }
+
+            // Also check that it starts with a letter or underscore (valid identifier start)
+            if (is_simple_ident and !std.ascii.isAlphabetic(content[0]) and content[0] != '_') {
+                is_simple_ident = false;
+            }
+
+            if (is_simple_ident) {
+                // This is `_ = identifier;` - insert `&` after `_ = `
+                try self.output.insertSlice(self.allocator, after_prefix, "&");
+                search_pos = after_prefix + 2; // Skip past the `&` we just inserted plus one more
+            } else {
+                search_pos = after_prefix;
+            }
+        }
     }
 
     /// Check if a local variable name would shadow an imported module

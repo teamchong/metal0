@@ -24,6 +24,12 @@ const string_traits = @import("../../../analysis/traits/string_traits.zig");
 const container_traits = @import("../../../analysis/traits/container_traits.zig");
 const module_functions = @import("../dispatch/module_functions.zig");
 
+// Multi-pass build system
+const ir = @import("../../ir.zig");
+const ir_gen = @import("../../passes/ir_gen.zig");
+const pass_analysis = @import("../../passes/analysis.zig");
+const emit_pass = @import("../../passes/emit.zig");
+
 // Comptime constants for code generation (zero runtime cost)
 const BUILD_DIR = build_dirs.CACHE;
 const MODULE_EXT = ".zig";
@@ -91,6 +97,30 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     std.debug.print("generate(): Phase 1.1 - Building call graph...\n", .{});
     try self.buildCallGraph(module);
     std.debug.print("generate(): Phase 1.1 complete.\n", .{});
+
+    // PHASE 1.2: Multi-pass analysis
+    // Generate IR and run analysis for const/var inference, hoisting, captures, declaration order
+    std.debug.print("generate(): Phase 1.2 - Multi-pass analysis...\n", .{});
+    const ir_stmts = ir_gen.generateIR(module, self.allocator) catch |err| blk: {
+        std.debug.print("generate(): IR generation failed: {any}, using fallbacks\n", .{err});
+        break :blk null;
+    };
+    if (ir_stmts) |stmts| {
+        const analysis_result = pass_analysis.analyze(stmts, self.allocator) catch |err| blk: {
+            std.debug.print("generate(): Pass analysis failed: {any}, using fallbacks\n", .{err});
+            break :blk null;
+        };
+        if (analysis_result) |result| {
+            // Store pointer to analysis result - heap allocate to keep it alive
+            const result_ptr = try self.allocator.create(pass_analysis.AnalysisResult);
+            result_ptr.* = result;
+            self.pass_analysis_result = result_ptr;
+            std.debug.print("generate(): Phase 1.2 complete - multi-pass analysis enabled\n", .{});
+        }
+    }
+    if (self.pass_analysis_result == null) {
+        std.debug.print("generate(): Phase 1.2 - Using fallback defaults\n", .{});
+    }
 
     // Pre-register global variables so they can be detected during method generation
     // This prevents local variables with the same name from shadowing module-level vars
@@ -2289,6 +2319,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         }
     }
 
+    // Post-process output to fix `_ = varname;` patterns that cause "pointless discard" errors
+    // This converts simple identifier discards to use & prefix which is valid in Zig
+    try self.fixPointlessDiscards();
+
     return self.output.toOwnedSlice(self.allocator);
 }
 
@@ -2320,6 +2354,9 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             // Skip if this class was hoisted to struct level (for return type visibility)
             if (self.hoisted_local_classes.contains(class.name)) return;
             try statements.genClassDef(self, class);
+            // Track this local class in current scope so assertRaises can detect it needs .init() call
+            // Use current_scope_classes which is cleared between methods (not hoisted_local_classes)
+            try self.current_scope_classes.put(class.name, {});
         },
         .function_def => |func| {
             // Record debug line mapping for function definitions
@@ -2887,4 +2924,59 @@ fn collectConditionalAssignments(module_body: []const ast.Node, type_inferrer: a
     }
 
     return conditional_vars;
+}
+
+// ============================================================================
+// Multi-Pass Build System (Experimental)
+// ============================================================================
+
+/// Generate code using the multi-pass build system.
+/// This is an experimental alternative to the single-pass `generate` function.
+///
+/// Pass 1: Python AST → ZigIR (intermediate representation)
+/// Pass 2: ZigIR → MutationAnalysis (determine const vs var)
+/// Pass 3: ZigIR + MutationAnalysis → Zig source code
+///
+/// Benefits:
+/// - Correct const/var inference (analyzes mutations before emitting)
+/// - Cleaner architecture (separation of concerns)
+/// - Easier to add optimizations between passes
+pub fn generateMultiPass(allocator: std.mem.Allocator, module: ast.Node.Module) ![]const u8 {
+    std.debug.print("generateMultiPass(): Starting multi-pass code generation...\n", .{});
+
+    // Pass 1: Generate IR from Python AST
+    std.debug.print("generateMultiPass(): Pass 1 - Generating IR...\n", .{});
+    const ir_stmts = try ir_gen.generateIR(module, allocator);
+    defer {
+        for (ir_stmts) |stmt| {
+            ir.freeStmt(stmt, allocator);
+        }
+        allocator.free(ir_stmts);
+    }
+    std.debug.print("generateMultiPass(): Pass 1 complete - {d} IR statements\n", .{ir_stmts.len});
+
+    // Debug: Print IR
+    if (false) { // Set to true to enable IR debug output
+        std.debug.print("\n=== Generated IR ===\n", .{});
+        for (ir_stmts) |stmt| {
+            ir.debugPrintStmt(stmt, std.io.getStdErr().writer(), 0) catch {};
+        }
+        std.debug.print("===================\n\n", .{});
+    }
+
+    // Pass 2: Analyze mutations
+    std.debug.print("generateMultiPass(): Pass 2 - Analyzing mutations...\n", .{});
+    var analysis = try pass_analysis.analyze(ir_stmts, allocator);
+    defer analysis.deinit();
+    std.debug.print("generateMultiPass(): Pass 2 complete - {d} mutated vars\n", .{analysis.mutated_vars.count()});
+
+    // Pass 3: Emit final code
+    std.debug.print("generateMultiPass(): Pass 3 - Emitting code...\n", .{});
+    var output = std.ArrayList(u8){};
+    errdefer output.deinit(allocator);
+
+    try emit_pass.emit(ir_stmts, &analysis, &output, allocator);
+    std.debug.print("generateMultiPass(): Pass 3 complete - {d} bytes generated\n", .{output.items.len});
+
+    return output.toOwnedSlice(allocator);
 }
