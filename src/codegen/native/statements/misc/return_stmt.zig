@@ -208,7 +208,14 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
             // For __init__ methods, bare return should return self
             if (self.current_function_name) |fn_name| {
                 if (std.mem.eql(u8, fn_name, "__init__") or std.mem.eql(u8, fn_name, "init")) {
-                    try b2.write("return __self;\n");
+                    // Only return __self if it's actually declared (not for early returns)
+                    if (self.isDeclared("__self")) {
+                        try b2.write("return __self;\n");
+                    } else {
+                        // Early return before __self is created (e.g., metaclass __init__)
+                        // Return default-initialized struct with empty __dict__
+                        try b2.write("return @This(){ .__dict__ = .{} };\n");
+                    }
                 } else {
                     try b2.write("return;\n");
                 }
@@ -386,7 +393,14 @@ pub fn genReturn(self: *NativeCodegen, ret: ast.Node.Return) CodegenError!void {
         // For __init__ methods, bare return should return self
         if (self.current_function_name) |fn_name| {
             if (std.mem.eql(u8, fn_name, "__init__") or std.mem.eql(u8, fn_name, "init")) {
-                try b.emitRaw("return __self");
+                // Only return __self if it's actually declared (not for early returns)
+                if (self.isDeclared("__self")) {
+                    try b.emitRaw("return __self");
+                } else {
+                    // Early return before __self is created (e.g., metaclass __init__)
+                    // Return default-initialized struct with empty __dict__
+                    try b.emitRaw("return @This(){ .__dict__ = .{} }");
+                }
             } else {
                 try b.emitRaw("return ");
             }
