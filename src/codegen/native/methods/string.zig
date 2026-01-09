@@ -283,25 +283,26 @@ pub fn genJoin(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) CodegenErr
     const is_uncertain = self.isExprUncertain(obj);
 
     // Generate unique labeled block for join operation
+    // Use label-suffixed variable names to avoid shadowing in nested scopes
     const join_label = self.nextLabelId();
     try self.emitFmt("join_{d}: {{\n", .{join_label});
-    try self.emit("const __join_sep = ");
+    try self.emitFmt("const __join_sep_{d} = ", .{join_label});
     try self.genExpr(obj); // The separator string
     // Two-Flow: Extract string from PyValue if uncertain
     if (is_uncertain) {
         try self.emit(".string");
     }
     try self.emit(";\n");
-    try self.emit("const __join_list = ");
+    try self.emitFmt("const __join_list_{d} = ", .{join_label});
     try self.genExpr(args[0]); // The list
     try self.emit(";\n");
     // At module level or inside defer, can't use 'try' - use 'catch unreachable' instead
     const at_module_level = self.current_function_name == null;
     const cannot_use_try = at_module_level or self.inside_defer;
     if (cannot_use_try) {
-        try self.emitFmt("break :join_{d} runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list) catch unreachable;\n", .{join_label});
+        try self.emitFmt("break :join_{d} runtime.string_utils.pyJoin(__global_allocator, __join_sep_{d}, __join_list_{d}) catch unreachable;\n", .{ join_label, join_label, join_label });
     } else {
-        try self.emitFmt("break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep, __join_list);\n", .{join_label});
+        try self.emitFmt("break :join_{d} try runtime.string_utils.pyJoin(__global_allocator, __join_sep_{d}, __join_list_{d});\n", .{ join_label, join_label, join_label });
     }
     try self.emit("}");
 }
