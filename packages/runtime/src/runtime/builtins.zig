@@ -1321,5 +1321,14 @@ pub fn numericToFloat(value: anytype) f64 {
     if (info == .float) return @floatCast(value);
     if (type_predicates.isIntInfo(info)) return @floatFromInt(value);
     if (info == .comptime_float) return @floatCast(value);
+    // Handle PyValue by extracting its numeric value
+    if (T == PyValue) {
+        return switch (value) {
+            .int => |i| @floatFromInt(i),
+            .float => |f| f,
+            .bigint => |b| @floatFromInt(b.toInt(i64) catch 0),
+            else => 0.0, // Fallback for non-numeric PyValue
+        };
+    }
     @compileError("numericToFloat: expected numeric type, got " ++ @typeName(T));
 }

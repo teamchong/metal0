@@ -49,6 +49,13 @@ pub fn slicesEqual(comptime T: type, comptime U: type, a: *const T, b: *const U)
 /// Unlike getSlice which returns arrays by value, this takes a pointer and returns a slice
 fn getConstSliceFromPtr(comptime T: type, ptr: *const T) []const GetElementType(T) {
     const info = @typeInfo(T);
+    if (T == PyValue) {
+        return switch (ptr.*) {
+            .list => |l| l.items,
+            .tuple => |t| t,
+            else => &[0]PyValue{},
+        };
+    }
     if (info == .@"struct" and @hasField(T, "list")) {
         return ptr.list.items;
     } else if (info == .@"struct" and @hasField(T, "items")) {
@@ -63,7 +70,8 @@ fn getConstSliceFromPtr(comptime T: type, ptr: *const T) []const GetElementType(
     }
     // Fallback for unknown types (like HashMaps)
     // Return empty slice of the expected element type
-    return &[0]GetElementType(T){};
+    const Elem = GetElementType(T);
+    return &[0]Elem{};
 }
 
 /// Extract slice from any container type
@@ -71,6 +79,13 @@ fn getConstSliceFromPtr(comptime T: type, ptr: *const T) []const GetElementType(
 /// Returns const slice for read operations
 pub fn getSlice(comptime T: type, container: T) GetSliceType(T) {
     const info = @typeInfo(T);
+    if (T == PyValue) {
+        return switch (container) {
+            .list => |l| l.items,
+            .tuple => |t| t,
+            else => &[0]PyValue{},
+        };
+    }
     if (info == .@"struct" and @hasField(T, "list")) {
         // PyValue.list types - .list is *ArrayListUnmanaged, access .items
         return container.list.items;
@@ -166,6 +181,7 @@ pub fn toIterSlice(comptime T: type, container: T) GetSliceType(T) {
 /// Helper to determine element type of a container
 pub fn GetElementType(comptime T: type) type {
     const info = @typeInfo(T);
+    if (T == PyValue) return PyValue;
     if (info == .@"struct" and @hasField(T, "list")) {
         // PyValue.list types - .list is *ArrayListUnmanaged
         return std.meta.Elem(@TypeOf(@as(T, undefined).list.items));
@@ -180,10 +196,30 @@ pub fn GetElementType(comptime T: type) type {
         return info.array.child;
     } else if (info == .@"struct" and info.@"struct".is_tuple) {
         // Tuple struct (e.g., struct { f64, f64, f64 }) - elements accessed by field index
-        // All tuple elements must have same type for iteration, use first field's type
+        // For heterogeneous tuples, need to find a common type that can hold all elements
         const fields = info.@"struct".fields;
         if (fields.len > 0) {
-            return fields[0].type;
+            // Check if all fields have the same type
+            const first_type = fields[0].type;
+            var all_same = true;
+            var has_float = @typeInfo(first_type) == .float;
+            var has_int = @typeInfo(first_type) == .int or @typeInfo(first_type) == .comptime_int;
+            inline for (fields[1..]) |field| {
+                if (field.type != first_type) {
+                    all_same = false;
+                }
+                if (@typeInfo(field.type) == .float or @typeInfo(field.type) == .comptime_float) has_float = true;
+                if (@typeInfo(field.type) == .int or @typeInfo(field.type) == .comptime_int) has_int = true;
+            }
+            if (all_same) {
+                return first_type;
+            }
+            // For mixed int/float tuples, use f64 as the common type
+            if (has_int and has_float) {
+                return f64;
+            }
+            // Fall through to first type for other mixed cases
+            return first_type;
         }
     } else if (info == .@"struct" and @hasDecl(T, "KV")) {
         // Hash map types (std.AutoHashMap, std.AutoArrayHashMap) - use key type for containment
@@ -196,6 +232,7 @@ pub fn GetElementType(comptime T: type) type {
 /// Helper to determine slice type for getSlice return
 fn GetSliceType(comptime T: type) type {
     const info = @typeInfo(T);
+    if (T == PyValue) return []const PyValue;
     if (info == .@"struct" and @hasField(T, "list")) {
         // PyValue.list types - .list is *ArrayListUnmanaged
         return @TypeOf(@as(T, undefined).list.items);

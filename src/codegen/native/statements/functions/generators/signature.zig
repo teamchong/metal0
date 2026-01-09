@@ -127,6 +127,12 @@ fn getTypeFromCallArgs(self: *NativeCodegen, call_arg_types: []const NativeType,
                     return null; // Will fall through to other handling
                 }
             }
+            // Tuple/struct types are polymorphic - different call sites may pass tuples
+            // with different element types (e.g., (f64, f64, f64) vs (PyValue, PyValue, PyValue))
+            // Use anytype to accept any tuple of the same arity
+            if (call_type_tag == .tuple) {
+                return null; // Fall through to anytype handling
+            }
             // Found non-default type from call site
             return try self.nativeTypeToZigType(call_type);
         }
@@ -154,6 +160,10 @@ fn getMethodTypeFromCallSite(self: *NativeCodegen, class_name: []const u8, metho
                     if (is_none_default) {
                         return null;
                     }
+                }
+                // Tuple types are polymorphic - use anytype
+                if (call_type_tag == .tuple) {
+                    return try self.allocator.dupe(u8, "anytype");
                 }
                 // For simple types that might be polymorphic (passed as PyValue or native type
                 // at different call sites), use anytype to accept both.
@@ -183,6 +193,10 @@ fn getMethodTypeFromCallSite(self: *NativeCodegen, class_name: []const u8, metho
                     if (is_none_default) {
                         return null;
                     }
+                }
+                // Tuple types are polymorphic - use anytype
+                if (call_type_tag == .tuple) {
+                    return try self.allocator.dupe(u8, "anytype");
                 }
                 // For simple types that might be polymorphic, use anytype
                 const zig_type = try self.nativeTypeToZigType(call_type);
@@ -2091,6 +2105,12 @@ pub fn genMethodSignatureWithSkip(
         if (std.mem.eql(u8, magic_return_type, "runtime.PyValue")) {
             self.current_function_returns_pyvalue = true;
         }
+
+        // Track if method can use `try` based on return type
+        // Return types with `!` or containing "Error!" can use try
+        const has_error_return = magic_return_type[0] == '!' or
+            std.mem.indexOf(u8, magic_return_type, "Error!") != null;
+        self.current_function_can_try = has_error_return;
     } else if (std.mem.eql(u8, method.name, "__iter__")) {
         // Special handling for __iter__ - returns an iterator/slice
         // Check if method returns 'self' - common pattern for iterator classes
