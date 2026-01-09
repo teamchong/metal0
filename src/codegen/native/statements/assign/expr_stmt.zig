@@ -574,7 +574,7 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         return true;
     }
 
-    // Binary operations with class instances (e.g., x / 1 where x has __truediv__)
+    // Binary operations with class instances or PyValue (e.g., x / 1 where x has __truediv__)
     // These generate dunder method calls that return values
     if (expr == .binop) {
         const left_type = self.type_inferrer.inferExpr(expr.binop.left.*) catch .unknown;
@@ -582,6 +582,13 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         // If either operand is a class instance, the binary op will use dunder methods
         // which return values that need to be discarded
         if (type_traits.isClassInstance(left_type) or type_traits.isClassInstance(right_type)) {
+            return true;
+        }
+        // If either operand is PyValue or uncertain, the binary op will generate
+        // PyValue.add(), .sub(), etc. which return PyValue
+        if (left_type == .pyvalue or left_type == .unknown or
+            right_type == .pyvalue or right_type == .unknown)
+        {
             return true;
         }
         // Division operations (/, //) always return values (f64 or i64)
@@ -592,10 +599,14 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
         }
     }
 
-    // Unary operations with class instances (e.g., -x where x has __neg__)
+    // Unary operations with class instances or PyValue (e.g., -x where x has __neg__)
     if (expr == .unaryop) {
         const operand_type = self.type_inferrer.inferExpr(expr.unaryop.operand.*) catch .unknown;
         if (type_traits.isClassInstance(operand_type)) {
+            return true;
+        }
+        // PyValue/unknown operands generate PyValue.neg() which returns PyValue
+        if (operand_type == .pyvalue or operand_type == .unknown) {
             return true;
         }
     }
@@ -616,6 +627,12 @@ fn shouldDiscardValue(self: *NativeCodegen, expr: ast.Node) bool {
     // Tuple expressions used as statements need value discard
     // e.g., `(x := 1, 2)` generates `.{ __m_walrus: {...}, 2 }` which needs `_ = `
     if (expr == .tuple) {
+        return true;
+    }
+
+    // Comparison expressions return bool values that need to be discarded
+    // e.g., `Left() != Right()` generates `(!a.eql(b))` which is a bool
+    if (expr == .compare) {
         return true;
     }
 
