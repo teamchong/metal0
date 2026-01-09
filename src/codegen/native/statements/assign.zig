@@ -692,27 +692,28 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             var var_name: []const u8 = try self.arena.allocator().dupe(u8, target.name.id);
             const original_var_name = var_name; // Keep for usage checks (before any renaming)
 
-            // Skip function-aliasing assignments: genslices = rslices, permutations = rpermutation
-            // When value is a module-level function, skip the assignment
-            // In Python this aliases one function to another name, but in Zig functions
-            // can't be reassigned - they're compile-time constants
+            // Handle function/class aliasing: error = ArgumentParserError, genslices = rslices
+            // When value is a module-level function or class, generate const declaration
+            // instead of skipping - the variable may be used later (e.g., in assertRaises)
             if (assign.value.* == .name) {
                 const rhs_name = assign.value.name.id;
-                if (self.module_level_funcs.contains(rhs_name)) {
-                    // RHS is a function - emit comment and skip
-                    try self.emitIndent();
-                    try self.emit("// function alias: ");
-                    try self.emit(var_name);
-                    try self.emit(" = ");
-                    try self.emit(rhs_name);
-                    try self.emit(" (skipped - functions are compile-time constants)\n");
-                    continue;
-                }
-                // Track when exception type is assigned to variable (e.g., context = IndexError)
+                // Track exception types first (for assertRaises lookup)
                 if (expressions.isPythonExceptionType(rhs_name)) {
                     const var_name_copy = try self.arena.allocator().dupe(u8, var_name);
                     const rhs_name_copy = try self.arena.allocator().dupe(u8, rhs_name);
                     try self.exception_type_vars.put(var_name_copy, rhs_name_copy);
+                }
+                if (self.module_level_funcs.contains(rhs_name)) {
+                    // RHS is a class/function - emit const declaration
+                    // Can't use var since classes/functions are compile-time constants
+                    try self.emitIndent();
+                    try self.emit("const ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                    try self.emit(" = ");
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), rhs_name);
+                    try self.emit(";\n");
+                    try self.declareVar(var_name);
+                    continue;
                 }
             }
 
