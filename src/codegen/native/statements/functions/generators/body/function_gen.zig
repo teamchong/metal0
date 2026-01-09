@@ -1808,6 +1808,29 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     // Clear local variable types (new method scope)
     self.clearLocalVarTypes();
 
+    // Store parameter types from function_call_args so inferExprScoped can find them
+    // This enables proper type checking when parameters are passed to other methods
+    // Build qualified method name: ClassName.methodName
+    if (self.current_class_name) |class_name| {
+        var method_key_buf: [256]u8 = undefined;
+        const method_key = std.fmt.bufPrint(&method_key_buf, "{s}.{s}", .{ class_name, method.name }) catch null;
+        if (method_key) |key| {
+            if (self.type_inferrer.function_call_args.get(key)) |param_types| {
+                // Store each parameter's type (skip self which is index 0)
+                // method.args doesn't include self for methods, so param_types[i] = method.args[i]
+                for (method.args, 0..) |arg, i| {
+                    // Skip 'self' parameter
+                    if (std.mem.eql(u8, arg.name, "self")) continue;
+                    // Get corresponding type from call args (offset by 1 for self)
+                    const type_idx = if (i == 0) 0 else i - 1;
+                    if (type_idx < param_types.len) {
+                        self.setLocalVarType(arg.name, param_types[type_idx]) catch {};
+                    }
+                }
+            }
+        }
+    }
+
     // Track parameters that were renamed to avoid method shadowing (e.g., init -> init_arg)
     // We'll restore these when exiting the method
     var renamed_params = std.ArrayListUnmanaged([]const u8){};

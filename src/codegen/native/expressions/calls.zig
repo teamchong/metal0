@@ -1071,7 +1071,28 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     if (need_pyvalue_wrap) {
                         try emitPyValueFrom(self, arg);
                     } else {
-                        try genExpr(self, arg);
+                        // Unwrap PyBytes to []const u8 only if method expects []const u8
+                        // If method expects PyBytes, pass as-is
+                        // Default: if we don't know expected type, unwrap (most methods expect []const u8)
+                        const arg_type = self.inferExprScoped(arg) catch .unknown;
+                        const should_unwrap_bytes = blk: {
+                            if (arg_type != .bytes) break :blk false;
+                            // Check if method expects PyBytes
+                            if (expected_param_types) |param_types| {
+                                if (i < param_types.len and param_types[i] == .bytes) {
+                                    // Method expects PyBytes, don't unwrap
+                                    break :blk false;
+                                }
+                            }
+                            // Default to unwrapping - most methods expect []const u8
+                            break :blk true;
+                        };
+                        if (should_unwrap_bytes) {
+                            try genExpr(self, arg);
+                            try self.emit(".data");
+                        } else {
+                            try genExpr(self, arg);
+                        }
                     }
                 }
 
@@ -2388,12 +2409,24 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if function returns error union (has raise/assert/etc.)
         const func_needs_error = self.funcNeedsErrorUnion(raw_func_name);
 
-        // Add 'try' if function needs allocator, is async, or returns error union
+        // Check if this is an anytype callable parameter (e.g., f: anytype passed &base64.b64encode)
+        // These often need allocator but we can't know at codegen time - pass allocator if param name
+        // suggests it's a function (f, func, fn, op, cmp) as these are commonly stdlib function refs
+        const is_anytype_func_param = if (call.func.* == .name) blk: {
+            const name = call.func.name.id;
+            break :blk self.anytype_params.contains(name) and
+                (std.mem.eql(u8, name, "f") or std.mem.eql(u8, name, "func") or
+                std.mem.eql(u8, name, "fn") or std.mem.eql(u8, name, "op") or
+                std.mem.eql(u8, name, "cmp") or std.mem.eql(u8, name, "encode") or
+                std.mem.eql(u8, name, "decode"));
+        } else false;
+
+        // Add 'try' if function needs allocator, is async, returns error union, or is anytype func param
         // Note: kwarg functions don't need try - the block expression handles errors
         // IMPORTANT: Only emit 'try' inside function bodies (current_function_name != null)
         // At module level, 'try' is invalid in Zig - use catch unreachable wrapper instead
         const at_module_level = self.current_function_name == null;
-        const needs_error_handling = user_func_needs_alloc or is_async_func or func_needs_error;
+        const needs_error_handling = user_func_needs_alloc or is_async_func or func_needs_error or is_anytype_func_param;
         if (needs_error_handling) {
             if (at_module_level) {
                 // Module level: wrap with ( ... catch unreachable)
@@ -2419,7 +2452,8 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
 
         // For user-defined functions: inject allocator as FIRST argument
         // BUT NOT for async functions - the _async wrapper doesn't take allocator
-        if (user_func_needs_alloc and !is_async_func) {
+        // Also inject for anytype callable params that likely need allocator (stdlib functions)
+        if ((user_func_needs_alloc or is_anytype_func_param) and !is_async_func) {
             const alloc_name = "__global_allocator";
             try self.emit(alloc_name);
             allocator_was_emitted = true;
@@ -2521,6 +2555,14 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 // Check if argument is a class instance - pass by pointer for Python semantics
                 const arg_type = self.inferExprScoped(arg) catch .unknown;
                 if (type_traits.isClassInstance(arg_type)) {
+                    // For array.array passed to anytype callable, extract .tobytes() for []const u8 compatibility
+                    // This handles cases like: f(array('B', data)) where f expects bytes
+                    const is_array_array = std.mem.eql(u8, arg_type.class_instance, "array.array");
+                    if (is_anytype_callable and is_array_array) {
+                        try genExpr(self, arg);
+                        try self.emit(".tobytes()");
+                        continue;
+                    }
                     // Don't add & for renamed variables (param reassignment creates var, already a value)
                     const is_renamed_var = if (arg == .name)
                         self.var_renames.contains(arg.name.id)
@@ -2544,6 +2586,19 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                     try genExpr(self, arg);
                     continue;
                 }
+
+                // When passing PyBytes as an argument, unwrap to []const u8
+                // Most functions (stdlib, user-defined) expect []const u8, not PyBytes
+                // This handles:
+                // - anytype callable (like f where f is &base64.b64encode)
+                // - generated methods like check_nonbyte_element_format(f, data)
+                // - any other function call where bytes are passed
+                if (arg_type == .bytes) {
+                    try genExpr(self, arg);
+                    try self.emit(".data");
+                    continue;
+                }
+
                 try genExpr(self, arg);
             }
 
