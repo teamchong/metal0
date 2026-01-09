@@ -772,6 +772,8 @@ pub fn genInitMethod(
 ) CodegenError!void {
     // Clear anytype_params from previous method to avoid cross-method pollution
     self.anytype_params.clearRetainingCapacity();
+    // Clear discarded_params to avoid cross-class pollution (each class's init has its own scope)
+    self.clearDiscardedParams();
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
@@ -1029,6 +1031,15 @@ pub fn genInitMethod(
             if (std.mem.eql(u8, param_name, "_")) continue;
             try self.emitParamDiscard(param_name);
         }
+    }
+
+    // Emit discards for *args and **kwargs parameters if present
+    // These are often unused in Python __init__ methods that just accept them for compatibility
+    if (init_def.vararg) |vararg_name| {
+        try self.emitParamDiscard(vararg_name);
+    }
+    if (init_def.kwarg) |kwarg_name| {
+        try self.emitParamDiscard(kwarg_name);
     }
 
     // Detect type-check-raise patterns at the start of the function body for anytype params
@@ -1335,6 +1346,8 @@ pub fn genInitMethodWithBuiltinBase(
 ) CodegenError!void {
     // Clear anytype_params from previous method to avoid cross-method pollution
     self.anytype_params.clearRetainingCapacity();
+    // Clear discarded_params to avoid cross-class pollution (each class's init has its own scope)
+    self.clearDiscardedParams();
 
     // Check if class is nested (defined inside a function/method)
     const is_nested = self.nested_class_names.contains(class_name);
@@ -1592,6 +1605,15 @@ pub fn genInitMethodWithBuiltinBase(
             if (std.mem.eql(u8, param_name, "_")) continue;
             try self.emitParamDiscard(param_name);
         }
+    }
+
+    // Emit discards for *args and **kwargs parameters if present
+    // These are often unused in Python __init__ methods that just accept them for compatibility
+    if (init.vararg) |vararg_name| {
+        try self.emitParamDiscard(vararg_name);
+    }
+    if (init.kwarg) |kwarg_name| {
+        try self.emitParamDiscard(kwarg_name);
     }
 
     if (has_type_checks) try emitComptimeTypeGuard(self, type_checks.checks);

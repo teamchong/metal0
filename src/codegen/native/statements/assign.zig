@@ -340,10 +340,31 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // where x needs to be BigInt to hold both values
             if (self.type_inferrer.getScopedVar(var_name)) |scoped_type| {
                 if (scoped_type != .unknown) {
-                    // Don't widen for class_instance types that differ - need actual type for shadowing
-                    const skip_widening = type_traits.isClassInstance(scoped_type) and
-                        type_traits.isClassInstance(original_expr_type) and
-                        !std.mem.eql(u8, scoped_type.class_instance, original_expr_type.class_instance);
+                    // Don't widen when types need shadowing - preserve actual type for shadow detection
+                    const skip_widening = blk: {
+                        // Class instances that differ need shadowing
+                        if (type_traits.isClassInstance(scoped_type) and
+                            type_traits.isClassInstance(original_expr_type) and
+                            !std.mem.eql(u8, scoped_type.class_instance, original_expr_type.class_instance))
+                        {
+                            break :blk true;
+                        }
+                        // List/array types need original type preserved for shadow detection
+                        // When widened type is pyvalue/unknown, it means mixed types in the same variable
+                        // We need to preserve the actual list/array type for later detection of
+                        // incompatible reassignments (e.g., x = [1]; x = {1:2})
+                        const is_expr_list_or_array = container_traits.isList(original_expr_type) or container_traits.isArray(original_expr_type);
+                        const is_scoped_pyvalue_or_unknown = scoped_type == .pyvalue or scoped_type == .unknown;
+                        if (is_expr_list_or_array and is_scoped_pyvalue_or_unknown) {
+                            break :blk true;
+                        }
+                        // Same for dict/set types
+                        const is_expr_dict_or_set = container_traits.isDict(original_expr_type) or container_traits.isSet(original_expr_type);
+                        if (is_expr_dict_or_set and is_scoped_pyvalue_or_unknown) {
+                            break :blk true;
+                        }
+                        break :blk false;
+                    };
                     if (!skip_widening) {
                         value_type = scoped_type;
 
@@ -1397,8 +1418,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Normal reassignment
                     // Use renamed version if in var_renames map (for exception handling)
                     const actual_name = self.var_renames.get(var_name) orelse var_name;
-                    // Track if we got name from var_renames (indicates it's already properly declared)
-                    const has_rename = self.var_renames.contains(var_name);
 
                     // TWO-FLOW TYPE SYSTEM: Check if reassigning a PyValue variable
                     // If so, we need to wrap the RHS in runtime.PyValue.from()
@@ -1440,7 +1459,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         }
                         break :blk false;
                     };
-                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue and !is_list_literal and !is_exception_assignment;
+                    reassign_pyvalue_wrap = is_pyvalue_reassign and !expr_produces_pyvalue and !is_list_literal and !is_exception_assignment and !needs_shadow;
 
                     // UNIFIED INT: Check if reassigning a UnifiedInt variable
                     // If the target is UnifiedInt and RHS is not already UnifiedInt, wrap with fromI64()
@@ -1486,13 +1505,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Use writeLocalVarName to handle Zig keywords AND shadowing names
                     // (e.g., "packed" -> @"packed", "init" -> "init_")
                     // IMPORTANT: Must match the escaping used in declarations (emitVarName)
-                    // EXCEPTION: If variable has a var_renames entry, it's already properly declared
-                    // (e.g., in try-except handlers) - use the exact name without shadowing rename
-                    if (has_rename) {
-                        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
-                    } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
-                    }
+                    // ALSO: Use writeLocalVarName for renamed vars to handle capture field access
+                    // (e.g., "__m287_cap_do_tests.self" should be output as field access, not @"...")
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(" = ");
                     // TWO-FLOW TYPE SYSTEM: Open PyValue.from() wrapper for reassignment if needed
                     // Check if RHS is a generator call (returns []PyValue) - use listFromSlice instead
@@ -1565,6 +1580,12 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // Pass wrapper_opened for first assignment (reassignment never has wrapper for lists
                 // because we disabled it above to avoid conflict with ArrayList expansion pattern)
                 try valueGen.genArrayListInit(self, var_name, list, wrapper_opened);
+
+                // Track the variable type for shadow detection on subsequent reassignments
+                // (e.g., x = [1] then x = {1:2} needs to detect list→dict type change)
+                if (is_first_assignment) {
+                    try self.declareVarWithType(var_name, value_type);
+                }
 
                 // Add defer cleanup
                 try deferCleanup.emitDeferCleanups(
@@ -1750,7 +1771,27 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // TWO-FLOW TYPE SYSTEM: Emit value normally
                 // genExpr() for calls already handles 'try' when needed (see calls.zig:1523)
                 // so we don't need to add it here
-                try self.genExpr(assign.value.*);
+
+                // NONE-TO-BOOL FIX: If assigning None to a bool variable, emit 'false' instead of 'null'
+                // Python: has_cmdline = None ... if has_cmdline: ...
+                // Without this fix: 'bool = null' is invalid in Zig
+                const is_none_to_bool = blk: {
+                    if (assign.value.* == .constant and assign.value.constant.value == .none) {
+                        // Lookup the declared type of this variable
+                        const var_declared_type = self.getLocalVarType(var_name) orelse
+                            self.type_inferrer.var_types.get(var_name) orelse .unknown;
+                        if (!is_first_assignment and type_traits.isBoolean(var_declared_type)) {
+                            break :blk true;
+                        }
+                    }
+                    break :blk false;
+                };
+
+                if (is_none_to_bool) {
+                    try self.emit("false");
+                } else {
+                    try self.genExpr(assign.value.*);
+                }
                 // TWO-FLOW TYPE SYSTEM: Close PyValue.from() wrapper if it was opened
                 // Use wrapper_opened flag from emitVarDeclaration which already handles
                 // all the conditions (unknown type, uncertain var, and expr_produces_pyvalue check)
@@ -1810,6 +1851,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
+                // Remove from pending_discards since we already emitted immediate discard
+                // This avoids "pointless discard" when pending_discards also emits later
+                _ = self.pending_discards.swapRemove(var_name);
             }
 
             // For deques, add pointer discard to suppress "never mutated" warnings
@@ -1820,6 +1864,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
+                // Remove from pending_discards since we already emitted immediate discard
+                _ = self.pending_discards.swapRemove(var_name);
             }
 
             // For class instances, add pointer discard to suppress "unused local constant" warnings
@@ -1831,6 +1877,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
+                // Remove from pending_discards since we already emitted immediate discard
+                _ = self.pending_discards.swapRemove(var_name);
             }
 
             // For variables declared with `var` (because isVarMutated returned true),
@@ -1844,6 +1892,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit("_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(";\n");
+                    // Remove from pending_discards since we already emitted immediate discard
+                    _ = self.pending_discards.swapRemove(var_name);
                 }
             }
 
@@ -1867,6 +1917,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit("_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(";\n");
+                    // Remove from pending_discards since we already emitted immediate discard
+                    _ = self.pending_discards.swapRemove(var_name);
                 }
             }
 
@@ -1915,6 +1967,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                 try self.emit(";\n");
+                // Remove from pending_discards since we already emitted immediate discard
+                _ = self.pending_discards.swapRemove(var_name);
             }
 
             // Emit discard for ALL first assignments to handle unused const variables
@@ -1935,6 +1989,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     try self.emit("_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(";\n");
+                    // Remove from pending_discards since we already emitted immediate discard
+                    _ = self.pending_discards.swapRemove(var_name);
                 }
             }
 

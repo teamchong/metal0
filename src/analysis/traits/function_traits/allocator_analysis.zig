@@ -49,9 +49,21 @@ const NoAllocatorDunderMethods = std.StaticStringMap(void).initComptime(.{
     .{ "__gt__", {} }, .{ "__ge__", {} }, .{ "__contains__", {} },
 });
 
+/// Unittest lifecycle methods that MUST have allocator parameter
+/// The test harness in lifecycle.zig calls these with allocator for test setup/teardown
+/// Note: tearDown is called WITHOUT allocator in lifecycle.zig, so it's not included
+const UnittestAllocatorMethods = std.StaticStringMap(void).initComptime(.{
+    .{ "setUp", {} },
+    .{ "setUpClass", {} },
+    .{ "tearDownClass", {} },
+});
+
 /// Analyze function AST to determine if it needs allocator (for error union)
 pub fn analyzeNeedsAllocator(func: ast.Node.FunctionDef, class_name: ?[]const u8) bool {
     if (NoAllocatorDunderMethods.has(func.name)) return false;
+
+    // Unittest lifecycle methods always need allocator (except tearDown)
+    if (UnittestAllocatorMethods.has(func.name)) return true;
 
     var nested: [32][]const u8 = undefined;
     var count: usize = 0;

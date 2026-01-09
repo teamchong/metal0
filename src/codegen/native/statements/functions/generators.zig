@@ -30,6 +30,32 @@ pub const hasSkipUnlessCPythonModule = test_skip.hasSkipUnlessCPythonModule;
 pub const hasSkipIfModuleIsNone = test_skip.hasSkipIfModuleIsNone;
 pub const isPytestDecorator = test_skip.isPytestDecorator;
 
+/// Check if haystack contains needle as a whole identifier (not substring)
+/// For example, "ArrayList" does not contain identifier "A", but "std.ArrayList(A)" does contain "A"
+fn containsWholeIdentifier(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return false;
+    var pos: usize = 0;
+    while (pos < haystack.len) {
+        const found = std.mem.indexOfPos(u8, haystack, pos, needle);
+        if (found == null) return false;
+        const start = found.?;
+        const end = start + needle.len;
+        // Check if preceded by non-identifier char (or at start)
+        const preceded_by_non_ident = start == 0 or !isIdentChar(haystack[start - 1]);
+        // Check if followed by non-identifier char (or at end)
+        const followed_by_non_ident = end >= haystack.len or !isIdentChar(haystack[end]);
+        if (preceded_by_non_ident and followed_by_non_ident) {
+            return true;
+        }
+        pos = start + 1;
+    }
+    return false;
+}
+
+fn isIdentChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
 /// Check if an AST node references any name from the given hashmap
 /// Used to determine if __alloc will be used via lazy attr calls
 fn nodeReferencesAnyName(node: ast.Node, names: anytype) bool {
@@ -227,6 +253,7 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Two-Flow: Reset PyValue return tracking before generating each function
     self.current_function_returns_pyvalue = false;
+    self.current_function_can_try = true; // Reset to true, signature will set appropriately
 
     // Generate function signature
     try signature.genFunctionSignature(self, func, needs_allocator);
@@ -245,8 +272,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Clear current function name after body generation
     self.current_function_name = null;
-    // Two-Flow: Reset PyValue return tracking
+    // Two-Flow: Reset PyValue return tracking and try capability
     self.current_function_returns_pyvalue = false;
+    self.current_function_can_try = true;
 
     // Register decorated functions for application in main()
     // Filter out pytest decorators (test metadata that doesn't affect execution)
@@ -640,6 +668,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             }
         }
         std.debug.print("genClassDef: Registering unittest class: {s}\n", .{class.name});
+        // Mark class as conditional if defined inside an if block (conditional_depth > 0)
+        // Conditional classes are skipped in test runner generation to avoid undeclared identifier errors
+        const is_conditional = self.conditional_depth > 0;
+        if (is_conditional) {
+            std.debug.print("genClassDef: Class {s} is CONDITIONAL (inside if block)\n", .{class.name});
+        }
         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
             .class_name = class.name,
             .test_methods = try test_methods.toOwnedSlice(self.allocator),
@@ -647,6 +681,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             .has_tearDown = has_tearDown,
             .has_setup_class = has_setup_class,
             .has_teardown_class = has_teardown_class,
+            .is_conditional = is_conditional,
         });
         std.debug.print("genClassDef: Unittest class registered: {s}\n", .{class.name});
     }
@@ -1091,6 +1126,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             if (std.mem.eql(u8, base_name, "BaseException")) continue;
             if (std.mem.endsWith(u8, base_name, "Error")) continue;
             if (std.mem.endsWith(u8, base_name, "Warning")) continue;
+            // Skip instance variables (lowercase identifiers that aren't known classes)
+            // Python allows class D(c) where c is an instance with __mro_entries__,
+            // but we can't reference runtime instance pointers in struct const initializers
+            if (base_name.len > 0 and std.ascii.isLower(base_name[0])) {
+                // Check if it's a known class alias or hoisted class - if so, allow it
+                if (self.nested_class_aliases.get(base_name) == null and
+                    self.hoisted_local_classes.get(base_name) == null)
+                {
+                    continue; // Skip instance variables
+                }
+            }
             valid_base_count += 1;
         }
 
@@ -1116,6 +1162,17 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 if (std.mem.eql(u8, base_name, "BaseException")) continue;
                 if (std.mem.endsWith(u8, base_name, "Error")) continue;
                 if (std.mem.endsWith(u8, base_name, "Warning")) continue;
+                // Skip instance variables (lowercase identifiers that aren't known classes)
+                // Python allows class D(c) where c is an instance with __mro_entries__,
+                // but we can't reference runtime instance pointers in struct const initializers
+                if (base_name.len > 0 and std.ascii.isLower(base_name[0])) {
+                    // Check if it's a known class alias or hoisted class - if so, allow it
+                    if (self.nested_class_aliases.get(base_name) == null and
+                        self.hoisted_local_classes.get(base_name) == null)
+                    {
+                        continue; // Skip instance variables
+                    }
+                }
                 if (!first) try self.emit(", ");
                 first = false;
                 // Resolve nested class name to its hoisted/aliased name
@@ -1302,14 +1359,15 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             // Check if zig_type contains a nested class name (self-referential/recursive types)
             // If so, use *anyopaque instead to avoid "use of undeclared identifier" errors
             // Example: mylist: std.ArrayList(Obj) where Obj is the current class -> use *anyopaque
+            // NOTE: Use whole-word matching to avoid false positives like "ArrayList" matching class "A"
             var has_nested_class_ref = false;
-            if (std.mem.indexOf(u8, zig_type, class.name) != null) {
+            if (containsWholeIdentifier(zig_type, class.name)) {
                 has_nested_class_ref = true;
             } else {
                 // Also check other nested class names in this scope
                 var nc_iter = self.nested_class_names.iterator();
                 while (nc_iter.next()) |entry| {
-                    if (std.mem.indexOf(u8, zig_type, entry.key_ptr.*) != null) {
+                    if (containsWholeIdentifier(zig_type, entry.key_ptr.*)) {
                         has_nested_class_ref = true;
                         break;
                     }
@@ -1516,21 +1574,49 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                         }
                     }
                     if (is_method) {
-                        // Generate an alias method that delegates to the target
+                        // Generate a wrapper method that forwards to the target
+                        // Using a real function (not const field) so it can be called as a method
                         try self.emit("\n");
                         try self.emitIndent();
-                        try self.output.writer(self.allocator).print("// {s} = {s} (method alias)\n", .{ alias_name, target_method });
+                        try self.output.writer(self.allocator).print("// {s} = {s} (method alias - wrapper function)\n", .{ alias_name, target_method });
                         try self.emitIndent();
-                        // Use writeStructMethodName to rename "std" -> "std_" (not just escape)
-                        try self.emit("pub const ");
+                        try self.emit("pub fn ");
                         try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), alias_name);
-                        try self.emit(" = ");
-                        // Use @This().method_name to disambiguate when method shadows a module-level function
-                        if (self.module_level_funcs.contains(target_method)) {
-                            try self.emit("@This().");
+
+                        // Check if target method is a NoAllocatorDunderMethod (only takes self)
+                        // These methods have signature: fn(__self: *const @This()) ReturnType
+                        // Use __self to avoid shadowing 'self' from outer scope in nested classes
+                        const NoAllocDunders = std.StaticStringMap(void).initComptime(.{
+                            .{ "__float__", {} }, .{ "__int__", {} }, .{ "__bool__", {} }, .{ "__hash__", {} },
+                            .{ "__index__", {} }, .{ "__sizeof__", {} }, .{ "__len__", {} },
+                            .{ "__eq__", {} }, .{ "__ne__", {} }, .{ "__lt__", {} }, .{ "__le__", {} },
+                            .{ "__gt__", {} }, .{ "__ge__", {} }, .{ "__contains__", {} },
+                        });
+
+                        if (NoAllocDunders.has(target_method)) {
+                            // Simple wrapper for no-allocator dunder methods
+                            try self.emit("(__self: *const @This()) @TypeOf(");
+                            try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
+                            try self.emit("(__self)) {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return ");
+                            try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
+                            try self.emit("(__self);\n");
+                        } else {
+                            // Full wrapper for methods with allocator
+                            try self.emit("(__self: *const @This(), allocator: std.mem.Allocator, other: anytype) @TypeOf(");
+                            try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
+                            try self.emit("(__self, allocator, other)) {\n");
+                            self.indent();
+                            try self.emitIndent();
+                            try self.emit("return ");
+                            try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
+                            try self.emit("(__self, allocator, other);\n");
                         }
-                        try zig_keywords.writeStructMethodName(self.output.writer(self.allocator), target_method);
-                        try self.emit(";\n");
+                        self.dedent();
+                        try self.emitIndent();
+                        try self.emit("}\n");
                     }
                 }
             }

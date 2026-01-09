@@ -277,7 +277,9 @@ pub const builtins_dict = @import("Python/builtins_dict.zig");
 
 // Re-export test_support and unittest for unittest codegen
 pub const test_support = @import("Lib/test/support.zig");
+pub const test_importlib_util = @import("Lib/test/test_importlib/util.zig");
 pub const unittest = @import("Lib/unittest.zig");
+pub const io = @import("Lib/io.zig");
 
 // Re-export all type builtins for codegen (via existing type_builtins import at line 100)
 pub const boolBuiltinCall = type_builtins.boolBuiltinCall;
@@ -527,6 +529,9 @@ pub const SequenceIterator = iterators.SequenceIterator;
 
 /// Export calendar module
 pub const calendar = @import("Lib/calendar.zig");
+
+/// Export colorsys module
+pub const colorsys = @import("Lib/colorsys.zig");
 
 /// Export os module
 pub const os = @import("Lib/os.zig");
@@ -1124,6 +1129,7 @@ pub const Lib = struct {
     pub const pathlib = @import("Lib/pathlib.zig");
     pub const datetime = @import("Lib/datetime.zig");
     pub const calendar = @import("Lib/calendar.zig");
+    pub const colorsys = @import("Lib/colorsys.zig");
     pub const itertools = @import("Lib/itertools.zig");
     pub const collections = @import("Lib/collections.zig");
     pub const concurrent = @import("Lib/concurrent.zig");

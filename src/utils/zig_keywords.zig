@@ -307,6 +307,14 @@ pub fn writeStructMethodName(writer: anytype, name: []const u8) !void {
 
 /// This avoids allocation by writing directly
 pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
+    // Handle lazy attribute call patterns (e.g., "(try BIG_TEXT(__alloc))" from class-level lazy attributes)
+    // These are raw Zig expressions stored in var_renames, not identifiers
+    // They should be emitted directly without any escaping
+    if (std.mem.startsWith(u8, name, "(try ")) {
+        try writer.writeAll(name);
+        return;
+    }
+
     // Handle pointer dereference expressions (e.g., "p_a_1.*" from try-except hoisting)
     // The ".*" suffix is NOT part of the identifier - it's the dereference operator
     // Emit base part with normal escaping, then ".*" literally
@@ -331,6 +339,14 @@ pub fn writeEscapedIdent(writer: anytype, name: []const u8) !void {
 /// Write local variable name, renaming if it would shadow a method or module import
 /// Use this for local variable declarations and usages, NOT for method/field names
 pub fn writeLocalVarName(writer: anytype, name: []const u8) !void {
+    // Handle lazy attribute call patterns (e.g., "(try BIG_TEXT(__alloc))" from class-level lazy attributes)
+    // These are raw Zig expressions stored in var_renames, not identifiers
+    // They should be emitted directly without any escaping or renaming
+    if (std.mem.startsWith(u8, name, "(try ")) {
+        try writer.writeAll(name);
+        return;
+    }
+
     // Handle pointer dereference expressions (e.g., "p_a_1.*" from try-except hoisting)
     // The ".*" suffix is NOT part of the identifier - it's the dereference operator
     // Emit base part with normal escaping, then ".*" literally
