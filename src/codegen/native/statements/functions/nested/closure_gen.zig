@@ -591,6 +591,11 @@ pub fn genStandardClosure(
     const body = @import("../generators/body.zig");
     try body.analyzeFunctionLocalMutations(self, func);
 
+    // Analyze VM fallback variables - these are variables used inside eval() strings
+    // Without this, variables like `res` in `eval("res.append(i)")` appear unused
+    const vm_fallback_analysis = @import("../generators/body/vm_fallback_analysis.zig");
+    try vm_fallback_analysis.analyzeVMFallbackVars(self, func);
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
     }

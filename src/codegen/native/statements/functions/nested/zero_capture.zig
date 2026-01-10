@@ -234,6 +234,11 @@ pub fn genZeroCaptureClosure(
     const body = @import("../generators/body.zig");
     try body.analyzeFunctionLocalMutations(self, func);
 
+    // Analyze VM fallback variables - these are variables used inside eval() strings
+    // Without this, variables like `res` in `eval("res.append(i)")` appear unused
+    const vm_fallback_analysis = @import("../generators/body/vm_fallback_analysis.zig");
+    try vm_fallback_analysis.analyzeVMFallbackVars(self, func);
+
     // Populate func_local_uses with variables used in this function body
     try var_tracking.collectUsedNames(func.body, &self.func_local_uses);
 
@@ -837,6 +842,11 @@ pub fn genModuleLevelZeroCaptureClosure(
     // Note: passes system already analyzed mutations - this is a no-op for compatibility
     const body = @import("../generators/body.zig");
     try body.analyzeFunctionLocalMutations(self, func);
+
+    // Analyze VM fallback variables - these are variables used inside eval() strings
+    // Without this, variables like `res` in `eval("res.append(i)")` appear unused
+    const vm_fallback_analysis = @import("../generators/body/vm_fallback_analysis.zig");
+    try vm_fallback_analysis.analyzeVMFallbackVars(self, func);
 
     // Add parameter renames to var_renames temporarily
     // IMPORTANT: Must dupe renamed values because param_renames is deferred deinit

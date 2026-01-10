@@ -135,6 +135,11 @@ pub fn genRecursiveClosure(
     const body = @import("../generators/body.zig");
     try body.analyzeFunctionLocalMutations(self, func);
 
+    // Analyze VM fallback variables - these are variables used inside eval() strings
+    // Without this, variables like `res` in `eval("res.append(i)")` appear unused
+    const vm_fallback_analysis = @import("../generators/body/vm_fallback_analysis.zig");
+    try vm_fallback_analysis.analyzeVMFallbackVars(self, func);
+
     // Analyze scope-escaping variables that need hoisting for nested function body
     // Variables first assigned in for/if/while/try blocks but used outside need hoisting
     var scope_analysis = try scope_analyzer.analyzeScopes(func.body, self.allocator);
