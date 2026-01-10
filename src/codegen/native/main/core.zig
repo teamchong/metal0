@@ -2108,7 +2108,12 @@ pub const NativeCodegen = struct {
                     if (self.pyvalue_vars.contains(renamed_name)) {
                         return false; // Native handling via subscript.zig
                     }
-                    // Only fall back for truly uncertain variables that aren't PyValue
+                    // Local variables (including parameters) exist as Zig variables
+                    // subscript.zig handles unknown types via container_dispatch.getAt()
+                    if (self.func_local_vars.contains(var_name)) {
+                        return false; // Native handling via subscript.zig
+                    }
+                    // Only fall back for truly uncertain variables that aren't local
                     if (self.isVarUncertain(var_name)) {
                         return true;
                     }
