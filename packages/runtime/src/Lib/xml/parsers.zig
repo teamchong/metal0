@@ -1,7 +1,17 @@
-//! Python stdlib module stub
-//! Not needed: Windows API via Zig's std.os.windows
+//! xml.parsers - XML parsers package
+//! Reference: cpython/Lib/xml/parsers/__init__.py
+//!
+//! This package provides XML parser implementations.
+
 const std = @import("std");
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
+// Re-export expat module
+pub const expat = @import("parsers/expat.zig");
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "import expat" {
+    _ = expat;
 }

@@ -1,7 +1,11 @@
-//! Python stdlib module stub
-//! Not needed: Native Zig regex in packages/regex/
+//! xml.etree.cElementTree - C accelerator for ElementTree
+//! Reference: cpython/Lib/xml/etree/cElementTree.py
+//!
+//! This module is provided for backwards compatibility.
+//! In Python 3.3+, it's just an alias for ElementTree.
+//! In Zig/AOT, we simply re-export ElementTree.
+
 const std = @import("std");
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
-}
+// Re-export everything from ElementTree (DRY)
+pub usingnamespace @import("ElementTree.zig");
