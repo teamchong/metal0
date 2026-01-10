@@ -42,7 +42,5 @@ pub const _have_functions: []const []const u8 = &.{
     "HAVE_UTIMENSAT",
 };
 
-/// Not applicable - implementation handled by module dispatcher
-/// Most functions are handled by module dispatcher (src/codegen/native/posix_mod.zig)
-/// This file just provides module attributes needed by tests
-pub fn __not_applicable__() void {}
+// Note: POSIX functions are implemented in src/codegen/native/posix_mod.zig
+// This file only provides the _have_functions constant used by tests.
