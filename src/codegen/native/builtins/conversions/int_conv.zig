@@ -70,10 +70,11 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
 
     // If we found a __len__ method, generate method call
     // __len__ returns PythonError!i64, so we need to unwrap with try
+    // Validate __len__() >= 0 (same as bool() in type_builtins.zig)
     if (has_magic_method and args[0] == .name) {
-        try self.emit("(try ");
+        try self.emit("(try runtime.validateLen(try ");
         try self.genExpr(args[0]);
-        try self.emit(".__len__())");
+        try self.emit(".__len__()))");
         return;
     }
 
@@ -212,12 +213,13 @@ pub fn genLen(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         } else {
             // User-defined class with __len__ method
             // __len__ returns PythonError!i64, so we need to unwrap with try
+            // Validate __len__() >= 0 (same as bool() in type_builtins.zig)
             if (needs_wrap) {
-                try self.emit("(try __obj.__len__())");
+                try self.emit("(try runtime.validateLen(try __obj.__len__()))");
             } else {
-                try self.emit("(try ");
+                try self.emit("(try runtime.validateLen(try ");
                 try self.genExpr(args[0]);
-                try self.emit(".__len__())");
+                try self.emit(".__len__()))");
             }
         }
     } else {

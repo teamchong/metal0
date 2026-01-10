@@ -300,6 +300,7 @@ pub const frozensetBuiltin = type_builtins.frozensetBuiltin;
 pub const typeBuiltin = type_builtins.typeBuiltin;
 pub const objectBuiltin = type_builtins.objectBuiltin;
 pub const complexBuiltin = type_builtins.complexBuiltin;
+pub const validateLen = type_builtins.validateLen;
 pub const hasattr_builtin = @import("runtime/dynamic_attrs.zig").hasattr_builtin;
 
 // Re-export pyDict helpers for Two-Flow runtime

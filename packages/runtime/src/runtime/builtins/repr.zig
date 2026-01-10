@@ -2,6 +2,7 @@
 const std = @import("std");
 const cpython = @import("../../cpython.zig");
 const PyValue = @import("../../Objects/object.zig").PyValue;
+const PyException = @import("../exceptions.zig").PyException;
 const type_predicates = @import("../type_predicates.zig");
 
 /// MultidimensionalView - Represents a memoryview with ndim > 1
@@ -534,6 +535,11 @@ pub fn valueStr(allocator: std.mem.Allocator, value: anytype) ![]const u8 {
             .exception => |e| std.fmt.allocPrint(allocator, "{s}('{s}')", .{ e.exc_type, e.message }),
             .generator => "<generator object>",
         };
+    }
+
+    // PyException - return just the message (like Python's str(e))
+    if (T == PyException) {
+        return value.message;
     }
 
     // String - no wrapping quotes

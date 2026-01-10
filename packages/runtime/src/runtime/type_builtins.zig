@@ -177,3 +177,14 @@ fn toBool(value: anytype) bool {
         else => true, // Objects are truthy by default
     };
 }
+
+/// Validate that __len__ returns >= 0
+/// Used by len() to match bool()'s validation behavior
+/// Python raises ValueError if __len__ returns negative
+pub fn validateLen(len: anytype) PythonError!@TypeOf(len) {
+    if (len < 0) {
+        exceptions.setException("ValueError", "__len__() should return >= 0");
+        return PythonError.ValueError;
+    }
+    return len;
+}
