@@ -4079,7 +4079,12 @@ pub const NativeCodegen = struct {
     pub fn isVarMutated(self: *NativeCodegen, var_name: []const u8) bool {
         if (self.pass_analysis_result) |result| {
             if (self.current_function_name) |func_name| {
-                return result.isVarMutatedInFunction(func_name, var_name);
+                // Build the proper key including class name for methods
+                // Analysis stores as "ClassName.method_name", so lookup must match
+                const key = if (self.current_class_name) |class_name| blk: {
+                    break :blk std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, func_name }) catch func_name;
+                } else func_name;
+                return result.isVarMutatedInFunction(key, var_name);
             }
             return !result.shouldBeConst(var_name);
         }
@@ -4091,7 +4096,11 @@ pub const NativeCodegen = struct {
     pub fn isVarAugAssigned(self: *NativeCodegen, var_name: []const u8) bool {
         if (self.pass_analysis_result) |result| {
             if (self.current_function_name) |func_name| {
-                return result.isVarAugAssignedInFunction(func_name, var_name);
+                // Build the proper key including class name for methods
+                const key = if (self.current_class_name) |class_name| blk: {
+                    break :blk std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, func_name }) catch func_name;
+                } else func_name;
+                return result.isVarAugAssignedInFunction(key, var_name);
             }
         }
         return false;
@@ -4102,7 +4111,11 @@ pub const NativeCodegen = struct {
     pub fn isVarUnused(self: *NativeCodegen, var_name: []const u8) bool {
         if (self.pass_analysis_result) |result| {
             if (self.current_function_name) |func_name| {
-                return result.isVarUnusedInFunction(func_name, var_name);
+                // Build the proper key including class name for methods
+                const key = if (self.current_class_name) |class_name| blk: {
+                    break :blk std.fmt.allocPrint(self.allocator, "{s}.{s}", .{ class_name, func_name }) catch func_name;
+                } else func_name;
+                return result.isVarUnusedInFunction(key, var_name);
             }
         }
         return self.semantic_info.isUnused(var_name);

@@ -1511,7 +1511,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         if (stmt == .function_def) {
             const method = stmt.function_def;
             if (std.mem.eql(u8, method.name, "__init__")) continue;
-            if (body.methodMutatesSelf(method)) {
+            if (body.methodMutatesSelf(self, method)) {
                 has_mutating_method = true;
                 break;
             }

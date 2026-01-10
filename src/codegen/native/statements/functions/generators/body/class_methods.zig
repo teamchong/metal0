@@ -2629,7 +2629,10 @@ pub fn genClassMethods(
                 if (idx != last_idx) continue;
             }
 
-            const mutates_self = body.methodMutatesSelf(method);
+            // Analyze function-local mutations FIRST so methodMutatesSelf can query the passes system
+            try body.analyzeFunctionLocalMutations(self, method);
+
+            const mutates_self = body.methodMutatesSelf(self, method);
             // Use analyzeNeedsAllocator to detect same-class constructor calls like Rat(x)
             const needs_allocator = function_traits.analyzeNeedsAllocator(method, class.name);
             const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(method, class.name);
@@ -2896,8 +2899,11 @@ fn inheritMethodsFromClass(
             // Mark as generated
             try generated_methods.put(parent_method.name, {});
 
+            // Analyze function-local mutations FIRST so methodMutatesSelf can query the passes system
+            try body.analyzeFunctionLocalMutations(self, parent_method);
+
             // Copy parent method to child class
-            const mutates_self = body.methodMutatesSelf(parent_method);
+            const mutates_self = body.methodMutatesSelf(self, parent_method);
             // Use analyzeNeedsAllocator with parent class name for inherited methods
             const needs_allocator = function_traits.analyzeNeedsAllocator(parent_method, parent.name);
             const actually_uses_allocator = function_traits.analyzeUsesAllocatorParam(parent_method, parent.name);

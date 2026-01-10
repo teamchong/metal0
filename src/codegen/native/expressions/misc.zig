@@ -266,8 +266,18 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
                 // Wrap as PyValue with vtable pointer
                 // This allows class objects to be passed as values in Python
                 // Use @constCast since __vtable__ is a pub const
+                // Check if this is the current class - if so, use @This() to avoid forward reference
+                const use_this = if (self.current_class_name) |current|
+                    std.mem.eql(u8, zig_name, current)
+                else
+                    false;
+
                 try self.emit("runtime.PyValue{ .ptr = @constCast(@ptrCast(&");
-                try self.emit(zig_name);
+                if (use_this) {
+                    try self.emit("@This()");
+                } else {
+                    try self.emit(zig_name);
+                }
                 try self.emit(".__vtable__)) }");
                 continue;
             }
