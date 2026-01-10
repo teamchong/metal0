@@ -1,7 +1,26 @@
-//! Python stdlib module stub
-//! Not needed: Native Zig regex in packages/regex/
-const std = @import("std");
+//! importlib.resources.abc - Abstract base classes for resources
+//! Reference: cpython/Lib/importlib/resources/abc.py
+//!
+//! CPython exports: ResourceReader, Traversable, TraversableResources
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
+const std = @import("std");
+const resources = @import("../resources.zig");
+
+// Re-export from parent module (DRY)
+pub const ResourceReader = resources.ResourceReader;
+pub const Traversable = resources.Traversable;
+
+/// TraversableResources protocol
+/// CPython: class TraversableResources(abc.ABC)
+pub const TraversableResources = struct {
+    /// Return Traversable for package files
+    pub fn files(self: *const TraversableResources) ?*Traversable {
+        _ = self;
+        return null;
+    }
+};
+
+test "ResourceReader re-export" {
+    const rr = ResourceReader{};
+    try std.testing.expect(!rr.isResource("test"));
 }
