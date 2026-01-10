@@ -3,19 +3,20 @@
 //! This module provides comprehensive tests for free-threaded Python execution,
 //! including thread-safe containers, atomic operations, memory ordering,
 //! race detection, and concurrent access patterns.
+//!
+//! CPython Reference: Lib/test/test_free_threading/
 const std = @import("std");
 
-// Module imports
-pub const test_refcount = @import("test_module1.zig");
-pub const test_containers = @import("test_module2.zig");
-pub const test_dict = @import("test_module3.zig");
-pub const test_list = @import("test_module4.zig");
-pub const test_gc = @import("test_module5.zig");
-pub const test_imports = @import("test_module6.zig");
-pub const test_critical = @import("test_module7.zig");
-pub const test_memory = @import("test_module8.zig");
-pub const test_atomics = @import("test_module9.zig");
-pub const test_races = @import("test_module10.zig");
+// Module imports - Free-threading test submodules
+pub const test_code = @import("test_code.zig");
+pub const test_dict = @import("test_dict.zig");
+pub const test_gc = @import("test_gc.zig");
+pub const test_list = @import("test_list.zig");
+pub const test_monitoring = @import("test_monitoring.zig");
+pub const test_slots = @import("test_slots.zig");
+pub const test_str = @import("test_str.zig");
+pub const test_tokenize = @import("test_tokenize.zig");
+pub const test_type = @import("test_type.zig");
 
 /// Test context for managing test execution
 pub const TestContext = struct {
@@ -99,7 +100,7 @@ pub const TestSuite = struct {
     const Self = @This();
 
     name: []const u8,
-    tests: std.ArrayList(TestCase),
+    tests: std.ArrayListUnmanaged(TestCase),
     allocator: std.mem.Allocator,
 
     const TestCase = struct {
@@ -110,17 +111,17 @@ pub const TestSuite = struct {
     pub fn init(allocator: std.mem.Allocator, name: []const u8) Self {
         return .{
             .name = name,
-            .tests = std.ArrayList(TestCase).init(allocator),
+            .tests = .{},
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.tests.deinit();
+        self.tests.deinit(self.allocator);
     }
 
     pub fn addTest(self: *Self, name: []const u8, func: *const fn (*TestContext) anyerror!void) !void {
-        try self.tests.append(.{ .name = name, .func = func });
+        try self.tests.append(self.allocator, .{ .name = name, .func = func });
     }
 
     pub fn run(self: *Self) TestResult {
@@ -129,8 +130,7 @@ pub const TestSuite = struct {
 
         for (self.tests.items) |test_case| {
             var ctx = TestContext.init(self.allocator, test_case.name);
-            test_case.func(&ctx) catch |err| {
-                _ = err;
+            test_case.func(&ctx) catch {
                 result.errors += 1;
             };
             result.tests_run += 1;
@@ -147,24 +147,24 @@ pub const TestSuite = struct {
 pub const ConcurrentTestRunner = struct {
     const Self = @This();
 
-    suites: std.ArrayList(*TestSuite),
+    suites: std.ArrayListUnmanaged(*TestSuite),
     allocator: std.mem.Allocator,
     thread_count: usize,
 
     pub fn init(allocator: std.mem.Allocator, thread_count: usize) Self {
         return .{
-            .suites = std.ArrayList(*TestSuite).init(allocator),
+            .suites = .{},
             .allocator = allocator,
             .thread_count = thread_count,
         };
     }
 
     pub fn deinit(self: *Self) void {
-        self.suites.deinit();
+        self.suites.deinit(self.allocator);
     }
 
     pub fn addSuite(self: *Self, suite: *TestSuite) !void {
-        try self.suites.append(suite);
+        try self.suites.append(self.allocator, suite);
     }
 
     pub fn runAll(self: *Self) TestResult {
@@ -232,14 +232,13 @@ test "test_result_aggregation" {
 
 // Run all submodule tests
 test {
-    _ = test_refcount;
-    _ = test_containers;
+    _ = test_code;
     _ = test_dict;
-    _ = test_list;
     _ = test_gc;
-    _ = test_imports;
-    _ = test_critical;
-    _ = test_memory;
-    _ = test_atomics;
-    _ = test_races;
+    _ = test_list;
+    _ = test_monitoring;
+    _ = test_slots;
+    _ = test_str;
+    _ = test_tokenize;
+    _ = test_type;
 }
