@@ -42,7 +42,7 @@ pub const _have_functions: []const []const u8 = &.{
     "HAVE_UTIMENSAT",
 };
 
-/// Stub posix module for tests
+/// Not applicable - implementation handled by module dispatcher
 /// Most functions are handled by module dispatcher (src/codegen/native/posix_mod.zig)
-/// This stub just provides module attributes needed by tests
-pub fn __stub__() void {}
+/// This file just provides module attributes needed by tests
+pub fn __not_applicable__() void {}
