@@ -58,8 +58,11 @@ pub fn rgb_to_hls(r: f64, g: f64, b: f64) struct { h: f64, l: f64, s: f64 } {
 
     const s = if (l <= 0.5)
         rangec / sumc
-    else
-        rangec / (2.0 - sumc);
+    else blk: {
+        const denom = 2.0 - sumc;
+        // Guard against division by near-zero for near-white colors (gh-106498)
+        break :blk if (denom < 1e-14) 1.0 else rangec / denom;
+    };
 
     const rc = (maxc - r) / rangec;
     const gc = (maxc - g) / rangec;
@@ -220,7 +223,7 @@ pub fn hex_to_rgb(hex: []const u8) !struct { r: f64, g: f64, b: f64 } {
 /// Convert RGB to hex color string (#RRGGBB)
 pub fn rgb_to_hex(allocator: std.mem.Allocator, r: f64, g: f64, b: f64) ![]u8 {
     const rgb = rgb_float_to_int(r, g, b);
-    var result = try allocator.alloc(u8, 7);
+    const result = try allocator.alloc(u8, 7);
     _ = std.fmt.bufPrint(result, "#{X:0>2}{X:0>2}{X:0>2}", .{ rgb.r, rgb.g, rgb.b }) catch unreachable;
     return result;
 }
