@@ -197,8 +197,22 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // Analyze nested class captures BEFORE generating signature
     // This allows genFunctionSignature to know which parameters are "used" via closures
     // The nested_class_captures map is populated here and read in signature.zig
-    self.func_local_vars.clearRetainingCapacity();
-    self.nested_class_captures.clearRetainingCapacity();
+    //
+    // IMPORTANT: For nested functions (inside methods/functions), we must save and restore
+    // the parent's func_local_vars. Without this, local variables from the parent scope
+    // (like `x` in `x = X()`) are lost when the nested function clears func_local_vars,
+    // causing needsVMFallback to return true and generate runtime.eval() fallback.
+    const is_nested_function = self.current_function_name != null;
+    const saved_func_local_vars = if (is_nested_function) self.func_local_vars else undefined;
+    const saved_nested_class_captures = if (is_nested_function) self.nested_class_captures else undefined;
+    if (is_nested_function) {
+        // Create fresh maps for the nested function
+        self.func_local_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+        self.nested_class_captures = hashmap_helper.StringHashMap([][]const u8).init(self.allocator);
+    } else {
+        self.func_local_vars.clearRetainingCapacity();
+        self.nested_class_captures.clearRetainingCapacity();
+    }
     // Clear deferred closure instantiations from previous function
     // This prevents closures from one function leaking into another function's scope
     self.clearDeferredClosureInstantiations();
@@ -303,6 +317,20 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // Clear var_renames after function exits to prevent leaking into module-level code
     // (e.g., parameter `a` renamed to `__m0_p_a` should not affect module-level `a = 10`)
     self.var_renames.clearRetainingCapacity();
+
+    // Restore parent's func_local_vars for nested functions
+    // This allows subsequent statements in the parent function to access their local variables
+    if (is_nested_function) {
+        // Free allocated capture slices before deinit
+        var cap_iter = self.nested_class_captures.iterator();
+        while (cap_iter.next()) |entry| {
+            self.allocator.free(entry.value_ptr.*);
+        }
+        self.func_local_vars.deinit();
+        self.nested_class_captures.deinit();
+        self.func_local_vars = saved_func_local_vars;
+        self.nested_class_captures = saved_nested_class_captures;
+    }
 
     // Reset control flow termination flag after function exits
     // This is critical: a raise/return inside the function body should not
@@ -731,6 +759,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     var saved_hoisted_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer saved_hoisted_vars.deinit();
 
+    // Also save func_local_vars - nested class methods clear it but we need parent's local vars
+    // to be restored so needsVMFallback can detect local variables after nested class generation
+    // Without this, assertions like `self.assertGreaterEqual(x.count, 1)` would generate eval("x.count")
+    // instead of direct attribute access because `x` would be missing from func_local_vars
+    var saved_func_local_vars = hashmap_helper.StringHashMap(void).init(self.allocator);
+    defer saved_func_local_vars.deinit();
+
     // Save state when inside a function scope (func_local_uses has entries)
     // OR when inside a nested class (class_nesting_depth > 1)
     // This handles: 1) classes inside functions, 2) classes inside classes
@@ -782,6 +817,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var hv_it = self.hoisted_vars.iterator();
         while (hv_it.next()) |entry| {
             try saved_hoisted_vars.put(entry.key_ptr.*, {});
+        }
+
+        // Copy current func_local_vars - critical for needsVMFallback to detect local vars
+        var flv_it = self.func_local_vars.iterator();
+        while (flv_it.next()) |entry| {
+            try saved_func_local_vars.put(entry.key_ptr.*, {});
         }
     }
 
@@ -2152,6 +2193,14 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
         var restore_hv_it = saved_hoisted_vars.iterator();
         while (restore_hv_it.next()) |entry| {
             try self.hoisted_vars.put(entry.key_ptr.*, {});
+        }
+
+        // Also restore func_local_vars so needsVMFallback can detect local variables
+        // (e.g., `x` in `self.assertGreaterEqual(x.count, 1)` after nested class X is generated)
+        self.func_local_vars.clearRetainingCapacity();
+        var restore_flv_it = saved_func_local_vars.iterator();
+        while (restore_flv_it.next()) |entry| {
+            try self.func_local_vars.put(entry.key_ptr.*, {});
         }
     } else {
         // For top-level classes, clear func_local_uses after generating methods
