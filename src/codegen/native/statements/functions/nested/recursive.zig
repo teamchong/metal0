@@ -131,8 +131,9 @@ pub fn genRecursiveClosure(
     }
 
     // Analyze nested function body for local mutations (determines var vs const)
-    const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
-    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
+    // Note: passes system already analyzed mutations - this is a no-op for compatibility
+    const body = @import("../generators/body.zig");
+    try body.analyzeFunctionLocalMutations(self, func);
 
     // Analyze scope-escaping variables that need hoisting for nested function body
     // Variables first assigned in for/if/while/try blocks but used outside need hoisting

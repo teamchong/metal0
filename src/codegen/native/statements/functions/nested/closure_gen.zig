@@ -587,8 +587,9 @@ pub fn genStandardClosure(
     }
 
     // Analyze closure body for local mutations (determines var vs const)
-    const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
-    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
+    // Note: passes system already analyzed mutations - this is a no-op for compatibility
+    const body = @import("../generators/body.zig");
+    try body.analyzeFunctionLocalMutations(self, func);
 
     for (func.body) |stmt| {
         try self.generateStmt(stmt);

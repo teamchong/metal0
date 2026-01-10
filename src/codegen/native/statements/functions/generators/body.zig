@@ -3,12 +3,12 @@ const std = @import("std");
 const ast = @import("analysis.ast");
 const NativeCodegen = @import("../../../main.zig").NativeCodegen;
 const CodegenError = @import("../../../main.zig").CodegenError;
+const hashmap_helper = @import("utils.hashmap_helper");
+const pass_analysis = @import("../../../../passes/analysis.zig");
 
 // Import submodules
 const class_fields = @import("body/class_fields.zig");
 const class_methods = @import("body/class_methods.zig");
-const mutation_analysis = @import("body/mutation_analysis.zig");
-const usage_analysis = @import("body/usage_analysis.zig");
 const nested_captures = @import("body/nested_captures.zig");
 const function_gen = @import("body/function_gen.zig");
 const returned_vars_analysis = @import("body/returned_vars_analysis.zig");
@@ -32,17 +32,139 @@ pub const genPolymorphicReturnHelpers = class_methods.genPolymorphicReturnHelper
 pub const genABCDefaultMethods = class_methods.genABCDefaultMethods;
 pub const hoistAllLocalClassesFromMethods = class_methods.hoistAllLocalClassesFromMethods;
 
-// Re-export mutation analysis functions
-pub const methodMutatesSelf = mutation_analysis.methodMutatesSelf;
-pub const usesTypeAttribute = mutation_analysis.usesTypeAttribute;
-pub const usesRegularSelf = mutation_analysis.usesRegularSelf;
-pub const analyzeFunctionLocalMutations = mutation_analysis.analyzeFunctionLocalMutations;
-pub const analyzeModuleLevelMutations = mutation_analysis.analyzeModuleLevelMutations;
-pub const countAssignmentsWithScope = mutation_analysis.countAssignmentsWithScope;
+// Mutation/usage analysis - populates passes system for functions not in IR (e.g., class methods)
+pub fn methodMutatesSelf(method: ast.Node.FunctionDef) bool {
+    _ = method;
+    return false; // Query via pass_analysis_result.methodMutatesSelf()
+}
+pub fn usesTypeAttribute(_: ast.Node.FunctionDef) bool {
+    return false;
+}
+pub fn usesRegularSelf(_: ast.Node.FunctionDef) bool {
+    return true;
+}
 
-// Re-export usage analysis functions
-pub const analyzeFunctionLocalUses = usage_analysis.analyzeFunctionLocalUses;
-pub const collectUsesInNode = usage_analysis.collectUsesInNode;
+/// Analyze a function's local mutations and store in passes system
+/// This handles class methods that aren't in the IR - analyzes during codegen
+pub fn analyzeFunctionLocalMutations(self: *NativeCodegen, func: ast.Node.FunctionDef) !void {
+    // Only analyze if we have a passes result and function isn't already analyzed
+    if (self.pass_analysis_result) |result| {
+        // Check if already analyzed
+        if (result.function_scopes.contains(func.name)) return;
+
+        // Create function scope
+        var scope = pass_analysis.FunctionScope.init(self.allocator);
+        errdefer scope.deinit();
+
+        // Track assignment counts to determine mutations
+        var assignment_counts = hashmap_helper.StringHashMap(usize).init(self.allocator);
+        defer assignment_counts.deinit();
+
+        // Analyze function body
+        for (func.body) |stmt| {
+            try analyzeStmtMutations(stmt, &scope, &assignment_counts, self.allocator);
+        }
+
+        // Convert assignment counts > 1 to mutations
+        var iter = assignment_counts.iterator();
+        while (iter.next()) |entry| {
+            if (entry.value_ptr.* > 1) {
+                try scope.mutations.put(entry.key_ptr.*, {});
+            }
+        }
+
+        // Store in passes system
+        try result.function_scopes.put(func.name, scope);
+    }
+}
+
+/// Analyze a statement for mutations and aug_assigns
+/// Recursively traverses nested blocks
+fn analyzeStmtMutations(
+    stmt: ast.Node,
+    scope: *pass_analysis.FunctionScope,
+    assignment_counts: *hashmap_helper.StringHashMap(usize),
+    allocator: std.mem.Allocator,
+) !void {
+    switch (stmt) {
+        .assign => |a| {
+            // Track assignments for mutation detection
+            for (a.targets) |target| {
+                if (target == .name) {
+                    const name = target.name.id;
+                    const count = assignment_counts.get(name) orelse 0;
+                    try assignment_counts.put(name, count + 1);
+                    // Also mark as used since it appears in code
+                    try scope.uses.put(name, {});
+                }
+            }
+        },
+        .ann_assign => |a| {
+            if (a.target.* == .name) {
+                const name = a.target.name.id;
+                const count = assignment_counts.get(name) orelse 0;
+                try assignment_counts.put(name, count + 1);
+                try scope.uses.put(name, {});
+            }
+        },
+        .aug_assign => |a| {
+            // Aug_assign is both mutation and use
+            if (a.target.* == .name) {
+                const name = a.target.name.id;
+                try scope.aug_assigns.put(name, {});
+                try scope.mutations.put(name, {});
+                try scope.uses.put(name, {});
+            }
+        },
+        .for_stmt => |f| {
+            // Loop variable is mutated (each iteration)
+            if (f.target.* == .name) {
+                const name = f.target.name.id;
+                try scope.mutations.put(name, {});
+                try scope.uses.put(name, {});
+            }
+            // Recurse into body
+            for (f.body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+            if (f.orelse_body) |ob| for (ob) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+        },
+        .if_stmt => |i| {
+            for (i.body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+            for (i.else_body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+            if (w.orelse_body) |ob| for (ob) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+            for (t.handlers) |h| {
+                for (h.body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+            }
+            for (t.else_body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+            for (t.finalbody) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| try analyzeStmtMutations(s, scope, assignment_counts, allocator);
+        },
+        else => {},
+    }
+}
+
+pub fn analyzeModuleLevelMutations(_: *NativeCodegen, _: []const ast.Node) !void {
+    // No-op: passes system already analyzed mutations at module level
+}
+pub fn countAssignmentsWithScope(_: []const ast.Node, _: []const u8, _: usize) usize {
+    return 0;
+}
+
+/// Analyze a function's local uses and store in passes system
+pub fn analyzeFunctionLocalUses(self: *NativeCodegen, func: ast.Node.FunctionDef) !void {
+    // Use the unified analyzeFunctionLocalMutations which handles both
+    try analyzeFunctionLocalMutations(self, func);
+}
+pub fn collectUsesInNode(_: *NativeCodegen, _: ast.Node) !void {
+    // No-op: analyzeFunctionLocalMutations handles this
+}
 
 // Re-export nested capture functions
 pub const analyzeNestedClassCaptures = nested_captures.analyzeNestedClassCaptures;

@@ -230,9 +230,9 @@ pub fn genZeroCaptureClosure(
         self.func_local_aug_assigns = saved_func_local_aug_assigns;
     }
 
-    // Analyze nested function body for local mutations (determines var vs const)
-    const mutation_analysis = @import("../generators/body/mutation_analysis.zig");
-    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
+    // Mutation analysis now handled by passes system (no-op)
+    const body = @import("../generators/body.zig");
+    try body.analyzeFunctionLocalMutations(self, func);
 
     // Populate func_local_uses with variables used in this function body
     try var_tracking.collectUsedNames(func.body, &self.func_local_uses);
@@ -834,8 +834,9 @@ pub fn genModuleLevelZeroCaptureClosure(
     }
 
     // Analyze nested function body for local mutations (determines var vs const)
-    const mutation_analysis_2 = @import("../generators/body/mutation_analysis.zig");
-    try mutation_analysis_2.analyzeFunctionLocalMutations(self, func);
+    // Note: passes system already analyzed mutations - this is a no-op for compatibility
+    const body = @import("../generators/body.zig");
+    try body.analyzeFunctionLocalMutations(self, func);
 
     // Add parameter renames to var_renames temporarily
     // IMPORTANT: Must dupe renamed values because param_renames is deferred deinit

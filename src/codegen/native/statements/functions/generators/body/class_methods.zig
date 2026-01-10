@@ -16,7 +16,6 @@ const string_traits = @import("../../../../../../analysis/traits/string_traits.z
 
 // Import from parent for methodMutatesSelf and genMethodBody
 const body = @import("../body.zig");
-const usage_analysis = @import("usage_analysis.zig");
 const function_gen = @import("function_gen.zig");
 const param_analyzer = @import("../../param_analyzer.zig");
 const local_class_hoisting = @import("local_class_hoisting.zig");
@@ -927,7 +926,7 @@ pub fn genInitMethod(
     // Analyze local variable uses BEFORE generating code
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
-    try usage_analysis.analyzeFunctionLocalUses(self, init_def);
+    try body.analyzeFunctionLocalUses(self, init_def);
 
     // Generate mutable local copies for params that are reassigned in the body
     // e.g., def __init__(self, d=None): if not d: d = {}
@@ -1544,7 +1543,7 @@ pub fn genInitMethodWithBuiltinBase(
     // Analyze local variable uses BEFORE generating code
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
-    try usage_analysis.analyzeFunctionLocalUses(self, init);
+    try body.analyzeFunctionLocalUses(self, init);
 
     // Generate mutable local copies for params that are reassigned in the body
     // e.g., def __init__(self, d=None): if not d: d = {}
@@ -2262,7 +2261,7 @@ pub fn genInitMethodFromNew(
     // Analyze local variable uses BEFORE generating code
     // This ensures variables like `g = gcd(...)` that are used in field assignments
     // (e.g., self.__num = num // g) are not incorrectly marked as unused
-    try usage_analysis.analyzeFunctionLocalUses(self, new_method);
+    try body.analyzeFunctionLocalUses(self, new_method);
 
     // Generate mutable local copies for params that are reassigned in the body
     // e.g., def __new__(cls, d=None): if not d: d = {}

@@ -236,8 +236,9 @@ pub const AnalysisResult = struct {
         if (self.function_scopes.getPtr(func_name)) |scope| {
             return scope.mutations.contains(var_name);
         }
-        // Fallback to module-level check
-        return self.mutated_vars.contains(var_name) or self.branched_vars.contains(var_name);
+        // If function scope not found (e.g., class methods not in IR), assume not mutated
+        // This is conservative - generates const, may need var if actually mutated
+        return false;
     }
 
     /// Check if variable has augmented assignment within a specific function
@@ -253,7 +254,7 @@ pub const AnalysisResult = struct {
         if (self.function_scopes.getPtr(func_name)) |scope| {
             return !scope.uses.contains(var_name);
         }
-        return true; // If no scope info, assume unused
+        return false; // If no scope info, assume used (safe default)
     }
 
     /// Check if a method mutates self

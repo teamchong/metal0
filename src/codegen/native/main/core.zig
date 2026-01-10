@@ -679,17 +679,10 @@ pub const NativeCodegen = struct {
     // Counter for intern indices
     intern_counter: usize,
 
-    // Track function-local mutated variables (populated before genFunctionBody)
-    // Maps variable name -> void for variables that are reassigned within current function
+    // Legacy func_local_* fields - kept for compatibility but not used
+    // All mutation tracking now done by passes system
     func_local_mutations: FnvVoidMap,
-
-    // Track function-local aug_assign variables (x += 1, etc.)
-    // Used to distinguish true mutations from just type-change reassignments
     func_local_aug_assigns: FnvVoidMap,
-
-    // Track function-local used variables (populated before genFunctionBody)
-    // Maps variable name -> void for variables that are read (not just assigned) within current function
-    // Used to prevent false "unused variable" detection for local variables
     func_local_uses: FnvVoidMap,
 
     // Track variables declared as 'global' in current function scope
@@ -4082,56 +4075,36 @@ pub const NativeCodegen = struct {
     }
 
     /// Check if a variable is mutated (reassigned after first assignment)
-    /// Uses passes system for unified analysis
+    /// Uses passes system as single source of truth
     pub fn isVarMutated(self: *NativeCodegen, var_name: []const u8) bool {
-        // Use passes system for all mutation tracking
         if (self.pass_analysis_result) |result| {
-            // If inside a function, use per-function scope analysis
             if (self.current_function_name) |func_name| {
                 return result.isVarMutatedInFunction(func_name, var_name);
             }
-            // Module level - use shouldBeConst
-            if (!result.shouldBeConst(var_name)) {
-                return true;
-            }
+            return !result.shouldBeConst(var_name);
         }
-        // Fallback to legacy func_local_mutations for backward compatibility during transition
-        if (self.func_local_uses.count() > 0) {
-            if (self.func_local_mutations.contains(var_name)) {
-                return true;
-            }
-        }
-        // Fall back to module-level semantic info
         return self.semantic_info.isMutated(var_name);
     }
 
     /// Check if a variable has aug_assign (x += 1, etc.)
-    /// This indicates the variable itself is modified, not just type-changed
+    /// Uses passes system as single source of truth
     pub fn isVarAugAssigned(self: *NativeCodegen, var_name: []const u8) bool {
-        // Use passes system for aug_assign tracking
         if (self.pass_analysis_result) |result| {
             if (self.current_function_name) |func_name| {
                 return result.isVarAugAssignedInFunction(func_name, var_name);
             }
         }
-        // Fallback to legacy tracking
-        return self.func_local_aug_assigns.contains(var_name);
+        return false;
     }
 
     /// Check if a variable is unused (assigned but never read)
-    /// Uses passes system for unified analysis
+    /// Uses passes system as single source of truth
     pub fn isVarUnused(self: *NativeCodegen, var_name: []const u8) bool {
-        // Use passes system for unused detection
         if (self.pass_analysis_result) |result| {
             if (self.current_function_name) |func_name| {
                 return result.isVarUnusedInFunction(func_name, var_name);
             }
         }
-        // Fallback to legacy tracking
-        if (self.func_local_uses.count() > 0) {
-            return !self.func_local_uses.contains(var_name);
-        }
-        // At module level, use semantic info
         return self.semantic_info.isUnused(var_name);
     }
 

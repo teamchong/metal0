@@ -36,8 +36,6 @@ const function_traits = @import("analysis.function_traits");
 const zig_keywords = @import("utils.zig_keywords");
 const hashmap_helper = @import("utils.hashmap_helper");
 
-const mutation_analysis = @import("mutation_analysis.zig");
-const usage_analysis = @import("usage_analysis.zig");
 const nested_captures = @import("nested_captures.zig");
 const returned_vars_analysis = @import("returned_vars_analysis.zig");
 const vm_fallback_analysis = @import("vm_fallback_analysis.zig");
@@ -534,10 +532,7 @@ pub fn genFunctionBody(
         return;
     }
 
-    // Analyze function body for mutated variables BEFORE generating code
-    // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
-    self.func_local_mutations.clearRetainingCapacity();
-    self.func_local_aug_assigns.clearRetainingCapacity();
+    // Mutation analysis now handled by passes system
     self.hoisted_vars.clearRetainingCapacity();
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
@@ -557,10 +552,7 @@ pub fn genFunctionBody(
     // Track function start position for scope-limited variable usage detection
     self.function_start_pos = self.output.items.len;
 
-    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
-
-    // Analyze function body for used variables (prevents false "unused" detection)
-    try usage_analysis.analyzeFunctionLocalUses(self, func);
+    // Mutation and usage analysis now handled by passes system
 
     // Analyze function body for returned variables (skip defer deinit for these)
     try returned_vars_analysis.analyzeReturnedVars(self, func);
@@ -1216,8 +1208,6 @@ pub fn genFunctionBody(
     self.popScope();
 
     // Clear function-local state after exiting function
-    self.func_local_mutations.clearRetainingCapacity();
-    self.func_local_aug_assigns.clearRetainingCapacity();
     self.func_local_vars.clearRetainingCapacity();
 
     // Clear nested class tracking (names and bases) after exiting function
@@ -1253,18 +1243,13 @@ pub fn genAsyncFunctionBody(
     }
 
     // Fallback: thread-based approach (blocking)
-    // Analyze function body for mutated variables BEFORE generating code
-    // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
-    self.func_local_mutations.clearRetainingCapacity();
-    self.func_local_aug_assigns.clearRetainingCapacity();
+    // Mutation analysis now handled by passes system
     self.hoisted_vars.clearRetainingCapacity();
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();
     self.class_instance_aliases.clearRetainingCapacity();
-    try mutation_analysis.analyzeFunctionLocalMutations(self, func);
 
-    // Analyze function body for used variables (prevents false "unused" detection)
-    try usage_analysis.analyzeFunctionLocalUses(self, func);
+    // Mutation and usage analysis now handled by passes system
 
     self.indent();
 
@@ -1534,18 +1519,14 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     self.current_function_body = method.body;
     defer self.current_function_body = prev_func_body;
 
-    // Analyze method body for mutated variables BEFORE generating code
-    // This populates func_local_mutations so emitVarDeclaration can make correct var/const decisions
-    self.func_local_mutations.clearRetainingCapacity();
-    self.func_local_aug_assigns.clearRetainingCapacity();
+    // Mutation analysis now handled by passes system
 
     // Save parent's hoisted vars when generating nested class methods inside a function
     // Nested classes (like `class usub` inside an if block) call genMethodBody for their methods,
     // which clears hoisted_vars. After the class is generated, we need parent's hoisted vars
     // restored so subsequent assignments in the parent scope work correctly.
-    // Condition: We're inside a parent function (func_local_uses has entries from parent scope)
-    // AND we're in a nested class (class_nesting_depth > 1, since 1 = regular class method)
-    const is_nested_class_in_function = self.func_local_uses.count() > 0 and self.class_nesting_depth > 1;
+    // Condition: We're in a nested class (class_nesting_depth > 1, since 1 = regular class method)
+    const is_nested_class_in_function = self.class_nesting_depth > 1;
     var saved_hoisted_keys = std.ArrayListUnmanaged([]const u8){};
     if (is_nested_class_in_function) {
         var iter = self.hoisted_vars.iterator();
@@ -1598,10 +1579,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
     self.clearDeferredClosureInstantiations();
     // Track method start position for scope-limited variable usage detection
     self.function_start_pos = self.output.items.len;
-    try mutation_analysis.analyzeFunctionLocalMutations(self, method);
 
-    // Analyze method body for used variables (prevents false "unused" detection)
-    try usage_analysis.analyzeFunctionLocalUses(self, method);
+    // Mutation and usage analysis now handled by passes system
 
     // Analyze method body for returned variables (skip defer deinit for these)
     try returned_vars_analysis.analyzeReturnedVars(self, method);
@@ -2214,10 +2193,6 @@ fn genMethodBodyWithAllocatorInfoAndContext(
 
     // Pop scope when exiting method
     self.popScope();
-
-    // Clear function-local mutations after exiting method
-    self.func_local_mutations.clearRetainingCapacity();
-    self.func_local_aug_assigns.clearRetainingCapacity();
 
     // Clear nested class tracking (names and bases) after exiting method
     // This prevents class name collisions between different methods
