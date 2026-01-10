@@ -195,7 +195,8 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
 
                     try self.emitIndent();
                     try self.emit("var ");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                    // Use writeLocalVarName for consistency with other variable handling
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(": ");
 
                     if (is_uncertain) {
@@ -214,7 +215,8 @@ fn emitWalrusDeclarations(self: *NativeCodegen, node: ast.Node) CodegenError!voi
                     // Hoisted variables need `var` for assignment in branches but may only be assigned once
                     try self.emitIndent();
                     try self.emit("_ = &");
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
+                    // Use writeLocalVarName for consistency
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
                     try self.emit(";\n");
                     try self.declareVar(var_name);
                 }
@@ -585,6 +587,10 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         break :blk false;
     };
 
+    // Boolop expressions (and/or) are already wrapped with toBool by logical.zig
+    // Don't add another wrapper - that causes double toBool() which breaks __bool__ invocation
+    const is_boolop = if_stmt.condition.* == .boolop;
+
     if (is_feature_macros_subscript) {
         // FeatureMacros subscript returns comptime bool - use directly
         try self.genExpr(if_stmt.condition.*);
@@ -594,8 +600,8 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         // return .bool (expected return type) but codegen produces PyValue due to fallback
         try self.genExpr(if_stmt.condition.*);
         _ = try builder.write(".isTruthy()");
-    } else if (cond_type == .bool) {
-        // Bool type - use directly without wrapping
+    } else if (is_boolop or cond_type == .bool) {
+        // Boolop already wrapped by logical.zig, bool type is direct - use without wrapper
         try self.genExpr(if_stmt.condition.*);
     } else if (is_class_comparison) {
         // Class comparison - wrap with .__bool__() since dunder may return non-bool
@@ -660,6 +666,10 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         self.narrowed_type_params.put(info.param_name, info.class_name) catch {};
     }
 
+    // Track conditional depth - classes defined inside if blocks are conditional
+    self.conditional_depth += 1;
+    defer self.conditional_depth -= 1;
+
     for (if_stmt.body) |stmt| {
         try self.generateStmt(stmt);
     }
@@ -684,6 +694,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
             try self.emit("} else ");
             // Recursively generate the elif chain (skip_indent=true avoids double indentation)
             // hoist_vars=false since top-level if already hoisted all variables
+            // Note: conditional_depth is already incremented, so nested elif classes are also conditional
             try genIfImpl(self, if_stmt.else_body[0].if_stmt, true, false);
         } else {
             // Regular else block
