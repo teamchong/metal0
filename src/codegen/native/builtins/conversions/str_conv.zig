@@ -306,7 +306,23 @@ pub fn genBytearray(self: *NativeCodegen, args: []ast.Node) CodegenError!void {
         return;
     }
 
-    // For lists/iterables, convert to bytearray
+    // For lists/iterables, convert list of integers to bytes
+    // bytearray([65, 66, 67]) -> PyBytes with data "ABC"
+    if (arg_type == .list or args[0] == .list) {
+        var em = self.exprEmitter();
+        const ba_label_id = em.reserveLabelId();
+        try self.emitFmt("runtime.builtins.PyBytes.init(ba_{d}: {{\n", .{ba_label_id});
+        try self.emit("const _list = ");
+        try self.genExpr(args[0]);
+        try self.emit(";\n");
+        try self.emitFmt("var _buf = __global_allocator.alloc(u8, _list.items.len) catch unreachable;\n", .{});
+        try self.emit("for (_list.items, 0..) |v, i| _buf[i] = @truncate(@as(u64, @intCast(v)));\n");
+        try self.emitFmt("break :ba_{d} _buf;\n", .{ba_label_id});
+        try self.emit("})");
+        return;
+    }
+
+    // For other iterables, just pass through (may need runtime handling)
     try self.genExpr(args[0]);
 }
 
