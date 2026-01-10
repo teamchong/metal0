@@ -1,7 +1,20 @@
-//! Python stdlib module stub
-//! Not needed: Windows API via Zig's std.os.windows
-const std = @import("std");
+//! email.mime.multipart - MIME multipart message class
+//! Reference: cpython/Lib/email/mime/multipart.py
+//!
+//! CPython __all__: MIMEMultipart
+//!
+//! Class for generating multipart/* MIME documents.
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
+const std = @import("std");
+const mime = @import("../mime.zig");
+
+// Re-export from parent (DRY)
+pub const MIMEMultipart = mime.MIMEMultipart;
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "MIMEMultipart re-export" {
+    _ = MIMEMultipart;
 }

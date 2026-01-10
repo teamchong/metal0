@@ -52,6 +52,6 @@ pub fn can_import(comptime name: []const u8) bool {
     return true; // In AOT, all linked modules can be "imported"
 }
 
-pub fn __stub__() void {
+pub fn __not_applicable__() void {
     // Stub - see module header for why this isn't needed
 }

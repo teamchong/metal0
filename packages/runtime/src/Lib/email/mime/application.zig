@@ -1,7 +1,20 @@
-//! Python stdlib module stub
-//! Not needed: Windows API via Zig's std.os.windows
-const std = @import("std");
+//! email.mime.application - MIME application message class
+//! Reference: cpython/Lib/email/mime/application.py
+//!
+//! CPython __all__: MIMEApplication
+//!
+//! Class for generating application/* MIME documents.
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
+const std = @import("std");
+const mime = @import("../mime.zig");
+
+// Re-export from parent (DRY)
+pub const MIMEApplication = mime.MIMEApplication;
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "MIMEApplication re-export" {
+    _ = MIMEApplication;
 }

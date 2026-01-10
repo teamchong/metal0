@@ -1,7 +1,20 @@
-//! Python stdlib module stub
-//! Not needed: Windows API via Zig's std.os.windows
-const std = @import("std");
+//! email.mime.base - MIME base class
+//! Reference: cpython/Lib/email/mime/base.py
+//!
+//! CPython __all__: MIMEBase
+//!
+//! Base class for all MIME-specific subclasses.
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
+const std = @import("std");
+const mime = @import("../mime.zig");
+
+// Re-export from parent (DRY)
+pub const MIMEBase = mime.MIMEBase;
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "MIMEBase re-export" {
+    _ = MIMEBase;
 }

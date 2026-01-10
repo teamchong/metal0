@@ -2,6 +2,6 @@
 //! Not needed: Native Zig threading in packages/threading/ (no GIL)
 const std = @import("std");
 
-pub fn __stub__() void {
-    // Stub - see module header for why this isn't needed
+pub fn __not_applicable__() void {
+    // Not applicable for AOT - see module header for why this isn't needed
 }

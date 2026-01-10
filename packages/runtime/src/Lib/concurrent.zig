@@ -177,9 +177,9 @@ pub const Executor = struct {
     }
 
     /// Shutdown the executor
-    pub fn shutdown(self: *Self, wait: bool, cancel_futures: bool) void {
+    pub fn shutdown(self: *Self, wait_for_completion: bool, cancel_futures: bool) void {
         if (self.pool) |pool| {
-            pool.shutdown(wait, cancel_futures);
+            pool.shutdown(wait_for_completion, cancel_futures);
         }
     }
 };
@@ -240,13 +240,13 @@ pub const ThreadPoolExecutor = struct {
     }
 
     /// Shutdown the executor
-    pub fn shutdown(self: *Self, wait: bool, cancel_futures: bool) void {
+    pub fn shutdown(self: *Self, wait_for_completion: bool, cancel_futures: bool) void {
         _ = cancel_futures;
 
         self.shutdown_flag.store(true, .release);
         self.work_available.broadcast();
 
-        if (wait) {
+        if (wait_for_completion) {
             for (self.workers.items) |*worker| {
                 worker.join();
             }
@@ -277,9 +277,9 @@ pub const ProcessPoolExecutor = struct {
         _ = self;
     }
 
-    pub fn shutdown(self: *Self, wait: bool, cancel_futures: bool) void {
+    pub fn shutdown(self: *Self, wait_for_completion: bool, cancel_futures: bool) void {
         _ = self;
-        _ = wait;
+        _ = wait_for_completion;
         _ = cancel_futures;
     }
 };
