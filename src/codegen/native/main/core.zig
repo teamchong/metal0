@@ -4082,83 +4082,53 @@ pub const NativeCodegen = struct {
     }
 
     /// Check if a variable is mutated (reassigned after first assignment)
-    /// Uses BOTH IR-based pass analysis AND function-local mutations (conservative OR)
+    /// Uses passes system for unified analysis
     pub fn isVarMutated(self: *NativeCodegen, var_name: []const u8) bool {
-        // Check pass analysis result first - if it says mutated, return true immediately
+        // Use passes system for all mutation tracking
         if (self.pass_analysis_result) |result| {
+            // If inside a function, use per-function scope analysis
+            if (self.current_function_name) |func_name| {
+                return result.isVarMutatedInFunction(func_name, var_name);
+            }
+            // Module level - use shouldBeConst
             if (!result.shouldBeConst(var_name)) {
                 return true;
             }
         }
-
-        // Also check function-local mutations (fallback/supplement)
-        // This catches cases the IR analysis might miss
-
-        // When inside a non-function scope (loop body), check scope-specific mutations first
-        // Variables declared inside loops are fresh each iteration, so they're not mutated
-        // unless there's a mutation (aug_assign or multiple assignments) in the SAME scope
-        if (self.current_scope_id != 0) {
-            // Check for scope-specific mutation: "varname:scope_id"
-            var scoped_key_buf: [256]u8 = undefined;
-            const scoped_key = std.fmt.bufPrint(&scoped_key_buf, "{s}:{d}", .{ var_name, self.current_scope_id }) catch var_name;
-            if (self.func_local_mutations.contains(scoped_key)) {
-                return true;
-            }
-            // Also check if variable has aug_assign (stored without scope suffix)
-            // because aug_assign always means mutation regardless of where we declare
-            if (self.func_local_mutations.contains(var_name)) {
-                // But only if the mutation is from aug_assign, not from multi-assign at different scope
-                // Check if there's a scoped entry at function scope (scope 0)
-                var func_scope_key_buf: [256]u8 = undefined;
-                const func_scope_key = std.fmt.bufPrint(&func_scope_key_buf, "{s}:0", .{var_name}) catch var_name;
-                if (self.func_local_mutations.contains(func_scope_key)) {
-                    // Multi-assign at function scope - doesn't affect loop-scope vars
-                    return false;
-                }
-                // Must be aug_assign - applies to all scopes
-                return true;
-            }
-            return false;
-        }
-
-        // At function scope (current_scope_id == 0), check both bare name and scoped key
-        // Bare name: aug_assign variables are stored with just var_name
-        // Scoped key: multi-assign variables are stored as "var_name:0"
-        if (self.func_local_mutations.contains(var_name)) {
-            return true;
-        }
-        // Also check scoped key for function-level multi-assigns
-        var scoped_key_buf: [256]u8 = undefined;
-        const scoped_key = std.fmt.bufPrint(&scoped_key_buf, "{s}:0", .{var_name}) catch var_name;
-        if (self.func_local_mutations.contains(scoped_key)) {
-            return true;
-        }
-        // If we're inside a function/method (func_local_uses has been populated),
-        // don't trust module-level semantic info for mutation detection.
-        // Module-level analysis doesn't distinguish between same-named variables
-        // in different scopes (e.g., class A's `int_class` vs class B's `int_class`).
+        // Fallback to legacy func_local_mutations for backward compatibility during transition
         if (self.func_local_uses.count() > 0) {
-            // We're in a function context - only trust func_local_mutations
-            return false;
+            if (self.func_local_mutations.contains(var_name)) {
+                return true;
+            }
         }
-        // Fall back to module-level semantic info (for module-level variables)
+        // Fall back to module-level semantic info
         return self.semantic_info.isMutated(var_name);
     }
 
     /// Check if a variable has aug_assign (x += 1, etc.)
     /// This indicates the variable itself is modified, not just type-changed
     pub fn isVarAugAssigned(self: *NativeCodegen, var_name: []const u8) bool {
+        // Use passes system for aug_assign tracking
+        if (self.pass_analysis_result) |result| {
+            if (self.current_function_name) |func_name| {
+                return result.isVarAugAssignedInFunction(func_name, var_name);
+            }
+        }
+        // Fallback to legacy tracking
         return self.func_local_aug_assigns.contains(var_name);
     }
 
     /// Check if a variable is unused (assigned but never read)
-    /// For function-local variables, check func_local_uses first (if populated)
-    /// This prevents false "unused" detection for variables used within function bodies
+    /// Uses passes system for unified analysis
     pub fn isVarUnused(self: *NativeCodegen, var_name: []const u8) bool {
-        // If we're inside a function/method (func_local_uses is populated),
-        // use that to determine if the variable is used
+        // Use passes system for unused detection
+        if (self.pass_analysis_result) |result| {
+            if (self.current_function_name) |func_name| {
+                return result.isVarUnusedInFunction(func_name, var_name);
+            }
+        }
+        // Fallback to legacy tracking
         if (self.func_local_uses.count() > 0) {
-            // Variable is unused if it's NOT in the local uses map
             return !self.func_local_uses.contains(var_name);
         }
         // At module level, use semantic info

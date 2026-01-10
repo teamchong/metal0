@@ -22,13 +22,13 @@ const scan_dirs = [_]ScanDir{
 
 /// Patterns to exclude from discovery
 fn shouldExclude(path: []const u8) bool {
+    // Patterns that should NOT be included as modules
     const exclude_patterns = [_][]const u8{
         "_impl/",
         "_impl.",
-        "/utils/",
-        "test_",
+        "/utils/", // Exclude internal utils directories
         "benchmark",
-        ".test.",
+        ".test.", // Exclude Zig test files like "foo.test.zig"
         "mimalloc/",
         "prim/",
     };
@@ -38,6 +38,21 @@ fn shouldExclude(path: []const u8) bool {
             return true;
         }
     }
+
+    // Exclude files that start with "test_" in the filename (test files)
+    // But allow test/test_importlib/util.zig etc. (utility files in test directories)
+    if (std.mem.lastIndexOf(u8, path, "/")) |last_slash| {
+        const filename = path[last_slash + 1 ..];
+        if (std.mem.startsWith(u8, filename, "test_")) {
+            return true;
+        }
+    } else {
+        // No slash, check if the file itself starts with test_
+        if (std.mem.startsWith(u8, path, "test_")) {
+            return true;
+        }
+    }
+
     return false;
 }
 

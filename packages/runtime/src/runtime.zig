@@ -278,6 +278,8 @@ pub const builtins_dict = @import("Python/builtins_dict.zig");
 // Re-export test_support and unittest for unittest codegen
 pub const test_support = @import("Lib/test/support.zig");
 pub const test_importlib_util = @import("Lib/test/test_importlib/util.zig");
+// Alias for generated imports using full path (test.test_importlib.util -> test_test_importlib_util)
+pub const test_test_importlib_util = test_importlib_util;
 pub const unittest = @import("Lib/unittest.zig");
 pub const io = @import("Lib/io.zig");
 

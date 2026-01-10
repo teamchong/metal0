@@ -49,6 +49,7 @@ pub const available_modules = [_][]const u8{
     "antigravity", // @import("Lib/antigravity.zig")
     "argparse", // @import("Lib/argparse.zig")
     "array", // @import("Lib/array.zig")
+    "ast", // @import("Lib/ast.zig")
     "async", // @import("Lib/async.zig")
     "asyncio", // @import("Lib/asyncio.zig")
     "base64", // @import("Lib/base64.zig")
@@ -85,6 +86,7 @@ pub const available_modules = [_][]const u8{
     "encodings", // @import("Lib/encodings.zig")
     "ensurepip", // @import("Lib/ensurepip.zig")
     "enum", // @import("Lib/enum.zig")
+    "errno", // @import("Lib/errno.zig")
     "filecmp", // @import("Lib/filecmp.zig")
     "fileinput", // @import("Lib/fileinput.zig")
     "fnmatch", // @import("Lib/fnmatch.zig")
@@ -121,6 +123,7 @@ pub const available_modules = [_][]const u8{
     "mimetypes", // @import("Lib/mimetypes.zig")
     "modulefinder", // @import("Lib/modulefinder.zig")
     "msvcrt", // @import("Lib/msvcrt.zig")
+    "multiprocessing", // @import("Lib/multiprocessing.zig")
     "netrc", // @import("Lib/netrc.zig")
     "ntpath", // @import("Lib/ntpath.zig")
     "nturl2path", // @import("Lib/nturl2path.zig")
@@ -132,6 +135,7 @@ pub const available_modules = [_][]const u8{
     "os", // @import("Lib/os.zig")
     "pathlib", // @import("Lib/pathlib.zig")
     "pdb", // @import("Lib/pdb.zig")
+    "pickle", // @import("Lib/pickle/pickle.zig")
     "pickletools", // @import("Lib/pickletools.zig")
     "pkgutil", // @import("Lib/pkgutil.zig")
     "platform", // @import("Lib/platform.zig")
@@ -159,6 +163,7 @@ pub const available_modules = [_][]const u8{
     "runpy", // @import("Lib/runpy.zig")
     "sched", // @import("Lib/sched.zig")
     "secrets", // @import("Lib/secrets.zig")
+    "select", // @import("Lib/select.zig")
     "selectors", // @import("Lib/selectors.zig")
     "shelve", // @import("Lib/shelve.zig")
     "shlex", // @import("Lib/shlex.zig")
@@ -222,4 +227,4 @@ pub const available_modules = [_][]const u8{
     "zoneinfo", // @import("Lib/zoneinfo.zig")
 };
 
-pub const module_count: usize = 205;
+pub const module_count: usize = 210;

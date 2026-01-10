@@ -1479,7 +1479,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
             // Check if this is a stub module - generate empty array placeholders
             // These are safer than null because they can be iterated over without errors
             const module_aliases = @import("../module_aliases.zig");
+            const stdlib_gen = @import("../stdlib_modules_gen.zig");
             if (module_aliases.isStubModule(from_imp.module)) {
+                var all_handled = true;
                 for (from_imp.names, 0..) |name, i| {
                     if (std.mem.eql(u8, name, "*")) continue;
                     const symbol_name = if (i < from_imp.asnames.len and from_imp.asnames[i] != null)
@@ -1487,6 +1489,33 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     else
                         name;
                     if (generated_symbols.contains(symbol_name)) continue;
+
+                    // IMPORTANT: Check if the full path has an implementation in stdlib
+                    // e.g., for "from test.test_importlib import util", check if "test.test_importlib.util" exists
+                    var full_path_buf: [512]u8 = undefined;
+                    const full_path = std.fmt.bufPrint(&full_path_buf, "{s}.{s}", .{ from_imp.module, name }) catch name;
+                    if (stdlib_gen.hasModule(full_path) or module_aliases.resolveAlias(full_path) != null) {
+                        // This name has an implementation - generate: const symbol = runtime.path_with_underscores;
+                        // Convert dots to underscores: test.test_importlib.util -> runtime.test_test_importlib_util
+                        var underscored_path_buf: [512]u8 = undefined;
+                        var up_idx: usize = 0;
+                        for (full_path) |c| {
+                            underscored_path_buf[up_idx] = if (c == '.') '_' else c;
+                            up_idx += 1;
+                        }
+                        const underscored_path = underscored_path_buf[0..up_idx];
+
+                        try self.emit("const ");
+                        try self.emitIdent(symbol_name);
+                        try self.emit(" = runtime.");
+                        try self.emit(underscored_path);
+                        try self.emit(";\n");
+                        try generated_symbols.put(symbol_name, {});
+                        try self.module_level_from_imports.put(symbol_name, {});
+                        continue;
+                    }
+
+                    // No implementation found - generate stub
                     // Generate: const symbol_name = &[_][]const u8{}; for stub module imports
                     // Empty array is safer than null - can be iterated without type errors
                     try self.emit("const ");
@@ -1495,7 +1524,9 @@ pub fn generateFromImports(self: *NativeCodegen) !void {
                     try generated_symbols.put(symbol_name, {});
                     // Track for local variable shadowing prevention
                     try self.module_level_from_imports.put(symbol_name, {});
+                    all_handled = all_handled;
                 }
+                // All names handled (either stubbed or imported from runtime.Lib)
                 continue;
             }
 
