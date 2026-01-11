@@ -897,7 +897,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Skip for type tuples - types can't be stored in runtime variables
         // Skip for heterogeneous tuples - can't use a single type for mixed-type elements
         // Skip for callable tuples - function types must be const in Zig
-        if (!is_type_tuple and !is_heterogeneous_tuple and !has_callable_elements and !self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+        // Note: isDeclared checks hoisted_vars too
+        if (!is_type_tuple and !is_heterogeneous_tuple and !has_callable_elements and !self.isDeclared(var_name)) {
             try self.emitIndent();
             try self.emit("var ");
             try self.emitVarName(var_name);
@@ -1080,7 +1081,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
         // Check if variable is already declared (from previous loop or hoisting)
         // If so, we can't use `const var` as it would shadow the outer declaration
-        const var_already_declared = self.isDeclared(var_name) or self.hoisted_vars.contains(var_name);
+        // Note: isDeclared checks hoisted_vars too
+        const var_already_declared = self.isDeclared(var_name);
 
         // Track if we need to temporarily remove var from func_local_vars for rename to take effect
         // In expressions.zig, func_local_vars is checked BEFORE var_renames, so we need to
@@ -1401,8 +1403,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.pushScope();
 
         // Declare the loop variable as a single-char slice
-        // Check if variable is already declared (hoisted or previously declared)
-        const already_declared = self.hoisted_vars.contains(var_name) or self.isDeclared(var_name);
+        // Check if variable is already declared (isDeclared checks hoisted_vars too)
+        const already_declared = self.isDeclared(var_name);
         try self.emitIndent();
         if (!tuple_var_used) {
             try self.emit("_ = ");
@@ -1477,7 +1479,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         );
 
         // Check if loop variable would shadow an outer scope variable
-        const shadows_outer_pyval = self.isDeclared(var_name) or self.hoisted_vars.contains(var_name) or
+        // Note: isDeclared checks hoisted_vars too
+        const shadows_outer_pyval = self.isDeclared(var_name) or
             self.module_level_funcs.contains(var_name) or self.imported_modules.contains(var_name);
         const unique_capture_id_pyval = em_pyval.peekLabelId();
         if (shadows_outer_pyval) _ = em_pyval.reserveLabelId();
@@ -1910,11 +1913,11 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Also check imported_modules - can't shadow an imported module name
     // Also check func_local_vars - can't shadow function local variables
     // Use raw name for hoisted_vars check (scope_analyzer uses raw names)
-    // NOTE: Only check variables that are ACTUALLY declared (isDeclared, hoisted_vars, imported_modules)
+    // NOTE: Only check variables that are ACTUALLY declared (isDeclared checks hoisted_vars too)
     // Do NOT include func_local_vars - those are variables that WILL be declared later,
     // and assigning to them before declaration causes "undeclared identifier" errors
     const raw_var_name = for_stmt.target.name.id;
-    const shadows_outer = self.isDeclared(raw_var_name) or self.hoisted_vars.contains(raw_var_name) or self.imported_modules.contains(raw_var_name);
+    const shadows_outer = self.isDeclared(raw_var_name) or self.imported_modules.contains(raw_var_name);
     var em_capture = self.exprEmitter();
     const unique_capture_id = em_capture.peekLabelId();
     if (shadows_outer) _ = em_capture.reserveLabelId();

@@ -497,8 +497,8 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                     const var_name = target.name.id;
                     if (isUnittestContextManager(stmt.with_stmt.context_expr.*)) {
                         // Unittest context managers need hoisting too - err may be used after with block
-                        // Skip if already hoisted or declared (handles multiple with assertRaises as err)
-                        if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+                        // Skip if already declared (isDeclared checks hoisted_vars too)
+                        if (!self.isDeclared(var_name)) {
                             // Hoist as ContextManager type - use var since captureException needs mutable
                             // Check for module-level function shadowing
                             const shadows_module_func = self.module_level_funcs.contains(var_name);
@@ -531,8 +531,8 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                         const cm_expr = named.value.*;
                         if (isUnittestContextManager(cm_expr)) {
                             // Hoist unittest context manager variable - use var since captureException needs mutable
-                            // Skip if already hoisted or declared (handles multiple with assertRaises as err)
-                            if (!self.isDeclared(cm_var_name) and !self.hoisted_vars.contains(cm_var_name)) {
+                            // Skip if already declared (isDeclared checks hoisted_vars too)
+                            if (!self.isDeclared(cm_var_name)) {
                                 // Check for module-level function shadowing
                                 const shadows_cm = self.module_level_funcs.contains(cm_var_name);
                                 var actual_cm_name = cm_var_name;
@@ -567,7 +567,8 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
                 // Check if iterating over tuple literal (definitely needs hoisting)
                 if (for_s.iter.* == .tuple) {
                     // Hoist tuple iteration variable - determine type from tuple elements
-                    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+                    // isDeclared checks hoisted_vars too
+                    if (!self.isDeclared(var_name)) {
                         try self.emitIndent();
                         try self.emit("var ");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -601,7 +602,8 @@ fn hoistWithBodyVarsSkipping(self: *NativeCodegen, body: []const ast.Node, skip_
             // e.g., `import foo.bar as baz` creates variable `baz`
             const import_s = stmt.import_stmt;
             const var_name = import_s.asname orelse import_s.module;
-            if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+            // isDeclared checks hoisted_vars too
+            if (!self.isDeclared(var_name)) {
                 try self.emitIndent();
                 try self.emit("var ");
                 try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
@@ -623,8 +625,8 @@ fn hoistVarWithExpr(self: *NativeCodegen, var_name: []const u8, init_expr: *cons
         }
     }
 
-    // Only hoist if not already declared in scope or previously hoisted
-    if (!self.isDeclared(var_name) and !self.hoisted_vars.contains(var_name)) {
+    // Only hoist if not already declared in scope (isDeclared checks hoisted_vars too)
+    if (!self.isDeclared(var_name)) {
         // Check if var_name shadows a module-level function
         const shadows_module_func = self.module_level_funcs.contains(var_name);
 

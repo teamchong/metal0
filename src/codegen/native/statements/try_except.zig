@@ -799,8 +799,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Helper to add variable if not already declared
     const addVarIfNeeded = struct {
         fn add(list: *std.ArrayListUnmanaged(HoistedVar), codegen: *NativeCodegen, var_name: []const u8, value: ast.Node) !void {
-            // Only hoist if not already declared in scope or previously hoisted
-            if (!codegen.isDeclared(var_name) and !codegen.hoisted_vars.contains(var_name)) {
+            // Only hoist if not already declared in scope (isDeclared checks hoisted_vars too)
+            if (!codegen.isDeclared(var_name)) {
                 // Check if already in list
                 for (list.items) |existing| {
                     if (std.mem.eql(u8, existing.name, var_name)) return;
@@ -926,8 +926,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
     // Python allows these variables to be accessed after the try/except block
     for (try_node.handlers) |handler| {
         if (handler.name) |exc_name| {
-            // Only hoist if not already declared in scope or previously hoisted
-            if (!self.isDeclared(exc_name) and !self.hoisted_vars.contains(exc_name)) {
+            // Only hoist if not already declared in scope (isDeclared checks hoisted_vars too)
+            if (!self.isDeclared(exc_name)) {
                 // Check if already in declared_vars
                 const already_declared = blk: {
                     for (declared_vars.items) |dv| {
