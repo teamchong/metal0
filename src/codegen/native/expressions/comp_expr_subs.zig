@@ -353,19 +353,21 @@ fn genBuiltinCallWithSubs(
         // Get the type name being checked
         if (c.args[1] == .name) {
             const type_name = c.args[1].name.id;
+            // Use Pass 2.5 name lookup for nested classes defined in parent scopes
+            const zig_type_name = self.getZigNameSearchingUp(type_name);
             // Generate: (@TypeOf(obj) == Type or @TypeOf(obj) == *Type or @TypeOf(obj) == *const Type)
             try self.emit("(@TypeOf(");
             try genExprWithSubs(self, c.args[0], subs);
             try self.emit(") == ");
-            try self.emit(type_name);
+            try self.emit(zig_type_name);
             try self.emit(" or @TypeOf(");
             try genExprWithSubs(self, c.args[0], subs);
             try self.emit(") == *");
-            try self.emit(type_name);
+            try self.emit(zig_type_name);
             try self.emit(" or @TypeOf(");
             try genExprWithSubs(self, c.args[0], subs);
             try self.emit(") == *const ");
-            try self.emit(type_name);
+            try self.emit(zig_type_name);
             try self.emit(")");
         } else {
             // Fallback for tuple of types - just emit false for now
