@@ -1,5 +1,9 @@
 /// Scan Python file for all imports and recursively collect dependencies
 const std = @import("std");
+
+/// Debug flag for import scanning
+const DEBUG_IMPORT_SCAN = false;
+
 const ast = @import("analysis.ast");
 const parser = @import("parser.zig");
 const lexer = @import("lexer.zig");
@@ -261,7 +265,7 @@ pub const ImportGraph = struct {
                         else
                             std.fs.cwd().access(path, .{});
                         exists catch {
-                            std.debug.print("  Skipped import (not found): {s} -> {s}\n", .{ import_name, path });
+                            if (DEBUG_IMPORT_SCAN) std.debug.print("  Skipped import (not found): {s} -> {s}\n", .{ import_name, path });
                             self.allocator.free(path);
                             continue;
                         };
@@ -292,13 +296,13 @@ pub const ImportGraph = struct {
                                 break :blk try self.allocator.dupe(u8, import_name[rel_dots..]);
                             };
 
-                            std.debug.print("  Found C extension: {s} -> {s}\n", .{ full_mod_name, path });
+                            if (DEBUG_IMPORT_SCAN) std.debug.print("  Found C extension: {s} -> {s}\n", .{ full_mod_name, path });
                             try self.c_extensions.put(full_mod_name, path);
                             // Don't free path - it's stored in c_extensions
                             continue;
                         }
 
-                        std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, path });
+                        if (DEBUG_IMPORT_SCAN) std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, path });
                         defer self.allocator.free(path);
                         // Extract module name from relative import (strip leading dots)
                         var dots: usize = 0;
@@ -307,7 +311,7 @@ pub const ImportGraph = struct {
                         // scanRecursiveWithName will add to visited with a dupe'd key
                         try self.scanRecursiveWithName(path, if (rel_mod_name.len > 0) rel_mod_name else null, visited);
                     } else {
-                        std.debug.print("  Skipped import (relative, no dir): {s}\n", .{import_name});
+                        if (DEBUG_IMPORT_SCAN) std.debug.print("  Skipped import (relative, no dir): {s}\n", .{import_name});
                     }
                 }
                 continue;
@@ -316,19 +320,19 @@ pub const ImportGraph = struct {
             // Non-relative imports - pass import_name as explicit module name
             // Skip stdlib modules (they're handled by runtime, not compiled from Python)
             if (import_resolver.isBuiltinModule(import_name)) {
-                std.debug.print("  Skipped import (stdlib): {s}\n", .{import_name});
+                if (DEBUG_IMPORT_SCAN) std.debug.print("  Skipped import (stdlib): {s}\n", .{import_name});
                 continue;
             }
             // Skip modules with native Zig implementations (from registry)
             if (self.isRegistryModule(import_name)) {
-                std.debug.print("  Skipped import (zig_runtime): {s}\n", .{import_name});
+                if (DEBUG_IMPORT_SCAN) std.debug.print("  Skipped import (zig_runtime): {s}\n", .{import_name});
                 continue;
             }
             // Skip modules with codegen-only dispatch (function handlers, no runtime library)
             // These are handled at compile time via module_functions.tryDispatch
             const module_functions = @import("codegen/native/dispatch/module_functions.zig");
             if (module_functions.hasCodegenDispatch(import_name)) {
-                std.debug.print("  Skipped import (codegen_dispatch): {s}\n", .{import_name});
+                if (DEBUG_IMPORT_SCAN) std.debug.print("  Skipped import (codegen_dispatch): {s}\n", .{import_name});
                 continue;
             }
             // NOTE: Installed packages are no longer skipped - they're compiled like any other module
@@ -347,18 +351,18 @@ pub const ImportGraph = struct {
             // Try to resolve to Python source first
             // Packages like numpy have both .py and .so files - prefer compiling the .py
             if (try import_resolver.resolveImportSource(import_name, dir, self.allocator)) |resolved| {
-                std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
+                if (DEBUG_IMPORT_SCAN) std.debug.print("  Found import: {s} -> {s}\n", .{ import_name, resolved });
                 defer self.allocator.free(resolved);
                 try self.scanRecursiveWithName(resolved, import_name, visited);
             } else if (try import_resolver.resolveImport(import_name, dir, self.allocator)) |so_path| {
                 // MUST NOT SKIP .so files - they are C extensions loaded via dlopen
                 // Our c_interop provides 2443 CPython C API symbols reimplemented in Zig
                 // The .so links against our C API, no libpython needed
-                std.debug.print("  Found C extension: {s} -> {s}\n", .{ import_name, so_path });
+                if (DEBUG_IMPORT_SCAN) std.debug.print("  Found C extension: {s} -> {s}\n", .{ import_name, so_path });
                 const mod_key = try self.allocator.dupe(u8, import_name);
                 try self.c_extensions.put(mod_key, so_path);
             } else {
-                std.debug.print("  Skipped import (not found): {s}\n", .{import_name});
+                if (DEBUG_IMPORT_SCAN) std.debug.print("  Skipped import (not found): {s}\n", .{import_name});
                 // Track as unresolved for potential auto-install
                 // Get base package name (e.g., "mypackage.module" -> "mypackage")
                 const base_name = if (std.mem.indexOf(u8, import_name, ".")) |idx|

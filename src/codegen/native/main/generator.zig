@@ -1,5 +1,9 @@
 /// Main code generation functions
 const std = @import("std");
+
+/// Debug flag for code generation logging
+const DEBUG_CODEGEN = false;
+
 const ast = @import("analysis.ast");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
@@ -86,29 +90,29 @@ pub fn writePackageModuleEntry(module_name: []const u8, abs_path: []const u8) !v
 
 /// Generate native Zig code for module
 pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
-    std.debug.print("generate(): Starting...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Starting...\n", .{});
 
     // PHASE 1: Analyze module to determine requirements
-    std.debug.print("generate(): Phase 1 - Analyzing module...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1 - Analyzing module...\n", .{});
     const analysis = try analyzer.analyzeModule(module, self.allocator);
     defer if (analysis.global_vars.len > 0) self.allocator.free(analysis.global_vars);
-    std.debug.print("generate(): Phase 1 complete.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1 complete.\n", .{});
 
     // PHASE 1.1: Build call graph for function trait analysis (error handling, allocator needs, etc.)
-    std.debug.print("generate(): Phase 1.1 - Building call graph...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.1 - Building call graph...\n", .{});
     try self.buildCallGraph(module);
-    std.debug.print("generate(): Phase 1.1 complete.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.1 complete.\n", .{});
 
     // PHASE 1.2: Multi-pass analysis
     // Generate IR and run analysis for const/var inference, hoisting, captures, declaration order
-    std.debug.print("generate(): Phase 1.2 - Multi-pass analysis...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.2 - Multi-pass analysis...\n", .{});
     const ir_stmts = ir_gen.generateIR(module, self.allocator) catch |err| blk: {
-        std.debug.print("generate(): IR generation failed: {any}, using fallbacks\n", .{err});
+        if (DEBUG_CODEGEN) std.debug.print("generate(): IR generation failed: {any}, using fallbacks\n", .{err});
         break :blk null;
     };
     if (ir_stmts) |stmts| {
         const analysis_result = pass_analysis.analyze(stmts, self.allocator) catch |err| blk: {
-            std.debug.print("generate(): Pass analysis failed: {any}, using fallbacks\n", .{err});
+            if (DEBUG_CODEGEN) std.debug.print("generate(): Pass analysis failed: {any}, using fallbacks\n", .{err});
             break :blk null;
         };
         if (analysis_result) |result| {
@@ -116,19 +120,19 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             const result_ptr = try self.allocator.create(pass_analysis.AnalysisResult);
             result_ptr.* = result;
             self.pass_analysis_result = result_ptr;
-            std.debug.print("generate(): Phase 1.2 complete - multi-pass analysis enabled\n", .{});
+            if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.2 complete - multi-pass analysis enabled\n", .{});
         }
     }
     if (self.pass_analysis_result == null) {
-        std.debug.print("generate(): Phase 1.2 - Using fallback defaults\n", .{});
+        if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.2 - Using fallback defaults\n", .{});
     }
 
     // PHASE 2.5: Variable Resolution Pass
     // Pre-compute unique Zig names for ALL variables before codegen
     // This eliminates runtime state accumulation (var_renames, hoisted_vars, etc.)
-    std.debug.print("generate(): Phase 2.5 - Variable resolution...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 2.5 - Variable resolution...\n", .{});
     const var_resolution = variable_resolution.resolveVariables(module.body, self.allocator) catch |err| blk: {
-        std.debug.print("generate(): Variable resolution failed: {any}, using fallbacks\n", .{err});
+        if (DEBUG_CODEGEN) std.debug.print("generate(): Variable resolution failed: {any}, using fallbacks\n", .{err});
         break :blk null;
     };
     if (var_resolution) |resolution| {
@@ -136,42 +140,42 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
         const resolution_ptr = try self.allocator.create(variable_resolution.VariableResolution);
         resolution_ptr.* = resolution;
         self.var_resolution = resolution_ptr;
-        std.debug.print("generate(): Phase 2.5 complete - variable resolution enabled\n", .{});
+        if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 2.5 complete - variable resolution enabled\n", .{});
     } else {
-        std.debug.print("generate(): Phase 2.5 - Using fallback variable names\n", .{});
+        if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 2.5 - Using fallback variable names\n", .{});
     }
 
     // Pre-register global variables so they can be detected during method generation
     // This prevents local variables with the same name from shadowing module-level vars
-    std.debug.print("generate(): Registering {d} global vars...\n", .{analysis.global_vars.len});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Registering {d} global vars...\n", .{analysis.global_vars.len});
     for (analysis.global_vars) |var_name| {
         try self.markGlobalVar(var_name);
     }
-    std.debug.print("generate(): Global vars registered.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Global vars registered.\n", .{});
 
     // PHASE 1.5: Get source file directory for import resolution
-    std.debug.print("generate(): Phase 1.5 - Getting source file directory...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.5 - Getting source file directory...\n", .{});
     const source_file_dir = if (self.source_file_path) |path|
         try import_resolver.getFileDirectory(path, self.allocator)
     else
         null;
     defer if (source_file_dir) |dir| self.allocator.free(dir);
-    std.debug.print("generate(): Phase 1.5 complete.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.5 complete.\n", .{});
 
     // PHASE 1.6: Collect imports and compile imported modules as inlined structs
-    std.debug.print("generate(): Phase 1.6 - Collecting imports...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.6 - Collecting imports...\n", .{});
     var imported_modules = try imports.collectImports(self, module, source_file_dir);
     defer imported_modules.deinit(self.allocator);
-    std.debug.print("generate(): Phase 1.6 complete - {d} imports collected.\n", .{imported_modules.items.len});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.6 complete - {d} imports collected.\n", .{imported_modules.items.len});
 
     // PHASE 1.7: Pre-scan star imports to populate module_level_from_imports BEFORE function generation
     // This ensures wouldParamShadow() correctly detects shadowing even when star import is at end of file
-    std.debug.print("generate(): Phase 1.7 - Pre-scanning star imports...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.7 - Pre-scanning star imports...\n", .{});
     try self.prescanStarImports(module.body, source_file_dir);
-    std.debug.print("generate(): Phase 1.7 complete.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 1.7 complete.\n", .{});
 
     // Store compiled module structs for later emission
-    std.debug.print("generate(): Initializing inlined_modules list...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Initializing inlined_modules list...\n", .{});
     var inlined_modules = std.ArrayList([]const u8){};
     defer {
         for (inlined_modules.items) |code| self.allocator.free(code);
@@ -180,13 +184,13 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // Generate @import() statements for compiled modules
     // Track which root modules have been imported to avoid duplicates
-    std.debug.print("generate(): Initializing imported_roots map...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Initializing imported_roots map...\n", .{});
     var imported_roots = hashmap_helper.StringHashMap(void).init(self.allocator);
     defer imported_roots.deinit();
 
-    std.debug.print("generate(): Processing {d} imported modules...\n", .{imported_modules.items.len});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Processing {d} imported modules...\n", .{imported_modules.items.len});
     for (imported_modules.items, 0..) |mod_name, i| {
-        std.debug.print("generate():   Processing import {d}/{d}: {s}\n", .{i+1, imported_modules.items.len, mod_name});
+        if (DEBUG_CODEGEN) std.debug.print("generate():   Processing import {d}/{d}: {s}\n", .{i+1, imported_modules.items.len, mod_name});
 
         // Skip empty module names (from bare "." relative imports)
         if (mod_name.len == 0) continue;
@@ -714,11 +718,11 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     // PHASE 4.7: Pre-populate module_level_vars with global vars from analysis
     // This must happen BEFORE PHASE 5 (class definitions) so that method body generation
     // can detect and rename local variables that would shadow module-level globals
-    std.debug.print("generate(): Phase 4.7 - Pre-populating module_level_vars with {d} global vars...\n", .{analysis.global_vars.len});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 4.7 - Pre-populating module_level_vars with {d} global vars...\n", .{analysis.global_vars.len});
     for (analysis.global_vars) |var_name| {
         try self.module_level_vars.put(var_name, {});
     }
-    std.debug.print("generate(): Phase 4.7 complete.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 4.7 complete.\n", .{});
 
     // PHASE 4.8: Generate conditional global variable declarations
     // Variables assigned in both if/else branches need pre-declaration as var (mutable)
@@ -750,10 +754,10 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
     // PHASE 5: Generate imports, class and function definitions (before main)
     // In module mode, wrap functions in pub struct
-    std.debug.print("generate(): Phase 5 - Generating class and function definitions...\n", .{});
-    std.debug.print("generate():   Mode: {s}\n", .{@tagName(self.mode)});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 5 - Generating class and function definitions...\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate():   Mode: {s}\n", .{@tagName(self.mode)});
     if (self.mode == .module) {
-        std.debug.print("generate():   Module mode detected.\n", .{});
+        if (DEBUG_CODEGEN) std.debug.print("generate():   Module mode detected.\n", .{});
         // Module mode: emit __global_allocator for f-strings and other allocating operations
         // This is needed because modules are compiled separately and don't have main() setup
         if (analysis.needs_allocator) {
@@ -774,18 +778,18 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             self.indent();
         }
     }
-    std.debug.print("generate():   Module mode setup complete.\n", .{});
+    if (DEBUG_CODEGEN) std.debug.print("generate():   Module mode setup complete.\n", .{});
 
-    std.debug.print("generate(): Phase 5.1 - Processing {d} module body statements...\n", .{module.body.len});
+    if (DEBUG_CODEGEN) std.debug.print("generate(): Phase 5.1 - Processing {d} module body statements...\n", .{module.body.len});
     for (module.body, 0..) |stmt, i| {
-        std.debug.print("generate():   Phase 5.1 - Statement {d}/{d}: {s}\n", .{i+1, module.body.len, @tagName(stmt)});
+        if (DEBUG_CODEGEN) std.debug.print("generate():   Phase 5.1 - Statement {d}/{d}: {s}\n", .{i+1, module.body.len, @tagName(stmt)});
         if (stmt == .import_stmt) {
             try statements.genImport(self, stmt.import_stmt);
         } else if (stmt == .import_from) {
             try statements.genImportFrom(self, stmt.import_from);
         } else if (stmt == .class_def) {
             // Record debug line mapping for class definitions
-            std.debug.print("generate():     Processing class: {s}\n", .{stmt.class_def.name});
+            if (DEBUG_CODEGEN) std.debug.print("generate():     Processing class: {s}\n", .{stmt.class_def.name});
             self.recordLineMappingForName(stmt.class_def.name);
             try statements.genClassDef(self, stmt.class_def);
             try self.emit("\n");

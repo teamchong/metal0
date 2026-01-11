@@ -1,5 +1,9 @@
 /// Core compilation functions
 const std = @import("std");
+
+/// Debug flag for compilation logging
+const DEBUG_COMPILE = false;
+
 const builtin = @import("builtin");
 const hashmap_helper = @import("utils.hashmap_helper");
 const ast = @import("analysis.ast");
@@ -112,7 +116,7 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: [
     // No defer needed - arena handles cleanup
 
     // Generate Zig code for this module
-    std.debug.print("  Generating Zig for module: {s}\n", .{module_path});
+    if (DEBUG_COMPILE) std.debug.print("  Generating Zig for module: {s}\n", .{module_path});
 
     // Use existing compilation pipeline
     const lexer_mod = @import("../lexer.zig");
@@ -167,17 +171,17 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: [
 
     // Build call graph for unified function analysis
     if (tree == .module) {
-        std.debug.print("  Building call graph for module: {s}\n", .{module_path});
+        if (DEBUG_COMPILE) std.debug.print("  Building call graph for module: {s}\n", .{module_path});
         try codegen.buildCallGraph(tree.module);
-        std.debug.print("  Call graph built for module: {s}\n", .{module_path});
+        if (DEBUG_COMPILE) std.debug.print("  Call graph built for module: {s}\n", .{module_path});
     }
 
-    std.debug.print("  Generating Zig code for module: {s}\n", .{module_path});
+    if (DEBUG_COMPILE) std.debug.print("  Generating Zig code for module: {s}\n", .{module_path});
     const zig_code = if (tree == .module)
         try codegen.generate(tree.module)
     else
         return error.InvalidAST;
-    std.debug.print("  Zig code generation complete for module: {s}\n", .{module_path});
+    if (DEBUG_COMPILE) std.debug.print("  Zig code generation complete for module: {s}\n", .{module_path});
     // zig_code allocated by arena - no defer needed
 
     // Save to project .metal0 directory (or source-relative if no project)
@@ -192,12 +196,12 @@ pub fn compileModule(allocator: std.mem.Allocator, module_path: []const u8, _: [
     defer file.close();
     try file.writeAll(zig_code);
 
-    std.debug.print("  ✓ Module Zig generated: {s}\n", .{output_path});
+    if (DEBUG_COMPILE) std.debug.print("  ✓ Module Zig generated: {s}\n", .{output_path});
 }
 
 /// Compile a Jupyter notebook (.ipynb file)
 pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void {
-    std.debug.print("Parsing notebook: {s}\n", .{opts.input_file});
+    if (DEBUG_COMPILE) std.debug.print("Parsing notebook: {s}\n", .{opts.input_file});
 
     // Use arena for all intermediate allocations
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -207,7 +211,7 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
     // Parse notebook
     var nb = try notebook.Notebook.parse(opts.input_file, aa);
 
-    std.debug.print("Found {d} cells\n", .{nb.cells.items.len});
+    if (DEBUG_COMPILE) std.debug.print("Found {d} cells\n", .{nb.cells.items.len});
 
     // Count code cells
     var code_cell_count: usize = 0;
@@ -217,13 +221,13 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
         }
     }
 
-    std.debug.print("Code cells: {d}\n\n", .{code_cell_count});
+    if (DEBUG_COMPILE) std.debug.print("Code cells: {d}\n\n", .{code_cell_count});
 
     // Combine all code cells into a single Python module (for state sharing)
     const combined_source = try nb.combineCodeCells(aa);
 
     if (combined_source.len == 0) {
-        std.debug.print("No code cells found in notebook\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("No code cells found in notebook\n", .{});
         return;
     }
 
@@ -233,11 +237,11 @@ pub fn compileNotebook(allocator: std.mem.Allocator, opts: CompileOptions) !void
     // Compile combined source directly (skip temp file)
     try compilePythonSource(allocator, combined_source, bin_path, opts.input_file, opts.mode, opts.binary);
 
-    std.debug.print("✓ Compiled notebook to: {s}\n", .{bin_path});
+    if (DEBUG_COMPILE) std.debug.print("✓ Compiled notebook to: {s}\n", .{bin_path});
 
     // Run if mode is "run"
     if (std.mem.eql(u8, opts.mode, "run")) {
-        std.debug.print("\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("\n", .{});
         var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
         _ = try child.spawnAndWait();
     }
@@ -254,20 +258,20 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     const aa = arena.allocator();
 
     // PHASE 1: Lexer - Tokenize source code
-    std.debug.print("Lexing...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Lexing...\n", .{});
     var lex = try lexer.Lexer.init(aa, source);
 
     const tokens = try lex.tokenize();
 
     // PHASE 2: Parser - Build AST
-    std.debug.print("Parsing...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Parsing...\n", .{});
     var p = parser.Parser.init(aa, tokens);
     defer p.deinit();
     const tree = try p.parse();
 
     // Ensure tree is a module
     if (tree != .module) {
-        std.debug.print("Error: Expected module, got {s}\n", .{@tagName(tree)});
+        if (DEBUG_COMPILE) std.debug.print("Error: Expected module, got {s}\n", .{@tagName(tree)});
         return error.InvalidAST;
     }
 
@@ -280,7 +284,7 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
 
     // PHASE 4: Type Inference - Infer native Zig types
-    std.debug.print("Inferring types...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Inferring types...\n", .{});
     var type_inferrer = try native_types.TypeInferrer.init(aa);
 
     // PHASE 4.5: Pre-compile imported modules to register function return types
@@ -321,8 +325,8 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
             }
 
             _ = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry, &sig_cache) catch |err| {
-                std.debug.print("ERROR: Failed to pre-compile module '{s}': {}\n", .{ module_name, err });
-                std.debug.print("  This module is required but could not be compiled.\n", .{});
+                if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to pre-compile module '{s}': {}\n", .{ module_name, err });
+                if (DEBUG_COMPILE) std.debug.print("  This module is required but could not be compiled.\n", .{});
                 return err;
             };
         }
@@ -331,37 +335,37 @@ pub fn compilePythonSource(allocator: std.mem.Allocator, source: []const u8, bin
     try type_inferrer.analyze(tree.module);
 
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
-    std.debug.print("Generating native Zig code...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, source_file_path);
-    std.debug.print("NativeCodegen.init() completed\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
     // Copy module traits from pre-compilation phase to native_gen
     // This allows call sites to lookup function traits for proper codegen
-    std.debug.print("Copying module registry...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Copying module registry...\n", .{});
     for (mod_registry.modules.keys()) |mod_name| {
         if (mod_registry.modules.get(mod_name)) |mod_info| {
             try native_gen.module_registry.registerModule(mod_name, mod_info);
         }
     }
-    std.debug.print("Module registry copied.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Module registry copied.\n", .{});
 
     // Pass import context to codegen
-    std.debug.print("Setting import context...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Setting import context...\n", .{});
     native_gen.setImportContext(&import_ctx);
-    std.debug.print("Import context set.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Import context set.\n", .{});
 
     // Build call graph for unified function analysis
-    std.debug.print("Building call graph...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Building call graph...\n", .{});
     try native_gen.buildCallGraph(tree.module);
-    std.debug.print("Call graph built.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Call graph built.\n", .{});
 
-    std.debug.print("Generating Zig code...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Generating Zig code...\n", .{});
     const zig_code = try native_gen.generate(tree.module);
-    std.debug.print("Zig code generated.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Zig code generated.\n", .{});
 
     // Native codegen always produces binaries (not shared libraries)
-    std.debug.print("Compiling to native binary...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Compiling to native binary...\n", .{});
 
     // Get C libraries collected during import processing
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
@@ -419,7 +423,7 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
 
     // Scan all imports recursively
     import_graph.scanRecursive(input_file, &visited) catch |err| {
-        std.debug.print("Warning: Import scanning failed: {}\n", .{err});
+        if (DEBUG_COMPILE) std.debug.print("Warning: Import scanning failed: {}\n", .{err});
     };
 
     // Compile all discovered modules
@@ -443,14 +447,14 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
 
         if (needs_compile) {
             compileModule(aa, mod_info.path, mod_info.module_name) catch |err| {
-                std.debug.print("Warning: Failed to compile '{s}': {}\n", .{ mod_info.module_name, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to compile '{s}': {}\n", .{ mod_info.module_name, err });
             };
         }
     }
 
     // Generate stubs for C extension modules (.so files)
     // These are loaded via dlopen at runtime and linked against our c_interop C API
-    std.debug.print("Generating C extension stubs ({d} extensions)...\n", .{import_graph.c_extensions.count()});
+    if (DEBUG_COMPILE) std.debug.print("Generating C extension stubs ({d} extensions)...\n", .{import_graph.c_extensions.count()});
     var c_ext_iter = import_graph.c_extensions.iterator();
     while (c_ext_iter.next()) |entry| {
         const module_name = entry.key_ptr.*;
@@ -480,7 +484,7 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
         std.fs.cwd().access(zig_out_path, .{}) catch {
             // Generate C extension stub
             const stub = imports_mod.generateCExtensionStub(aa, module_name, so_path) catch |err| {
-                std.debug.print("Warning: Failed to generate C extension stub for '{s}': {}\n", .{ module_name, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to generate C extension stub for '{s}': {}\n", .{ module_name, err });
                 continue;
             };
             defer aa.free(stub);
@@ -488,15 +492,15 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
             // Ensure parent directory exists and write stub
             build_dirs.ensureParentDir(zig_out_path) catch continue;
             const file = std.fs.cwd().createFile(zig_out_path, .{}) catch |err| {
-                std.debug.print("Warning: Failed to create C extension stub file '{s}': {}\n", .{ zig_out_path, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to create C extension stub file '{s}': {}\n", .{ zig_out_path, err });
                 continue;
             };
             defer file.close();
             file.writeAll(stub) catch |err| {
-                std.debug.print("Warning: Failed to write C extension stub '{s}': {}\n", .{ zig_out_path, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to write C extension stub '{s}': {}\n", .{ zig_out_path, err });
                 continue;
             };
-            std.debug.print("  ✓ C extension stub: {s}\n", .{zig_out_path});
+            if (DEBUG_COMPILE) std.debug.print("  ✓ C extension stub: {s}\n", .{zig_out_path});
         };
     }
 
@@ -505,24 +509,24 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
 
     // Type inference
-    std.debug.print("Type inference...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Type inference...\n", .{});
     var type_inferrer = try native_types.TypeInferrer.init(aa);
     try type_inferrer.analyze(tree.module);
-    std.debug.print("Type inference done.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Type inference done.\n", .{});
 
     // Codegen
-    std.debug.print("Initializing codegen...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Initializing codegen...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, input_file);
-    std.debug.print("Codegen initialized.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Codegen initialized.\n", .{});
     defer native_gen.deinit();
 
-    std.debug.print("Building call graph...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Building call graph...\n", .{});
     try native_gen.buildCallGraph(tree.module);
-    std.debug.print("Call graph built.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Call graph built.\n", .{});
 
-    std.debug.print("Generating Zig code...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Generating Zig code...\n", .{});
     const zig_code = try native_gen.generate(tree.module);
-    std.debug.print("Zig code generated successfully.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Zig code generated successfully.\n", .{});
 
     // Write .zig file to project .metal0 directory (or source-relative if no project)
     const zig_path = if (project_root) |root|
@@ -533,7 +537,7 @@ pub fn compileFileCodegenOnly(allocator: std.mem.Allocator, input_file: []const 
     const file = try std.fs.cwd().createFile(zig_path, .{});
     defer file.close();
     try file.writeAll(zig_code);
-    std.debug.print("✓ Generated Zig: {s}\n", .{zig_path});
+    if (DEBUG_COMPILE) std.debug.print("✓ Generated Zig: {s}\n", .{zig_path});
 }
 
 pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
@@ -575,7 +579,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     if (!should_compile) {
         // Output is up-to-date, skip compilation
         if (std.mem.eql(u8, opts.mode, "run")) {
-            std.debug.print("\n", .{});
+            if (DEBUG_COMPILE) std.debug.print("\n", .{});
             if (opts.binary) {
                 // Run binary directly
                 var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
@@ -585,7 +589,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 try utils.runSharedLib(allocator, bin_path);
             }
         } else {
-            std.debug.print("✓ Output up-to-date: {s}\n", .{bin_path});
+            if (DEBUG_COMPILE) std.debug.print("✓ Output up-to-date: {s}\n", .{bin_path});
         }
         return;
     }
@@ -598,21 +602,21 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     defer if (debug_writer) |*dw| dw.deinit();
 
     // PHASE 1: Lexer - Tokenize source code
-    std.debug.print("Lexing...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Lexing...\n", .{});
     var lex = try lexer.Lexer.init(aa, source);
     defer lex.deinit();
 
     const tokens = try lex.tokenize();
 
     // PHASE 2: Parser - Build AST
-    std.debug.print("Parsing...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Parsing...\n", .{});
     var p = parser.Parser.init(aa, tokens);
     defer p.deinit();
     const tree = try p.parse();
 
     // Ensure tree is a module
     if (tree != .module) {
-        std.debug.print("Error: Expected module, got {s}\n", .{@tagName(tree)});
+        if (DEBUG_COMPILE) std.debug.print("Error: Expected module, got {s}\n", .{@tagName(tree)});
         return error.InvalidAST;
     }
 
@@ -622,7 +626,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
 
     // PHASE 2.3: Import Dependency Scanning
-    std.debug.print("Scanning imports recursively...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Scanning imports recursively...\n", .{});
 
     // Create registry to skip zig_runtime/c_library modules during scanning
     var scan_registry = try import_registry.createDefaultRegistry(aa);
@@ -638,21 +642,21 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     const unresolved = import_graph.getUnresolved();
     defer aa.free(unresolved);
     if (unresolved.len > 0) {
-        std.debug.print("\n\x1b[33m⚠ Missing packages detected:\x1b[0m\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("\n\x1b[33m⚠ Missing packages detected:\x1b[0m\n", .{});
         for (unresolved) |pkg_name| {
-            std.debug.print("  - {s}\n", .{pkg_name});
+            if (DEBUG_COMPILE) std.debug.print("  - {s}\n", .{pkg_name});
         }
-        std.debug.print("\nRun \x1b[1mmetal0 install", .{});
+        if (DEBUG_COMPILE) std.debug.print("\nRun \x1b[1mmetal0 install", .{});
         for (unresolved) |pkg_name| {
-            std.debug.print(" {s}", .{pkg_name});
+            if (DEBUG_COMPILE) std.debug.print(" {s}", .{pkg_name});
         }
-        std.debug.print("\x1b[0m to install them.\n\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("\x1b[0m to install them.\n\n", .{});
     }
 
     // Compile each imported module in dependency order
     // Ensure build directories exist
     try build_dirs.init();
-    std.debug.print("Compiling {d} imported modules...\n", .{import_graph.modules.count()});
+    if (DEBUG_COMPILE) std.debug.print("Compiling {d} imported modules...\n", .{import_graph.modules.count()});
     var iter = import_graph.modules.iterator();
     while (iter.next()) |entry| {
         const module_path = entry.key_ptr.*;
@@ -660,25 +664,25 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
         // Skip the main file itself
         if (std.mem.eql(u8, module_path, opts.input_file)) {
-            std.debug.print("  Skipping main file: {s}\n", .{module_path});
+            if (DEBUG_COMPILE) std.debug.print("  Skipping main file: {s}\n", .{module_path});
             continue;
         }
 
         // Compile module using the proper module name
-        std.debug.print("  Compiling module: {s} (as {s})\n", .{ module_path, module_info.module_name });
-        std.debug.print("  Calling compileModule()...\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("  Compiling module: {s} (as {s})\n", .{ module_path, module_info.module_name });
+        if (DEBUG_COMPILE) std.debug.print("  Calling compileModule()...\n", .{});
         compileModule(aa, module_path, module_info.module_name) catch |err| {
-            std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_path, err });
-            std.debug.print("  Module name: {s}\n", .{module_info.module_name});
+            if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_path, err });
+            if (DEBUG_COMPILE) std.debug.print("  Module name: {s}\n", .{module_info.module_name});
             return err;
         };
-        std.debug.print("  compileModule() returned successfully for {s}\n", .{module_path});
+        if (DEBUG_COMPILE) std.debug.print("  compileModule() returned successfully for {s}\n", .{module_path});
     }
-    std.debug.print("Module compilation loop complete.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Module compilation loop complete.\n", .{});
 
     // Generate stubs for C extension modules (.so files)
     // These are loaded via dlopen at runtime and linked against our c_interop C API
-    std.debug.print("Generating C extension stubs ({d} extensions)...\n", .{import_graph.c_extensions.count()});
+    if (DEBUG_COMPILE) std.debug.print("Generating C extension stubs ({d} extensions)...\n", .{import_graph.c_extensions.count()});
     var c_ext_iter = import_graph.c_extensions.iterator();
     while (c_ext_iter.next()) |entry| {
         const module_name = entry.key_ptr.*;
@@ -708,7 +712,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         std.fs.cwd().access(zig_out_path, .{}) catch {
             // Generate C extension stub
             const stub = imports_mod.generateCExtensionStub(aa, module_name, so_path) catch |err| {
-                std.debug.print("Warning: Failed to generate C extension stub for '{s}': {}\n", .{ module_name, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to generate C extension stub for '{s}': {}\n", .{ module_name, err });
                 continue;
             };
             defer aa.free(stub);
@@ -716,33 +720,33 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             // Ensure parent directory exists and write stub
             build_dirs.ensureParentDir(zig_out_path) catch continue;
             const file = std.fs.cwd().createFile(zig_out_path, .{}) catch |err| {
-                std.debug.print("Warning: Failed to create C extension stub file '{s}': {}\n", .{ zig_out_path, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to create C extension stub file '{s}': {}\n", .{ zig_out_path, err });
                 continue;
             };
             defer file.close();
             file.writeAll(stub) catch |err| {
-                std.debug.print("Warning: Failed to write C extension stub '{s}': {}\n", .{ zig_out_path, err });
+                if (DEBUG_COMPILE) std.debug.print("Warning: Failed to write C extension stub '{s}': {}\n", .{ zig_out_path, err });
                 continue;
             };
-            std.debug.print("  ✓ C extension stub: {s}\n", .{zig_out_path});
+            if (DEBUG_COMPILE) std.debug.print("  ✓ C extension stub: {s}\n", .{zig_out_path});
         };
     }
 
     // PHASE 2.5: C Library Import Detection
-    std.debug.print("Phase 2.5: C Library Import Detection...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Phase 2.5: C Library Import Detection...\n", .{});
     var import_ctx = c_interop.ImportContext.init(aa);
     try utils.detectImports(&import_ctx, tree);
-    std.debug.print("Phase 2.5 complete.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Phase 2.5 complete.\n", .{});
 
     // PHASE 3: Semantic Analysis - Analyze variable lifetimes and mutations
-    std.debug.print("Phase 3: Semantic Analysis...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Phase 3: Semantic Analysis...\n", .{});
     var semantic_info = semantic_types.SemanticInfo.init(aa);
     _ = try lifetime_analysis.analyzeLifetimes(&semantic_info, tree, 1);
-    std.debug.print("Phase 3 complete.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Phase 3 complete.\n", .{});
 
     // PHASE 4: Type Inference - Infer native Zig types
-    std.debug.print("Phase 4: Type Inference...\n", .{});
-    std.debug.print("Inferring types...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Phase 4: Type Inference...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Inferring types...\n", .{});
     var type_inferrer = try native_types.TypeInferrer.init(aa);
 
     // PHASE 4.5: Pre-compile imported modules to register function return types
@@ -793,9 +797,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             }
 
             const compiled = imports_mod.compileModuleAsStruct(module_name, source_file_dir, aa, &type_inferrer, &mod_registry2, &sig_cache2) catch |err| {
-                std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_name, err });
-                std.debug.print("  Module compilation is required for correct code generation.\n", .{});
-                std.debug.print("  Check the module source for syntax or semantic errors.\n", .{});
+                if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to compile imported module '{s}': {}\n", .{ module_name, err });
+                if (DEBUG_COMPILE) std.debug.print("  Module compilation is required for correct code generation.\n", .{});
+                if (DEBUG_COMPILE) std.debug.print("  Check the module source for syntax or semantic errors.\n", .{});
                 return err;
             };
 
@@ -805,8 +809,8 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             const cache_path = try build_dirs.zigPath(aa, module_source_path);
             try build_dirs.ensureParentDir(cache_path);
             const cache_file = std.fs.cwd().createFile(cache_path, .{}) catch |err| {
-                std.debug.print("ERROR: Failed to create cache file '{s}': {}\n", .{ cache_path, err });
-                std.debug.print("  Unable to write generated Zig code to cache.\n", .{});
+                if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to create cache file '{s}': {}\n", .{ cache_path, err });
+                if (DEBUG_COMPILE) std.debug.print("  Unable to write generated Zig code to cache.\n", .{});
                 return err;
             };
             defer cache_file.close();
@@ -818,7 +822,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                 \\
             ;
             cache_file.writeAll(imports_header) catch |err| {
-                std.debug.print("ERROR: Failed to write imports header to '{s}': {}\n", .{ cache_path, err });
+                if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to write imports header to '{s}': {}\n", .{ cache_path, err });
                 return err;
             };
 
@@ -837,14 +841,14 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
                         // Generate import for this dependency
                         const dep_import = try std.fmt.allocPrint(aa, "const {s} = @import(\"./{s}.zig\");\n", .{ dep_name, dep_name });
                         cache_file.writeAll(dep_import) catch |err| {
-                            std.debug.print("ERROR: Failed to write dependency import to '{s}': {}\n", .{ cache_path, err });
+                            if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to write dependency import to '{s}': {}\n", .{ cache_path, err });
                             return err;
                         };
                     }
                 }
             }
             cache_file.writeAll("\n") catch |err| {
-                std.debug.print("ERROR: Failed to write newline to '{s}': {}\n", .{ cache_path, err });
+                if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to write newline to '{s}': {}\n", .{ cache_path, err });
                 return err;
             };
 
@@ -853,7 +857,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             const module_decls = extractModuleLevelDecls(compiled);
             if (module_decls.len > 0) {
                 cache_file.writeAll(module_decls) catch |err| {
-                    std.debug.print("ERROR: Failed to write module declarations to '{s}': {}\n", .{ cache_path, err });
+                    if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to write module declarations to '{s}': {}\n", .{ cache_path, err });
                     return err;
                 };
             }
@@ -863,7 +867,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             // Output: "pub fn add..."
             const struct_body = extractStructBody(compiled);
             cache_file.writeAll(struct_body) catch |err| {
-                std.debug.print("ERROR: Failed to write struct body to '{s}': {}\n", .{ cache_path, err });
+                if (DEBUG_COMPILE) std.debug.print("ERROR: Failed to write struct body to '{s}': {}\n", .{ cache_path, err });
                 return err;
             };
         }
@@ -872,9 +876,9 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     try type_inferrer.analyze(tree.module);
 
     // PHASE 5: Native Codegen - Generate native Zig code (no PyObject overhead)
-    std.debug.print("Generating native Zig code...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("Generating native Zig code...\n", .{});
     var native_gen = try native_codegen.NativeCodegen.init(aa, &type_inferrer, &semantic_info, opts.input_file);
-    std.debug.print("NativeCodegen.init() completed\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("NativeCodegen.init() completed\n", .{});
     defer native_gen.deinit();
 
     // Set emit_logic_table_exports when --emit-logic-table-shared is passed
@@ -940,13 +944,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     }
 
     // Build call graph for unified function analysis (before codegen)
-    std.debug.print("compileFile: Building call graph...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("compileFile: Building call graph...\n", .{});
     try native_gen.buildCallGraph(tree.module);
-    std.debug.print("compileFile: Call graph built.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("compileFile: Call graph built.\n", .{});
 
-    std.debug.print("compileFile: Generating Zig code...\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("compileFile: Generating Zig code...\n", .{});
     const zig_code = try native_gen.generate(tree.module);
-    std.debug.print("compileFile: Zig code generated successfully.\n", .{});
+    if (DEBUG_COMPILE) std.debug.print("compileFile: Zig code generated successfully.\n", .{});
 
     // Get C libraries collected during import processing
     const c_libs = try native_gen.c_libraries.toOwnedSlice(aa);
@@ -954,7 +958,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     // Compile to WASM, shared library (.so), or binary
     // --emit-logic-table-shared: compile @logic_table to shared library for JIT loading
     if (opts.emit_logic_table_shared) {
-        std.debug.print("Compiling @logic_table to shared library...\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("Compiling @logic_table to shared library...\n", .{});
         // Use output_file directly if provided, otherwise generate default path
         const lib_path = opts.output_file orelse blk: {
             const basename = std.fs.path.basename(opts.input_file);
@@ -967,13 +971,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
             break :blk try std.fmt.allocPrint(aa, "/tmp/logic_table_{s}{s}", .{ stem, ext });
         };
         try compiler.compileZigSharedLib(aa, zig_code, lib_path, c_libs, null);
-        std.debug.print("✓ Compiled @logic_table to: {s}\n", .{lib_path});
+        if (DEBUG_COMPILE) std.debug.print("✓ Compiled @logic_table to: {s}\n", .{lib_path});
         return;
     } else if (is_wasm_target) {
-        std.debug.print("Compiling to WebAssembly ({s})...\n", .{@tagName(opts.target)});
+        if (DEBUG_COMPILE) std.debug.print("Compiling to WebAssembly ({s})...\n", .{@tagName(opts.target)});
         const wasm_path = try output.getWasmOutputPath(aa, opts.input_file, opts.output_file);
         try compiler.compileWasmWithTarget(aa, zig_code, wasm_path, opts.target, &.{});
-        std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
+        if (DEBUG_COMPILE) std.debug.print("✓ Compiled successfully to: {s}\n", .{wasm_path});
 
         // Generate TypeScript definitions (module-specific)
         const module_name = std.fs.path.stem(opts.input_file);
@@ -983,13 +987,13 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         const dts_file = try std.fs.cwd().createFile(dts_path, .{});
         defer dts_file.close();
         try dts_file.writeAll(type_defs);
-        std.debug.print("✓ Generated TypeScript defs: {s}\n", .{dts_path});
-        std.debug.print("  Use with: import {{ load }} from '@metal0/wasm-runtime'\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("✓ Generated TypeScript defs: {s}\n", .{dts_path});
+        if (DEBUG_COMPILE) std.debug.print("  Use with: import {{ load }} from '@metal0/wasm-runtime'\n", .{});
 
         // WASM cannot be run directly, skip cache and run
         return;
     } else if (!opts.binary and std.mem.eql(u8, opts.mode, "build")) {
-        std.debug.print("Compiling to shared library...\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("Compiling to shared library...\n", .{});
         // Get the directory where generated .zig submodules are located
         // This is critical for relative imports like @import("./version.zig") to resolve correctly
         // Uses projectZigPath which puts files in .metal0/gen/... (matching where submodules are generated)
@@ -1003,22 +1007,22 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
 
         // Auto-build/rebuild precompiled objects if needed
         incremental.ensurePrecompiledObjects(allocator) catch |err| {
-            std.debug.print("Warning: Could not build precompiled objects ({any})\n", .{err});
+            if (DEBUG_COMPILE) std.debug.print("Warning: Could not build precompiled objects ({any})\n", .{err});
         };
 
         // Use fast link if objects available
         if (incremental.hasPrecompiledObjects()) {
-            std.debug.print("Compiling to native binary (fast link)...\n", .{});
+            if (DEBUG_COMPILE) std.debug.print("Compiling to native binary (fast link)...\n", .{});
             incremental.compileWithPrecompiledObjects(aa, zig_code, bin_path) catch |err| {
                 // Fall back to full compilation
-                std.debug.print("Fast link failed ({any}), using full compile...\n", .{err});
+                if (DEBUG_COMPILE) std.debug.print("Fast link failed ({any}), using full compile...\n", .{err});
                 try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
                     .generate = opts.pgo_generate,
                     .use_profile = opts.pgo_use,
                 });
             };
         } else {
-            std.debug.print("Compiling to native binary...\n", .{});
+            if (DEBUG_COMPILE) std.debug.print("Compiling to native binary...\n", .{});
             // Use debug mode when --debug flag is set for DWARF info in binary
             // Pass PGO options for profile-guided optimization
             try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
@@ -1028,7 +1032,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         }
     }
 
-    std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
+    if (DEBUG_COMPILE) std.debug.print("✓ Compiled successfully to: {s}\n", .{bin_path});
 
     // Update cache with new hash (including mode for build/run differentiation)
     try cache.updateCacheWithMode(aa, source, bin_path, opts.mode);
@@ -1037,7 +1041,7 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
     if (debug_writer) |*dw| {
         const debug_path = try std.fmt.allocPrint(aa, "{s}.metal0.dbg", .{bin_path});
         try dw.writeBinary(debug_path);
-        std.debug.print("✓ Debug info written to: {s}\n", .{debug_path});
+        if (DEBUG_COMPILE) std.debug.print("✓ Debug info written to: {s}\n", .{debug_path});
 
         // Also write JSON version for human inspection
         const json_path = try std.fmt.allocPrint(aa, "{s}.metal0.dbg.json", .{bin_path});
@@ -1048,24 +1052,24 @@ pub fn compileFile(allocator: std.mem.Allocator, opts: CompileOptions) !void {
         const json_file = try std.fs.cwd().createFile(json_path, .{});
         defer json_file.close();
         try json_file.writeAll(json_buf.items);
-        std.debug.print("✓ Debug info (JSON) written to: {s}\n", .{json_path});
+        if (DEBUG_COMPILE) std.debug.print("✓ Debug info (JSON) written to: {s}\n", .{json_path});
 
         // Generate DWARF .debug_line section for debugger support
         const dwarf_path = try std.fmt.allocPrint(aa, "{s}.debug_line", .{bin_path});
         try debug_info.dwarf.writeDwarfToFile(aa, dwarf_path, dw.source_file, dw.mappings.items);
-        std.debug.print("✓ DWARF debug_line written to: {s}\n", .{dwarf_path});
+        if (DEBUG_COMPILE) std.debug.print("✓ DWARF debug_line written to: {s}\n", .{dwarf_path});
 
         // Generate DWARF .debug_info sections for local variables
         const dwarf_info_path = try std.fmt.allocPrint(aa, "{s}.dwarf", .{bin_path});
         const func_infos = try collectDwarfFunctionInfo(aa, dw);
         const var_infos = try collectDwarfGlobalVars(aa, dw);
         try debug_info.dwarf.writeDwarfInfoToFiles(aa, dwarf_info_path, dw.source_file, func_infos, var_infos);
-        std.debug.print("✓ DWARF debug_info written to: {s}.debug_info\n", .{dwarf_info_path});
+        if (DEBUG_COMPILE) std.debug.print("✓ DWARF debug_info written to: {s}.debug_info\n", .{dwarf_info_path});
     }
 
     // Run if mode is "run"
     if (std.mem.eql(u8, opts.mode, "run")) {
-        std.debug.print("\n", .{});
+        if (DEBUG_COMPILE) std.debug.print("\n", .{});
         // Native codegen always produces binaries
         var child = std.process.Child.init(&[_][]const u8{bin_path}, allocator);
         _ = try child.spawnAndWait();

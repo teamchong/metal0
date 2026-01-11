@@ -1,6 +1,9 @@
 /// Function and class definition code generation
 /// MIGRATED TO ZIGBUILDER
 const std = @import("std");
+
+/// Debug flag for class generation logging
+const DEBUG_CLASS_GEN = false;
 const ast = @import("analysis.ast");
 const hashmap_helper = @import("utils.hashmap_helper");
 const zig_keywords = @import("utils.zig_keywords");
@@ -594,7 +597,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Only register classes defined at module level - classes inside functions
     // are not directly accessible and must be discovered through module-level bindings
     if (is_unittest_class and self.current_function_name == null) {
-        std.debug.print("genClassDef: Processing unittest class: {s}\n", .{class.name});
+        if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: Processing unittest class: {s}\n", .{class.name});
         const core = @import("../../main/core.zig");
         var test_methods = std.ArrayList(core.TestMethodInfo){};
         // Build class_names_list ONCE per class (not per method) - PERFORMANCE OPTIMIZATION
@@ -701,12 +704,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 }
             }
         }
-        std.debug.print("genClassDef: Registering unittest class: {s}\n", .{class.name});
+        if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: Registering unittest class: {s}\n", .{class.name});
         // Mark class as conditional if defined inside an if block (conditional_depth > 0)
         // Conditional classes are skipped in test runner generation to avoid undeclared identifier errors
         const is_conditional = self.conditional_depth > 0;
         if (is_conditional) {
-            std.debug.print("genClassDef: Class {s} is CONDITIONAL (inside if block)\n", .{class.name});
+            if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: Class {s} is CONDITIONAL (inside if block)\n", .{class.name});
         }
         try self.unittest_classes.append(self.allocator, core.TestClassInfo{
             .class_name = class.name,
@@ -717,10 +720,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             .has_teardown_class = has_teardown_class,
             .is_conditional = is_conditional,
         });
-        std.debug.print("genClassDef: Unittest class registered: {s}\n", .{class.name});
+        if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: Unittest class registered: {s}\n", .{class.name});
     }
 
-    std.debug.print("genClassDef: Starting struct generation for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: Starting struct generation for: {s}\n", .{class.name});
 
     // Track class nesting depth for allocator parameter naming
     self.class_nesting_depth += 1;
@@ -1025,11 +1028,11 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Pre-hoist pass 0: Generate class-body-level nested classes at FILE LEVEL
     // These must be generated BEFORE the parent struct so they can be referenced from anywhere
     // e.g., class Outer: class Inner: ... (Inner needs to be accessible from child classes)
-    std.debug.print("genClassDef: [PREHOIST0] Checking for nested classes in: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [PREHOIST0] Checking for nested classes in: {s}\n", .{class.name});
     for (class.body) |stmt| {
         if (stmt == .class_def) {
             const nested_class = stmt.class_def;
-            std.debug.print("genClassDef: [PREHOIST0] Found nested class: {s} in {s}\n", .{nested_class.name, class.name});
+            if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [PREHOIST0] Found nested class: {s} in {s}\n", .{nested_class.name, class.name});
 
             // Generate mangled name: Outer__Inner
             const mangled_name = try std.fmt.allocPrint(self.allocator, "{s}__{s}", .{ class.name, nested_class.name });
@@ -1278,10 +1281,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Pre-hoist pass 1: Hoist locally-defined classes from ALL method bodies to struct level
     // This MUST happen BEFORE generating any fields or methods, because Zig requires
     // all const declarations to appear before any pub fn declarations in a struct
-    std.debug.print("genClassDef: [HOIST] hoistAllLocalClassesFromMethods starting for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [HOIST] hoistAllLocalClassesFromMethods starting for: {s}\n", .{class.name});
     try body.hoistAllLocalClassesFromMethods(self, class);
-    std.debug.print("genClassDef: [HOIST] hoistAllLocalClassesFromMethods done for: {s}\n", .{class.name});
-    std.debug.print("genClassDef: [CLOSURE] Pre-generating closure types for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [HOIST] hoistAllLocalClassesFromMethods done for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [CLOSURE] Pre-generating closure types for: {s}\n", .{class.name});
 
     // Pre-generate closure types for lazy class attributes at struct level
     // This allows us to reference these types in function signatures without relying on @TypeOf
@@ -1480,7 +1483,7 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // Fix 35: Generate class-level attribute fields
     // Class attributes like `all_comp_classes = (...)` become struct fields
     try body.genClassAttributeFields(self, class.body);
-    std.debug.print("genClassDef: [FIELDS] Class fields generated for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [FIELDS] Class fields generated for: {s}\n", .{class.name});
 
     // Generate init() method from __init__, __new__, or inherit from parent
     // Priority: __init__ > __new__ > parent __init__ > default
@@ -1553,13 +1556,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     }
 
     // Generate polymorphic return type helper functions (before methods that use them)
-    std.debug.print("genClassDef: [POLY] genPolymorphicReturnHelpers for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [POLY] genPolymorphicReturnHelpers for: {s}\n", .{class.name});
     try body.genPolymorphicReturnHelpers(self, class);
 
     // Generate regular methods (non-__init__)
-    std.debug.print("genClassDef: [METHODS] genClassMethods for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [METHODS] genClassMethods for: {s}\n", .{class.name});
     try body.genClassMethods(self, class, captured_vars);
-    std.debug.print("genClassDef: [METHODS] genClassMethods done for: {s}\n", .{class.name});
+    if (DEBUG_CLASS_GEN) std.debug.print("genClassDef: [METHODS] genClassMethods done for: {s}\n", .{class.name});
 
     // Generate blocked __bool__/__len__ methods (when assigned to None)
     // Python: __bool__ = None or __len__ = None blocks the method from being called

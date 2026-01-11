@@ -30,6 +30,9 @@ const unified_int_ops = @import("../expressions/operators/unified_int_ops.zig");
 const shared_maps = @import("../shared_maps.zig");
 const method_categories = @import("../dispatch/method_categories.zig");
 
+/// Debug flag for call graph building
+const DEBUG_CALL_GRAPH = false;
+
 // Multi-pass analysis system (consolidated const/var, hoisting, capture analysis)
 const pass_analysis = @import("../../passes/analysis.zig");
 pub const PassAnalysisResult = pass_analysis.AnalysisResult;
@@ -1501,9 +1504,9 @@ pub const NativeCodegen = struct {
     /// Build call graph from module AST for unified function analysis
     /// Call this once before generate() to enable traits-based codegen decisions
     pub fn buildCallGraph(self: *NativeCodegen, module: ast.Node.Module) !void {
-        std.debug.print("buildCallGraph() starting...\n", .{});
+        if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph() starting...\n", .{});
         self.call_graph = try function_traits.buildCallGraph(module, self.allocator);
-        std.debug.print("buildCallGraph() completed.\n", .{});
+        if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph() completed.\n", .{});
     }
 
     /// Query: Should function use state machine async? (has I/O await)
@@ -1729,7 +1732,10 @@ pub const NativeCodegen = struct {
     /// - Phase 3 of the plan needs to update ALL declarations to use getZigName()
     /// - Until then, we fall back to var_renames for consistency
     pub fn getZigName(self: *NativeCodegen, python_name: []const u8) []const u8 {
-        // TODO: Re-enable Pass 2.5 lookup after declarations are migrated
+        // NOTE: Pass 2.5 tracks variables from Python source, but codegen creates
+        // additional renames (TryHelper copies, closure captures, generator vars).
+        // Full integration requires Pass 2.5 to pre-compute these patterns too.
+        // TODO: Re-enable Pass 2.5 lookup after codegen-generated renames are migrated
         // if (self.var_resolution) |resolution| {
         //     if (resolution.getZigName(self.var_resolution_scope, python_name)) |zig_name| {
         //         return zig_name;
@@ -1754,29 +1760,13 @@ pub const NativeCodegen = struct {
             pass25_result = resolution.getZigName(self.var_resolution_scope, python_name);
         }
 
-        // Log differences
-        if (var_renames_result != null and pass25_result == null) {
-            std.debug.print("[VAR_RES] MISSING in Pass 2.5: '{s}' -> '{s}' (scope {})\n", .{
-                python_name,
-                var_renames_result.?,
-                self.var_resolution_scope.id,
-            });
-        } else if (var_renames_result == null and pass25_result != null) {
-            std.debug.print("[VAR_RES] EXTRA in Pass 2.5: '{s}' -> '{s}' (scope {})\n", .{
-                python_name,
-                pass25_result.?,
-                self.var_resolution_scope.id,
-            });
-        } else if (var_renames_result != null and pass25_result != null) {
-            if (!std.mem.eql(u8, var_renames_result.?, pass25_result.?)) {
-                std.debug.print("[VAR_RES] DIFFERENT: '{s}' -> var_renames='{s}', pass25='{s}' (scope {})\n", .{
-                    python_name,
-                    var_renames_result.?,
-                    pass25_result.?,
-                    self.var_resolution_scope.id,
-                });
-            }
-        }
+        // Log all lookups for debugging
+        std.debug.print("[VAR_RES] Lookup '{s}': var_renames={s}, pass25={s} (scope {})\n", .{
+            python_name,
+            if (var_renames_result) |r| r else "(null)",
+            if (pass25_result) |r| r else "(null)",
+            self.var_resolution_scope.id,
+        });
     }
 
     /// Check if a variable is declared in the current scope (not captured)

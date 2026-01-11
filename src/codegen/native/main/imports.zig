@@ -1,5 +1,9 @@
 /// Import handling and module compilation
 const std = @import("std");
+
+/// Debug flag for import handling
+const DEBUG_IMPORTS = false;
+
 const ast = @import("analysis.ast");
 const core = @import("core.zig");
 const NativeCodegen = core.NativeCodegen;
@@ -81,7 +85,7 @@ pub fn generateCExtensionStub(
         \\
         \\    // Load shared library
         \\    _lib_handle = std.DynLib.open("{s}") catch |err| {{
-        \\        std.debug.print("Failed to load C extension '{s}': {{}}\n", .{{err}});
+        \\        if (DEBUG_IMPORTS) std.debug.print("Failed to load C extension '{s}': {{}}\n", .{{err}});
         \\        return error.CExtensionLoadFailed;
         \\    }};
         \\
@@ -90,13 +94,13 @@ pub fn generateCExtensionStub(
         \\        *const fn () callconv(.C) ?*c_interop.PyObject,
         \\        "PyInit_{s}"
         \\    ) orelse {{
-        \\        std.debug.print("C extension '{s}' missing PyInit_{s}\n", .{{}});
+        \\        if (DEBUG_IMPORTS) std.debug.print("C extension '{s}' missing PyInit_{s}\n", .{{}});
         \\        return error.CExtensionInitNotFound;
         \\    }};
         \\
         \\    // Call init function to get module
         \\    _module_obj = init_fn() orelse {{
-        \\        std.debug.print("PyInit_{s} returned null\n", .{{}});
+        \\        if (DEBUG_IMPORTS) std.debug.print("PyInit_{s} returned null\n", .{{}});
         \\        return error.CExtensionInitFailed;
         \\    }};
         \\
@@ -164,12 +168,12 @@ fn compileModuleAsStructWithPrefix(
 
     // Use import resolver to find the module (prefers compiled .so)
     const resolved_path = try import_resolver.resolveImport(module_name, source_file_dir, aa) orelse {
-        std.debug.print("Error: Cannot find module '{s}'\n", .{module_name});
-        std.debug.print("Searched in: ", .{});
+        if (DEBUG_IMPORTS) std.debug.print("Error: Cannot find module '{s}'\n", .{module_name});
+        if (DEBUG_IMPORTS) std.debug.print("Searched in: ", .{});
         if (source_file_dir) |dir| {
-            std.debug.print("{s}/, ", .{dir});
+            if (DEBUG_IMPORTS) std.debug.print("{s}/, ", .{dir});
         }
-        std.debug.print("./, examples/, build/\n", .{});
+        if (DEBUG_IMPORTS) std.debug.print("./, examples/, build/\n", .{});
         return error.ModuleNotFound;
     };
 
@@ -198,7 +202,7 @@ fn compileModuleAsStructWithPrefix(
         // Try as absolute path first
         if (std.fs.path.isAbsolute(py_path)) {
             const file = std.fs.openFileAbsolute(py_path, .{}) catch |err| {
-                std.debug.print("Error: Cannot read file '{s}': {}\n", .{ py_path, err });
+                if (DEBUG_IMPORTS) std.debug.print("Error: Cannot read file '{s}': {}\n", .{ py_path, err });
                 return error.ModuleNotFound;
             };
             defer file.close();
@@ -343,8 +347,8 @@ fn compileModuleAsStructWithPrefix(
 
             const submod_struct = compileModuleAsStructWithPrefix(submod_name, submod_prefix, pkg_info.package_dir, allocator, // Recursive call uses base allocator for return value
                 main_type_inferrer, main_module_registry, signature_cache) catch |err| {
-                std.debug.print("ERROR: Failed to compile submodule '{s}.{s}': {}\n", .{ module_name, submod_name, err });
-                std.debug.print("  Submodules are required for the parent module to work.\n", .{});
+                if (DEBUG_IMPORTS) std.debug.print("ERROR: Failed to compile submodule '{s}.{s}': {}\n", .{ module_name, submod_name, err });
+                if (DEBUG_IMPORTS) std.debug.print("  Submodules are required for the parent module to work.\n", .{});
                 return err;
             };
             defer allocator.free(submod_struct); // Free recursive call's return value
@@ -570,7 +574,7 @@ pub fn collectImports(
                     // Add C library to linking list if specified (e.g. gzip needs zlib)
                     if (info.c_library) |lib_name| {
                         try self.c_libraries.append(self.allocator, lib_name);
-                        std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module, lib_name });
+                        if (DEBUG_IMPORTS) std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module, lib_name });
                     }
                 },
                 .c_library => {
@@ -580,7 +584,7 @@ pub fn collectImports(
                     // Add C library to linking list
                     if (info.c_library) |lib_name| {
                         try self.c_libraries.append(self.allocator, lib_name);
-                        std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module, lib_name });
+                        if (DEBUG_IMPORTS) std.debug.print("[C Extension] Detected {s} → link {s}\n", .{ python_module, lib_name });
                     }
                 },
                 .compile_python => {
@@ -589,7 +593,7 @@ pub fn collectImports(
                 },
                 .unsupported => {
                     // Module not supported in AOT - use VM fallback for drop-in CPython replacement
-                    std.debug.print("Info: Module '{s}' using VM fallback (not AOT compiled)\n", .{python_module});
+                    if (DEBUG_IMPORTS) std.debug.print("Info: Module '{s}' using VM fallback (not AOT compiled)\n", .{python_module});
                     try self.markSkippedModule(python_module);
                     continue;
                 },
@@ -611,13 +615,13 @@ pub fn collectImports(
             if (module_aliases.isStubModule(python_module)) {
                 // Stub module - intentionally ignored (test-only placeholder)
                 // Note: Not marked as skipped because stubs are expected to be unavailable
-                std.debug.print("  Skipping stub module (test-only): {s}\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("  Skipping stub module (test-only): {s}\n", .{python_module});
                 continue;
             }
 
             // Check if it's a platform-specific module incompatible with current platform
             if (module_aliases.isPlatformIncompatible(python_module)) {
-                std.debug.print("  Skipping platform-specific module (not available on this OS): {s}\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("  Skipping platform-specific module (not available on this OS): {s}\n", .{python_module});
                 continue;
             }
 
@@ -650,7 +654,7 @@ pub fn collectImports(
             if (module_functions_dispatch.hasCodegenDispatch(python_module)) {
                 // Module has function handlers but no runtime library
                 // Mark as "codegen only" so dispatch works but no runtime import is generated
-                std.debug.print("Info: Module '{s}' has codegen dispatch (no runtime library)\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("Info: Module '{s}' has codegen dispatch (no runtime library)\n", .{python_module});
                 try self.markCodegenOnlyModule(python_module);
                 continue;
             }
@@ -659,7 +663,7 @@ pub fn collectImports(
             // use VM fallback for drop-in CPython replacement
             if (import_resolver.isBuiltinModule(python_module)) {
                 // Builtin module not implemented natively - use VM fallback
-                std.debug.print("Info: CPython builtin module '{s}' using VM fallback (not implemented natively)\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("Info: CPython builtin module '{s}' using VM fallback (not implemented natively)\n", .{python_module});
                 try self.markSkippedModule(python_module);
                 continue;
             }
@@ -691,7 +695,7 @@ pub fn collectImports(
 
             // If module has Python source, compile it (even if parent package has C extensions)
             if (can_resolve_source) {
-                std.debug.print("Info: Package '{s}' has Python source, compiling to Zig\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("Info: Package '{s}' has Python source, compiling to Zig\n", .{python_module});
                 try imports.append(self.allocator, python_module);
                 continue;
             }
@@ -709,7 +713,7 @@ pub fn collectImports(
 
             // If it's a C extension with no Python source, use CPython interop
             if (is_c_extension) {
-                std.debug.print("Info: C extension '{s}' (no Python source) will be loaded at runtime via c_interop\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("Info: C extension '{s}' (no Python source) will be loaded at runtime via c_interop\n", .{python_module});
                 // Mark as C extension - loaded at runtime via PyImport_ImportModule
                 var alias_name: []const u8 = python_module;
                 for (self.import_aliases.keys()) |alias| {
@@ -723,7 +727,7 @@ pub fn collectImports(
             }
 
             if (is_installed) {
-                std.debug.print("Info: C extension package '{s}' will be loaded at runtime via c_interop\n", .{python_module});
+                if (DEBUG_IMPORTS) std.debug.print("Info: C extension package '{s}' will be loaded at runtime via c_interop\n", .{python_module});
                 // Mark as C extension - loaded at runtime via PyImport_ImportModule
                 // Find alias for this module (e.g., np for numpy)
                 var alias_name: []const u8 = python_module;
@@ -787,7 +791,7 @@ pub fn collectImports(
                     try imports.append(self.allocator, python_module);
                 } else {
                     // External package not in registry and not compiled - use VM fallback
-                    std.debug.print("Info: External module '{s}' using VM fallback (not compiled)\n", .{python_module});
+                    if (DEBUG_IMPORTS) std.debug.print("Info: External module '{s}' using VM fallback (not compiled)\n", .{python_module});
                     try self.markSkippedModule(python_module);
                     continue;
                 }

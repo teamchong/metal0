@@ -1,6 +1,10 @@
 /// Call graph building and function trait analysis infrastructure
 /// Main module for building CallGraph from Python AST
 const std = @import("std");
+
+/// Debug flag for call graph building
+const DEBUG_CALL_GRAPH = false;
+
 const ast = @import("analysis.ast");
 const hashmap_helper = @import("utils.hashmap_helper");
 const types = @import("types.zig");
@@ -282,30 +286,30 @@ const AllocatorFunctions = std.StaticStringMap(void).initComptime(.{
 
 /// Build call graph from a module
 pub fn buildCallGraph(module: ast.Node.Module, allocator: std.mem.Allocator) !CallGraph {
-    std.debug.print("buildCallGraph: Initializing graph...\n", .{});
+    if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph: Initializing graph...\n", .{});
     var graph = CallGraph.init(allocator);
     errdefer graph.deinit();
 
     var ctx = AnalyzerContext.init(allocator);
     defer ctx.deinit();
 
-    std.debug.print("buildCallGraph: First pass (collect definitions)...\n", .{});
+    if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph: First pass (collect definitions)...\n", .{});
     // First pass: collect all function definitions
     for (module.body) |stmt| {
         try collectDefinitions(stmt, &graph, &ctx);
     }
 
-    std.debug.print("buildCallGraph: Second pass (analyze traits)...\n", .{});
+    if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph: Second pass (analyze traits)...\n", .{});
     // Second pass: analyze each function's traits
     for (module.body) |stmt| {
         try analyzeStatement(stmt, &graph, &ctx);
     }
 
-    std.debug.print("buildCallGraph: Third pass (mark reachable)...\n", .{});
+    if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph: Third pass (mark reachable)...\n", .{});
     // Third pass: mark reachable functions from entry points
     try markReachable(&graph, allocator);
 
-    std.debug.print("buildCallGraph: Complete.\n", .{});
+    if (DEBUG_CALL_GRAPH) std.debug.print("buildCallGraph: Complete.\n", .{});
     return graph;
 }
 
