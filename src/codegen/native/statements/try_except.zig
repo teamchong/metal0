@@ -1121,7 +1121,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     }
                     break :blk false;
                 };
-                const was_declared_elsewhere = self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+                const was_declared_elsewhere = self.isDeclared(exc_name); // isDeclared checks hoisted_vars too
                 const has_pointer_rename = if (self.var_renames.get(exc_name)) |renamed| std.mem.endsWith(u8, renamed, ".*") else false;
                 const is_accessible = is_hoisted_this_block or (was_declared_elsewhere and has_pointer_rename);
 
@@ -1846,7 +1846,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     // BUT: if we're inside a TryHelper (nested try) and the variable was declared
                     // OUTSIDE the TryHelper, we can't access it due to Zig namespace boundaries.
                     // In that case, treat it as a new local variable.
-                    const was_declared_elsewhere = self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+                    const was_declared_elsewhere = self.isDeclared(exc_name); // isDeclared checks hoisted_vars too
 
                     // Check if we can actually access this variable:
                     // - is_hoisted_this_block: hoisted by THIS try block, passed as pointer param - ACCESSIBLE
@@ -1953,7 +1953,7 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                     // BUT: if we're inside a TryHelper (nested try) and the variable was declared
                     // OUTSIDE the TryHelper, we can't access it due to Zig namespace boundaries.
                     // In that case, treat it as a new local variable.
-                    const was_declared_elsewhere = self.hoisted_vars.contains(exc_name) or self.isDeclared(exc_name);
+                    const was_declared_elsewhere = self.isDeclared(exc_name); // isDeclared checks hoisted_vars too
 
                     // Check if we can actually access this variable:
                     // - is_hoisted_this_block: hoisted by THIS try block, passed as pointer param - ACCESSIBLE

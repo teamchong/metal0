@@ -1727,7 +1727,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         } else {
             // Check if variable is hoisted (used after loop) - use assignment not const
             // Hoisted vars are already declared in outer scope, so don't rename them
-            if (self.hoisted_vars.contains(var_name)) {
+            if (self.varResolutionIsHoisted(var_name)) {
                 // Use original var name (already declared in outer scope)
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });

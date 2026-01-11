@@ -138,7 +138,7 @@ pub fn genImport(self: *NativeCodegen, import: ast.Node.Import) CodegenError!voi
         try b.writeIndent();
         // Check if variable was hoisted (e.g., for imports inside with blocks)
         // Hoisted variables use assignment, non-hoisted use const declaration
-        const was_hoisted = self.hoisted_vars.contains(alias);
+        const was_hoisted = self.varResolutionIsHoisted(alias);
         if (!was_hoisted) {
             try b.emitRaw("const ");
         }
@@ -311,7 +311,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
                 name;
 
             // Check if variable was hoisted (e.g., for imports inside if/else or try blocks)
-            const was_hoisted = self.hoisted_vars.contains(alias);
+            const was_hoisted = self.varResolutionIsHoisted(alias);
 
             // Skip if already declared (but not hoisted) in current scope or at module level
             // If hoisted, we need to generate an assignment to the hoisted variable

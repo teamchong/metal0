@@ -454,7 +454,7 @@ fn genIfImpl(self: *NativeCodegen, if_stmt: ast.Node.If, skip_indent: bool, hois
         // Emit declarations for variables that will be assigned in branches
         for (assigned_vars.items) |v| {
             // Skip if already hoisted at function level
-            if (self.hoisted_vars.contains(v.name)) continue;
+            if (self.varResolutionIsHoisted(v.name)) continue;
 
             // Skip module-level variables/constants - they're already declared at module level
             // This prevents shadowing errors for __name__, __file__, and user-defined module vars

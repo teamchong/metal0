@@ -925,7 +925,7 @@ pub fn genFunctionBody(
     defer forward_refs.deinit(self.allocator);
     for (forward_refs.items) |fwd_var| {
         // Skip if already hoisted by try/except - avoid redeclaration
-        if (self.hoisted_vars.contains(fwd_var)) {
+        if (self.varResolutionIsHoisted(fwd_var)) {
             continue;
         }
         // Check if this variable would shadow a module-level declaration
