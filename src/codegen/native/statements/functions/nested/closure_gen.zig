@@ -591,6 +591,13 @@ pub fn genStandardClosure(
     const vm_fallback_analysis = @import("../generators/body/vm_fallback_analysis.zig");
     try vm_fallback_analysis.analyzeVMFallbackVars(self, func);
 
+    // Set current_function_name to closure name so isVarUnused() checks the correct function
+    // Without this, variables declared inside closures are incorrectly detected as "unused"
+    // because the usage analysis would look up the outer function's data instead of the closure's
+    const prev_func_name = self.current_function_name;
+    self.current_function_name = func.name;
+    defer self.current_function_name = prev_func_name;
+
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
     }
@@ -1282,6 +1289,11 @@ pub fn genNestedFunctionWithOuterCapture(
         self.pending_discards.deinit();
         self.pending_discards = saved_pending_discards2;
     }
+
+    // Set current_function_name to closure name so isVarUnused() checks the correct function
+    const prev_func_name2 = self.current_function_name;
+    self.current_function_name = func.name;
+    defer self.current_function_name = prev_func_name2;
 
     for (func.body) |stmt| {
         try self.generateStmt(stmt);
