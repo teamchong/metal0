@@ -894,10 +894,19 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // We also need to update var_renames so references to S use the new name
     // ALSO: In Zig, local constants can't shadow module-level constants. So if we're
     // inside a function and there's a module-level class with the same name, rename local.
-    var effective_class_name: []const u8 = class.name;
+    //
+    // Pass 2.5: Use pre-computed unique name from variable resolution if available
+    var effective_class_name: []const u8 = self.getZigName(class.name);
     const shadows_module_class = self.current_function_name != null and self.class_registry.getClass(class.name) != null;
     const is_declared = self.isDeclared(class.name);
-    if (is_declared or shadows_module_class) {
+    // Check if this Zig name has already been emitted (handles Python class redefinition)
+    // Python allows: class X: pass; class X: pass  (second X shadows first)
+    // In Zig, we can't have two const with the same name, so generate unique name for second
+    const zig_name_already_emitted = self.isDeclared(effective_class_name);
+    // Generate fallback unique name if:
+    // 1. Pass 2.5 didn't change the name AND we need renaming, OR
+    // 2. The Zig name was already emitted (class redefinition)
+    if ((std.mem.eql(u8, effective_class_name, class.name) and (is_declared or shadows_module_class)) or zig_name_already_emitted) {
         // Generate a unique name based on pointer address
         const unique_name = try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ class.name, @intFromPtr(class.name.ptr) });
         effective_class_name = unique_name;
@@ -1225,10 +1234,12 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
                 }
                 if (!first) try self.emit(", ");
                 first = false;
-                // Resolve nested class name to its hoisted/aliased name
+                // Resolve nested class name to its hoisted/aliased/Pass2.5 name
+                // Order: nested_class_aliases -> hoisted_local_classes -> getZigNameSearchingUp() -> original
+                // Use getZigNameSearchingUp() because base classes may be defined in parent scopes
                 const resolved_base_name = self.nested_class_aliases.get(base_name) orelse
                     self.hoisted_local_classes.get(base_name) orelse
-                    base_name;
+                    self.getZigNameSearchingUp(base_name);
                 try self.output.writer(self.allocator).print("&{s}.__vtable__", .{resolved_base_name});
             }
             try self.emit("};\n");
@@ -2233,7 +2244,9 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
             for (vars) |var_name| {
                 try self.emitIndent();
                 // Use @ptrCast to convert the typed pointer to *anyopaque
-                try self.output.writer(self.allocator).print("{s}.__static_{s} = @ptrCast(&{s});\n", .{ effective_class_name, var_name, var_name });
+                // Use Pass 2.5 name for the variable reference
+                const zig_var_name = self.getZigNameSearchingUp(var_name);
+                try self.output.writer(self.allocator).print("{s}.__static_{s} = @ptrCast(&{s});\n", .{ effective_class_name, var_name, zig_var_name });
             }
         }
     }

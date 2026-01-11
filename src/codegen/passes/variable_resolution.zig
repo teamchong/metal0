@@ -182,6 +182,24 @@ pub const VariableResolution = struct {
         return self.scope_by_name.get(name);
     }
 
+    /// Get a child scope by name from a given parent scope
+    /// This handles cases where multiple scopes have the same name (e.g., methods in different classes)
+    pub fn getChildScope(self: *VariableResolution, parent_scope_id: ScopeId, child_name: []const u8) ?ScopeId {
+        // Iterate through all scopes to find one with matching name and parent
+        var iter = self.scopes.iterator();
+        while (iter.next()) |entry| {
+            const scope = entry.value_ptr;
+            if (std.mem.eql(u8, scope.scope_name, child_name)) {
+                if (scope.parent_scope) |parent| {
+                    if (parent.id == parent_scope_id.id) {
+                        return ScopeId{ .id = entry.key_ptr.* };
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     /// Push scope onto stack (for nested resolution)
     pub fn pushScope(self: *VariableResolution, scope_id: ScopeId) !void {
         try self.scope_stack.append(self.allocator, scope_id);
@@ -325,6 +343,49 @@ pub const VariableResolution = struct {
         return false;
     }
 
+    /// Look up a class name in the module scope
+    /// Class names are always declared at module level, so use this for class references
+    /// in nested scopes (e.g., closure capture types referencing the enclosing class)
+    pub fn getZigNameAtModuleScope(self: *VariableResolution, python_name: []const u8) ?[]const u8 {
+        // Module scope is always created first with ID 0
+        const module_scope_id = ScopeId{ .id = 0 };
+        return self.getZigName(module_scope_id, python_name);
+    }
+
+    /// Look up a variable in a child scope of the current scope
+    /// Used for method-local classes: when generating a method signature at class scope,
+    /// we need to look up classes defined inside the method body
+    pub fn getZigNameInChildScope(self: *VariableResolution, parent_scope: ScopeId, child_name: []const u8, python_name: []const u8) ?[]const u8 {
+        if (self.getChildScope(parent_scope, child_name)) |child_scope| {
+            return self.getZigName(child_scope, python_name);
+        }
+        return null;
+    }
+
+    /// Look up a variable by searching up through ancestor scopes
+    /// Used for method return types that reference classes defined at ancestor scope level
+    /// (e.g., nested class method returning sibling class)
+    const DEBUG_SEARCH_UP = false;
+    pub fn getZigNameSearchingUp(self: *VariableResolution, start_scope: ScopeId, python_name: []const u8) ?[]const u8 {
+        var current = start_scope;
+        var depth: usize = 0;
+        while (depth < 20) : (depth += 1) {
+            const scope = self.getScope(current) orelse return null;
+            if (DEBUG_SEARCH_UP) std.debug.print("[SEARCH_UP] Looking for '{s}' in scope '{s}' (id={d})\n", .{ python_name, scope.scope_name, current.id });
+            // Check current scope
+            if (self.getZigName(current, python_name)) |zig_name| {
+                if (DEBUG_SEARCH_UP) std.debug.print("[SEARCH_UP] Found '{s}' -> '{s}' in scope '{s}'\n", .{ python_name, zig_name, scope.scope_name });
+                return zig_name;
+            }
+            // Move to parent
+            current = scope.parent_scope orelse {
+                if (DEBUG_SEARCH_UP) std.debug.print("[SEARCH_UP] Reached root scope, '{s}' not found\n", .{python_name});
+                return null;
+            };
+        }
+        return null;
+    }
+
     /// Get all variables in a scope
     pub fn getVariablesInScope(self: *VariableResolution, scope_id: ScopeId) ?*const hashmap_helper.StringHashMap(VariableInfo) {
         const scope = self.getScope(scope_id) orelse return null;
@@ -353,18 +414,32 @@ const ResolutionContext = struct {
     /// Variables used at outer (function) level
     outer_uses: hashmap_helper.StringHashMap(void),
 
+    /// Variables declared as `nonlocal` in the current function scope.
+    /// These should NOT be registered as local variables.
+    /// Points to a hashmap that's managed by collectDeclarations for each function.
+    nonlocal_vars: ?*hashmap_helper.StringHashMap(void) = null,
+
     pub fn init(allocator: std.mem.Allocator, resolution: *VariableResolution) ResolutionContext {
         return .{
             .resolution = resolution,
             .allocator = allocator,
             .inner_assignments = hashmap_helper.StringHashMap(void).init(allocator),
             .outer_uses = hashmap_helper.StringHashMap(void).init(allocator),
+            .nonlocal_vars = null,
         };
     }
 
     pub fn deinit(self: *ResolutionContext) void {
         self.inner_assignments.deinit();
         self.outer_uses.deinit();
+    }
+
+    /// Check if a variable is declared as nonlocal in the current scope
+    pub fn isNonlocal(self: *const ResolutionContext, var_name: []const u8) bool {
+        if (self.nonlocal_vars) |nonlocals| {
+            return nonlocals.contains(var_name);
+        }
+        return false;
     }
 };
 
@@ -405,6 +480,18 @@ fn collectDeclarations(node: ast.Node, ctx: *ResolutionContext, scope_id: ScopeI
             const func_scope = try ctx.resolution.createScope(func.name, scope_id, .function);
             try ctx.resolution.pushScope(func_scope);
 
+            // FIRST: Collect nonlocal variables in this function body
+            // Nonlocal variables reference the enclosing scope and should NOT be registered
+            // as local variables in this scope
+            const saved_nonlocals = ctx.nonlocal_vars;
+            var nonlocals = hashmap_helper.StringHashMap(void).init(ctx.resolution.allocator);
+            collectNonlocalVarsInStmts(func.body, &nonlocals);
+            ctx.nonlocal_vars = &nonlocals;
+            defer {
+                nonlocals.deinit();
+                ctx.nonlocal_vars = saved_nonlocals;
+            }
+
             // Register parameters
             for (func.args) |arg| {
                 _ = try ctx.resolution.registerVariable(func_scope, arg.name, .{ .is_parameter = true });
@@ -442,18 +529,26 @@ fn collectDeclarations(node: ast.Node, ctx: *ResolutionContext, scope_id: ScopeI
 
         .ann_assign => |ann| {
             if (ann.target.* == .name) {
-                const is_hoisted = in_inner_scope and ctx.outer_uses.contains(ann.target.name.id);
-                _ = try ctx.resolution.registerVariable(scope_id, ann.target.name.id, .{ .is_hoisted = is_hoisted });
-                if (in_inner_scope) {
-                    try ctx.inner_assignments.put(ann.target.name.id, {});
+                const var_name = ann.target.name.id;
+                // Skip if declared as nonlocal - nonlocal vars reference enclosing scope
+                if (!ctx.isNonlocal(var_name)) {
+                    const is_hoisted = in_inner_scope and ctx.outer_uses.contains(var_name);
+                    _ = try ctx.resolution.registerVariable(scope_id, var_name, .{ .is_hoisted = is_hoisted });
+                    if (in_inner_scope) {
+                        try ctx.inner_assignments.put(var_name, {});
+                    }
                 }
             }
         },
 
         .aug_assign => |aug| {
             if (aug.target.* == .name) {
-                const is_hoisted = in_inner_scope and ctx.outer_uses.contains(aug.target.name.id);
-                _ = try ctx.resolution.registerVariable(scope_id, aug.target.name.id, .{ .is_hoisted = is_hoisted });
+                const var_name = aug.target.name.id;
+                // Skip if declared as nonlocal - nonlocal vars reference enclosing scope
+                if (!ctx.isNonlocal(var_name)) {
+                    const is_hoisted = in_inner_scope and ctx.outer_uses.contains(var_name);
+                    _ = try ctx.resolution.registerVariable(scope_id, var_name, .{ .is_hoisted = is_hoisted });
+                }
             }
         },
 
@@ -560,6 +655,8 @@ fn collectAssignTarget(target: ast.Node, ctx: *ResolutionContext, scope_id: Scop
             const var_name = name.id;
             // Skip discard
             if (var_name.len == 1 and var_name[0] == '_') return;
+            // Skip if declared as nonlocal - nonlocal vars reference enclosing scope
+            if (ctx.isNonlocal(var_name)) return;
 
             const is_hoisted = in_inner_scope and ctx.outer_uses.contains(var_name);
             _ = try ctx.resolution.registerVariable(scope_id, var_name, .{ .is_hoisted = is_hoisted });
@@ -879,6 +976,54 @@ fn findInParentScopes(resolution: *VariableResolution, scope_id: ScopeId, var_na
     }
 
     return null;
+}
+
+// ============================================================================
+// Nonlocal Variable Collection
+// ============================================================================
+
+/// Collect all `nonlocal` variable names from statements.
+/// These variables reference the enclosing scope and should NOT be registered as local.
+fn collectNonlocalVarsInStmts(stmts: []const ast.Node, nonlocals: *hashmap_helper.StringHashMap(void)) void {
+    for (stmts) |stmt| {
+        collectNonlocalVarsInNode(stmt, nonlocals);
+    }
+}
+
+fn collectNonlocalVarsInNode(node: ast.Node, nonlocals: *hashmap_helper.StringHashMap(void)) void {
+    switch (node) {
+        .nonlocal_stmt => |n| {
+            for (n.names) |name| {
+                nonlocals.put(name, {}) catch {};
+            }
+        },
+        // Recurse into compound statements (but NOT nested functions - they have their own scope)
+        .if_stmt => |i| {
+            for (i.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+            for (i.else_body) |s| collectNonlocalVarsInNode(s, nonlocals);
+        },
+        .for_stmt => |f| {
+            for (f.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+            if (f.orelse_body) |ob| for (ob) |s| collectNonlocalVarsInNode(s, nonlocals);
+        },
+        .while_stmt => |w| {
+            for (w.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+            if (w.orelse_body) |ob| for (ob) |s| collectNonlocalVarsInNode(s, nonlocals);
+        },
+        .try_stmt => |t| {
+            for (t.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+            for (t.handlers) |h| for (h.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+            for (t.else_body) |s| collectNonlocalVarsInNode(s, nonlocals);
+            for (t.finalbody) |s| collectNonlocalVarsInNode(s, nonlocals);
+        },
+        .with_stmt => |w| {
+            for (w.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+        },
+        .match_stmt => |m| {
+            for (m.cases) |c| for (c.body) |s| collectNonlocalVarsInNode(s, nonlocals);
+        },
+        else => {},
+    }
 }
 
 // ============================================================================

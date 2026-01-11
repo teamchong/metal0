@@ -2038,7 +2038,15 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 if (is_self_class_call) {
                     try self.emit("@This()");
                 } else {
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), func_name);
+                    // For nested class constructors, use Pass 2.5 name lookup
+                    // to get the correct Zig name (e.g., aug_test -> __v_testCustomMethods1_aug_test_18)
+                    // Use getZigName (current scope) not getZigNameSearchingUp, because nested classes
+                    // should be defined in the current scope - searching up can find wrong class from sibling method
+                    const zig_class_name = if (in_nested_names)
+                        self.getZigName(raw_func_name)
+                    else
+                        func_name;
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_class_name);
                     // Track that we actually used this nested class in generated Zig code
                     // This is used to determine which classes need _ = ClassName; suppression
                     if (in_nested_names) {
@@ -2128,13 +2136,9 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
             if (self.nested_class_captures.get(raw_func_name)) |captured_vars| {
                 for (captured_vars) |var_name| {
                     try self.emit(", &");
-                    // Use renamed variable if inside TryHelper or other scope
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
                     // IMPORTANT: Use writeLocalVarName to escape Zig keywords (e.g., test -> @"test")
-                    if (self.var_renames.get(var_name)) |renamed| {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
-                    } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                    }
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), self.getZigName(var_name));
                 }
             }
 

@@ -259,16 +259,18 @@ pub fn genTuple(self: *NativeCodegen, tuple: ast.Node.Tuple) CodegenError!void {
                 self.nested_class_defs.contains(name);
             if (is_local_class) {
                 // Get the resolved Zig name (might be aliased)
-                // For nested_class_defs, use the original name as Zig name
+                // For nested_class_defs, use Pass 2.5 unique name
+                // Search up through parent scopes since class might be in outer method scope
                 const zig_name = self.hoisted_local_classes.get(name) orelse
                     self.nested_class_aliases.get(name) orelse
-                    name;
+                    self.getZigNameSearchingUp(name);
                 // Wrap as PyValue with vtable pointer
                 // This allows class objects to be passed as values in Python
                 // Use @constCast since __vtable__ is a pub const
                 // Check if this is the current class - if so, use @This() to avoid forward reference
+                // Compare Python name since current_class_name uses Python names
                 const use_this = if (self.current_class_name) |current|
-                    std.mem.eql(u8, zig_name, current)
+                    std.mem.eql(u8, name, current)
                 else
                     false;
 

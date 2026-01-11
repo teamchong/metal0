@@ -52,8 +52,9 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
     const container_traits = @import("../../../../../analysis/traits/container_traits.zig");
 
     // Case 1: 'self' in a class context
+    // Use getClassZigName() to get the Pass 2.5 renamed class name (always at module scope)
     if (std.mem.eql(u8, var_name, "self") and self.current_class_name != null) {
-        try self.emitFmt(": *const {s}", .{self.current_class_name.?});
+        try self.emitFmt(": *const {s}", .{self.getClassZigName(self.current_class_name.?)});
         return;
     }
 
@@ -706,10 +707,11 @@ pub fn genStandardClosure(
     const is_redefinition = self.isDeclared(func.name);
 
     // If shadowing an import or redefinition, use NameGen for consistent unique naming
+    // Otherwise use getZigName() to get Pass 2.5 unique name for the function variable
     const alias_name = if (shadows_import or is_redefinition)
         try self.name_gen.closure(func.name)
     else
-        try self.arena.allocator().dupe(u8, func.name);
+        try self.arena.allocator().dupe(u8, self.getZigName(func.name));
     defer self.allocator.free(alias_name);
 
     // Create closure variable name
@@ -979,11 +981,11 @@ pub fn emitClosureInstantiation(
     // Initialize captures
     for (info.captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        // For captured variables, use the ORIGINAL name, not the renamed one.
-        // Captured variables exist in the outer scope under their original names.
-        // The var_renames may contain shadow renames from inner scopes, which
-        // shouldn't apply to capture initialization.
-        try self.emitFmt(" .{s} = {s}", .{ var_name, var_name });
+        // Field name uses Python name (for internal closure access pattern).
+        // Value references the outer variable using its Pass 2.5 Zig name.
+        // Use getZigNameSearchingUp since captured vars are in parent scopes.
+        const zig_name = self.getZigNameSearchingUp(var_name);
+        try self.emitFmt(" .{s} = {s}", .{ var_name, zig_name });
     }
     try self.emit(" } };\n");
 
@@ -1394,12 +1396,13 @@ pub fn genNestedFunctionWithOuterCapture(
                 try self.emitFmt(" .{s} = {s}.{s}", .{ var_name, outer_capture_param, var_name });
             }
         } else {
-            // For captured variables, use the ORIGINAL name.
-            // Captured variables exist in the outer scope under their original names.
+            // Field name uses Python name, value uses Pass 2.5 Zig name.
+            // Use getZigNameSearchingUp since captured vars are in parent scopes.
+            const zig_name = self.getZigNameSearchingUp(var_name);
             if (is_mutated) {
-                try self.emitFmt(" .{s} = &{s}", .{ var_name, var_name });
+                try self.emitFmt(" .{s} = &{s}", .{ var_name, zig_name });
             } else {
-                try self.emitFmt(" .{s} = {s}", .{ var_name, var_name });
+                try self.emitFmt(" .{s} = {s}", .{ var_name, zig_name });
             }
         }
     }
@@ -1414,10 +1417,11 @@ pub fn genNestedFunctionWithOuterCapture(
     const is_redefinition2 = self.isDeclared(func.name);
 
     // If shadowing an import or redefinition, use NameGen for consistent unique naming
+    // Otherwise use getZigName() to get Pass 2.5 unique name for the function variable
     const alias_name2 = if (shadows_import2 or is_redefinition2)
         try self.name_gen.closure(func.name)
     else
-        try self.arena.allocator().dupe(u8, func.name);
+        try self.arena.allocator().dupe(u8, self.getZigName(func.name));
     defer self.allocator.free(alias_name2);
 
     try self.emitIndent();

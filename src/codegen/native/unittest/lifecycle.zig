@@ -52,10 +52,12 @@ pub fn genUnittestMain(self: *NativeCodegen, args: []ast.Node) CodegenError!void
         }
 
         try self.emitIndent();
+        // Use Pass 2.5 unique name for class reference
+        const zig_class_name = self.getZigName(class_info.class_name);
         if (has_runnable_tests) {
-            try self.output.writer(self.allocator).print("var _test_instance_{s} = try {s}.init(__global_allocator);\n", .{ class_info.class_name, class_info.class_name });
+            try self.output.writer(self.allocator).print("var _test_instance_{s} = try {s}.init(__global_allocator);\n", .{ class_info.class_name, zig_class_name });
         } else {
-            try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator) catch undefined;\n", .{class_info.class_name});
+            try self.output.writer(self.allocator).print("_ = {s}.init(__global_allocator) catch undefined;\n", .{zig_class_name});
         }
 
         // Call setUpClass if exists

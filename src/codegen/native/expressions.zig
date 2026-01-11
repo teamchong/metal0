@@ -219,8 +219,20 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                     if (self.var_renames.get("self")) |renamed| break :blk renamed;
                 }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
-                if (self.func_local_vars.contains(n.id)) break :blk n.id;
-                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                // Use getZigName() to get Pass 2.5 name (which provides unique naming)
+                if (self.func_local_vars.contains(n.id)) break :blk self.getZigName(n.id);
+                // For module-level variables, use module scope lookup to get Pass 2.5 name.
+                // This handles references to module-level vars from inside methods/classes.
+                // For other variables, use current scope lookup - don't search up past
+                // function boundaries because Zig doesn't allow accessing outer scope
+                // variables across nested function definitions.
+                if (self.module_level_vars.contains(n.id)) {
+                    if (self.var_resolution) |resolution| {
+                        if (resolution.getZigNameAtModuleScope(n.id)) |zig_name| {
+                            break :blk zig_name;
+                        }
+                    }
+                }
                 break :blk self.getZigName(n.id);
             };
 

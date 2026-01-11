@@ -1160,7 +1160,9 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             const var_name = self.getZigName(original_name);
 
             // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
-            try self.type_inferrer.putScopedVar(var_name, context_type);
+            // IMPORTANT: Store under ORIGINAL Python name (f), not Zig name (__v_test_fileclosed_f_44)
+            // Type inferrer always looks up by Python name when inferring attribute access (f.closed)
+            try self.type_inferrer.putScopedVar(original_name, context_type);
 
             // Track as func_local_vars so needsVMFallback returns false for this var
             try self.func_local_vars.put(original_name, {});

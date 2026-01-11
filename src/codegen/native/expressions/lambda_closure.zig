@@ -616,8 +616,18 @@ fn genExprWithCapturePrefix(self: *NativeCodegen, node: ast.Node, captured_vars:
                 try self.emit(n.id);
                 return;
             }
-            // Not captured, use directly (escape Zig keywords like 'fn')
-            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
+            // Not captured - check if it's a module-level variable
+            // Module-level vars need module scope lookup; other vars use current scope
+            // Don't search up past function boundaries (Zig doesn't allow this)
+            var zig_name = self.getZigName(n.id);
+            if (self.module_level_vars.contains(n.id)) {
+                if (self.var_resolution) |resolution| {
+                    if (resolution.getZigNameAtModuleScope(n.id)) |module_name| {
+                        zig_name = module_name;
+                    }
+                }
+            }
+            try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), zig_name);
         },
         .binop => |b| {
             // Use @mod for modulo to handle signed integers properly

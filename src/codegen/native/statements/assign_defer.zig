@@ -22,7 +22,8 @@ pub fn emitStringConcatDefer(self: *NativeCodegen, var_name: []const u8, is_firs
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.writeFmt("defer {s}.free(", .{alloc_name});
-        try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
+        // Use getZigName to get Pass 2.5 name to match the declaration
+        try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), self.getZigName(var_name));
         try b.emitRaw(");\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
@@ -35,7 +36,8 @@ pub fn emitArrayListDefer(self: *NativeCodegen, var_name: []const u8) CodegenErr
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.emitRaw("defer ");
-    try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
+    // Use getZigName to get Pass 2.5 name to match the declaration
+    try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), self.getZigName(var_name));
     try b.writeFmt(".deinit({s});\n", .{alloc_name});
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
@@ -47,7 +49,8 @@ pub fn emitListCompDefer(self: *NativeCodegen, var_name: []const u8) CodegenErro
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.emitRaw("defer ");
-    try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
+    // Use getZigName to get Pass 2.5 name to match the declaration
+    try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), self.getZigName(var_name));
     try b.writeFmt(".deinit({s});\n", .{alloc_name});
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);
@@ -77,12 +80,14 @@ fn needsValueCleanup(self: *NativeCodegen, dict: ast.Node.Dict, is_comptime_dict
 
 /// Add defer cleanup for dict (with value cleanup if needed)
 pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: ast.Node) CodegenError!void {
+    // Use getZigName to get Pass 2.5 name to match the declaration
+    const zig_name = self.getZigName(var_name);
     if (assign_value != .dict) {
         // Simple defer for non-dict literals
         const b = try self.getBuilder();
         try b.writeIndent();
         try b.emitRaw("defer ");
-        try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
+        try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), zig_name);
         try b.emitRaw(".deinit();\n");
         const output = try b.getBodyDupe();
         try self.output.appendSlice(self.allocator, output);
@@ -138,7 +143,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         self.indent();
         try b.writeIndent();
         try b.emitRaw("for (");
-        try zig_keywords.writeLocalVarName(writer, var_name);
+        try zig_keywords.writeLocalVarName(writer, zig_name);
         // Use __v to avoid shadowing outer scope variables named "value"
         try b.emitRaw(".values()) |__v| {\n");
         self.indent();
@@ -148,7 +153,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
         try b.writeIndent();
         try b.emitRaw("}\n");
         try b.writeIndent();
-        try zig_keywords.writeLocalVarName(writer, var_name);
+        try zig_keywords.writeLocalVarName(writer, zig_name);
         try b.emitRaw(".deinit();\n");
         self.dedent();
         try b.writeIndent();
@@ -156,7 +161,7 @@ pub fn emitDictDefer(self: *NativeCodegen, var_name: []const u8, assign_value: a
     } else {
         try b.writeIndent();
         try b.emitRaw("defer ");
-        try zig_keywords.writeLocalVarName(writer, var_name);
+        try zig_keywords.writeLocalVarName(writer, zig_name);
         try b.emitRaw(".deinit();\n");
     }
     const output = try b.getBodyDupe();
@@ -169,7 +174,8 @@ pub fn emitAllocatedStringDefer(self: *NativeCodegen, var_name: []const u8) Code
     const b = try self.getBuilder();
     try b.writeIndent();
     try b.writeFmt("defer {s}.free(", .{alloc_name});
-    try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), var_name);
+    // Use getZigName to get Pass 2.5 name to match the declaration
+    try zig_keywords.writeLocalVarName(b.body.writer(b.allocator), self.getZigName(var_name));
     try b.emitRaw(");\n");
     const output = try b.getBodyDupe();
     try self.output.appendSlice(self.allocator, output);

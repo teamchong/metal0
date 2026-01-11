@@ -736,13 +736,15 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
 
             // Use var (mutable) since these are assigned conditionally
             // Use the inferred type from both branches (or PyValue as fallback)
+            // Use Pass 2.5 name for declaration to match references
+            const zig_name = self.getZigName(cond_var.name);
             try self.emit("var ");
-            try self.emitIdent(cond_var.name);
+            try self.emitIdent(zig_name);
             try self.emit(": ");
             try self.emit(cond_var.zig_type);
             try self.emit(" = undefined;\n");
 
-            // Mark as declared so main() doesn't re-declare
+            // Mark as declared so main() doesn't re-declare (use original name for tracking)
             try self.declareVar(cond_var.name);
             try self.markGlobalVar(cond_var.name);
 
@@ -1267,7 +1269,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (listcomp_node) |lc_node| {
                 const lc_type = self.type_inferrer.inferExpr(lc_node.*) catch .unknown;
                 try self.emit("var ");
-                try self.emitVarName(var_name);
+                try self.emitVarName(self.getZigName(var_name));
                 try self.emit(": ");
                 if (container_traits.isList(lc_type)) {
                     // Use the inferred list type with correct element type
@@ -1306,7 +1308,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (dictcomp_node) |dc_node| {
                 const dc_type = self.type_inferrer.inferExpr(dc_node.*) catch .unknown;
                 try self.emit("var ");
-                try self.emitVarName(var_name);
+                try self.emitVarName(self.getZigName(var_name));
                 try self.emit(": ");
                 if (container_traits.isDict(dc_type)) {
                     // Use the inferred dict type with correct key/value types
@@ -1485,7 +1487,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                     } else "hashmap_helper.StringHashMap(i64)"; // Default for empty dict()
 
                     try self.emit("var ");
-                    try self.emitVarName(var_name);
+                    try self.emitVarName(self.getZigName(var_name));
                     try self.emit(": ");
                     try self.emit(zig_type);
                     try self.emit(" = undefined;\n");
@@ -1611,7 +1613,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             if (is_module_constant) {
                 if (module_const_type) |const_type| {
                     try self.emit("const ");
-                    try self.emitIdent(var_name);
+                    try self.emitIdent(self.getZigName(var_name));
                     try self.emit(": ");
                     try self.emit(const_type);
                     try self.emit(" = support.");
@@ -1854,7 +1856,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
             defer if (needs_free) self.allocator.free(zig_type);
 
             try self.emit("var ");
-            try self.emitVarName(var_name);
+            try self.emitVarName(self.getZigName(var_name));
             try self.emit(": ");
             try self.emit(zig_type);
             try self.emit(" = undefined;\n");
@@ -1889,7 +1891,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                         if (self.callable_global_vars.contains(var_name)) {
                             // Emit at module level: const fromHex = runtime.floatFromHex;
                             try self.emit("const ");
-                            try self.emitIdent(var_name);
+                            try self.emitIdent(self.getZigName(var_name));
                             try self.emit(" = ");
                             try self.genExpr(assign.value.*);
                             try self.emit(";\n");
@@ -1922,7 +1924,7 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
                             }
                             // Emit: const ctypes_test = import_module("ctypes");
                             try self.emit("const ");
-                            try self.emitIdent(var_name);
+                            try self.emitIdent(self.getZigName(var_name));
                             try self.emit(" = ");
                             try self.genExpr(assign.value.*);
                             try self.emit(";\n");
@@ -2727,10 +2729,10 @@ fn emitModuleLevelTypeAliases(self: *NativeCodegen, body: []const ast.Node) !voi
 
                         // Emit: const F = fractions.Fraction;
                         try self.emit("const ");
-                        try self.emitIdent(var_name);
+                        try self.emitIdent(self.getZigName(var_name));
                         try self.emit(" = ");
                         // Emit module.attribute
-                        try self.emitIdent(module_name);
+                        try self.emitIdent(self.getZigName(module_name));
                         try self.emit(".");
                         try self.emitIdent(attr_name);
                         try self.emit(";\n");

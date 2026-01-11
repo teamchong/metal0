@@ -796,11 +796,13 @@ pub fn emitVarDeclaration(
         if (self.var_renames.get(var_name)) |renamed| {
             // Lazy attribute patterns start with "(try " - don't use for declarations
             if (std.mem.startsWith(u8, renamed, "(try ")) {
-                break :blk var_name;
+                // Use getZigName() to get Pass 2.5 name
+                break :blk self.getZigName(var_name);
             }
             break :blk renamed;
         }
-        break :blk var_name;
+        // Use getZigName() to get Pass 2.5 name (which provides unique naming)
+        break :blk self.getZigName(var_name);
     };
 
     // Check if renamed name is a pointer dereference (ends with ".*")

@@ -1113,12 +1113,14 @@ pub fn genAssertIs(self: *NativeCodegen, obj: ast.Node, args: []ast.Node) Codege
                 }
                 // For user-defined classes (like subclass), compare __name__ field
                 if (!isBuiltinTypeName(type_name)) {
+                    // Use Pass 2.5 name lookup for correct Zig name
+                    const zig_type_name = self.getZigNameSearchingUp(type_name);
                     try self.emit("{ _ = &");
-                    try self.emit(type_name);
+                    try self.emit(zig_type_name);
                     try self.emit("; try unittest.assertTypeIsStr(");
                     try parent.genExpr(self, args[0].call.args[0]);
                     try self.emit(", ");
-                    try self.emit(type_name);
+                    try self.emit(zig_type_name);
                     try self.emit(".__name__); }");
                     return;
                 }
@@ -1222,10 +1224,13 @@ pub fn genAssertIsInstance(self: *NativeCodegen, obj: ast.Node, args: []ast.Node
         // Check if this is a user-defined variable (not a builtin type name)
         if (!isBuiltinTypeName(type_var)) {
             // For user-defined classes, use the class's __name__ constant
+            // Use Pass 2.5 name lookup to get the correct Zig name for ALL non-builtins
+            // This handles both nested classes and imported module classes
+            const zig_type_name = self.getZigNameSearchingUp(type_var);
             // Escape Zig keywords like "struct" when used as variable names
             var escaped_buf: [256]u8 = undefined;
             var fbs = std.io.fixedBufferStream(&escaped_buf);
-            zig_keywords.writeEscapedIdent(fbs.writer(), type_var) catch {};
+            zig_keywords.writeEscapedIdent(fbs.writer(), zig_type_name) catch {};
             const escaped = fbs.getWritten();
             try b.emitAssertIsInstanceRawStmt(obj_value, escaped);
             try self.flushBuilder();

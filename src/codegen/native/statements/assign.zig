@@ -604,14 +604,9 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.emit("const ");
                             try self.declareVar(var_name);
                         }
-                        // Use var_renames if available (for outer scope variables like in exception handlers)
-                        // Otherwise use writeLocalVarName which applies shadowing rename
-                        if (self.var_renames.get(var_name)) |renamed| {
-                            // Use writeLocalVarName to handle capture field access like "__m22_cap_check.expected"
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
-                        } else {
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
-                        }
+                        // Use getZigName which checks var_renames first, then Pass 2.5
+                        const zig_name = self.getZigName(var_name);
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name);
                         try self.emit(" = ");
                         try self.emit(tmp_name);
                         try self.emit(";\n");
@@ -639,7 +634,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 try self.emit("const ");
                                 try self.declareVar(var_name);
                             }
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            const zig_name = self.getZigName(var_name);
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name);
                             if (is_list_type) {
                                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, j });
                             } else {
@@ -670,7 +666,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                                 try self.emit("const ");
                                 try self.declareVar(var_name);
                             }
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            const zig_name = self.getZigName(var_name);
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name);
                             if (is_list_type) {
                                 try self.output.writer(self.allocator).print(" = {s}.items[{d}];\n", .{ tmp_name, j });
                             } else {
@@ -970,8 +967,6 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             const is_forward_declared = self.forward_declared_vars.contains(var_name) or
                 (if (renamed_var) |rv| self.forward_declared_vars.contains(rv) else false);
             const is_global = self.isGlobalVar(var_name);
-            // Also check if this is a module-level variable (declared at top of module)
-            const is_module_level = self.module_level_vars.contains(var_name);
             // Check both original name AND renamed version for is_declared
             // When a nested function def bar() declares __m13_c_bar and renames bar -> __m13_c_bar,
             // the subsequent bar = decorator(bar) should see bar as "already declared" via the rename
@@ -980,7 +975,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // This handles: def bar(): ...; bar = decorator(bar)
             // The function definition generates const __m13_c_bar and puts bar in closure_vars
             const is_closure = self.closure_vars.contains(var_name);
-            const is_first_assignment = !self.isDeclared(var_name) and !renamed_is_declared and !is_closure and !is_hoisted and !is_forward_declared and !is_global and !is_module_level;
+            // NOTE: We do NOT include !is_module_level in this check because:
+            // 1. With Pass 2.5 unique naming, method-local vars get unique names (e.g., __v_method_d_123)
+            //    so they don't actually shadow module-level vars in the generated Zig code
+            // 2. If a method has a local variable with the same name as a module-level var,
+            //    it should be treated as a first assignment (new local declaration) not a reassignment
+            // 3. The is_module_level check is only relevant for `global var_name` statements
+            //    which is handled by is_global
+            const is_first_assignment = !self.isDeclared(var_name) and !renamed_is_declared and !is_closure and !is_hoisted and !is_forward_declared and !is_global;
 
             // When a forward-declared variable is assigned, remove it from forward_declared_vars
             // This allows closures defined AFTER this assignment to know the variable is now available
@@ -1022,27 +1024,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 var_name = shadow_name;
             }
 
-            // Also check if local variable would shadow a module-level pre-declared global
-            // Python allows this (locals shadow globals) but Zig doesn't allow shadowing module-level vars
-            // e.g., global `var set2` at module level, local `var set2` in method -> rename local
-            if (is_first_assignment and !is_global) {
-                // Check if this var name exists as a module-level var (pre-declared global)
-                // For constants like __name__, __file__ - skip the assignment entirely
-                // since const cannot be reassigned in Zig
-                if (self.module_level_vars.contains(var_name)) {
-                    // Skip assignment to module-level constants
-                    // Emit comment and discard the value to suppress warnings
-                    try self.emitIndent();
-                    try self.emit("// Assignment to module-level constant '");
-                    try self.emit(var_name);
-                    try self.emit("' skipped (const cannot be reassigned)\n");
-                    try self.emitIndent();
-                    try self.emit("_ = ");
-                    try self.genExpr(assign.value.*);
-                    try self.emit(";\n");
-                    continue;
-                }
-            }
+            // Module-level variable shadowing:
+            // With Pass 2.5 enabled, method-local vars get unique names (e.g., __v_method_d_123)
+            // so they DON'T conflict with module-level vars. We can safely declare both.
+            // Without Pass 2.5, we would need to rename or skip, but Pass 2.5 handles this.
+            // No special handling needed - Pass 2.5 unique naming handles the shadowing.
 
             // Try compile-time evaluation FIRST
             // Skip comptime eval for:
@@ -1169,7 +1155,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                         // Generate const pointer assignment: const y = &x
                         // Always use const - if y is reassigned to different type, we shadow it
                         try self.emit("const ");
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                        const zig_name = self.getZigName(var_name);
+                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name);
                         try self.emit(" = &");
                         try self.genExpr(assign.value.*);
                         try self.emit(";\n");
@@ -1207,7 +1194,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.type_alias_targets.put(try self.allocator.dupe(u8, var_name), try self.allocator.dupe(u8, attr_name));
                             // Emit: const R = type (let Zig infer, no PyValue wrapping)
                             try self.emit("const ");
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            const zig_name_alias = self.getZigName(var_name);
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_alias);
                             try self.emit(" = ");
                             try self.genExpr(assign.value.*);
                             try self.emit(";\n");
@@ -1412,7 +1400,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                             try self.arraylist_aliases.put(var_name_copy, rhs_name_copy);
 
                             // Generate pointer reassignment: y = &x
-                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                            const zig_name_ptr = self.getZigName(var_name);
+                            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_ptr);
                             try self.emit(" = &");
                             try self.genExpr(assign.value.*);
                             try self.emit(";\n");

@@ -1561,6 +1561,21 @@ fn genMethodBodyWithAllocatorInfoAndContext(
         saved_var_renames.deinit(self.allocator);
     }
 
+    // Enter variable resolution scope for this method (Pass 2.5)
+    // Use enterChildScopeOnly to avoid global lookup collisions with methods
+    // of the same name in unrelated classes (e.g., __add__ in multiple classes)
+    // For inherited methods, the scope won't exist under child class - that's OK,
+    // we'll stay in the parent class scope context
+    const entered_scope = self.enterChildScopeOnly(method.name);
+    defer if (entered_scope) self.exitScope();
+
+    // Track if we're in an "unscoped method" context (inherited method where scope doesn't exist)
+    // When true, getZigName/getZigNameSearchingUp skip Pass 2.5 lookups to avoid finding
+    // variables from wrong sibling scopes in the base class
+    const was_in_unscoped_method = self.in_unscoped_method;
+    self.in_unscoped_method = !entered_scope;
+    defer self.in_unscoped_method = was_in_unscoped_method;
+
     self.hoisted_vars.clearRetainingCapacity();
     self.hoisted_dynamic_closures.clearRetainingCapacity();
     self.nested_class_instances.clearRetainingCapacity();

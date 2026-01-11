@@ -1098,10 +1098,14 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
         // Check if this hoisted var would shadow a module-level pre-declared global
         // If so, rename the local to avoid Zig's shadowing error
         // Use NameGen for consistent unique naming across the codebase
-        var actual_name = escaped.name;
+        // Pass 2.5: Use pre-computed unique name if available
+        var actual_name = self.getZigName(escaped.name);
         // Check both module_level_vars AND module_level_from_imports
         // module_level_from_imports contains "from X import Y" symbols like dtype, equal, transpose
-        if (self.module_level_vars.contains(escaped.name) or self.module_level_from_imports.contains(escaped.name)) {
+        // Only apply legacy renaming if Pass 2.5 didn't provide a unique name
+        if (std.mem.eql(u8, actual_name, escaped.name) and
+            (self.module_level_vars.contains(escaped.name) or self.module_level_from_imports.contains(escaped.name)))
+        {
             const shadow_name = try self.name_gen.hoisted(escaped.name);
             try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), shadow_name);
             actual_name = shadow_name;
@@ -1131,7 +1135,10 @@ pub fn emitHoistedDeclarationsWithSpecialParams(
             std.mem.eql(u8, actual_name, fn_name)
         else
             false;
-        if (shadows_current_function or shadows_class_method or zig_keywords.wouldShadowMethod(actual_name) or zig_keywords.wouldShadowModule(actual_name)) {
+        // Only apply legacy shadowing rename if Pass 2.5 didn't provide a unique name
+        if (std.mem.eql(u8, actual_name, escaped.name) and
+            (shadows_current_function or shadows_class_method or zig_keywords.wouldShadowMethod(actual_name) or zig_keywords.wouldShadowModule(actual_name)))
+        {
             const renamed = try std.fmt.allocPrint(self.arena.allocator(), "{s}_", .{actual_name});
             if (!self.var_renames.contains(escaped.name)) {
                 try self.var_renames.put(try self.arena.allocator().dupe(u8, escaped.name), renamed);

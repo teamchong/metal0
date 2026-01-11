@@ -32,7 +32,16 @@ pub fn genExprWithSubs(
             } else if (self.var_renames.get(n.id)) |renamed| {
                 try self.emit(renamed);
             } else {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), n.id);
+                // For module-level vars, use module scope lookup; otherwise current scope
+                var zig_name = self.getZigName(n.id);
+                if (self.module_level_vars.contains(n.id)) {
+                    if (self.var_resolution) |resolution| {
+                        if (resolution.getZigNameAtModuleScope(n.id)) |module_name| {
+                            zig_name = module_name;
+                        }
+                    }
+                }
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), zig_name);
             }
         },
         .binop => |b| {

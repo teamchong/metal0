@@ -564,7 +564,8 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                         const nested_is_hoisted = self.varResolutionIsHoisted(nested_var_name);
 
                         if (nested_is_hoisted) {
-                            try self.emitVarName(nested_var_name);
+                            // Use getZigNameSearchingUp() since hoisted vars are in parent scope
+                            try self.emitVarName(self.getZigNameSearchingUp(nested_var_name));
                         } else {
                             // Check for shadowing
                             const shadows_outer = self.isDeclared(nested_var_name) or
@@ -588,9 +589,12 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                         // Emit discard to prevent unused variable errors
                         try self.emitIndent();
                         try self.emit("_ = &");
-                        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
-                        const actual_nested_name = self.getZigName(nested_var_name);
-                        try self.emitIdent(actual_nested_name);
+                        // For hoisted vars, search up since they're declared in parent scope
+                        const discard_name = if (nested_is_hoisted)
+                            self.getZigNameSearchingUp(nested_var_name)
+                        else
+                            self.getZigName(nested_var_name);
+                        try self.emitIdent(discard_name);
                         try self.emit(";\n");
 
                         if (!nested_is_hoisted) try self.declareVar(nested_var_name);
@@ -618,8 +622,10 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
             var emit_name: []const u8 = var_name;
 
             if (is_hoisted) {
-                // Already declared at function level - just assign using original name
-                try self.emitVarName(var_name);
+                // Already declared at function level - use Pass 2.5 name from parent scope
+                const hoisted_name = self.getZigNameSearchingUp(var_name);
+                try self.emitVarName(hoisted_name);
+                emit_name = hoisted_name;
             } else {
                 // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
                 const shadows_outer_scope = self.isDeclared(var_name) or
@@ -899,9 +905,10 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Skip for callable tuples - function types must be const in Zig
         // Note: isDeclared checks hoisted_vars too
         if (!is_type_tuple and !is_heterogeneous_tuple and !has_callable_elements and !self.isDeclared(var_name)) {
+            const zig_name_predecl = self.getZigName(var_name);
             try self.emitIndent();
             try self.emit("var ");
-            try self.emitVarName(var_name);
+            try self.emitVarName(zig_name_predecl);
             // Determine loop variable type - use concrete type to avoid comptime_int issues
             // For tuples of all ints, use i64. For booleans, use bool. For strings, use []const u8.
             // String literals have length-encoded types (e.g., *const [0:0]u8, *const [1:0]u8)
@@ -1116,25 +1123,27 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                 // Types must be comptime, heterogeneous values can't share a single type,
                 // and function types must be const in Zig
                 // For heterogeneous tuples (not type or callable), wrap in PyValue for type consistency
+                const zig_name_inner = self.getZigName(var_name);
                 if (is_heterogeneous_inner and !is_type_tuple_inner and !has_callable_elements) {
                     try self.emit("const ");
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_inner);
                     try self.output.writer(self.allocator).print(": runtime.PyValue = runtime.PyValue.from(__m{d}_loop_val);\n", .{loop_var_id});
                     try self.heterogeneous_loop_vars.put(var_name, {});
                     // Add discard to prevent "unused local constant" error
                     try self.emitIndent();
                     try self.emit("_ = &");
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_inner);
                     try self.emit(";\n");
                 } else {
                     try self.emit("const ");
-                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_inner);
                     try self.output.writer(self.allocator).print(" = __m{d}_loop_val;\n", .{loop_var_id});
                 }
             }
         } else {
             // For homogeneous value tuples: T = __loop_val_N (runtime assignment to outer var)
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            const zig_name_outer = self.getZigName(var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_outer);
             // If variable is hoisted as PyValue, need to wrap the loop value
             if (self.pyvalue_hoisted_vars.contains(var_name)) {
                 try self.output.writer(self.allocator).print(" = runtime.PyValue.from(__m{d}_loop_val);\n", .{loop_var_id});
@@ -1297,7 +1306,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // If we renamed the capture, assign to the hoisted variable
         if (shadows_hoisted and tuple_var_used) {
             try self.emitIndent();
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            const zig_name_hoisted = self.getZigName(var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_hoisted);
             try self.emit(" = ");
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), capture_name);
             try self.emit(";\n");
@@ -1332,7 +1342,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         if (!tuple_var_used) {
             try self.emit("_");
         } else {
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            const zig_name_file = self.getZigName(var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_file);
         }
         try self.emit("| {\n");
 
@@ -1352,7 +1363,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // (e.g., line.strip() -> runtime.eval("line.strip()") doesn't reference Zig's line variable)
             try self.emitIndent();
             try self.emit("_ = &");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            const zig_name_discard = self.getZigName(var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_discard);
             try self.emit(";\n");
         }
 
@@ -1406,17 +1418,18 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Check if variable is already declared (isDeclared checks hoisted_vars too)
         const already_declared = self.isDeclared(var_name);
         try self.emitIndent();
+        const zig_name_str = self.getZigName(var_name);
         if (!tuple_var_used) {
             try self.emit("_ = ");
             try self.output.writer(self.allocator).print("__str_{d}[__i_{d}..][0..1];\n", .{ label_id, label_id });
         } else if (already_declared) {
             // Variable already hoisted/declared - assign without const to avoid shadowing
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_str);
             try self.emit(" = runtime.PyValue.from(");
             try self.output.writer(self.allocator).print("__str_{d}[__i_{d}..][0..1]);\n", .{ label_id, label_id });
         } else {
             try self.emit("const ");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_str);
             try self.output.writer(self.allocator).print(" = __str_{d}[__i_{d}..][0..1];\n", .{ label_id, label_id });
         }
 
@@ -1485,6 +1498,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         const unique_capture_id_pyval = em_pyval.peekLabelId();
         if (shadows_outer_pyval) _ = em_pyval.reserveLabelId();
 
+        const zig_name_pyval = self.getZigName(var_name);
         try self.emitIndent();
         try self.output.writer(self.allocator).print("for (__pyval_items_{d}) |", .{label_id});
         if (!tuple_var_used) {
@@ -1493,7 +1507,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Use unique capture name to avoid shadowing
             try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ var_name, unique_capture_id_pyval });
         } else {
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_pyval);
         }
         try self.emit("| {\n");
 
@@ -1503,7 +1517,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // If we used a unique capture name, assign to outer variable (Python semantics)
         if (tuple_var_used and shadows_outer_pyval) {
             try self.emitIndent();
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_pyval);
             try self.output.writer(self.allocator).print(" = __loop_{s}_{d}__;\n", .{ var_name, unique_capture_id_pyval });
         }
 
@@ -1728,8 +1742,9 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Check if variable is hoisted (used after loop) - use assignment not const
             // Hoisted vars are already declared in outer scope, so don't rename them
             if (self.varResolutionIsHoisted(var_name)) {
-                // Use original var name (already declared in outer scope)
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+                // Use Pass 2.5 name (already declared in outer scope)
+                const zig_name_hoisted_loop = self.getZigName(var_name);
+                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_hoisted_loop);
                 try self.output.writer(self.allocator).print(" = " ++ get_item_expr ++ ";\n", .{ label_id, label_id, label_id });
             } else {
                 // Not hoisted - check if loop variable shadows a module-level function, imported module, or outer scope variable
@@ -1922,6 +1937,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     const unique_capture_id = em_capture.peekLabelId();
     if (shadows_outer) _ = em_capture.reserveLabelId();
 
+    const zig_name_iter = self.getZigName(var_name);
     try self.emit(") |");
     if (!var_used) {
         // Use bare _ for unused capture (Zig requires this)
@@ -1930,7 +1946,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         // Use unique capture name to avoid shadowing
         try self.output.writer(self.allocator).print("__loop_{s}_{d}__", .{ var_name, unique_capture_id });
     } else {
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_iter);
     }
     try self.emit("| {\n");
 
@@ -1943,7 +1959,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // This implements Python semantics where `for x in ...` reassigns x from outer scope
     if (var_used and shadows_outer) {
         try self.emitIndent();
-        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_iter);
 
         // Check if target variable is typed as BigInt - need to convert loop capture
         // This handles cases like: for n in [324, 2**100] where n is BigInt but loop yields i64
@@ -1979,7 +1995,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         if (is_captured) {
             try self.emitIndent();
             try self.emit("_ = ");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            const zig_name_cap = self.getZigName(var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_cap);
             try self.emit(";\n");
         }
     }
@@ -2082,7 +2099,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
             // Emit discard
             try self.emitIndent();
             try self.emit("_ = ");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            const zig_name_unused = self.getZigName(var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_unused);
             try self.emit(";\n");
             // Re-append body
             try self.output.appendSlice(self.allocator, body_code_copy);
@@ -2199,11 +2217,12 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     if ((is_hoisted or is_declared) and !shadows_outer) {
         // Check if there's a TryHelper pointer rename (e.g., p_k_0.* for variable k inside TryHelper)
         // This handles for-loop targets that are hoisted outside the try block and passed as pointer params
+        // Otherwise, use getZigName() for Pass 2.5 unique naming
         const actual_var_name = if (self.var_renames.get(var_name)) |rename|
             // Use the rename if it's a TryHelper pointer dereference (p_*_N.*)
-            if (std.mem.startsWith(u8, rename, "p_") and std.mem.endsWith(u8, rename, ".*")) rename else loop_var_name
+            if (std.mem.startsWith(u8, rename, "p_") and std.mem.endsWith(u8, rename, ".*")) rename else self.getZigName(var_name)
         else
-            loop_var_name;
+            self.getZigName(var_name);
 
         // Variable already exists with same name - assign with cast to match the existing type
         try self.emit(actual_var_name);
@@ -2218,8 +2237,10 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         try self.emit("));\n");
     } else {
         // Declare new variable (either first use, or renamed to avoid shadowing)
+        // Use getZigName() for Pass 2.5 unique naming (returns var_renames entry if shadowing)
+        const zig_loop_name = self.getZigName(var_name);
         try self.emit("var ");
-        try self.emit(loop_var_name);
+        try self.emit(zig_loop_name);
         try self.emit(": ");
         try self.emit(loop_type);
         try self.emit(" = ");
@@ -2266,9 +2287,11 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
         break :blk false;
     };
 
+    // Use getZigName() for Pass 2.5 unique naming (returns var_renames entry if shadowing)
+    const zig_cond_name = self.getZigName(var_name);
     try self.emitIndent();
     try self.emit("while (");
-    try self.emit(loop_var_name);
+    try self.emit(zig_cond_name);
     try self.emit(" < ");
     if (stop_is_pyvalue) {
         // Extract integer from PyValue for loop comparison
@@ -2291,6 +2314,7 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // This implements Python semantics where `for x in range(3): ...` leaves x as the last value assigned
     if (shadows_outer) {
         try self.emitIndent();
+        const zig_name_shadow = self.getZigName(var_name);
         // Use saved TryHelper pointer rename if available (e.g., p_k_0.* for variable k inside TryHelper)
         if (try_helper_rename) |rename| {
             try self.emit(rename);
@@ -2300,9 +2324,9 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
             try self.emit(loop_var_name);
             try self.emit("));\n");
         } else {
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_shadow);
             try self.emit(" = @as(@TypeOf(");
-            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_shadow);
             try self.emit("), @intCast(");
             try self.emit(loop_var_name);
             try self.emit("));\n");
@@ -2395,9 +2419,10 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     //           error.StopAsyncIteration => break,
     //           else => return err,
     //       };
+    const zig_name_async = self.getZigName(var_name);
     try self.emitIndent();
     try self.emit("const ");
-    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_async);
     try self.output.writer(self.allocator).print(" = __aiter_{d}.__anext__() catch |err| switch (err) {{\n", .{loop_id});
     self.indent();
 
@@ -2414,7 +2439,7 @@ fn genAsyncFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
     // Add discard to prevent "unused local constant" error if loop var is unused
     try self.emitIndent();
     try self.emit("_ = ");
-    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), var_name);
+    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_name_async);
     try self.emit(";\n");
 
     // Declare the variable for type inference

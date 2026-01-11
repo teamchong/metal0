@@ -665,6 +665,11 @@ pub const NativeCodegen = struct {
     // Named differently from `current_scope_id` (usize) which is for mutation tracking
     var_resolution_scope: ScopeId,
 
+    // Track if we're in an "unscoped method" context (inherited method where
+    // enterChildScopeOnly returned false). When true, we skip Pass 2.5 lookups
+    // to avoid finding variables from wrong sibling scopes.
+    in_unscoped_method: bool,
+
     // Track if we're inside a 'with self.assertRaises' context
     // When true, error-producing operations should use catch instead of try
     in_assert_raises_context: bool,
@@ -1197,6 +1202,7 @@ pub const NativeCodegen = struct {
             .pass_analysis_result = null,
             .var_resolution = null,
             .var_resolution_scope = ScopeId.MODULE,
+            .in_unscoped_method = false,
             .in_assert_raises_context = false,
             .assert_raises_block_id = 0,
             .current_assert_raises_block_id = 0,
@@ -1732,18 +1738,99 @@ pub const NativeCodegen = struct {
     /// - Phase 3 of the plan needs to update ALL declarations to use getZigName()
     /// - Until then, we fall back to var_renames for consistency
     pub fn getZigName(self: *NativeCodegen, python_name: []const u8) []const u8 {
-        // NOTE: Pass 2.5 tracks variables from Python source, but codegen creates
-        // additional renames (TryHelper copies, closure captures, generator vars).
-        // Full integration requires Pass 2.5 to pre-compute these patterns too.
-        // TODO: Re-enable Pass 2.5 lookup after codegen-generated renames are migrated
-        // if (self.var_resolution) |resolution| {
-        //     if (resolution.getZigName(self.var_resolution_scope, python_name)) |zig_name| {
-        //         return zig_name;
-        //     }
-        // }
-        _ = self.var_resolution; // Silence unused warning
-        // Fallback: use existing var_renames or the original name
-        return self.var_renames.get(python_name) orelse python_name;
+        // Debug comparison (when enabled)
+        self.debugCompareVarResolution(python_name);
+
+        // Priority 1: Check var_renames first - these are runtime overrides
+        // (TryHelper, closure captures, parameter copies, etc.)
+        if (self.var_renames.get(python_name)) |renamed| {
+            return renamed;
+        }
+
+        // Priority 2: Use Pass 2.5 unique names if available
+        // Skip parameters - they're declared in function signatures with original names
+        // Skip when in_unscoped_method - inherited methods don't have their own Pass 2.5 scope,
+        // and searching up could find wrong variables from sibling methods in the base class
+        if (!self.in_unscoped_method) {
+            if (self.var_resolution) |resolution| {
+                // Don't rename parameters - they use original names in function signatures
+                if (!resolution.isParameter(self.var_resolution_scope, python_name)) {
+                    if (resolution.getZigName(self.var_resolution_scope, python_name)) |zig_name| {
+                        return zig_name;
+                    }
+                }
+            }
+        }
+
+        // Fallback: use original name (for builtins, globals, parameters, etc.)
+        return python_name;
+    }
+
+    /// Get the Zig name for a variable DECLARATION
+    /// Uses Pass 2.5 unique names to ensure declarations match references
+    /// This is used when emitting "const x = ..." or "var x = ..." statements
+    pub fn getDeclZigName(self: *NativeCodegen, python_name: []const u8) []const u8 {
+        // Skip when in_unscoped_method - inherited methods don't have their own Pass 2.5 scope
+        if (self.in_unscoped_method) {
+            return python_name;
+        }
+        // Use Pass 2.5 unique name if available
+        if (self.var_resolution) |resolution| {
+            if (resolution.getZigName(self.var_resolution_scope, python_name)) |zig_name| {
+                return zig_name;
+            }
+        }
+        // Fallback: use original name (for builtins, globals, module-level)
+        return python_name;
+    }
+
+    /// Get the Zig name for a CLASS (always declared at module scope)
+    /// Class names are declared at module level, so lookup must use module scope
+    /// regardless of current scope (e.g., from within a method)
+    pub fn getClassZigName(self: *NativeCodegen, class_name: []const u8) []const u8 {
+        // Use Pass 2.5 module-scope lookup for class names
+        if (self.var_resolution) |resolution| {
+            if (resolution.getZigNameAtModuleScope(class_name)) |zig_name| {
+                return zig_name;
+            }
+        }
+        // Fallback: use original name
+        return class_name;
+    }
+
+    /// Look up a variable in a method scope (child of current scope)
+    /// Used for method-local classes when generating method signatures at class scope
+    pub fn getZigNameInMethodScope(self: *NativeCodegen, method_name: []const u8, python_name: []const u8) []const u8 {
+        if (self.var_resolution) |resolution| {
+            if (resolution.getZigNameInChildScope(self.var_resolution_scope, method_name, python_name)) |zig_name| {
+                return zig_name;
+            }
+        }
+        // Fallback: use original name
+        return python_name;
+    }
+
+    /// Look up a variable by searching up through ancestor scopes from current scope
+    /// Used for method return types that reference classes defined at ancestor level
+    pub fn getZigNameSearchingUp(self: *NativeCodegen, python_name: []const u8) []const u8 {
+        // Priority 1: Check var_renames first - these are runtime overrides
+        if (self.var_renames.get(python_name)) |renamed| {
+            return renamed;
+        }
+        // Priority 2: Use Pass 2.5 search if available
+        // Skip when in_unscoped_method - inherited methods don't have their own Pass 2.5 scope
+        if (!self.in_unscoped_method) {
+            if (self.var_resolution) |resolution| {
+                // Don't rename parameters - they use original names in function signatures
+                if (!resolution.isParameter(self.var_resolution_scope, python_name)) {
+                    if (resolution.getZigNameSearchingUp(self.var_resolution_scope, python_name)) |zig_name| {
+                        return zig_name;
+                    }
+                }
+            }
+        }
+        // Fallback: use original name
+        return python_name;
     }
 
     /// Debug: Compare var_renames.get() with Pass 2.5 getZigName()
@@ -1756,17 +1843,27 @@ pub const NativeCodegen = struct {
 
         const var_renames_result = self.var_renames.get(python_name);
         var pass25_result: ?[]const u8 = null;
+        var scope_name: []const u8 = "(unknown)";
+        var is_captured = false;
         if (self.var_resolution) |resolution| {
             pass25_result = resolution.getZigName(self.var_resolution_scope, python_name);
+            is_captured = resolution.isCaptured(self.var_resolution_scope, python_name);
+            if (resolution.getScope(self.var_resolution_scope)) |scope| {
+                scope_name = scope.scope_name;
+            }
         }
 
-        // Log all lookups for debugging
-        std.debug.print("[VAR_RES] Lookup '{s}': var_renames={s}, pass25={s} (scope {})\n", .{
-            python_name,
-            if (var_renames_result) |r| r else "(null)",
-            if (pass25_result) |r| r else "(null)",
-            self.var_resolution_scope.id,
-        });
+        // Only log when there are differences or captures
+        if (var_renames_result != null or pass25_result != null or is_captured) {
+            std.debug.print("[VAR_RES] Lookup '{s}' in '{s}' (scope {}): var_renames={s}, pass25={s}, captured={}\n", .{
+                python_name,
+                scope_name,
+                self.var_resolution_scope.id,
+                if (var_renames_result) |r| r else "(null)",
+                if (pass25_result) |r| r else "(null)",
+                is_captured,
+            });
+        }
     }
 
     /// Check if a variable is declared in the current scope (not captured)
@@ -1788,21 +1885,56 @@ pub const NativeCodegen = struct {
     }
 
     /// Check if a variable needs hoisting (from variable resolution)
+    /// Checks both Pass 2.5 and the fallback hoisted_vars hashmap
     pub fn varResolutionIsHoisted(self: *NativeCodegen, python_name: []const u8) bool {
+        // First check Pass 2.5 if available
         if (self.var_resolution) |resolution| {
-            return resolution.isHoisted(self.var_resolution_scope, python_name);
+            if (resolution.isHoisted(self.var_resolution_scope, python_name)) {
+                return true;
+            }
         }
+        // Fallback: always check hoisted_vars since Pass 2.5 might not track all hoisting cases
+        // (e.g., for loop tuple unpacking where inner variable reuses outer declaration)
         return self.hoisted_vars.contains(python_name);
     }
 
     /// Enter a new scope by name (for function/class entry)
     /// Updates var_resolution_scope to the named scope
+    /// First tries to find a child scope of current scope, falls back to global lookup
+    const DEBUG_SCOPE = false; // Set to true to debug scope tracking
     pub fn enterScope(self: *NativeCodegen, scope_name: []const u8) void {
         if (self.var_resolution) |resolution| {
-            if (resolution.getScopeByName(scope_name)) |scope_id| {
+            const current_name = if (resolution.getScope(self.var_resolution_scope)) |s| s.scope_name else "(unknown)";
+            // First try to find as child of current scope (handles methods with same name in different classes)
+            if (resolution.getChildScope(self.var_resolution_scope, scope_name)) |scope_id| {
+                if (DEBUG_SCOPE) std.debug.print("[SCOPE] Enter child '{s}' from '{s}'\n", .{ scope_name, current_name });
                 self.var_resolution_scope = scope_id;
+                return;
+            }
+            // Fallback to global lookup (for top-level functions/classes)
+            if (resolution.getScopeByName(scope_name)) |scope_id| {
+                if (DEBUG_SCOPE) std.debug.print("[SCOPE] Enter global '{s}' from '{s}'\n", .{ scope_name, current_name });
+                self.var_resolution_scope = scope_id;
+            } else {
+                if (DEBUG_SCOPE) std.debug.print("[SCOPE] FAILED to find '{s}' from '{s}'\n", .{ scope_name, current_name });
             }
         }
+    }
+
+    /// Enter a child scope by name (strict - no global fallback)
+    /// Used for method body generation where we only want child scopes
+    /// Returns true if scope was found and entered, false otherwise
+    pub fn enterChildScopeOnly(self: *NativeCodegen, scope_name: []const u8) bool {
+        if (self.var_resolution) |resolution| {
+            const current_name = if (resolution.getScope(self.var_resolution_scope)) |s| s.scope_name else "(unknown)";
+            if (resolution.getChildScope(self.var_resolution_scope, scope_name)) |scope_id| {
+                if (DEBUG_SCOPE) std.debug.print("[SCOPE] Enter child-only '{s}' from '{s}'\n", .{ scope_name, current_name });
+                self.var_resolution_scope = scope_id;
+                return true;
+            }
+            if (DEBUG_SCOPE) std.debug.print("[SCOPE] No child '{s}' under '{s}'\n", .{ scope_name, current_name });
+        }
+        return false;
     }
 
     /// Exit current scope, returning to parent scope
@@ -1810,6 +1942,10 @@ pub const NativeCodegen = struct {
         if (self.var_resolution) |resolution| {
             if (resolution.getScope(self.var_resolution_scope)) |scope| {
                 if (scope.parent_scope) |parent| {
+                    if (DEBUG_SCOPE) {
+                        const parent_name = if (resolution.getScope(parent)) |p| p.scope_name else "(unknown)";
+                        std.debug.print("[SCOPE] Exit '{s}' -> '{s}'\n", .{ scope.scope_name, parent_name });
+                    }
                     self.var_resolution_scope = parent;
                 }
             }
@@ -2679,11 +2815,11 @@ pub const NativeCodegen = struct {
                         // Parameter renames with _param suffix (e.g., stop -> stop_param) for default params
                         if (std.mem.endsWith(u8, renamed, "_param")) break :blk renamed;
                     }
-                    // Local vars/params take precedence - don't rename them
-                    if (self.func_local_vars.contains(orig_name)) break :blk orig_name;
-                    // Apply other renames
-                    if (self.var_renames.get(orig_name)) |renamed| break :blk renamed;
-                    break :blk orig_name;
+                    // Use getZigName() to get Pass 2.5 name (which provides unique naming)
+                    // This matches the logic in expressions.zig genName
+                    if (self.func_local_vars.contains(orig_name)) break :blk self.getZigName(orig_name);
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    break :blk self.getZigName(orig_name);
                 };
 
                 // Handle nested class self-reference: when inside a class and referencing that class by name

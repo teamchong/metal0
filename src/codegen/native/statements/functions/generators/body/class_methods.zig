@@ -2574,9 +2574,8 @@ pub fn genClassMethods(
     self.current_class_name = class.name;
     defer self.current_class_name = prev_class_name;
 
-    // Enter variable resolution scope for this class (Pass 2.5)
-    self.enterScope(class.name);
-    defer self.exitScope();
+    // NOTE: Class scope already entered by genClassDef - don't enter again here
+    // genClassDef calls enterScope(class.name) before calling genClassMethods
 
     // Set current class's captured variables for expression generation
     // This allows the expression generator to convert `var_name` to `self.__captured_var_name.*`
