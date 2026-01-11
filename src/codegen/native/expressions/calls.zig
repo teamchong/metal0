@@ -1143,10 +1143,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Also check nested_class_aliases for class-body-level nested classes (e.g., Inner -> Outer__Inner)
         // For module-level classes (in class registry), use getClassZigName which always looks up
         // at module scope, even when in_unscoped_method is true (inherited methods)
+        // For nested classes not in registry/aliases, use getZigNameSearchingUp to find
+        // sibling classes defined in parent scopes (e.g., Descriptor inside class A, both nested in method)
         const is_module_class = self.class_registry.getClass(raw_func_name) != null;
         const func_name = self.nested_class_aliases.get(raw_func_name) orelse
             self.hoisted_local_classes.get(raw_func_name) orelse
-            if (is_module_class) self.getClassZigName(raw_func_name) else self.getZigName(raw_func_name);
+            if (is_module_class) self.getClassZigName(raw_func_name) else self.getZigNameSearchingUp(raw_func_name);
 
         // Check if this is a simple lambda (inline struct with .call method)
         if (self.lambda_vars.contains(raw_func_name)) {
@@ -2043,10 +2045,10 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
                 } else {
                     // For nested class constructors, use Pass 2.5 name lookup
                     // to get the correct Zig name (e.g., aug_test -> __v_testCustomMethods1_aug_test_18)
-                    // Use getZigName (current scope) not getZigNameSearchingUp, because nested classes
-                    // should be defined in the current scope - searching up can find wrong class from sibling method
+                    // Use getZigNameSearchingUp to find sibling classes in parent scopes
+                    // (e.g., Descriptor() inside class A, where both are defined in method test_set_name)
                     const zig_class_name = if (in_nested_names)
-                        self.getZigName(raw_func_name)
+                        self.getZigNameSearchingUp(raw_func_name)
                     else
                         func_name;
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), zig_class_name);
