@@ -1141,9 +1141,12 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Check if variable has been renamed (for try/except captured variables)
         // Also check hoisted_local_classes for locally-defined classes that were hoisted
         // Also check nested_class_aliases for class-body-level nested classes (e.g., Inner -> Outer__Inner)
+        // For module-level classes (in class registry), use getClassZigName which always looks up
+        // at module scope, even when in_unscoped_method is true (inherited methods)
+        const is_module_class = self.class_registry.getClass(raw_func_name) != null;
         const func_name = self.nested_class_aliases.get(raw_func_name) orelse
             self.hoisted_local_classes.get(raw_func_name) orelse
-            self.getZigName(raw_func_name);
+            if (is_module_class) self.getClassZigName(raw_func_name) else self.getZigName(raw_func_name);
 
         // Check if this is a simple lambda (inline struct with .call method)
         if (self.lambda_vars.contains(raw_func_name)) {

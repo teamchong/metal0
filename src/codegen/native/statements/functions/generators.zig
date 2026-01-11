@@ -896,7 +896,13 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     // inside a function and there's a module-level class with the same name, rename local.
     //
     // Pass 2.5: Use pre-computed unique name from variable resolution if available
-    var effective_class_name: []const u8 = self.getZigName(class.name);
+    // For module-level classes (current_function_name == null), use getClassZigName which
+    // always looks up at module scope, even when in_unscoped_method is true
+    const at_module_level = self.current_function_name == null;
+    var effective_class_name: []const u8 = if (at_module_level)
+        self.getClassZigName(class.name)
+    else
+        self.getZigName(class.name);
     const shadows_module_class = self.current_function_name != null and self.class_registry.getClass(class.name) != null;
     const is_declared = self.isDeclared(class.name);
     // Check if this Zig name has already been emitted (handles Python class redefinition)

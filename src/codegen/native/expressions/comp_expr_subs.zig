@@ -280,8 +280,11 @@ fn genSimpleCallWithSubs(
         }
         try self.emit(")");
     } else {
-        // Simple local function - generate with substituted arguments
-        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), func_name);
+        // Simple local function or class constructor - generate with substituted arguments
+        // Use Pass 2.5 names: getClassZigName for module-level classes, getZigName for nested classes
+        const is_module_class = self.class_registry.getClass(func_name) != null;
+        const zig_name = if (is_module_class) self.getClassZigName(func_name) else self.getZigName(func_name);
+        try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), zig_name);
         try self.emit("(__global_allocator, ");
         var first = true;
         for (c.args) |arg| {
