@@ -1239,8 +1239,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                 // Note: Do NOT check func_local_vars - it contains variables that WILL be declared anywhere
                 // in the function, including inside this try block. We only care about variables that
                 // already EXIST before the try block.
+                // Note: isDeclared checks hoisted_vars too, so no need to check separately
                 const exists_in_outer = self.isDeclared(name) or
-                    self.hoisted_vars.contains(name) or
                     self.forward_declared_vars.contains(name) or
                     self.var_renames.contains(name);
 
@@ -1270,7 +1270,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
                         try declared_var_set.put(name, {});
                     }
                 }
-            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.hoisted_vars.contains(name) or self.forward_declared_vars.contains(name) or std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) {
+            } else if (self.isDeclared(name) or self.semantic_info.lifetimes.contains(name) or self.type_inferrer.var_types.contains(name) or self.type_inferrer.getScopedVar(name) != null or self.nested_class_names.contains(name) or self.forward_declared_vars.contains(name) or std.mem.eql(u8, name, "self") or std.mem.eql(u8, name, "__self")) {
+                // Note: isDeclared checks hoisted_vars, so no separate check needed
                 // Variable is only read and we can verify it exists - capture as read-only
                 // Note: nested_class_names tracks classes defined inside methods (like for-loop bodies)
                 // Note: hoisted_vars tracks variables that were hoisted for scope escaping
