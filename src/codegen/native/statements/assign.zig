@@ -963,7 +963,7 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Hoisted variables should skip declaration (already declared before try block)
             // Forward-declared variables (captured by nested classes before assignment) also skip
             // Global variables should also skip declaration (they're declared in outer scope)
-            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const is_hoisted = self.varResolutionIsHoisted(var_name);
             // Check both original and renamed names for forward-declared vars
             // (forward_declared_vars may contain renamed version like "__local_set2" for "set2")
             const renamed_var = self.var_renames.get(var_name);

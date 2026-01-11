@@ -785,7 +785,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             if (target.* == .name) {
                 const var_name = target.name.id;
                 // Check if variable was hoisted or already declared (for multiple assertRaises in same scope)
-                const is_hoisted = self.hoisted_vars.contains(var_name);
+                const is_hoisted = self.varResolutionIsHoisted(var_name);
                 const is_declared = self.isDeclared(var_name);
                 const needs_decl = !is_hoisted and !is_declared;
 
@@ -829,7 +829,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                     const cm_expr = named.value.*;
 
                     // Check if variable was hoisted or already declared
-                    const is_hoisted = self.hoisted_vars.contains(var_name);
+                    const is_hoisted = self.varResolutionIsHoisted(var_name);
                     const is_declared = self.isDeclared(var_name);
                     const needs_decl = !is_hoisted and !is_declared;
 
@@ -1119,7 +1119,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
         if (target.* == .name) {
             const var_name = target.name.id;
             const is_declared = self.isDeclared(var_name);
-            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const is_hoisted = self.varResolutionIsHoisted(var_name);
             const needs_var = !is_declared and !is_hoisted;
 
             // Set up shadow rename FIRST if inside nested function
@@ -1251,7 +1251,7 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
                 if (elt == .name) {
                     const elt_name = elt.name.id;
                     const is_declared = self.isDeclared(elt_name);
-                    const is_hoisted = self.hoisted_vars.contains(elt_name);
+                    const is_hoisted = self.varResolutionIsHoisted(elt_name);
 
                     try b.writeIndent();
                     if (!is_declared and !is_hoisted) {

@@ -159,7 +159,7 @@ pub fn genEnumerateLoop(self: *NativeCodegen, target: ast.Node, args: []ast.Node
 
     // Check if loop variable shadows an imported module or hoisted variable
     const shadows_import = self.imported_modules.contains(item_var);
-    const shadows_hoisted = self.hoisted_vars.contains(item_var);
+    const shadows_hoisted = self.varResolutionIsHoisted(item_var);
     const shadows_something = shadows_import or shadows_hoisted;
     var em = self.exprEmitter();
     const enum_unique_capture_id = em.peekLabelId();

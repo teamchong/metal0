@@ -231,7 +231,7 @@ pub fn genImportFrom(self: *NativeCodegen, import: ast.Node.ImportFrom) CodegenE
 
                 // Check if this variable was hoisted due to scope escape
                 // (e.g., import inside if/else that's used after the block)
-                const is_hoisted = self.hoisted_vars.contains(alias);
+                const is_hoisted = self.varResolutionIsHoisted(alias);
 
                 // Skip if already declared (but not hoisted) in current scope (avoids shadowing error)
                 // Check:

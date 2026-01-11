@@ -561,7 +561,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                         try self.emitFmt("_ = __nested_{d}.@\"{d}\";\n", .{ i, j });
                     } else {
                         const nested_is_reassigned = varIsReassignedInBody(body, nested_var_name);
-                        const nested_is_hoisted = self.hoisted_vars.contains(nested_var_name);
+                        const nested_is_hoisted = self.varResolutionIsHoisted(nested_var_name);
 
                         if (nested_is_hoisted) {
                             try self.emitVarName(nested_var_name);
@@ -611,7 +611,7 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
         } else {
             // Check if variable is hoisted (used after loop) - use assignment not declaration
             // Also check if reassigned later in the loop body - need `var` not `const`
-            const is_hoisted = self.hoisted_vars.contains(var_name);
+            const is_hoisted = self.varResolutionIsHoisted(var_name);
             const is_reassigned = varIsReassignedInBody(body, var_name);
 
             // Track the name used for declaration (for discard emission)
@@ -1276,7 +1276,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
         try self.emit(".keys()) |");
 
         // If capture would shadow a hoisted variable, use a unique capture name
-        const shadows_hoisted = self.hoisted_vars.contains(var_name);
+        const shadows_hoisted = self.varResolutionIsHoisted(var_name);
         const capture_name = if (shadows_hoisted)
             try std.fmt.allocPrint(self.allocator, "__cap_{s}_{d}", .{ var_name, self.output.items.len })
         else
@@ -1573,7 +1573,7 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
 
             try self.emitIndent();
             // Check if variable is hoisted - if so, use original name without redeclaration
-            const is_hoisted_vararg = self.hoisted_vars.contains(var_name);
+            const is_hoisted_vararg = self.varResolutionIsHoisted(var_name);
             const actual_name_vararg = if (is_hoisted_vararg) blk: {
                 // Hoisted vars use original name
                 break :blk var_name;
@@ -2132,7 +2132,7 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     // Check if the loop variable is hoisted (used after the loop ends at function level)
     // Also check if it's declared in current scope (might be re-used in handler body)
     // If so, we don't wrap in block scope and use assignment instead of declaration
-    const is_hoisted = self.hoisted_vars.contains(var_name);
+    const is_hoisted = self.varResolutionIsHoisted(var_name);
     const is_declared = self.isDeclared(var_name);
 
     // Don't wrap in block scope - Python for-loop variables persist after the loop
