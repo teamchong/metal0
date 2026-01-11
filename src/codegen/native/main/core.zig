@@ -4369,6 +4369,13 @@ pub const NativeCodegen = struct {
     /// Check if a variable is unused (assigned but never read)
     /// Uses passes system as single source of truth
     pub fn isVarUnused(self: *NativeCodegen, var_name: []const u8) bool {
+        // Safety check: if variable is in func_local_uses, it's definitely used
+        // This handles cases where pass analysis has incorrect data due to
+        // nested function name collisions (e.g., multiple "callback" functions)
+        if (self.func_local_uses.contains(var_name)) {
+            return false;
+        }
+
         if (self.pass_analysis_result) |result| {
             if (self.current_function_name) |func_name| {
                 // Build the proper key including class name for methods

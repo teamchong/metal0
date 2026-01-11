@@ -138,6 +138,12 @@ pub fn genZeroCaptureClosure(
     self.inside_nested_function = true;
     defer self.inside_nested_function = saved_inside_nested;
 
+    // Set current_function_name for this nested function so isVarUnused() looks up
+    // the correct function's usage data (not the outer function's)
+    const prev_func_name = self.current_function_name;
+    self.current_function_name = func.name;
+    defer self.current_function_name = prev_func_name;
+
     // Track the base scope level for this nested function
     const saved_nested_base_scope = self.nested_function_base_scope;
     self.nested_function_base_scope = self.symbol_table.currentScopeLevel();
