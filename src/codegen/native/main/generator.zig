@@ -28,6 +28,7 @@ const module_functions = @import("../dispatch/module_functions.zig");
 const ir = @import("../../ir.zig");
 const ir_gen = @import("../../passes/ir_gen.zig");
 const pass_analysis = @import("../../passes/analysis.zig");
+const variable_resolution = @import("../../passes/variable_resolution.zig");
 const emit_pass = @import("../../passes/emit.zig");
 
 // Comptime constants for code generation (zero runtime cost)
@@ -120,6 +121,24 @@ pub fn generate(self: *NativeCodegen, module: ast.Node.Module) ![]const u8 {
     }
     if (self.pass_analysis_result == null) {
         std.debug.print("generate(): Phase 1.2 - Using fallback defaults\n", .{});
+    }
+
+    // PHASE 2.5: Variable Resolution Pass
+    // Pre-compute unique Zig names for ALL variables before codegen
+    // This eliminates runtime state accumulation (var_renames, hoisted_vars, etc.)
+    std.debug.print("generate(): Phase 2.5 - Variable resolution...\n", .{});
+    const var_resolution = variable_resolution.resolveVariables(module.body, self.allocator) catch |err| blk: {
+        std.debug.print("generate(): Variable resolution failed: {any}, using fallbacks\n", .{err});
+        break :blk null;
+    };
+    if (var_resolution) |resolution| {
+        // Store pointer to resolution result - heap allocate to keep it alive
+        const resolution_ptr = try self.allocator.create(variable_resolution.VariableResolution);
+        resolution_ptr.* = resolution;
+        self.var_resolution = resolution_ptr;
+        std.debug.print("generate(): Phase 2.5 complete - variable resolution enabled\n", .{});
+    } else {
+        std.debug.print("generate(): Phase 2.5 - Using fallback variable names\n", .{});
     }
 
     // Pre-register global variables so they can be detected during method generation
@@ -2383,7 +2402,7 @@ pub fn generateStmt(self: *NativeCodegen, node: ast.Node) CodegenError!void {
             if (self.in_generator_function) {
                 try self.emitIndent();
                 // Use renamed variable if inside TryHelper (where __gen_result is passed as pointer)
-                const gen_result_name = self.var_renames.get("__gen_result") orelse "__gen_result";
+                const gen_result_name = self.getZigName("__gen_result");
                 // Inside defer blocks, 'try' is not allowed - use 'catch {}' instead
                 if (self.inside_defer) {
                     try self.emit(gen_result_name);

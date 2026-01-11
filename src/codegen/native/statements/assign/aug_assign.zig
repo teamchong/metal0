@@ -523,7 +523,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                 try self.emit(shadow_name);
                 try self.emit(" = runtime.tupleConcat(");
                 // Use current (potentially renamed) variable
-                const current_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const current_name = self.getZigName(var_name);
                 try self.emit(current_name);
                 try self.emit(", ");
                 try self.genExpr(aug.value.*);
@@ -559,7 +560,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.emit("const ");
                     try self.emit(shadow_name);
                     try self.output.writer(self.allocator).print(" = runtime.tupleMultiply({d}, ", .{n});
-                    const current_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const current_name = self.getZigName(var_name);
                     try self.emit(current_name);
                     try self.emit(");\n");
                 } else {
@@ -568,7 +570,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
                     try self.emit("const ");
                     try self.emit(shadow_name);
                     try self.emit(" = runtime.tupleRepeat(__global_allocator, ");
-                    const current_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const current_name = self.getZigName(var_name);
                     try self.emit(current_name);
                     try self.emit(", @as(usize, @intCast(");
                     try self.genExpr(aug.value.*);
@@ -862,7 +865,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         // Check if target is integer type - if so, use shadow variable for type change
         if (aug.target.* == .name and type_traits.isIntegral(target_type)) {
             const var_name = aug.target.name.id;
-            const current_name = self.var_renames.get(var_name) orelse var_name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const current_name = self.getZigName(var_name);
 
             // Generate unique shadow variable name using NameGen
             const shadow_name = try self.name_gen.shadow(var_name);
@@ -907,7 +911,8 @@ pub fn genAugAssign(self: *NativeCodegen, aug: ast.Node.AugAssign) CodegenError!
         const original_name = aug.target.name.id;
         // Check if variable was renamed (e.g., parameter "start" -> mutable copy "__m0_m_start")
         // This is critical for aug_assign on mutable copies of parameters
-        const var_name = self.var_renames.get(original_name) orelse original_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const var_name = self.getZigName(original_name);
         // Check actual inferred type (including scoped vars for parameters)
         const inferred_type = self.type_inferrer.getScopedVar(var_name) orelse
             self.type_inferrer.var_types.get(var_name);

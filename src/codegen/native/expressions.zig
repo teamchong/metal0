@@ -220,8 +220,8 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
                 if (self.func_local_vars.contains(n.id)) break :blk n.id;
-                if (self.var_renames.get(n.id)) |renamed| break :blk renamed;
-                break :blk n.id;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                break :blk self.getZigName(n.id);
             };
 
             // Check if this is a Python builtin type/constant that needs special translation

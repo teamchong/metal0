@@ -727,7 +727,8 @@ pub fn emitVarDeclaration(
         // Remove from forward_declared_vars so we don't suppress future shadowing declarations
         _ = self.forward_declared_vars.fetchSwapRemove(var_name);
         // Just emit variable name for assignment
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const actual_name = self.getZigName(var_name);
         try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
         try self.emit(" = ");
         return false; // No wrapper opened
@@ -1108,7 +1109,8 @@ pub fn genArrayListInit(self: *NativeCodegen, var_name: []const u8, list: ast.No
     for (list.elts) |elem| {
         try self.emitIndent();
         try self.emit("try ");
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const actual_name = self.getZigName(var_name);
         try self.emit(actual_name);
         try self.emit(".append(__global_allocator, ");
 

@@ -34,6 +34,11 @@ const method_categories = @import("../dispatch/method_categories.zig");
 const pass_analysis = @import("../../passes/analysis.zig");
 pub const PassAnalysisResult = pass_analysis.AnalysisResult;
 
+// Variable resolution pass (unique Zig names for all variables)
+const var_resolution = @import("../../passes/variable_resolution.zig");
+pub const VariableResolution = var_resolution.VariableResolution;
+pub const ScopeId = var_resolution.ScopeId;
+
 // MIGRATED TO ZIGBUILDER
 // NOTE: emitConst/emitFmtConst are DEPRECATED - use self.emit()/self.emitFmt() instead
 // These file-level wrappers exist only for backward compatibility during migration.
@@ -647,6 +652,16 @@ pub const NativeCodegen = struct {
     // Initialized from IR-based analysis in generate(), replaces redundant AST-based systems
     pass_analysis_result: ?*PassAnalysisResult,
 
+    // Variable resolution pass results (unique Zig names for all variables)
+    // Initialized from AST-based analysis in generate()
+    // When set, getZigName() returns unique pre-computed names instead of using var_renames
+    var_resolution: ?*VariableResolution,
+
+    // Current scope ID for variable resolution lookups
+    // Updated when entering/exiting functions, classes, etc.
+    // Named differently from `current_scope_id` (usize) which is for mutation tracking
+    var_resolution_scope: ScopeId,
+
     // Track if we're inside a 'with self.assertRaises' context
     // When true, error-producing operations should use catch instead of try
     in_assert_raises_context: bool,
@@ -1177,6 +1192,8 @@ pub const NativeCodegen = struct {
             .module_level_from_imports = FnvVoidMap.init(aa),
             .mutation_info = null,
             .pass_analysis_result = null,
+            .var_resolution = null,
+            .var_resolution_scope = ScopeId.MODULE,
             .in_assert_raises_context = false,
             .assert_raises_block_id = 0,
             .current_assert_raises_block_id = 0,
@@ -1695,6 +1712,120 @@ pub const NativeCodegen = struct {
         return &.{};
     }
 
+    // =========================================================================
+    // Variable Resolution Pass Helpers (Pass 2.5)
+    // =========================================================================
+    // These methods delegate to the pre-computed variable resolution results.
+    // Unlike var_renames which accumulates state during codegen, these are READONLY.
+
+    /// Get the unique Zig name for a Python variable in the current scope
+    /// This is the PRIMARY method for variable name resolution.
+    /// Falls back to the Python name if variable resolution is not available.
+    ///
+    /// NOTE: Pass 2.5 unique name lookup is currently disabled because:
+    /// - Pass 2.5 generates unique names like __v_outer_x_0
+    /// - But variable DECLARATIONS don't use getZigName() yet
+    /// - This creates mismatches (usage uses unique name, declaration uses original)
+    /// - Phase 3 of the plan needs to update ALL declarations to use getZigName()
+    /// - Until then, we fall back to var_renames for consistency
+    pub fn getZigName(self: *NativeCodegen, python_name: []const u8) []const u8 {
+        // TODO: Re-enable Pass 2.5 lookup after declarations are migrated
+        // if (self.var_resolution) |resolution| {
+        //     if (resolution.getZigName(self.var_resolution_scope, python_name)) |zig_name| {
+        //         return zig_name;
+        //     }
+        // }
+        _ = self.var_resolution; // Silence unused warning
+        // Fallback: use existing var_renames or the original name
+        return self.var_renames.get(python_name) orelse python_name;
+    }
+
+    /// Debug: Compare var_renames.get() with Pass 2.5 getZigName()
+    /// Logs when they produce different results (helps identify migration gaps)
+    /// Set DEBUG_VAR_RESOLUTION = true to enable logging
+    const DEBUG_VAR_RESOLUTION = false;
+
+    pub fn debugCompareVarResolution(self: *NativeCodegen, python_name: []const u8) void {
+        if (!DEBUG_VAR_RESOLUTION) return;
+
+        const var_renames_result = self.var_renames.get(python_name);
+        var pass25_result: ?[]const u8 = null;
+        if (self.var_resolution) |resolution| {
+            pass25_result = resolution.getZigName(self.var_resolution_scope, python_name);
+        }
+
+        // Log differences
+        if (var_renames_result != null and pass25_result == null) {
+            std.debug.print("[VAR_RES] MISSING in Pass 2.5: '{s}' -> '{s}' (scope {})\n", .{
+                python_name,
+                var_renames_result.?,
+                self.var_resolution_scope.id,
+            });
+        } else if (var_renames_result == null and pass25_result != null) {
+            std.debug.print("[VAR_RES] EXTRA in Pass 2.5: '{s}' -> '{s}' (scope {})\n", .{
+                python_name,
+                pass25_result.?,
+                self.var_resolution_scope.id,
+            });
+        } else if (var_renames_result != null and pass25_result != null) {
+            if (!std.mem.eql(u8, var_renames_result.?, pass25_result.?)) {
+                std.debug.print("[VAR_RES] DIFFERENT: '{s}' -> var_renames='{s}', pass25='{s}' (scope {})\n", .{
+                    python_name,
+                    var_renames_result.?,
+                    pass25_result.?,
+                    self.var_resolution_scope.id,
+                });
+            }
+        }
+    }
+
+    /// Check if a variable is declared in the current scope (not captured)
+    /// Uses variable resolution pass when available
+    pub fn varResolutionIsDeclared(self: *NativeCodegen, python_name: []const u8) bool {
+        if (self.var_resolution) |resolution| {
+            return resolution.isDeclaredInScope(self.var_resolution_scope, python_name);
+        }
+        // Fallback to legacy isDeclared
+        return self.isDeclared(python_name);
+    }
+
+    /// Check if a variable is captured from parent scope
+    pub fn varResolutionIsCaptured(self: *NativeCodegen, python_name: []const u8) bool {
+        if (self.var_resolution) |resolution| {
+            return resolution.isCaptured(self.var_resolution_scope, python_name);
+        }
+        return false;
+    }
+
+    /// Check if a variable needs hoisting (from variable resolution)
+    pub fn varResolutionIsHoisted(self: *NativeCodegen, python_name: []const u8) bool {
+        if (self.var_resolution) |resolution| {
+            return resolution.isHoisted(self.var_resolution_scope, python_name);
+        }
+        return self.hoisted_vars.contains(python_name);
+    }
+
+    /// Enter a new scope by name (for function/class entry)
+    /// Updates var_resolution_scope to the named scope
+    pub fn enterScope(self: *NativeCodegen, scope_name: []const u8) void {
+        if (self.var_resolution) |resolution| {
+            if (resolution.getScopeByName(scope_name)) |scope_id| {
+                self.var_resolution_scope = scope_id;
+            }
+        }
+    }
+
+    /// Exit current scope, returning to parent scope
+    pub fn exitScope(self: *NativeCodegen) void {
+        if (self.var_resolution) |resolution| {
+            if (resolution.getScope(self.var_resolution_scope)) |scope| {
+                if (scope.parent_scope) |parent| {
+                    self.var_resolution_scope = parent;
+                }
+            }
+        }
+    }
+
     /// Pre-scan all star imports in module body to populate module_level_from_imports
     /// This ensures parameter shadowing is correctly detected even when star imports appear
     /// at the end of a file (after function definitions that use shadowing parameter names)
@@ -1869,7 +2000,8 @@ pub const NativeCodegen = struct {
             return true;
         }
         // Check renamed name too (e.g., line -> __m56_lv_line)
-        const renamed_name = self.var_renames.get(name) orelse name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const renamed_name = self.getZigName(name);
         if (self.pyvalue_vars.contains(renamed_name)) {
             return true;
         }
@@ -2097,7 +2229,8 @@ pub const NativeCodegen = struct {
                     if (self.pyvalue_vars.contains(var_name)) {
                         return false; // Native handling via subscript.zig
                     }
-                    const renamed_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const renamed_name = self.getZigName(var_name);
                     if (self.pyvalue_vars.contains(renamed_name)) {
                         return false; // Native handling via subscript.zig
                     }
@@ -2188,7 +2321,8 @@ pub const NativeCodegen = struct {
             }
 
             // Check if variable has been renamed (e.g., loop capture line -> __loop_line)
-            const renamed_name = self.var_renames.get(original_name) orelse original_name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const renamed_name = self.getZigName(original_name);
             // Check if this variable was assigned from VM fallback (returns PyValue)
             // Must check FIRST since VM fallback reassignment (line = line.strip())
             // overrides the original loop capture type (string -> PyValue)

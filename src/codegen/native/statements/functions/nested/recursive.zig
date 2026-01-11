@@ -46,12 +46,7 @@ pub fn genRecursiveClosure(
         }
 
         // Use @TypeOf to get the correct type from the outer variable
-        const outer_var_name = blk: {
-            if (self.var_renames.get(var_name)) |renamed| {
-                break :blk renamed;
-            }
-            break :blk var_name;
-        };
+        const outer_var_name = self.getZigName(var_name);
 
         // Skip discards (_) and class types - they can't be captured at runtime
         if (outer_var_name.len == 1 and outer_var_name[0] == '_') continue;
@@ -164,7 +159,8 @@ pub fn genRecursiveClosure(
     defer capture_renames.deinit(self.allocator);
 
     for (captured_vars) |var_name| {
-        const outer_name = self.var_renames.get(var_name) orelse var_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const outer_name = self.getZigName(var_name);
         // Skip discards and class types - don't add __c_ rename
         const is_skip = (outer_name.len == 1 and outer_name[0] == '_') or
             self.nested_class_defs.get(outer_name) != null;
@@ -293,7 +289,8 @@ pub fn genRecursiveClosure(
             continue;
         }
 
-        const value_name = self.var_renames.get(var_name) orelse var_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const value_name = self.getZigName(var_name);
         // Skip discards and class types
         if (value_name.len == 1 and value_name[0] == '_') continue;
         if (self.nested_class_defs.get(value_name) != null) continue;

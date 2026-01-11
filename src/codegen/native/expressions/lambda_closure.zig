@@ -194,8 +194,9 @@ pub fn genClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda) Clo
     try writer.writeAll("    return .{\n");
 
     // Initialize captured fields (check var_renames for comprehension loop vars)
+    // Use getZigName which checks Pass 2.5 -> var_renames -> original fallback
     for (captured_vars) |var_name| {
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        const actual_name = self.getZigName(var_name);
         try writer.print("        .{s} = {s},\n", .{ var_name, actual_name });
     }
 
@@ -249,7 +250,7 @@ fn genInlineClosureLambda(self: *NativeCodegen, outer_lambda: ast.Node.Lambda, c
     }
     try self.emit(") @This() {\n        return .{\n");
     for (captured_vars) |var_name| {
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        const actual_name = self.getZigName(var_name);
         try self.output.writer(self.allocator).print("            .{s} = {s},\n", .{ var_name, actual_name });
     }
     try self.emit("        };\n    }\n\n");
@@ -414,11 +415,11 @@ pub fn genSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, cap
 
     // Generate closure instantiation: Closure{ .f = f, .g = g }
     // For "self", we need to dereference since it's a pointer in methods (*const @This() or *@This())
-    // Check var_renames for comprehension loop vars
+    // Use getZigName for comprehension loop vars (checks Pass 2.5 -> var_renames -> original)
     try self.output.writer(self.allocator).print("{s}{{ ", .{closure_name});
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        const actual_name = self.getZigName(var_name);
         if (std.mem.eql(u8, var_name, "self")) {
             // Dereference self pointer to get the struct value
             try self.output.writer(self.allocator).print(".{s} = {s}.*", .{ var_name, actual_name });
@@ -502,11 +503,11 @@ fn genInlineSimpleClosureLambda(self: *NativeCodegen, lambda: ast.Node.Lambda, c
     }
 
     // Initialize captured fields
-    // Check var_renames for renamed variables (e.g., comprehension loop vars)
+    // Use getZigName for renamed variables (checks Pass 2.5 -> var_renames -> original)
     for (captured_vars, 0..) |var_name, i| {
         if (i > 0) try self.emit(", ");
         // Get actual variable name (may be renamed in comprehension scope)
-        const actual_name = self.var_renames.get(var_name) orelse var_name;
+        const actual_name = self.getZigName(var_name);
         if (std.mem.eql(u8, var_name, "self")) {
             try self.output.writer(self.allocator).print(".{s} = {s}.*", .{ var_name, actual_name });
         } else {

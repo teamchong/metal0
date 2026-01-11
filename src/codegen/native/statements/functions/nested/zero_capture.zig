@@ -189,13 +189,7 @@ pub fn genZeroCaptureClosure(
             saved_var_renames.append(self.allocator, .{ .key = entry.key_ptr.*, .value = entry.value_ptr.* }) catch {};
         }
     }
-    defer {
-        // Restore outer function's var_renames
-        for (saved_var_renames.items) |entry| {
-            self.var_renames.put(entry.key, entry.value) catch {};
-        }
-        saved_var_renames.deinit(self.allocator);
-    }
+    defer saved_var_renames.deinit(self.allocator);
 
     // Save and clear nested_class_captures for this nested function
     // Each nested function needs its own capture analysis
@@ -514,6 +508,16 @@ pub fn genZeroCaptureClosure(
     self.dedent();
     try self.emitIndent();
     try self.emit("};\n");
+
+    // CRITICAL: Clear entries added during nested function body generation (e.g., by TryHelper)
+    // and restore only the original outer function's var_renames.
+    // TryHelper adds entries like `res -> p_res_2.*` which would leak to sibling functions
+    // and cause isDeclared("res") to return true incorrectly.
+    // We do this BEFORE adding the wrapper rename so the wrapper rename persists.
+    self.var_renames.clearRetainingCapacity();
+    for (saved_var_renames.items) |entry| {
+        try self.var_renames.put(entry.key, entry.value);
+    }
 
     // Create wrapper struct for the closure
     // Use the original function name so that references resolve correctly

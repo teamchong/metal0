@@ -148,8 +148,8 @@ fn genEvalSource(codegen: *NativeCodegen, source: ast.Node) CodegenError!void {
                 try codegen.emit(".asString()");
                 return;
             }
-            // Check renamed name too
-            const renamed = codegen.var_renames.get(n.id) orelse n.id;
+            // Check renamed name too (uses Pass 2.5 -> var_renames -> original fallback)
+            const renamed = codegen.getZigName(n.id);
             if (codegen.pyvalue_vars.contains(renamed)) {
                 try codegen.genExpr(source);
                 try codegen.emit(".asString()");

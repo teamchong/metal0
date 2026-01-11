@@ -1143,8 +1143,7 @@ pub fn genCall(self: *NativeCodegen, call: ast.Node.Call) CodegenError!void {
         // Also check nested_class_aliases for class-body-level nested classes (e.g., Inner -> Outer__Inner)
         const func_name = self.nested_class_aliases.get(raw_func_name) orelse
             self.hoisted_local_classes.get(raw_func_name) orelse
-            self.var_renames.get(raw_func_name) orelse
-            raw_func_name;
+            self.getZigName(raw_func_name);
 
         // Check if this is a simple lambda (inline struct with .call method)
         if (self.lambda_vars.contains(raw_func_name)) {

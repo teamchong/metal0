@@ -275,6 +275,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
     // Set current function name for tail-call optimization detection
     self.current_function_name = func.name;
 
+    // Enter variable resolution scope for this function (Pass 2.5)
+    self.enterScope(func.name);
+
     // Reset control flow termination flag for new function
     self.control_flow_terminated = false;
 
@@ -283,6 +286,9 @@ pub fn genFunctionDef(self: *NativeCodegen, func: ast.Node.FunctionDef) CodegenE
 
     // Generate function body
     try body.genFunctionBody(self, func, needs_allocator, actually_uses_allocator);
+
+    // Exit variable resolution scope (Pass 2.5)
+    self.exitScope();
 
     // Clear current function name after body generation
     self.current_function_name = null;
@@ -1251,6 +1257,10 @@ pub fn genClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenError!
     self.current_class_body = class.body;
     defer self.current_class_name = prev_class_name;
     defer self.current_class_body = prev_class_body;
+
+    // Enter variable resolution scope for this class (Pass 2.5)
+    self.enterScope(class.name);
+    defer self.exitScope();
 
     // Clear hoisted_local_classes from previous class (each class has its own hoisted locals)
     // This is needed because sibling classes (e.g., multiple FailingUserDict definitions)
@@ -2372,6 +2382,10 @@ fn genGenericClassDef(self: *NativeCodegen, class: ast.Node.ClassDef) CodegenErr
     self.current_class_body = class.body;
     defer self.current_class_name = prev_class_name;
     defer self.current_class_body = prev_class_body;
+
+    // Enter variable resolution scope for this class (Pass 2.5)
+    self.enterScope(class.name);
+    defer self.exitScope();
 
     // Add Python class introspection attributes
     try self.emitIndent();

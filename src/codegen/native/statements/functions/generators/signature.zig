@@ -2313,7 +2313,7 @@ pub fn genMethodSignatureWithSkip(
                 } else {
                     // Check if the class was hoisted and renamed (e.g., name collision)
                     // hoisted_local_classes stores original_name -> actual_generated_name
-                    const actual_name = self.hoisted_local_classes.get(rc) orelse self.var_renames.get(rc) orelse rc;
+                    const actual_name = self.hoisted_local_classes.get(rc) orelse self.getZigName(rc);
                     try self.emit(actual_name);
                 }
                 try self.emit(" {\n");

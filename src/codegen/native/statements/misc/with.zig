@@ -1134,7 +1134,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // Now hoist with the (possibly renamed) variable
             // Pass the renamed name if we set one up, so hoistVarWithExpr can check correctly
             if (needs_var) {
-                const hoist_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const hoist_name = self.getZigName(var_name);
                 try hoistVarWithExprDirect(self, hoist_name, with_node.context_expr);
             }
         }
@@ -1153,7 +1154,8 @@ pub fn genWith(self: *NativeCodegen, with_node: ast.Node.With) CodegenError!void
             // Simple name target: `with ctx() as f:`
             const original_name = target.name.id;
             // Use renamed name if we set up a shadow rename earlier
-            const var_name = self.var_renames.get(original_name) orelse original_name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const var_name = self.getZigName(original_name);
 
             // Use putScopedVar to update both scoped and global maps (for aug_assign detection)
             try self.type_inferrer.putScopedVar(var_name, context_type);

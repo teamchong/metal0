@@ -195,7 +195,8 @@ pub fn emitDeferCleanups(
     }
 
     // Resolve the actual variable name (may be renamed due to shadowing)
-    const actual_name = self.var_renames.get(var_name) orelse var_name;
+    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+    const actual_name = self.getZigName(var_name);
 
     // Add defer cleanup for ArrayLists (only on first assignment)
     if (is_first_assignment and is_arraylist) {

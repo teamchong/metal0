@@ -259,7 +259,8 @@ fn genSimpleCallWithSubs(
     // Check if this is a closure that needs .call() syntax
     if (self.closure_vars.contains(func_name)) {
         // Use renamed name if available (for closures that shadow imports)
-        const output_name = self.var_renames.get(func_name) orelse func_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const output_name = self.getZigName(func_name);
         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), output_name);
         try self.emit(".call(");
         var first = true;

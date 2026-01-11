@@ -1370,7 +1370,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (var_type) |vt| {
                 if (type_traits.isClassInstance(vt)) {
                     // Use renamed class name if available (e.g., metal0_main.Rat)
-                    const class_name = self.var_renames.get(vt.class_instance) orelse vt.class_instance;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const class_name = self.getZigName(vt.class_instance);
                     try self.emit(": *");
                     try self.emit(class_name);
                     param_count += 1;
@@ -1422,7 +1423,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (var_type) |vt| {
                 if (type_traits.isClassInstance(vt)) {
                     // Use renamed class name if available (e.g., metal0_main.Rat)
-                    const class_name = self.var_renames.get(vt.class_instance) orelse vt.class_instance;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const class_name = self.getZigName(vt.class_instance);
                     try self.emit(": *");
                     try self.emit(class_name);
                     param_count += 1;
@@ -1727,7 +1729,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         for (read_only_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
             // Check if variable has been renamed (e.g., function param x -> __p_x_0)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const actual_name = self.getZigName(var_name);
             // Check if this is a captured variable in the current nested class
             if (isCapturedByCurrentClass(self, var_name)) {
                 // Access via __self.__captured_var.* for captured variables
@@ -1741,7 +1744,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
         for (written_outer_vars.items) |var_name| {
             if (call_param_count > 0) try self.emit(", ");
             // Check if variable has been renamed (e.g., function param a -> a__mut)
-            const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const actual_name = self.getZigName(var_name);
             // Check if this is a captured variable in the current nested class
             if (isCapturedByCurrentClass(self, var_name)) {
                 // Access via __self.__captured_var for captured variables (already a pointer, no & needed)
@@ -1760,7 +1764,8 @@ pub fn genTry(self: *NativeCodegen, try_node: ast.Node.Try) CodegenError!void {
             if (call_param_count > 0) try self.emit(", ");
             try self.emit("&");
             // Use renamed name if variable was renamed to avoid shadowing imports
-            const actual_name = self.var_renames.get(hoisted.name) orelse hoisted.name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const actual_name = self.getZigName(hoisted.name);
             try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), actual_name);
             call_param_count += 1;
         }

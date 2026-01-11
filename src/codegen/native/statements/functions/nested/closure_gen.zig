@@ -66,11 +66,8 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
         } else {
             try self.emit(": @TypeOf(");
         }
-        if (self.var_renames.get(var_name)) |renamed| {
-            try self.emit(renamed);
-        } else {
-            try self.emitIdent(var_name);
-        }
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        try self.emitIdent(self.getZigName(var_name));
         try self.emit(")");
         return;
     }
@@ -101,11 +98,8 @@ fn emitCapturedVarType(self: *NativeCodegen, var_name: []const u8, is_mutated: b
             } else {
                 try self.emit(": @TypeOf(");
             }
-            if (self.var_renames.get(var_name)) |renamed| {
-                try self.emit(renamed);
-            } else {
-                try self.emitIdent(var_name);
-            }
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            try self.emitIdent(self.getZigName(var_name));
             try self.emit(")");
             return;
         }
@@ -866,7 +860,7 @@ pub fn genStandardClosure(
             // Check saved outer renames first (for params that were renamed in outer function),
             // then fall back to current var_renames, then the original name
             const actual_name = outer_capture_renames.get(var_name) orelse
-                self.var_renames.get(var_name) orelse var_name;
+                self.getZigName(var_name);
 
             // Initialize capture - use & for mutated captures, value for non-mutated
             // For closures, the type is @TypeOf(actual_var) so we pass directly

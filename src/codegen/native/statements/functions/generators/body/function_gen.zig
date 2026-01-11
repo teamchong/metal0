@@ -848,13 +848,8 @@ pub fn genFunctionBody(
             try self.emit(mut_name);
             try self.emit(" = ");
             // Get the actual parameter name in generated code
-            // For NameGen renames (module shadows), use var_renames
-            // Otherwise use writeLocalVarName for method shadows (e.g., "stop" -> "stop_")
-            if (self.var_renames.get(arg.name)) |renamed| {
-                try self.emit(renamed);
-            } else {
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            }
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), self.getZigName(arg.name));
             try self.emit(";\n");
             // Emit discard to suppress "unused local variable" warning
             // This can happen when the parameter is shadowed by a loop variable (e.g., `for kind in ...`)
@@ -1940,7 +1935,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             }
 
             // Get the actual parameter name in generated code (may have been renamed by signature.zig)
-            const actual_param_name = self.var_renames.get(arg.name) orelse arg.name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const actual_param_name = self.getZigName(arg.name);
 
             // Create a mutable copy of the parameter using NameGen for unique naming
             const mut_name = try self.name_gen.mutable(arg.name);
@@ -2107,7 +2103,8 @@ fn genMethodBodyWithAllocatorInfoAndContext(
             // or if it was renamed to avoid shadowing outer scope (e.g., "module" -> "module__shadow")
 
             // Get the actual name used in generated code (may be renamed)
-            const actual_param_name = self.var_renames.get(arg.name) orelse arg.name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const actual_param_name = self.getZigName(arg.name);
 
             const param_is_used = blk: {
                 // Helper to check if a name appears as complete identifier

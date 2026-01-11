@@ -1086,7 +1086,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // Track first assignments for potential discard emission
                     // Even comptime-evaluated variables need discard tracking for unused var suppression
                     if (is_first_assignment) {
-                        const suppress_name = self.var_renames.get(var_name) orelse var_name;
+                        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                        const suppress_name = self.getZigName(var_name);
                         try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
                     }
 
@@ -1101,12 +1102,14 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // EXCEPTION: At module level (current_function_name == null), never skip - module vars
             // might be used in class methods or functions, which lifetime analysis doesn't scan
             // Also don't skip if var is used in eval/exec strings (dynamic usage)
+            // Also don't skip if var is used in VM fallback expressions (e.g., res.append(i) -> eval("res.append(i)"))
             // Also don't skip chained assignments (a = b = c = None) - all targets need declaration
             // since they might be used in try blocks where the helper struct needs them as parameters
             const at_module_level = self.current_function_name == null;
             const is_eval_var = self.isEvalStringVar(original_var_name);
+            const is_vm_fallback_var = self.vm_fallback_used_vars.contains(original_var_name);
             const is_chained_assignment = assign.targets.len > 1;
-            if (is_first_assignment and !at_module_level and !is_eval_var and !is_chained_assignment and self.isVarUnused(original_var_name)) {
+            if (is_first_assignment and !at_module_level and !is_eval_var and !is_vm_fallback_var and !is_chained_assignment and self.isVarUnused(original_var_name)) {
                 // Check if value expression has side effects
                 // Simple name/constant references have no side effects - skip entirely
                 // Calls, list/dict literals with calls, etc. have side effects - execute them
@@ -1365,7 +1368,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     // is never actually mutated. Use _ = &var; to suppress the warning.
                     // Use the current (possibly already renamed) name, not the original name.
                     // ONLY emit discard if variable actually exists (not just forward-declared/hoisted)
-                    const current_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const current_name = self.getZigName(var_name);
                     if (self.isDeclared(current_name)) {
                         try self.emit("_ = &");
                         try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), current_name);
@@ -1418,7 +1422,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
 
                     // Normal reassignment
                     // Use renamed version if in var_renames map (for exception handling)
-                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const actual_name = self.getZigName(var_name);
 
                     // TWO-FLOW TYPE SYSTEM: Check if reassigning a PyValue variable
                     // If so, we need to wrap the RHS in runtime.PyValue.from()
@@ -1847,7 +1852,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // For iterators, add pointer discard to suppress "never mutated" warnings
             // Some iterator uses pass by value (json.dumps) vs by pointer (next())
             if (is_iterator and is_first_assignment) {
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const actual_name = self.getZigName(var_name);
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -1860,7 +1866,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // For deques, add pointer discard to suppress "never mutated" warnings
             // Deques use `var` for .deinit() but may not be mutated at the variable level
             if (is_deque and is_first_assignment) {
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const actual_name = self.getZigName(var_name);
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -1873,7 +1880,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // Class instances may only be used in conditionally compiled branches (e.g., inside if blocks)
             // which can result in the variable appearing unused at the Zig level
             if (type_traits.isClassInstance(value_type) and is_first_assignment) {
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const actual_name = self.getZigName(var_name);
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -1888,7 +1896,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             if (is_first_assignment and !is_iterator) {
                 const is_mutated = self.isVarMutated(var_name);
                 if (is_mutated) {
-                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const actual_name = self.getZigName(var_name);
                     try self.emitIndent();
                     try self.emit("_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -1913,7 +1922,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 // VM fallback variables are referenced by name in subsequent eval() strings,
                 // not as Zig identifiers, so Zig sees them as unused
                 if (is_first_assignment) {
-                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const actual_name = self.getZigName(var_name);
                     try self.emitIndent();
                     try self.emit("_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -1936,7 +1946,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                     if (std.mem.eql(u8, rhs_name, var_name)) continue;
                     // Check if it's a local variable in this function scope
                     // ALSO check isDeclared to ensure variable wasn't discarded in tuple unpacking
-                    const rhs_actual_name = self.var_renames.get(rhs_name) orelse rhs_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const rhs_actual_name = self.getZigName(rhs_name);
                     if ((self.func_local_vars.contains(rhs_name) or self.pending_discards.contains(rhs_name)) and self.isDeclared(rhs_actual_name)) {
                         try self.emitIndent();
                         try self.emit("_ = &");
@@ -1950,7 +1961,8 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // We defer discard emission to check if the variable is actually used in generated code
             // This avoids "pointless discard" errors when the variable IS used
             if (is_first_assignment) {
-                const suppress_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const suppress_name = self.getZigName(var_name);
                 // Record both the original name and the emitted name for later discard check
                 try self.pending_discards.put(try self.arena.allocator().dupe(u8, var_name), try self.arena.allocator().dupe(u8, suppress_name));
             }
@@ -1961,9 +1973,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
             // 1. Runtime-assigned variables (non-comptime path) - via isEvalStringVar
             // 2. Variables referenced in generated VM fallback expressions - via vm_fallback_used_vars
             // The comptime path at lines 924-933 handles this separately
-            const is_vm_fallback_var = self.vm_fallback_used_vars.contains(original_var_name);
-            if (is_first_assignment and (self.isEvalStringVar(original_var_name) or is_vm_fallback_var)) {
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
+            // Note: is_vm_fallback_var may have been declared earlier if this point is reachable
+            const is_vm_fallback_var_2 = self.vm_fallback_used_vars.contains(original_var_name);
+            if (is_first_assignment and (self.isEvalStringVar(original_var_name) or is_vm_fallback_var_2)) {
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const actual_name = self.getZigName(var_name);
                 try self.emitIndent();
                 try self.emit("_ = &");
                 try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);
@@ -1982,10 +1996,11 @@ pub fn genAssign(self: *NativeCodegen, assign: ast.Node.Assign) CodegenError!voi
                 const is_mutated = self.isVarMutated(var_name);
                 const already_handled = is_iterator or is_deque or is_class_instance or
                     is_mutated or self.needsVMFallback(assign.value.*) or
-                    self.isEvalStringVar(original_var_name) or is_vm_fallback_var;
+                    self.isEvalStringVar(original_var_name) or is_vm_fallback_var_2;
 
                 if (!already_handled) {
-                    const actual_name = self.var_renames.get(var_name) orelse var_name;
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    const actual_name = self.getZigName(var_name);
                     try self.emitIndent();
                     try self.emit("_ = &");
                     try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), actual_name);

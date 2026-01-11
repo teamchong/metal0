@@ -48,7 +48,8 @@ pub fn emitComptimeAssignment(
     }
 
     // Check if variable has been renamed (e.g., for try/except pointer params or shadowing)
-    const actual_name = self.var_renames.get(var_name) orelse var_name;
+    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+    const actual_name = self.getZigName(var_name);
 
     const b = try self.getBuilder();
     try b.writeIndent();

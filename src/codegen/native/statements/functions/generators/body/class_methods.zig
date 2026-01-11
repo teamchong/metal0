@@ -514,7 +514,8 @@ fn emitComptimeTypeGuard(self: *NativeCodegen, checks: []const function_gen.Type
         if (i > 0) try self.emit(" and ");
         try self.emit("runtime.istype(@TypeOf(");
         // Use renamed param if available (handles shadowing)
-        const param_name = self.var_renames.get(check.param_name) orelse check.param_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const param_name = self.getZigName(check.param_name);
         try self.emit(param_name);
         try self.emit("), \"");
         try self.emit(check.check_type);
@@ -992,11 +993,8 @@ pub fn genInitMethod(
             try self.emit(mut_name);
             try self.emit(" = ");
             // Get the actual parameter name in generated code (might be renamed)
-            if (self.var_renames.get(arg.name)) |renamed| {
-                try self.emit(renamed);
-            } else {
-                try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), arg.name);
-            }
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), self.getZigName(arg.name));
             try self.emit(";\n");
             // Emit discard to suppress "unused local variable" warning
             try self.emitIndent();
@@ -1040,7 +1038,8 @@ pub fn genInitMethod(
             if (has_mutable_copy) continue;
 
             // Use renamed parameter name if it was renamed during signature generation
-            const param_name = self.var_renames.get(arg.name) orelse arg.name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const param_name = self.getZigName(arg.name);
             // Skip if param was made anonymous ("_") - no identifier to discard
             if (std.mem.eql(u8, param_name, "_")) continue;
             try self.emitParamDiscard(param_name);
@@ -1616,7 +1615,8 @@ pub fn genInitMethodWithBuiltinBase(
             if (has_mutable_copy) continue;
 
             // Use renamed parameter name if it was renamed during signature generation
-            const param_name = self.var_renames.get(arg.name) orelse arg.name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const param_name = self.getZigName(arg.name);
             // Skip if param was made anonymous ("_") - no identifier to discard
             if (std.mem.eql(u8, param_name, "_")) continue;
             try self.emitParamDiscard(param_name);
@@ -1868,13 +1868,9 @@ pub fn genInitMethodWithBuiltinBase(
             for (init.args) |arg| {
                 if (std.mem.eql(u8, arg.name, "self")) continue;
                 // Use the escaped parameter name (handles Zig keywords)
-                // Check if param was renamed (e.g., d -> __m2_p_d to avoid shadowing)
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
                 try self.emit(".__base_value__ = ");
-                if (self.var_renames.get(arg.name)) |renamed| {
-                    try self.emit(renamed);
-                } else {
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), arg.name);
-                }
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), self.getZigName(arg.name));
                 try self.emit(",\n");
                 break;
             }
@@ -2577,6 +2573,10 @@ pub fn genClassMethods(
     // Set current class name for super() support and self.method() allocator detection
     self.current_class_name = class.name;
     defer self.current_class_name = prev_class_name;
+
+    // Enter variable resolution scope for this class (Pass 2.5)
+    self.enterScope(class.name);
+    defer self.exitScope();
 
     // Set current class's captured variables for expression generation
     // This allows the expression generator to convert `var_name` to `self.__captured_var_name.*`

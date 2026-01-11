@@ -37,6 +37,10 @@ fn isVMFallbackType(name: []const u8) bool {
     return false;
 }
 
+// Import isBuiltinName from nested_captures - single source of truth
+const nested_captures = @import("nested_captures.zig");
+const isBuiltinName = nested_captures.isBuiltinName;
+
 /// Analyze a function body to collect variables used in VM fallback expressions
 /// This must be called BEFORE generating any code so that vm_fallback_used_vars
 /// is populated when assignments are generated
@@ -124,6 +128,20 @@ fn scanExprForVMFallback(self: *NativeCodegen, expr: ast.Node) !void {
                 }
                 for (call.keyword_args) |kw| {
                     try collectVarNamesFromExpr(self, kw.value);
+                }
+            }
+            // Check for method calls on local variables: var.method(args)
+            // These might become VM fallbacks if the variable has unknown/PyValue type
+            // Collect the base variable name as potentially used in VM fallback
+            if (call.func.* == .attribute) {
+                const attr = call.func.attribute;
+                if (attr.value.* == .name) {
+                    const base_name = attr.value.name.id;
+                    // Skip Python builtins and keywords - these are handled natively
+                    if (!isBuiltinName(base_name)) {
+                        const name_copy = try self.arena.allocator().dupe(u8, base_name);
+                        try self.vm_fallback_used_vars.put(name_copy, {});
+                    }
                 }
             }
             // Also recurse into the call for nested patterns (including lambda args)

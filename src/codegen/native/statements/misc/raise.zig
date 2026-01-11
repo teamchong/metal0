@@ -93,7 +93,8 @@ fn genRaiseCause(self: *NativeCodegen, b: anytype, cause: *const ast.Node) Codeg
             // It's a variable - use the variable's exception data directly
             // The variable should be a PyException captured in an except handler
             // Check for variable renames (e.g., inside TryHelper: cause -> __local_cause_22)
-            const actual_name = self.var_renames.get(name) orelse name;
+            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+            const actual_name = self.getZigName(name);
             try b.writeIndent();
             try b.emitRaw("{\n");
             b.indent();

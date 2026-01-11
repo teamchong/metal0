@@ -504,12 +504,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             for (exc_attrs_early) |exc_attr| {
                 if (std.mem.eql(u8, attr.attr, exc_attr)) {
                     // Direct field access on PyException struct
-                    // Check var_renames first - inside TryHelper structs, exception vars are renamed
-                    if (self.var_renames.get(exc_var_name)) |renamed| {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
-                    } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), exc_var_name);
-                    }
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), self.getZigName(exc_var_name));
                     try self.emit(".");
                     try self.emit(attr.attr);
                     return;
@@ -537,11 +533,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
                     // Chained exception attr: e.__context__.__context__
                     // Generate: if (e.__context__) |ctx| ctx.__context__ else null
                     try self.emit("(if (");
-                    if (self.var_renames.get(exc_var_name)) |renamed| {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
-                    } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), exc_var_name);
-                    }
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), self.getZigName(exc_var_name));
                     try self.emit(".");
                     try self.emit(inner_attr.attr);
                     try self.emit(") |__ctx| __ctx.");
@@ -612,7 +605,8 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
     if (attr.value.* == .name) {
         const raw_name = attr.value.name.id;
         // Apply var_renames if this name has been renamed (e.g., cls -> @This() for implicit classmethods)
-        const module_name = self.var_renames.get(raw_name) orelse raw_name;
+        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+        const module_name = self.getZigName(raw_name);
         const attr_name = attr.attr;
 
         // If raw_name was renamed to "call", it's a recursive function.
@@ -804,13 +798,9 @@ pub fn genAttribute(self: *NativeCodegen, attr: ast.Node.Attribute) CodegenError
             for (exc_attrs) |exc_attr| {
                 if (std.mem.eql(u8, attr.attr, exc_attr)) {
                     // Direct field access on PyException struct
-                    // IMPORTANT: Check var_renames first - inside TryHelper structs,
-                    // exception variables are renamed to pointer dereferences (e.g., p_exc_16.*)
-                    if (self.var_renames.get(exc_var_name)) |renamed| {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), renamed);
-                    } else {
-                        try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), exc_var_name);
-                    }
+                    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                    // Inside TryHelper structs, exception vars are renamed to pointer dereferences (e.g., p_exc_16.*)
+                    try zig_keywords.writeLocalVarName(self.output.writer(self.allocator), self.getZigName(exc_var_name));
                     try self.emit(".");
                     try self.emit(attr.attr);
                     return;

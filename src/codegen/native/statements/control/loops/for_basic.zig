@@ -573,7 +573,8 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                                 const renamed = try self.name_gen.local(nested_var_name);
                                 try self.var_renames.put(nested_var_name, renamed);
                             }
-                            const actual_nested_name = self.var_renames.get(nested_var_name) orelse nested_var_name;
+                            // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                            const actual_nested_name = self.getZigName(nested_var_name);
 
                             if (nested_is_reassigned) {
                                 try self.emit("var ");
@@ -587,7 +588,8 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                         // Emit discard to prevent unused variable errors
                         try self.emitIndent();
                         try self.emit("_ = &");
-                        const actual_nested_name = self.var_renames.get(nested_var_name) orelse nested_var_name;
+                        // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                        const actual_nested_name = self.getZigName(nested_var_name);
                         try self.emitIdent(actual_nested_name);
                         try self.emit(";\n");
 
@@ -626,7 +628,8 @@ fn genTupleUnpackLoop(self: *NativeCodegen, target: ast.Node, iter: ast.Node, bo
                     const renamed = try self.name_gen.local(var_name);
                     try self.var_renames.put(var_name, renamed);
                 }
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const actual_name = self.getZigName(var_name);
 
                 // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
                 // If so, sanitize for declaration (replace dots with underscores)
@@ -1582,7 +1585,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     const renamed = try self.name_gen.local(var_name);
                     try self.var_renames.put(var_name, renamed);
                 }
-                break :blk self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                break :blk self.getZigName(var_name);
             };
 
             // Check if loop variable is reassigned in body (e.g., `ary = asanyarray(ary)`)
@@ -1732,7 +1736,8 @@ pub fn genFor(self: *NativeCodegen, for_stmt: ast.Node.For) CodegenError!void {
                     const renamed = try self.name_gen.local(var_name);
                     try self.var_renames.put(var_name, renamed);
                 }
-                const actual_name = self.var_renames.get(var_name) orelse var_name;
+                // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+                const actual_name = self.getZigName(var_name);
 
                 // Check if the renamed name contains a dot (capture struct access like __cap_foo.bar)
                 // If so, sanitize for declaration (replace dots with underscores)
@@ -2306,7 +2311,8 @@ fn genRangeLoop(self: *NativeCodegen, var_name: []const u8, args: []ast.Node, bo
     }
 
     // Increment - use renamed var if shadowed
-    const incr_var_name = self.var_renames.get(var_name) orelse var_name;
+    // Use getZigName() which checks Pass 2.5 first, then falls back to var_renames
+    const incr_var_name = self.getZigName(var_name);
     try self.emitIndent();
     try self.emit(incr_var_name);
     try self.emit(" += ");

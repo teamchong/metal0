@@ -749,12 +749,11 @@ fn genIterLoop(
             var is_closure_list = false;
             if (gen.iter.* == .name) {
                 const iter_var_name = gen.iter.name.id;
-                if (self.closure_list_vars.contains(iter_var_name)) {
+                // Check both original name and getZigName() (which checks Pass 2.5 then var_renames)
+                if (self.closure_list_vars.contains(iter_var_name) or
+                    self.closure_list_vars.contains(self.getZigName(iter_var_name)))
+                {
                     is_closure_list = true;
-                } else if (self.var_renames.get(iter_var_name)) |renamed| {
-                    if (self.closure_list_vars.contains(renamed)) {
-                        is_closure_list = true;
-                    }
                 }
             }
             if (!is_closure_list) {
