@@ -1,0 +1,124 @@
+=== metal0 test (tests/cpython) ===
+Patterns: test_base64
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Skipped import (zig_runtime): unittest
+  Skipped import (zig_runtime): base64
+  Skipped import (stdlib): binascii
+  Skipped import (zig_runtime): os
+  Skipped import (zig_runtime): array
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): io
+  Skipped import (zig_runtime): io
+Generating C extension stubs (0 extensions)...
+Type inference...
+Type inference done.
+Initializing codegen...
+Codegen initialized.
+Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+Call graph built.
+Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 0 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 7 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 7 imported modules...
+generate():   Processing import 1/7: unittest
+generate():   Processing import 2/7: base64
+generate():   Processing import 3/7: binascii
+generate():   Processing import 4/7: os
+generate():   Processing import 5/7: array
+generate():   Processing import 6/7: test.support
+generate():   Processing import 7/7: test
+generate(): Phase 4.7 - Pre-populating module_level_vars with 0 global vars...
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 11 module body statements...
+generate():   Phase 5.1 - Statement 1/11: import_stmt
+generate():   Phase 5.1 - Statement 2/11: import_stmt
+generate():   Phase 5.1 - Statement 3/11: import_stmt
+generate():   Phase 5.1 - Statement 4/11: import_stmt
+generate():   Phase 5.1 - Statement 5/11: import_from
+generate():   Phase 5.1 - Statement 6/11: import_from
+generate():   Phase 5.1 - Statement 7/11: import_from
+generate():   Phase 5.1 - Statement 8/11: class_def
+generate():     Processing class: LegacyBase64TestCase
+generate():   Phase 5.1 - Statement 9/11: class_def
+generate():     Processing class: BaseXYTestCase
+generate():   Phase 5.1 - Statement 10/11: class_def
+generate():     Processing class: TestMain
+generate():   Phase 5.1 - Statement 11/11: if_stmt
+Zig code generated successfully.
+✓ Generated Zig: .metal0/gen/tests/cpython/test_base64.zig
+  Codegen: 1/1
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+
+[BATCH] Compilation errors (1/1 succeeded):
+Registered package module: numpy
+Registered package module: yaml
+install
++- install test_base64
+   +- compile exe test_base64 ReleaseFast native 41 errors
+gen/tests/cpython/test_base64.zig:882:74: error: pointless discard of local constant
+            _ = (try eq.call(&.{runtime.PyValue.from((__m196_stub: { _ = data; break :__m196_stub ""; })), runtime.PyValue.from(res)}));
+                                                                         ^~~~
+gen/tests/cpython/test_base64.zig:883:152: note: used here
+            _ = (try eq.call(&.{runtime.PyValue.from((__m197_stub: { _ = try runtime.Lib.encodings.decode(__global_allocator, runtime.extractBytesData(data), "ascii", "strict"); break :__m197_stub ""; })), runtime.PyValue.from(res)}));
+                                                                                                                                                       ^~~~
+gen/tests/cpython/test_base64.zig:954:74: error: pointless discard of local constant
+            _ = (try eq.call(&.{runtime.PyValue.from((__m207_stub: { _ = data; break :__m207_stub ""; })), runtime.PyValue.from(res)}));
+                                                                         ^~~~
+gen/tests/cpython/test_base64.zig:955:152: note: used here
+            _ = (try eq.call(&.{runtime.PyValue.from((__m208_stub: { _ = try runtime.Lib.encodings.decode(__global_allocator, runtime.extractBytesData(data), "ascii", "strict"); break :__m208_stub ""; })), runtime.PyValue.from(res)}));
+                                                                                                                                                       ^~~~
+gen/tests/cpython/test_base64.zig:1036:74: error: pointless discard of local constant
+            _ = (try eq.call(&.{runtime.PyValue.from((__m234_stub: { _ = data_str; break :__m234_stub ""; })), runtime.PyValue.from(res)}));
+                                                                         ^~~~~~~~
+gen/tests/cpython/test_base64.zig:
+... (30867 more bytes)
+  Batch compile: 1/1
+  Compile: 1/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_base64
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x10266ded7 in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x10269898f in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^

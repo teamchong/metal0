@@ -218,6 +218,13 @@ pub fn genExpr(self: *NativeCodegen, node: ast.Node) CodegenError!void {
                 if (std.mem.eql(u8, n.id, "self")) {
                     if (self.var_renames.get("self")) |renamed| break :blk renamed;
                 }
+                // For module-level classes, use getClassZigName() which always uses module scope
+                // This ensures class names like 'Bdb' get Pass 2.5 names even in inherited methods
+                // where in_unscoped_method=true would normally skip Pass 2.5 lookups
+                // MUST check this BEFORE func_local_vars because class names can also be in func_local_vars
+                if (self.class_registry.getClass(n.id) != null) {
+                    break :blk self.getClassZigName(n.id);
+                }
                 // Local vars/params take precedence - don't rename them with class attribute patterns
                 // Use getZigName() to get Pass 2.5 name (which provides unique naming)
                 if (self.func_local_vars.contains(n.id)) break :blk self.getZigName(n.id);

@@ -1,0 +1,776 @@
+=== metal0 test (tests/cpython) ===
+Patterns: test_collections
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Skipped import (zig_runtime): array
+  Skipped import (stdlib): collections
+  Skipped import (zig_runtime): copy
+  Skipped import (codegen_dispatch): doctest
+  Skipped import (stdlib): inspect
+  Skipped import (zig_runtime): operator
+  Skipped import (zig_runtime): pickle
+  Skipped import (zig_runtime): random
+  Skipped import (zig_runtime): itertools
+  Skipped import (zig_runtime): string
+  Skipped import (stdlib): sys
+  Skipped import (zig_runtime): test
+  Skipped import (stdlib): types
+  Skipped import (zig_runtime): unittest
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+Generating C extension stubs (0 extensions)...
+Type inference...
+Type inference done.
+Initializing codegen...
+Codegen initialized.
+Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+Call graph built.
+Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 1 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 15 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 15 imported modules...
+generate():   Processing import 1/15: array
+generate():   Processing import 2/15: collections
+generate():   Processing import 3/15: copy
+generate():   Processing import 4/15: doctest
+generate():   Processing import 5/15: inspect
+generate():   Processing import 6/15: operator
+generate():   Processing import 7/15: pickle
+generate():   Processing import 8/15: random
+generate():   Processing import 9/15: itertools
+generate():   Processing import 10/15: string
+generate():   Processing import 11/15: sys
+generate():   Processing import 12/15: test
+generate():   Processing import 13/15: types
+generate():   Processing import 14/15: unittest
+generate():   Processing import 15/15: collections.abc
+generate(): Phase 4.7 - Pre-populating module_level_vars with 1 global vars...
+  Phase 4.7: var 'TestNT' assign #1 type=unknown
+  Phase 4.7: var 'TestNT' has_type_changing=false
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 41 module body statements...
+generate():   Phase 5.1 - Statement 1/41: expr_stmt
+generate():   Phase 5.1 - Statement 2/41: import_stmt
+generate():   Phase 5.1 - Statement 3/41: import_stmt
+generate():   Phase 5.1 - Statement 4/41: import_stmt
+generate():   Phase 5.1 - Statement 5/41: import_stmt
+generate():   Phase 5.1 - Statement 6/41: import_stmt
+generate():   Phase 5.1 - Statement 7/41: import_stmt
+generate():   Phase 5.1 - Statement 8/41: import_stmt
+generate():   Phase 5.1 - Statement 9/41: import_from
+generate():   Phase 5.1 - Statement 10/41: import_from
+generate():   Phase 5.1 - Statement 11/41: import_stmt
+generate():   Phase 5.1 - Statement 12/41: import_stmt
+generate():   Phase 5.1 - Statement 13/41: import_from
+generate():   Phase 5.1 - Statement 14/41: import_stmt
+generate():   Phase 5.1 - Statement 15/41: import_stmt
+generate():   Phase 5.1 - Statement 16/41: import_from
+generate():   Phase 5.1 - Statement 17/41: import_from
+generate():   Phase 5.1 - Statement 18/41: import_from
+generate():   Phase 5.1 - Statement 19/41: import_from
+generate():   Phase 5.1 - Statement 20/41: import_from
+generate():   Phase 5.1 - Statement 21/41: import_from
+generate():   Phase 5.1 - Statement 22/41: import_from
+generate():   Phase 5.1 - Statement 23/41: import_from
+generate():   Phase 5.1 - Statement 24/41: import_from
+generate():   Phase 5.1 - Statement 25/41: import_from
+generate():   Phase 5.1 - Statement 26/41: import_from
+generate():   Phase 5.1 - Statement 27/41: import_from
+generate():   Phase 5.1 - Statement 28/41: class_def
+generate():     Processing class: TestUserObjects
+generate():   Phase 5.1 - Statement 29/41: class_def
+generate():     Processing class: TestChainMap
+generate():   Phase 5.1 - Statement 30/41: assign
+generate():   Phase 5.1 - Statement 31/41: class_def
+generate():     Processing class: TestNamedTuple
+generate():   Phase 5.1 - Statement 32/41: class_def
+generate():     Processing class: ABCTestCase
+generate():   Phase 5.1 - Statement 33/41: function_def
+generate():   Phase 5.1 - Statement 34/41: class_def
+generate():     Processing class: TestOneTrickPonyABCs
+generate():   Phase 5.1 - Statement 35/41: class_def
+generate():     Processing class: WithSet
+generate():   Phase 5.1 - Statement 36/41: class_def
+generate():     Processing class: TestCollectionABCs
+generate():   Phase 5.1 - Statement 37/41: class_def
+generate():     Processing class: CounterSubclassWithSetItem
+generate():   Phase 5.1 - Statement 38/41: class_def
+generate():     Processing class: CounterSubclassWithGet
+generate():   Phase 5.1 - Statement 39/41: class_def
+generate():     Processing class: TestCounter
+generate():   Phase 5.1 - Statement 40/41: function_def
+generate():   Phase 5.1 - Statement 41/41: if_stmt
+Zig code generated successfully.
+✓ Generated Zig: .metal0/gen/tests/cpython/test_collections.zig
+  Codegen: 1/1
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+
+[BATCH] Compilation errors (0/1 succeeded):
+Registered package module: numpy
+Registered package module: yaml
+install
++- install test_collections
+   +- compile exe test_collections ReleaseFast native 87 errors
+gen/tests/cpython/test_collections.zig:3873:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:3872:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:3931:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:3930:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4085:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4084:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4143:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4142:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:8324:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:8323:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/hash/auto_hash.zig:192:9: error: std.hash.autoHash does not allow slices as well as unions and structs containing slices here ([]const u8) 
+... (55207 more bytes)
+[1;31m✗[0m Batch compilation failed: error.BatchCompileFailed
+[1;31m✗[0m Falling back to individual compilation for 1 tests
+WARN: Fast linking failed for '.metal0/gen/tests/cpython/test_collections': error.CompilationFailed, falling back to full compilation
+Zig compilation failed:
+.metal0/metal0_main_test_collections_1767847585015.zig:3873:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3872:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3931:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3930:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:4085:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:4084:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:4143:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:4142:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8324:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8323:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/hash/auto_hash.zig:192:9: error: std.hash.autoHash does not allow slices as well as unions and structs containing slices here ([]const u8) because the intent is unclear. Consider using std.hash.autoHashStrat or providing your own hash function instead.
+        @compileError("std.hash.autoHash does not allow slices as well as unions and structs containing slices here (" ++ @typeName(Key) ++
+        ^~~~~~~~~~~~~
+referenced by:
+    hash: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:2636:25
+    checkedHash__anon_50279: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:1937:28
+    13 reference(s) hidden; use '-freference-trace=15' to see all references
+.metal0/metal0_main_test_collections_1767847585015.zig:32:36: error: root source file struct 'Lib.collections' has no member named '_count_elements'
+const _count_elements = collections._count_elements;
+                        ~~~~~~~~~~~^~~~~~~~~~~~~~~~
+packages/runtime/src/Lib/collections.zig:1:1: note: struct declared here
+//! Python 'collections' module - Container datatypes
+^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:180:81: error: expected type 'runtime.builtins.PyCallable', found 'fn (anytype) []const u8'
+        try self._superset_test(__global_allocator, UserString, runtime.builtins.str_factory);
+                                                                ~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:132:102: note: parameter type declared here
+    pub fn _superset_test(self: *const @This(), _: std.mem.Allocator, a: anytype, b: runtime.builtins.PyCallable) !void {
+                                                                                     ~~~~~~~~~~~~~~~~^~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:186:79: error: expected type 'runtime.builtins.PyCallable', found 'runtime.builtins.constructors.list__struct_22134'
+        try self._superset_test(__global_allocator, UserList, runtime.builtins.list);
+                                                              ~~~~~~~~~~~~~~~~^~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:38:18: note: struct declared here
+pub const list = struct {
+                 ^~~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:132:102: note: parameter type declared here
+    pub fn _superset_test(self: *const @This(), _: std.mem.Allocator, a: anytype, b: runtime.builtins.PyCallable) !void {
+                                                                                     ~~~~~~~~~~~~~~~~^~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:192:79: error: expected type 'runtime.builtins.PyCallable', found 'runtime.builtins.constructors.dict__struct_22150'
+        try self._superset_test(__global_allocator, UserDict, runtime.builtins.dict);
+                                                              ~~~~~~~~~~~~~~~~^~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:129:18: note: struct declared here
+pub const dict = struct {
+                 ^~~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:132:102: note: parameter type declared here
+    pub fn _superset_test(self: *const @This(), _: std.mem.Allocator, a: anytype, b: runtime.builtins.PyCallable) !void {
+                                                                                     ~~~~~~~~~~~~~~~~^~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:210:12: error: type 'Objects.object.PyValue' does not support indexing
+        obj[@as(usize, @intCast(123))] = "abc";
+        ~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:210:12: note: operand must be an array, slice, tuple, or vector
+.metal0/metal0_main_test_collections_1767847585015.zig:249:109: error: struct 'metal0_main_test_collections_1767847585015.TestUserObjects.test_dict_missing.A' has no member named 'call'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, (sub_2: { const __base = (try A.call(&.{})); break :sub_2 __base[@as(usize, @intCast(123))]; }))).eql(try runtime.PyValue.fromAlloc(__global_allocator, 456)))) return error.AssertionFailed;
+                                                                                                           ~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:217:19: note: struct declared here
+        const A = struct {
+                  ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:364:30: error: expected type '*cpython.PyObject', found 'array_hash_map.ArrayHashMapWithAllocator([]const u8,i64,hashmap_helper.WyhashStringContext,true)'
+            break :__m1_dict _dict;
+                             ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:941:38: error: expected type '*array_hash_map.ArrayHashMapWithAllocator([]const u8,[]const u8,hashmap_helper.WyhashStringContext,true)', found '*const array_hash_map.ArrayHashMapWithAllocator([]const u8,[]const u8,hashmap_helper.WyhashStringContext,true)'
+                try __m57_target_dict.put(__m60_entry.key_ptr.*, __m60_entry.value_ptr.*);
+                    ~~~~~~~~~~~~~~~~~^~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:941:38: note: cast discards const qualifier
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:26: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                         ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:961:80: error: expected type '*cpython.PyObject', found 'array_hash_map.ArrayHashMapUnmanaged(Objects.object.PyValue,Objects.object.PyValue,Objects.object.PyValueHashContext,true)'
+    __list_6.append(__global_allocator, runtime.PyValueHashMap(runtime.PyValue){}) catch @panic("OOM");
+                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:537:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:1146:104: error: expected type 'array_hash_map.ArrayHashMapWithAllocator(i64,i64,array_hash_map.AutoContext(i64),false)', found 'array_hash_map.ArrayHashMapUnmanaged(Objects.object.PyValue,Objects.object.PyValue,Objects.object.PyValueHashContext,true)'
+        })) catch unreachable; _maps.append(__global_allocator, runtime.PyValueHashMap(runtime.PyValue){}) catch unreachable; break :__m77_chainmap _maps; }))) return error.AssertionFailed;
+                                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:537:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:1219:39: error: expected 1 argument(s), found 3
+        const d = (try DefaultChainMap.init(__global_allocator, dict_16: {
+                       ~~~~~~~~~~~~~~~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:1203:17: note: function declared here
+            pub fn init(__alloc: std.mem.Allocator) !*@This() {
+            ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:1321:117: error: expected type 'anyerror!void', found 'array_hash_map.ArrayHashMapWithAllocator([]const u8,*cpython.PyObject,hashmap_helper.WyhashStringContext,true)'
+        })) catch unreachable; _maps.append(__global_allocator, hashmap_helper.StringHashMap(*runtime.PyObject).init(__global_allocator)) catch unreachable; _maps.append(__global_allocator, (blk_kwarg_err: {
+                                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:1391:39: error: expected 3 argument(s), found 2
+        const d = (try DictWithGetItem.init(__global_allocator, 1));
+                       ~~~~~~~~~~~~~~~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:1372:17: note: function declared here
+            pub fn init(__alloc: std.mem.Allocator, _: runtime.PyValue, _: runtime.PyValue) !*@This() {
+            ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:1531:32: error: expected type '*cpython.PyObject', found 'array_hash_map.ArrayHashMapWithAllocator([]const u8,i64,hashmap_helper.WyhashStringContext,true)'
+            break :__m115_dict _dict;
+                               ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:1871:236: error: invalid operands to binary bitwise expression: 'union' and 'union'
+    __list_10.append(__global_allocator, ((sub_40: { const __base = runtime.getClassAttr(cm1, "maps"); break :sub_40 if (@TypeOf(__base) == runtime.PyValue) __base.pyAt(@as(usize, @intCast(0))) else __base[@as(usize, @intCast(0))]; }) | cm2)) catch @panic("OOM");
+                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:2065:200: error: no field named '__getitem__' in struct 'runtime.builtins.constructors.tuple__struct_25786'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, runtime.getClassAttr(Point, "__getitem__"))).eql(try runtime.PyValue.fromAlloc(__global_allocator, runtime.builtins.tuple.__getitem__)))) return error.AssertionFailed;
+                                                                                                                                                                                                       ^~~~~~~~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:61:19: note: struct declared here
+pub const tuple = struct {
+                  ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:2431:27: error: no field named '__dict__' in union 'Objects.object.PyValue'
+        try @constCast(&p.__dict__).put("x", try runtime.PyValue.fromAlloc(__global_allocator, 33));
+                          ^~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:2456:165: error: no field named '__doc__' in union 'Objects.object.PyValue'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, (attr_52: { const __m229_t = runtime.getClassAttr(Point, "x"); break :attr_52 __m229_t.__doc__; }))).eql(try runtime.PyValue.fromAlloc(__global_allocator, "Alias for field number 0")))) return error.AssertionFailed;
+                                                                                                                                                                    ^~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:2588:24: error: expected type '[]const Objects.object.PyValue', found 'i64'
+        _ = Point.call(@as(i64, 1)) catch |__m250_ar_err| break :__m248_b __m250_ar_err;
+                       ^~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:3115:38: note: parameter type declared here
+    pub fn call(self: PyValue, args: []const PyValue) !PyValue {
+                                     ^~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:2665:21: error: no field or member function named 'next' in 'Objects.object.PyValue'
+            while (p.next()) |_| {}
+                   ~^~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:2705:82: error: no field or member function named '_make' in 'Objects.object.PyValue'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, Zero._make(std.ArrayListUnmanaged(i64){}))).eql(try runtime.PyValue.fromAlloc(__global_allocator, .{  })))) return error.AssertionFailed;
+                                                                             ~~~~^~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3105:170: error: no field or member function named '__len__' in 'array_hash_map.ArrayHashMapWithAllocator([]const u8,void,hashmap_helper.WyhashStringContext,true)'
+        const values: runtime.PyValue = try runtime.PyValue.fromAlloc(__global_allocator, (try runtime.builtins.range(__global_allocator, 0, @as(i64, @intCast((try words.__len__()))), 1)));
+                                                                                                                                                                    ~~~~~^~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3197:133: error: struct 'metal0_main_test_collections_1767847585015.TestNamedTuple.test_repr.B' has no member named 'call'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, (try runtime.builtins.pyRepr(__global_allocator, (try B.call(&.{runtime.PyValue.from(1)})))))).eql(try runtime.PyValue.fromAlloc(__global_allocator, "B(x=1)")))) return error.AssertionFailed;
+                                                                                                                                   ~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3165:19: note: struct declared here
+        const B = struct {
+                  ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3240:29: error: struct 'metal0_main_test_collections_1767847585015.TestNamedTuple.test_namedtuple_subclass_issue_24931.Point' has no member named 'call'
+        const a = (try Point.call(&.{runtime.PyValue.from(3), runtime.PyValue.from(4)}));
+                       ~~~~~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3215:23: note: struct declared here
+        const Point = struct {
+                      ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3399:172: error: no field named '__builtins__' in union 'Objects.object.PyValue'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, (sub_72: { const __base = runtime.getClassAttr(new_func, "__globals__"); break :sub_72 __base.__builtins__; }))).eql(try runtime.PyValue.fromAlloc(__global_allocator, runtime.PyValueHashMap(runtime.PyValue){})))) return error.AssertionFailed;
+                                                                                                                                                                           ^~~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:3421:321: error: expected type 'usize', found 'type'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, runtime.getClassAttr(A, "__args__"))).eql(try runtime.PyValue.fromAlloc(__global_allocator, .{ i64, (arr_73: { const __s = runtime.builtins.list; const __idx = i64; break :arr_73 if (@hasField(@TypeOf(__s), "items")) __s.items[__idx] else __s[__idx]; }) })))) return error.AssertionFailed;
+                                                                                                                                                                                                                                                                                                                                ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:4301:81: error: expected type 'Objects.object.PyValue', found 'runtime.builtins.repr.PyBytes'
+        try non_samples.append(__global_allocator, runtime.builtins.bytesLiteral(""));
+                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:4544:131: error: missing struct field: unmanaged
+        try samples.append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, hashmap_helper.StringHashMap(i64){}));
+                                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+.metal0/metal0_main_test_collections_1767847585015.zig:4544:131: note: missing struct field: allocator
+.metal0/metal0_main_test_collections_1767847585015.zig:4544:131: note: missing struct field: ctx
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:4710:65: error: expected type 'array_list.Aligned(Objects.object.PyValue,null)', found '@typeInfo(@typeInfo(@TypeOf(metal0_main_test_collections_1767847585015._test_gen)).@"fn".return_type.?).error_union.error_set![]Objects.object.PyValue'
+        try non_reversibles.append(__global_allocator, _test_gen());
+                                                       ~~~~~~~~~^~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:5099:67: error: expected type 'Objects.object.PyValue', found '@typeInfo(@typeInfo(@TypeOf(metal0_main_test_collections_1767847585015._test_gen)).@"fn".return_type.?).error_union.error_set![]Objects.object.PyValue'
+        try non_col_iterables.append(__global_allocator, _test_gen());
+                                                         ~~~~~~~~~^~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:5596:86: error: expected type 'Objects.object.PyValue', found '[]const void'
+        try samples.append(__global_allocator, runtime.container_dispatch.toIterSlice(@TypeOf(""), ""));
+                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:5905:168: error: expected type '[]const i64', found '@TypeOf(.{})'
+        try non_samples.append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(.{}), .{}))));
+                                                                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+packages/runtime/src/Python/iterobject.zig:174:37: note: parameter type declared here
+pub fn iter(comptime T: type, data: []const T) SequenceIterator(T) {
+                                    ^~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:6438:168: error: expected type '[]const i64', found '@TypeOf(.{})'
+        try non_samples.append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, runtime.iterators.iter(i64, runtime.container_dispatch.toIterSlice(@TypeOf(.{}), .{}))));
+                                                                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~
+packages/runtime/src/Python/iterobject.zig:174:37: note: parameter type declared here
+pub fn iter(comptime T: type, data: []const T) SequenceIterator(T) {
+                                    ^~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:6820:131: error: missing struct field: unmanaged
+        try samples.append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, hashmap_helper.StringHashMap(i64){}));
+                                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+.metal0/metal0_main_test_collections_1767847585015.zig:6820:131: note: missing struct field: allocator
+.metal0/metal0_main_test_collections_1767847585015.zig:6820:131: note: missing struct field: ctx
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:6891:131: error: missing struct field: unmanaged
+        try samples.append(__global_allocator, try runtime.PyValue.fromAlloc(__global_allocator, hashmap_helper.StringHashMap(i64){}));
+                                                                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+.metal0/metal0_main_test_collections_1767847585015.zig:6891:131: note: missing struct field: allocator
+.metal0/metal0_main_test_collections_1767847585015.zig:6891:131: note: missing struct field: ctx
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:6949:17: error: expected type '*cpython.PyObject', found 'Objects.object.PyValue'
+            x = __m620_lv_x;
+                ^~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7050:14: error: no field or member function named 'register' in 'Objects.object.PyValue'
+            B.register(C);
+            ~^~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7062:50: error: member function expected 3 argument(s), found 2
+        const methodstubs = runtime.builtins.dict.fromkeys(names, (struct { fn call(_: anytype, _: anytype) anyerror!i64 { return 0; } }));
+                            ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:131:9: note: function declared here
+    pub fn fromkeys(_: @This(), allocator: std.mem.Allocator, key_seq: anytype, value: anytype) !*PyObject {
+    ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7062:50: error: member function expected 3 argument(s), found 2
+        const methodstubs = runtime.builtins.dict.fromkeys(names, (struct { fn call(_: anytype, _: anytype) anyerror!i64 { return 0; } }));
+                            ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:131:9: note: function declared here
+    pub fn fromkeys(_: @This(), allocator: std.mem.Allocator, key_seq: anytype, value: anytype) !*PyObject {
+    ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7062:50: error: member function expected 3 argument(s), found 2
+        const methodstubs = runtime.builtins.dict.fromkeys(names, (struct { fn call(_: anytype, _: anytype) anyerror!i64 { return 0; } }));
+                            ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:131:9: note: function declared here
+    pub fn fromkeys(_: @This(), allocator: std.mem.Allocator, key_seq: anytype, value: anytype) !*PyObject {
+    ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7062:50: error: member function expected 3 argument(s), found 2
+        const methodstubs = runtime.builtins.dict.fromkeys(names, (struct { fn call(_: anytype, _: anytype) anyerror!i64 { return 0; } }));
+                            ~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+packages/runtime/src/runtime/builtins/constructors.zig:131:9: note: function declared here
+    pub fn fromkeys(_: @This(), allocator: std.mem.Allocator, key_seq: anytype, value: anytype) !*PyObject {
+    ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7337:14: error: expected type '[]const u8', found 'u8'
+try _set.put(_item, {});
+             ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_collections_1767847585015.zig:7472:61: error: no field or member function named 'call' in 'runtime.builtins.PyCallable'
+                        try unittest.assertIsInstance(sample.call(), Set.__name__);
+                                                      ~~~~~~^~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7582:30: error: no field or member function named '_hash' in 'metal0_main_test_collections_1767847585015.TestCollectionABCs.test_hash_Set.OneTwoThreeSet'
+return runtime.pyToInt(__self._hash());
+                       ~~~~~~^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7528:32: note: struct declared here
+        const OneTwoThreeSet = struct {
+                               ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7582:30: note: method invocation only supports up to one level of implicit pointer dereferencing
+.metal0/metal0_main_test_collections_1767847585015.zig:7582:30: note: use '.*' to dereference pointer
+.metal0/metal0_main_test_collections_1767847585015.zig:7657:57: error: type 'Objects.object.PyValue' does not support array initialization syntax
+        const s1 = (try MySet.init(__global_allocator, .{ @as(i64, 1), @as(i64, 2), @as(i64, 3) }));
+                                                       ~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7746:57: error: type 'Objects.object.PyValue' does not support array initialization syntax
+        const s1 = (try MySet.init(__global_allocator, .{ @as(i64, 1) }));
+                                                       ~^~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7826:57: error: type 'Objects.object.PyValue' does not support array initialization syntax
+        const s1 = (try MySet.init(__global_allocator, .{ @as(i64, 1), @as(i64, 2), @as(i64, 3) }));
+                                                       ~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7838:110: error: struct 'Lib._collections_abc.MutableSet' has no member named '__name__'
+                try unittest.assertIsInstance(std.AutoHashMap(i64, void).init(__global_allocator), MutableSet.__name__);
+                                                                                                   ~~~~~~~~~~^~~~~~~~~
+packages/runtime/src/Lib/_collections_abc.zig:117:24: note: struct declared here
+pub const MutableSet = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7982:55: error: expected type 'Objects.object.PyValue', found 'array_list.Aligned(i64,null)'
+        const s = (try MySet.init(__global_allocator, items));
+                                                      ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here
+    return struct {
+           ^~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7898:76: note: parameter type declared here
+            pub fn init(__alloc: std.mem.Allocator, __m669_p_items: runtime.PyValue) !*@This() {
+                                                                    ~~~~~~~^~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:7994:62: error: type '[]const u8' does not support array initialization syntax
+        const empty = (try WithSet.init(__global_allocator, .{}));
+                                                            ~^~
+.metal0/metal0_main_test_collections_1767847585015.zig:7994:62: note: inferred array length is specified with an underscore: '[_]u8'
+.metal0/metal0_main_test_collections_1767847585015.zig:8191:34: error: expected type 'array_list.Aligned(f64,null)', found 'array_list.Aligned(Objects.object.PyValue,null)'
+            break :__list_rt_670 __list_var_670;
+                                 ^~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here (2 times)
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8293:9: error: member function expected 3 argument(s), found 2
+try _set.put(runtime.PyValue.from(_item), {});
+    ~~~~^~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:936:13: note: function declared here
+        pub fn put(self: *Self, gpa: Allocator, key: K, value: V) Oom!void {
+        ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8496:14: error: expected type '[]const u8', found 'u8'
+try _set.put(_item, {});
+             ^~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_collections_1767847585015.zig:8732:84: error: expected type 'hash_map.HashMap(?void,void,hash_map.AutoContext(?void),80)', found 'array_hash_map.ArrayHashMapUnmanaged(Objects.object.PyValue,Objects.object.PyValue,Objects.object.PyValueHashContext,true)'
+        try sets.append(__global_allocator, runtime.PyValueHashMap(runtime.PyValue){});
+                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:537:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/hash_map.zig:141:12: note: struct declared here
+    return struct {
+           ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:8839:61: error: no field or member function named 'call' in 'runtime.builtins.PyCallable'
+                        try unittest.assertIsInstance(sample.call(), Mapping.__name__);
+                                                      ~~~~~~^~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8915:61: error: no field or member function named 'call' in 'runtime.builtins.PyCallable'
+                        try unittest.assertIsInstance(sample.call(), MutableMapping.__name__);
+                                                      ~~~~~~^~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8928:126: error: struct 'Lib._collections_abc.Set' has no member named '__name__'
+                try unittest.assertIsInstance(runtime.PyValue.from(try runtime.eval(__global_allocator, "mymap.keys()")), Set.__name__);
+                                                                                                                          ~~~^~~~~~~~~
+packages/runtime/src/Lib/_collections_abc.zig:112:17: note: struct declared here
+pub const Set = struct {
+                ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8987:61: error: no field or member function named 'call' in 'runtime.builtins.PyCallable'
+                        try unittest.assertIsInstance(sample.call(), Sequence.__name__);
+                                                      ~~~~~~^~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:9102:48: error: type 'runtime.builtins.constructors.list__struct_22134' not a function
+            const nativeseq: runtime.PyValue = ty("abracadabra");
+                                               ^~
+packages/runtime/src/runtime/builtins/constructors.zig:38:18: note: struct declared here
+pub const list = struct {
+                 ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:9209:75: error: expected type 'runtime.builtins.PyCallable', found 'fn ([]const u8) []const u8'
+            try __list_var_762.append(__global_allocator, runtime.builtins.bytearray_factory);
+                                                          ~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:9290:75: error: expected type 'runtime.builtins.PyCallable', found 'fn ([]const u8) []const u8'
+            try __list_var_766.append(__global_allocator, runtime.builtins.bytearray_factory);
+                                                          ~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:893:58: note: parameter type declared here
+        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
+                                                         ^
+.metal0/metal0_main_test_collections_1767847585015.zig:9324:22: error: expected type '*cpython.PyObject', found 'runtime.builtins.PyCallable'
+            sample = __m771_lv_sample;
+                     ^~~~~~~~~~~~~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:9377:51: error: expected type 'array_list.Aligned(Objects.object.PyValue,null)', found 'array_list.Aligned(i64,null)'
+                    .lst = std.ArrayListUnmanaged(i64){},
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here (2 times)
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:9930:114: error: type 'array_hash_map.ArrayHashMapWithAllocator([]const u8,i64,hashmap_helper.WyhashStringContext,true)' does not support indexing
+        }); const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :__m802_counter _counter; }))))) return error.AssertionFailed;
+                                                                                                        ~~~~~~~~~^~~
+.metal0/metal0_main_test_collections_1767847585015.zig:9930:114: note: operand must be an array, slice, tuple, or vector
+.metal0/metal0_main_test_collections_1767847585015.zig:10178:30: error: root source file struct 'runtime.builtins' has no member named 'Counter'
+        _ = runtime.builtins.Counter.call(@as(i64, 42)) catch |__m857_ar_err| break :__m855_b __m857_ar_err;
+                             ^~~~~~~
+packages/runtime/src/runtime/builtins.zig:1:1: note: struct declared here
+/// Built-in Python functions implemented in Zig
+^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10229:79: error: no field or member function named 'total' in 'anyerror!void'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, c.total())).eql(try runtime.PyValue.fromAlloc(__global_allocator, 15)))) return error.AssertionFailed;
+                                                                             ~^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10229:79: note: consider using 'try', 'catch', or 'if'
+.metal0/metal0_main_test_collections_1767847585015.zig:10253:513: error: no field or member function named 'elements' in 'array_hash_map.ArrayHashMapWithAllocator(u8,i64,array_hash_map.AutoContext(u8),false)'
+        if (!runtime.listEquals(__global_allocator, (mcall_140: { const __m874_t = (__m875_counter: { const _iter_raw = "abracadabra simsalabim"; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :__m875_counter _counter; }); break :mcall_140 __m874_t.elements(); }), [_][]const u8{"a", "a", "a", "a", "a", "a", "a", "b", "b", "b", "r", "r", "c", "d", " ", "s", "s", "i", "i", "m", "m", "l"})) return error.AssertionFailed;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ~~~~~~~~^~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10369:10: error: no field or member function named 'update' in 'array_hash_map.ArrayHashMapWithAllocator([]const u8,i64,hashmap_helper.WyhashStringContext,true)'
+        c.update(42);
+        ~^~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10468:145: error: expected type 'array_hash_map.ArrayHashMapWithAllocator([]const u8,i64,hashmap_helper.WyhashStringContext,true)', found 'array_hash_map.ArrayHashMapWithAllocator([]const u8,i64,array_hash_map.AutoContext([]const u8),false)'
+        const __m937_closure_check = runtime.AnyClosure1(__m937_CaptureType_check, __m937_ClosureImpl_check.__m937_call_check){ .captures = .{ .words = words,  .self = self } };
+                                                                                                                                               ~^~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here (2 times)
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10531:33: error: expected 1 argument(s), found 2
+        const c = (try MyCounter.init(__global_allocator, "slartibartfast"));
+                       ~~~~~~~~~^~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10522:17: note: function declared here
+            pub fn init(__alloc: std.mem.Allocator) !*@This() {
+            ~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10545:461: error: no field or member function named 'elements' in 'array_hash_map.ArrayHashMapWithAllocator(u8,i64,array_hash_map.AutoContext(u8),false)'
+const __sorted_input = (mcall_146: { const __m948_t = (__m949_counter: { const _iter_raw = s; const _iterable = runtime.iterSlice(_iter_raw); var _counter = std.AutoArrayHashMap(@TypeOf(_iterable[0]), i64).init(__global_allocator); for (_iterable) |item| { const entry = _counter.getOrPut(item) catch continue; if (entry.found_existing) { entry.value_ptr.* += 1; } else { entry.value_ptr.* = 1; } } break :__m949_counter _counter; }); break :mcall_146 __m948_t.elements(); });
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ~~~~~~~~^~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10639:17: error: expected type 'type', found 'fn (comptime type) type'
+        var p: *Counter = undefined;
+                ^~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10785:72: error: type 'i64' does not support array initialization syntax
+                    try __m989_comp_result.append(__global_allocator, .{ elem, rng_159: { const __rng_start_159: i64 = @intCast(-(2)); const __rng_stop_159: i64 = @intCast(4); var _prng = std.Random.DefaultPrng.init(@intCast(std.time.timestamp())); const _r = _prng.random(); break :rng_159 __rng_start_159 + @as(i64, @intCast(_r.int(u64) % @as(u64, @intCast(__rng_stop_159 - __rng_start_159)))); } });
+                                                                      ~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10845:10: error: no field or member function named 'subtract' in 'anyerror!void'
+        c.subtract(1, 2, -(3), 10, 20, 30, -(50));
+        ~^~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10845:10: note: consider using 'try', 'catch', or 'if'
+.metal0/metal0_main_test_collections_1767847585015.zig:10953:78: error: negation of type 'anyerror!void'
+                if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, -(c))).eql(try runtime.PyValue.fromAlloc(__global_allocator, dict_165: {
+                                                                             ^~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:10993:119: error: missing struct field: unmanaged
+        const d: runtime.PyValue = try runtime.PyValue.fromAlloc(__global_allocator, hashmap_helper.StringHashMap(i64){});
+                                                                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
+.metal0/metal0_main_test_collections_1767847585015.zig:10993:119: note: missing struct field: allocator
+.metal0/metal0_main_test_collections_1767847585015.zig:10993:119: note: missing struct field: ctx
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:95:12: note: struct declared here
+    return struct {
+           ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:11137:135: error: type '[]const i64' does not support array initialization syntax
+        const s: runtime.PyValue = try runtime.PyValue.fromAlloc(__global_allocator, runtime.listFromAny(__global_allocator, product(.{ "a", "b", "c" }, (try runtime.builtins.range(__global_allocator, 0, @as(i64, @intCast(2)), 1)))));
+                                                                                                                                     ~^~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:11137:135: note: inferred array length is specified with an underscore: '[_]i64'
+packages/runtime/src/Objects/object.zig:650:53: error: expected type 'runtime.builtins.PyCallable', found 'Objects.object.PyValue'
+                            const res = self.__lt__(other);
+                                                    ^~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8115:70: note: parameter type declared here
+            pub fn __lt__(__self: *const @This(), x: runtime.builtins.PyCallable) anyerror!runtime.PyValue {
+                                                     ~~~~~~~~~~~~~~~~^~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:702:53: error: expected type 'runtime.builtins.PyCallable', found 'Objects.object.PyValue'
+                            const res = self.__le__(other);
+                                                    ^~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/runtime/builtins.zig:15:24: note: struct declared here
+pub const PyCallable = struct {
+                       ^~~~~~
+.metal0/metal0_main_test_collections_1767847585015.zig:8107:70: note: parameter type declared here
+            pub fn __le__(__self: *const @This(), x: runtime.builtins.PyCallable) anyerror!runtime.PyValue {
+                                                     ~~~~~~~~~~~~~~~~^~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:2071:62: error: type 'runtime.builtins.DictItemTuple' does not support indexing
+                TupleStorage.buffers[buf_idx][i] = from(value[i]);
+                                                        ~~~~~^~~
+packages/runtime/src/Objects/object.zig:2071:62: note: operand must be an array, slice, tuple, or vector
+packages/runtime/src/Objects/object.zig:1909:33: note: called inline here
+                return fromTuple(value);
+                       ~~~~~~~~~^~~~~~~
+packages/runtime/src/runtime/hash_ops.zig:64:33: error: expected error union type, found 'i64'
+        return value.__hash__() catch -1;
+               ~~~~~~~~~~~~~~~~~^~~~~~~~
+
+ERROR: Compilation failed for '.metal0/gen/tests/cpython/test_collections': error.ZigCompilationFailed
+  Compile: 0/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_collections
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x100689ed7 in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x1006b498f in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^

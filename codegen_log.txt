@@ -1,0 +1,318 @@
+=== metal0 test (tests/cpython) ===
+Patterns: binop
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Skipped import (zig_runtime): unittest
+  Skipped import (zig_runtime): operator
+  Skipped import (stdlib): abc
+Generating C extension stubs (0 extensions)...
+Type inference...
+Type inference done.
+Initializing codegen...
+Codegen initialized.
+Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+Call graph built.
+Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 0 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 3 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 3 imported modules...
+generate():   Processing import 1/3: unittest
+generate():   Processing import 2/3: operator
+generate():   Processing import 3/3: abc
+generate(): Phase 4.7 - Pre-populating module_level_vars with 0 global vars...
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 26 module body statements...
+generate():   Phase 5.1 - Statement 1/26: expr_stmt
+generate():   Phase 5.1 - Statement 2/26: import_stmt
+generate():   Phase 5.1 - Statement 3/26: import_from
+generate():   Phase 5.1 - Statement 4/26: import_from
+generate():   Phase 5.1 - Statement 5/26: function_def
+generate():   Phase 5.1 - Statement 6/26: function_def
+generate():   Phase 5.1 - Statement 7/26: function_def
+generate():   Phase 5.1 - Statement 8/26: function_def
+generate():   Phase 5.1 - Statement 9/26: class_def
+generate():     Processing class: Rat
+DEBUG: [Rat] Found __init__ in Rat with 3 params
+generate():   Phase 5.1 - Statement 10/26: class_def
+generate():     Processing class: RatTestCase
+DEBUG: [RatTestCase] NO __init__ found (bases: 1)
+DEBUG: [RatTestCase] Base: unittest.TestCase
+generate():   Phase 5.1 - Statement 11/26: class_def
+generate():     Processing class: OperationLogger
+DEBUG: [OperationLogger] Found __init__ in OperationLogger with 2 params
+generate():   Phase 5.1 - Statement 12/26: function_def
+generate():   Phase 5.1 - Statement 13/26: class_def
+generate():     Processing class: A
+DEBUG: [A] Found __init__ in OperationLogger with 2 params
+generate():   Phase 5.1 - Statement 14/26: class_def
+generate():     Processing class: B
+DEBUG: [B] Found __init__ in OperationLogger with 2 params
+generate():   Phase 5.1 - Statement 15/26: class_def
+generate():     Processing class: C
+DEBUG: [C] Found __init__ in OperationLogger with 2 params
+generate():   Phase 5.1 - Statement 16/26: class_def
+generate():     Processing class: V
+DEBUG: [V] Found __init__ in OperationLogger with 2 params
+generate():   Phase 5.1 - Statement 17/26: expr_stmt
+generate():   Phase 5.1 - Statement 18/26: class_def
+generate():     Processing class: OperationOrderTests
+DEBUG: [OperationOrderTests] NO __init__ found (bases: 1)
+DEBUG: [OperationOrderTests] Base: unittest.TestCase
+generate():   Phase 5.1 - Statement 19/26: class_def
+generate():     Processing class: SupEq
+DEBUG: [SupEq] NO __init__ found (bases: 1)
+DEBUG: [SupEq] Base: object
+generate():   Phase 5.1 - Statement 20/26: class_def
+generate():     Processing class: S
+DEBUG: [S] NO __init__ found (bases: 1)
+DEBUG: [S] Base: SupEq
+generate():   Phase 5.1 - Statement 21/26: class_def
+generate():     Processing class: F
+DEBUG: [F] NO __init__ found (bases: 1)
+DEBUG: [F] Base: object
+generate():   Phase 5.1 - Statement 22/26: class_def
+generate():     Processing class: X
+DEBUG: [X] NO __init__ found (bases: 1)
+DEBUG: [X] Base: object
+generate():   Phase 5.1 - Statement 23/26: class_def
+generate():     Processing class: SN
+DEBUG: [SN] NO __init__ found (bases: 1)
+DEBUG: [SN] Base: SupEq
+generate():   Phase 5.1 - Statement 24/26: class_def
+generate():     Processing class: XN
+DEBUG: [XN] NO __init__ found (bases: 0)
+generate():   Phase 5.1 - Statement 25/26: class_def
+generate():     Processing class: FallbackBlockingTests
+DEBUG: [FallbackBlockingTests] NO __init__ found (bases: 1)
+DEBUG: [FallbackBlockingTests] Base: unittest.TestCase
+generate():   Phase 5.1 - Statement 26/26: if_stmt
+Zig code generated successfully.
+✓ Generated Zig: .metal0/gen/tests/cpython/test_binop.zig
+  Codegen: 1/1
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+  Batch compile: 1/1
+  Compile: 1/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+DEBUG EQL: self_tag=string other_tag=string
+test_FallbackBlockingTests_test_fallback_rmethod_blocking ... SKIP: Uses assertRaises with operator.eq/ne (requires __eq__=None runtime dispatch)\ntest_FallbackBlockingTests_test_fallback_ne_blocking ... SKIP: Uses assertRaises with operator.eq/ne (requires __eq__=None runtime dispatch)\nDEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+Traceback (most recent call last):
+  <compiled code>, zig line 119
+ZeroDivisionError: zero denominator
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b0082c0 vs anyopaque@a7b008300
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b0083c0 vs anyopaque@a7b008400
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b008540 vs anyopaque@a7b008580
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b008640 vs anyopaque@a7b008680
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b008740 vs anyopaque@a7b008780
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b0088c0 vs anyopaque@a7b008900
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b008b40 vs anyopaque@a7b008b80
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b008c00 vs anyopaque@a7b008c40
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b008cc0 vs anyopaque@a7b008d00
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b009080 vs anyopaque@a7b0090c0
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=object
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=float
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=object
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b009280 vs anyopaque@a7b0092c0
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b009340 vs anyopaque@a7b009380
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=object other_tag=object
+DEBUG EQL: object pointer mismatch anyopaque@a7b009400 vs anyopaque@a7b009440
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=int other_tag=int
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=float other_tag=float
+DEBUG EQL: self_tag=list other_tag=tuple
+DEBUG EQL: cross-type comparison FAILED list vs tuple
+test_RatTestCase_test_gcd ... ok
+test_RatTestCase_test_constructor ... ok
+test_RatTestCase_test_add ... ok
+test_RatTestCase_test_sub ... ok
+test_RatTestCase_test_mul ... ok
+test_RatTestCase_test_div ... ok
+test_RatTestCase_test_floordiv ... ok
+test_RatTestCase_test_eq ... ok
+test_RatTestCase_test_true_div ... ok
+test_OperationOrderTests_test_comparison_orders ... FAIL
+
+----------------------------------------------------------------------
+Ran 10 test(s)
+
+FAILED (failures=1)
+  - test_OperationOrderTests_test_comparison_orders
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_binop
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x104fadd57 in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x104fd880f in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^

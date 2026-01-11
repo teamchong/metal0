@@ -1,0 +1,145 @@
+class AllTests:
+    def __hash__(self):
+        callLst.append(('__hash__', (self,)))
+        return hash(id(self))
+    def __str__(self):
+        callLst.append(('__str__', (self,)))
+        return 'AllTests'
+    def __repr__(self):
+        callLst.append(('__repr__', (self,)))
+        return 'AllTests'
+    def __int__(self):
+        callLst.append(('__int__', (self,)))
+        return 1
+    def __index__(self):
+        callLst.append(('__index__', (self,)))
+        return 1
+    def __float__(self):
+        callLst.append(('__float__', (self,)))
+        return 1.0
+    def __eq__(self, arg0):
+        callLst.append(('__eq__', (self, arg0,)))
+        return True
+    def __ne__(self, arg0):
+        callLst.append(('__ne__', (self, arg0,)))
+        return False
+    def __lt__(self, arg0):
+        callLst.append(('__lt__', (self, arg0,)))
+        return False
+    def __le__(self, arg0):
+        callLst.append(('__le__', (self, arg0,)))
+        return True
+    def __gt__(self, arg0):
+        callLst.append(('__gt__', (self, arg0,)))
+        return False
+    def __ge__(self, arg0):
+        callLst.append(('__ge__', (self, arg0,)))
+        return True
+    def __setitem__(self, arg0, arg1):
+        callLst.append(('__setitem__', (self, arg0, arg1,)))
+        pass
+    def __delitem__(self, arg0):
+        callLst.append(('__delitem__', (self, arg0,)))
+        pass
+    def __init__(self):
+        callLst.append(('__init__', (self,)))
+        pass
+    def __add__(self, other):
+        callLst.append(('__add__', (self, other)))
+        pass
+    def __radd__(self, other):
+        callLst.append(('__radd__', (self, other)))
+        pass
+    def __sub__(self, other):
+        callLst.append(('__sub__', (self, other)))
+        pass
+    def __rsub__(self, other):
+        callLst.append(('__rsub__', (self, other)))
+        pass
+    def __mul__(self, other):
+        callLst.append(('__mul__', (self, other)))
+        pass
+    def __rmul__(self, other):
+        callLst.append(('__rmul__', (self, other)))
+        pass
+    def __matmul__(self, other):
+        callLst.append(('__matmul__', (self, other)))
+        pass
+    def __rmatmul__(self, other):
+        callLst.append(('__rmatmul__', (self, other)))
+        pass
+    def __truediv__(self, other):
+        callLst.append(('__truediv__', (self, other)))
+        pass
+    def __rtruediv__(self, other):
+        callLst.append(('__rtruediv__', (self, other)))
+        pass
+    def __floordiv__(self, other):
+        callLst.append(('__floordiv__', (self, other)))
+        pass
+    def __rfloordiv__(self, other):
+        callLst.append(('__rfloordiv__', (self, other)))
+        pass
+    def __mod__(self, other):
+        callLst.append(('__mod__', (self, other)))
+        pass
+    def __rmod__(self, other):
+        callLst.append(('__rmod__', (self, other)))
+        pass
+    def __divmod__(self, other):
+        callLst.append(('__divmod__', (self, other)))
+        pass
+    def __rdivmod__(self, other):
+        callLst.append(('__rdivmod__', (self, other)))
+        pass
+    def __pow__(self, other):
+        callLst.append(('__pow__', (self, other)))
+        pass
+    def __rpow__(self, other):
+        callLst.append(('__rpow__', (self, other)))
+        pass
+    def __rshift__(self, other):
+        callLst.append(('__rshift__', (self, other)))
+        pass
+    def __rrshift__(self, other):
+        callLst.append(('__rrshift__', (self, other)))
+        pass
+    def __lshift__(self, other):
+        callLst.append(('__lshift__', (self, other)))
+        pass
+    def __rlshift__(self, other):
+        callLst.append(('__rlshift__', (self, other)))
+        pass
+    def __and__(self, other):
+        callLst.append(('__and__', (self, other)))
+        pass
+    def __rand__(self, other):
+        callLst.append(('__rand__', (self, other)))
+        pass
+    def __or__(self, other):
+        callLst.append(('__or__', (self, other)))
+        pass
+    def __ror__(self, other):
+        callLst.append(('__ror__', (self, other)))
+        pass
+    def __xor__(self, other):
+        callLst.append(('__xor__', (self, other)))
+        pass
+    def __rxor__(self, other):
+        callLst.append(('__rxor__', (self, other)))
+        pass
+    def __contains__(self, other):
+        callLst.append(('__contains__', (self, other)))
+        pass
+    def __getitem__(self, other):
+        callLst.append(('__getitem__', (self, other)))
+        pass
+    def __neg__(self):
+        callLst.append(('__neg__', (self,)))
+        pass
+    def __pos__(self):
+        callLst.append(('__pos__', (self,)))
+        pass
+    def __abs__(self):
+        callLst.append(('__abs__', (self,)))
+        pass

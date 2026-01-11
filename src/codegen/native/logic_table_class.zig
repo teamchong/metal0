@@ -123,6 +123,11 @@ pub fn genLogicTableClass(self: *NativeCodegen, class: ast.Node.ClassDef) Codege
             // NOTE: For @logic_table, methods don't use self, so we generate them as static methods
             try signature.genMethodSignatureWithSkip(self, class.name, method, false, needs_allocator, false, actually_uses_allocator);
 
+            // Analyze mutations before generating body - required for proper var/const inference
+            // Without this, variables like `result = 0.0` followed by `result = result + x`
+            // would incorrectly be hoisted as `const` instead of `var`
+            try gen_body.analyzeFunctionLocalMutations(self, method);
+
             // Generate method body
             try gen_body.genMethodBodyWithAllocatorInfo(self, method, needs_allocator, actually_uses_allocator);
         }

@@ -71,6 +71,10 @@ pub fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node, unique_id: usiz
     switch (target) {
         .name => |n| {
             const var_name = n.id;
+            // Get the Pass 2.5 name for this loop variable (if available)
+            // This ensures declaration matches references which use getZigName()
+            const zig_name = self.getZigName(var_name);
+
             // Check if this name shadows an imported module or a declared variable (like function params)
             // In Zig, for-loop captures cannot shadow outer scope variables
             const shadows_import = self.imported_modules.contains(var_name);
@@ -81,7 +85,8 @@ pub fn emitForLoopTarget(self: *NativeCodegen, target: ast.Node, unique_id: usiz
                 try self.emit(mangled_name);
                 return mangled_name;
             } else {
-                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), var_name);
+                // Use Pass 2.5 name to match what references will use via getZigName()
+                try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), zig_name);
                 return null;
             }
         },

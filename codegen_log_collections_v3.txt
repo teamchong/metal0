@@ -1,0 +1,203 @@
+=== metal0 test (tests/cpython) ===
+Patterns: test_collections
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Skipped import (zig_runtime): array
+  Skipped import (stdlib): collections
+  Skipped import (zig_runtime): copy
+  Skipped import (codegen_dispatch): doctest
+  Skipped import (stdlib): inspect
+  Skipped import (zig_runtime): operator
+  Skipped import (zig_runtime): pickle
+  Skipped import (zig_runtime): random
+  Skipped import (zig_runtime): itertools
+  Skipped import (zig_runtime): string
+  Skipped import (stdlib): sys
+  Skipped import (zig_runtime): test
+  Skipped import (stdlib): types
+  Skipped import (zig_runtime): unittest
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+  Skipped import (stdlib): collections.abc
+Generating C extension stubs (0 extensions)...
+Type inference...
+Type inference done.
+Initializing codegen...
+Codegen initialized.
+Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+Call graph built.
+Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 1 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 15 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 15 imported modules...
+generate():   Processing import 1/15: array
+generate():   Processing import 2/15: collections
+generate():   Processing import 3/15: copy
+generate():   Processing import 4/15: doctest
+generate():   Processing import 5/15: inspect
+generate():   Processing import 6/15: operator
+generate():   Processing import 7/15: pickle
+generate():   Processing import 8/15: random
+generate():   Processing import 9/15: itertools
+generate():   Processing import 10/15: string
+generate():   Processing import 11/15: sys
+generate():   Processing import 12/15: test
+generate():   Processing import 13/15: types
+generate():   Processing import 14/15: unittest
+generate():   Processing import 15/15: collections.abc
+generate(): Phase 4.7 - Pre-populating module_level_vars with 1 global vars...
+  Phase 4.7: var 'TestNT' assign #1 type=unknown
+  Phase 4.7: var 'TestNT' has_type_changing=false
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 41 module body statements...
+generate():   Phase 5.1 - Statement 1/41: expr_stmt
+generate():   Phase 5.1 - Statement 2/41: import_stmt
+generate():   Phase 5.1 - Statement 3/41: import_stmt
+generate():   Phase 5.1 - Statement 4/41: import_stmt
+generate():   Phase 5.1 - Statement 5/41: import_stmt
+generate():   Phase 5.1 - Statement 6/41: import_stmt
+generate():   Phase 5.1 - Statement 7/41: import_stmt
+generate():   Phase 5.1 - Statement 8/41: import_stmt
+generate():   Phase 5.1 - Statement 9/41: import_from
+generate():   Phase 5.1 - Statement 10/41: import_from
+generate():   Phase 5.1 - Statement 11/41: import_stmt
+generate():   Phase 5.1 - Statement 12/41: import_stmt
+generate():   Phase 5.1 - Statement 13/41: import_from
+generate():   Phase 5.1 - Statement 14/41: import_stmt
+generate():   Phase 5.1 - Statement 15/41: import_stmt
+generate():   Phase 5.1 - Statement 16/41: import_from
+generate():   Phase 5.1 - Statement 17/41: import_from
+generate():   Phase 5.1 - Statement 18/41: import_from
+generate():   Phase 5.1 - Statement 19/41: import_from
+generate():   Phase 5.1 - Statement 20/41: import_from
+generate():   Phase 5.1 - Statement 21/41: import_from
+generate():   Phase 5.1 - Statement 22/41: import_from
+generate():   Phase 5.1 - Statement 23/41: import_from
+generate():   Phase 5.1 - Statement 24/41: import_from
+generate():   Phase 5.1 - Statement 25/41: import_from
+generate():   Phase 5.1 - Statement 26/41: import_from
+generate():   Phase 5.1 - Statement 27/41: import_from
+generate():   Phase 5.1 - Statement 28/41: class_def
+generate():     Processing class: TestUserObjects
+generate():   Phase 5.1 - Statement 29/41: class_def
+generate():     Processing class: TestChainMap
+generate():   Phase 5.1 - Statement 30/41: assign
+generate():   Phase 5.1 - Statement 31/41: class_def
+generate():     Processing class: TestNamedTuple
+generate():   Phase 5.1 - Statement 32/41: class_def
+generate():     Processing class: ABCTestCase
+generate():   Phase 5.1 - Statement 33/41: function_def
+generate():   Phase 5.1 - Statement 34/41: class_def
+generate():     Processing class: TestOneTrickPonyABCs
+generate():   Phase 5.1 - Statement 35/41: class_def
+generate():     Processing class: WithSet
+generate():   Phase 5.1 - Statement 36/41: class_def
+generate():     Processing class: TestCollectionABCs
+generate():   Phase 5.1 - Statement 37/41: class_def
+generate():     Processing class: CounterSubclassWithSetItem
+generate():   Phase 5.1 - Statement 38/41: class_def
+generate():     Processing class: CounterSubclassWithGet
+generate():   Phase 5.1 - Statement 39/41: class_def
+generate():     Processing class: TestCounter
+generate():   Phase 5.1 - Statement 40/41: function_def
+generate():   Phase 5.1 - Statement 41/41: if_stmt
+Zig code generated successfully.
+✓ Generated Zig: .metal0/gen/tests/cpython/test_collections.zig
+  Codegen: 1/1
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+
+[BATCH] Compilation errors (1/1 succeeded):
+Registered package module: numpy
+Registered package module: yaml
+install
++- install test_collections
+   +- compile exe test_collections ReleaseFast native 87 errors
+gen/tests/cpython/test_collections.zig:3873:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:3872:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:3931:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:3930:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4085:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4084:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4143:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:4142:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:8324:17: error: unreachable code
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_collections.zig:8323:17: note: control flow is diverted here
+                return __gen_result.items;
+                ^~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/hash/auto_hash.zig:192:9: error: std.hash.autoHash does not allow slices as well as unions and structs containing slices here ([]const u8) 
+... (55499 more bytes)
+  Batch compile: 1/1
+  Compile: 1/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_collections
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x1029eded7 in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x102a1898f in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^

@@ -1097,7 +1097,8 @@ fn handleSuperCall(self: *NativeCodegen, call: ast.Node.Call, method_name: []con
     // Use getZigName to handle cases where self is renamed (e.g., __self in init)
     // getZigName checks Pass 2.5 -> var_renames -> original fallback
     const self_var = self.getZigName("self");
-    try self.emit(parent_class);
+    // Use Pass 2.5 naming for parent class (always at module scope)
+    try self.emit(self.getClassZigName(parent_class));
     try self.emit(".");
     try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), method_name);
     try self.emit("(@ptrCast(@constCast(");

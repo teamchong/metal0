@@ -1,0 +1,232 @@
+=== metal0 test (tests/cpython) ===
+Patterns: test_bdb
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Skipped import (codegen_dispatch): bdb
+  Skipped import (stdlib): sys
+  Skipped import (zig_runtime): os
+  Skipped import (zig_runtime): unittest
+  Skipped import (zig_runtime): textwrap
+  Skipped import (stdlib): importlib
+  Skipped import (codegen_dispatch): linecache
+  Skipped import (zig_runtime): contextlib
+  Skipped import (zig_runtime): itertools
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): test.support
+  Skipped import (not found): test_module_for_bdb
+  Skipped import (not found): test_module_for_bdb
+Generating C extension stubs (0 extensions)...
+Type inference...
+Type inference done.
+Initializing codegen...
+Codegen initialized.
+Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+Call graph built.
+Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 3 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 11 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 11 imported modules...
+generate():   Processing import 1/11: bdb
+generate():   Processing import 2/11: sys
+generate():   Processing import 3/11: os
+generate():   Processing import 4/11: unittest
+generate():   Processing import 5/11: textwrap
+generate():   Processing import 6/11: importlib
+generate():   Processing import 7/11: linecache
+generate():   Processing import 8/11: contextlib
+generate():   Processing import 9/11: itertools
+generate():   Processing import 10/11: test.support
+generate():   Processing import 11/11: test
+generate(): Phase 4.7 - Pre-populating module_level_vars with 3 global vars...
+  Phase 4.7: var 'dry_run' assign #1 type=int
+  Phase 4.7: var 'dry_run' has_type_changing=false
+  Phase 4.7: var 'TEST_MODULE' assign #1 type=string
+  Phase 4.7: var 'TEST_MODULE' has_type_changing=false
+  Phase 4.7: var 'TEST_MODULE_FNAME' assign #1 type=string
+  Phase 4.7: var 'TEST_MODULE_FNAME' has_type_changing=false
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 39 module body statements...
+generate():   Phase 5.1 - Statement 1/39: expr_stmt
+generate():   Phase 5.1 - Statement 2/39: import_stmt
+generate():   Phase 5.1 - Statement 3/39: import_stmt
+generate():   Phase 5.1 - Statement 4/39: import_stmt
+generate():   Phase 5.1 - Statement 5/39: import_stmt
+generate():   Phase 5.1 - Statement 6/39: import_stmt
+generate():   Phase 5.1 - Statement 7/39: import_stmt
+generate():   Phase 5.1 - Statement 8/39: import_stmt
+generate():   Phase 5.1 - Statement 9/39: import_from
+generate():   Phase 5.1 - Statement 10/39: import_from
+generate():   Phase 5.1 - Statement 11/39: import_from
+generate():   Phase 5.1 - Statement 12/39: import_from
+generate():   Phase 5.1 - Statement 13/39: import_from
+generate():   Phase 5.1 - Statement 14/39: class_def
+generate():     Processing class: BdbException
+DEBUG: [BdbException] NO __init__ found (bases: 1)
+DEBUG: [BdbException] Base: Exception
+generate():   Phase 5.1 - Statement 15/39: class_def
+generate():     Processing class: BdbError
+DEBUG: [BdbError] NO __init__ found (bases: 1)
+DEBUG: [BdbError] Base: BdbException
+generate():   Phase 5.1 - Statement 16/39: class_def
+generate():     Processing class: BdbSyntaxError
+DEBUG: [BdbSyntaxError] NO __init__ found (bases: 1)
+DEBUG: [BdbSyntaxError] Base: BdbException
+generate():   Phase 5.1 - Statement 17/39: class_def
+generate():     Processing class: BdbNotExpectedError
+DEBUG: [BdbNotExpectedError] NO __init__ found (bases: 1)
+DEBUG: [BdbNotExpectedError] Base: BdbException
+generate():   Phase 5.1 - Statement 18/39: assign
+generate():   Phase 5.1 - Statement 19/39: function_def
+generate():   Phase 5.1 - Statement 20/39: function_def
+generate():   Phase 5.1 - Statement 21/39: class_def
+generate():     Processing class: Bdb
+DEBUG: [Bdb] NO __init__ found (bases: 1)
+DEBUG: [Bdb] Base: _bdb.Bdb
+generate():   Phase 5.1 - Statement 22/39: class_def
+generate():     Processing class: Tracer
+DEBUG: [Tracer] Found __init__ in Tracer with 5 params
+generate():   Phase 5.1 - Statement 23/39: class_def
+generate():     Processing class: TracerRun
+DEBUG: [TracerRun] Found __init__ in TracerRun with 3 params
+generate():   Phase 5.1 - Statement 24/39: function_def
+generate():   Phase 5.1 - Statement 25/39: function_def
+generate():   Phase 5.1 - Statement 26/39: function_def
+generate():   Phase 5.1 - Statement 27/39: assign
+generate():   Phase 5.1 - Statement 28/39: assign
+generate():   Phase 5.1 - Statement 29/39: function_def
+generate():   Phase 5.1 - Statement 30/39: function_def
+generate():   Phase 5.1 - Statement 31/39: function_def
+generate():   Phase 5.1 - Statement 32/39: function_def
+generate():   Phase 5.1 - Statement 33/39: class_def
+generate():     Processing class: BaseTestCase
+DEBUG: [BaseTestCase] NO __init__ found (bases: 1)
+DEBUG: [BaseTestCase] Base: unittest.TestCase
+generate():   Phase 5.1 - Statement 34/39: class_def
+generate():     Processing class: StateTestCase
+DEBUG: [StateTestCase] NO __init__ found (bases: 1)
+DEBUG: [StateTestCase] Base: BaseTestCase
+generate():   Phase 5.1 - Statement 35/39: class_def
+generate():     Processing class: BreakpointTestCase
+DEBUG: [BreakpointTestCase] NO __init__ found (bases: 1)
+DEBUG: [BreakpointTestCase] Base: BaseTestCase
+generate():   Phase 5.1 - Statement 36/39: class_def
+generate():     Processing class: RunTestCase
+DEBUG: [RunTestCase] NO __init__ found (bases: 1)
+DEBUG: [RunTestCase] Base: BaseTestCase
+generate():   Phase 5.1 - Statement 37/39: class_def
+generate():     Processing class: IssuesTestCase
+DEBUG: [IssuesTestCase] NO __init__ found (bases: 1)
+DEBUG: [IssuesTestCase] Base: BaseTestCase
+generate():   Phase 5.1 - Statement 38/39: class_def
+generate():     Processing class: TestRegressions
+DEBUG: [TestRegressions] NO __init__ found (bases: 1)
+DEBUG: [TestRegressions] Base: unittest.TestCase
+generate():   Phase 5.1 - Statement 39/39: if_stmt
+Zig code generated successfully.
+✓ Generated Zig: .metal0/gen/tests/cpython/test_bdb.zig
+  Codegen: 1/1
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+
+[BATCH] Compilation errors (0/1 succeeded):
+Registered package module: numpy
+Registered package module: yaml
+install
++- install test_bdb
+   +- compile exe test_bdb ReleaseFast native 4 errors
+gen/tests/cpython/test_bdb.zig:303:29: error: invalid left-hand side to assignment
+        runtime.getClassAttr(bp, "ignore") = runtime.getClassAttr(bp, "ignore") + 1;
+        ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+gen/tests/cpython/test_bdb.zig:981:29: error: invalid left-hand side to assignment
+        runtime.getClassAttr(bp, "ignore") = runtime.getClassAttr(bp, "ignore") + 1;
+        ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+gen/tests/cpython/test_bdb.zig:1067:65: error: unused function parameter
+    pub fn init(__alloc: std.mem.Allocator, test_case: anytype, skip: runtime.PyValue) !*@This() {
+                                                                ^~~~
+gen/tests/cpython/test_bdb.zig:3819:47: error: expected type 'Objects.object.PyValue', found 'comptime_int'
+                                    dry_run = 0;
+                                              ^
+/Users/steven_chong/Downloads/repos/metal0/packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+referenced by:
+    callMain [inlined]: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:627:37
+    callMainWithArgs [inlined]: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:587:20
+    main: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:602:28
+    1 reference(s) hidden; use '-freference-trace=4' to see all references
+error: the following command failed with 4 compilation errors:
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/zig build-exe /Users/steven_chong/.metal0/runtime/libruntime-latest.a -OReleaseFast --dep runtime --dep utils.hashmap_helper --dep utils.allocator_helper --dep bigint --dep c_interop -Mroot=/Users/steven_chong/Downloads/repos/metal0/.metal0/gen/tests/cpython/test_bdb.zig -OReleaseF
+... (3895 more bytes)
+[1;31m✗[0m Batch compilation failed: error.BatchCompileFailed
+[1;31m✗[0m Falling back to individual compilation for 1 tests
+WARN: Fast linking failed for '.metal0/gen/tests/cpython/test_bdb': error.CompilationFailed, falling back to full compilation
+Zig compilation failed:
+.metal0/metal0_main_test_bdb_1767847352711.zig:303:29: error: invalid left-hand side to assignment
+        runtime.getClassAttr(bp, "ignore") = runtime.getClassAttr(bp, "ignore") + 1;
+        ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+.metal0/metal0_main_test_bdb_1767847352711.zig:981:29: error: invalid left-hand side to assignment
+        runtime.getClassAttr(bp, "ignore") = runtime.getClassAttr(bp, "ignore") + 1;
+        ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+.metal0/metal0_main_test_bdb_1767847352711.zig:1067:65: error: unused function parameter
+    pub fn init(__alloc: std.mem.Allocator, test_case: anytype, skip: runtime.PyValue) !*@This() {
+                                                                ^~~~
+.metal0/metal0_main_test_bdb_1767847352711.zig:3819:47: error: expected type 'Objects.object.PyValue', found 'comptime_int'
+                                    dry_run = 0;
+                                              ^
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+referenced by:
+    callMain [inlined]: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:627:37
+    callMainWithArgs [inlined]: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:587:20
+    main: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:602:28
+    1 reference(s) hidden; use '-freference-trace=4' to see all references
+
+ERROR: Compilation failed for '.metal0/gen/tests/cpython/test_bdb': error.ZigCompilationFailed
+  Compile: 0/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_bdb
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x100839d57 in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x10086480f in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^

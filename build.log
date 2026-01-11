@@ -1,0 +1,595 @@
+Lexing...
+Parsing...
+Scanning imports recursively...
+  Skipped import (zig_runtime): unittest
+  Skipped import (zig_runtime): base64
+  Skipped import (stdlib): binascii
+  Skipped import (zig_runtime): os
+  Skipped import (zig_runtime): array
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): io
+  Skipped import (zig_runtime): io
+Compiling 1 imported modules...
+  Skipping main file: tests/cpython/test_base64.py
+Module compilation loop complete.
+Generating C extension stubs (0 extensions)...
+Phase 2.5: C Library Import Detection...
+Phase 2.5 complete.
+Phase 3: Semantic Analysis...
+Phase 3 complete.
+Phase 4: Type Inference...
+Inferring types...
+Generating native Zig code...
+NativeCodegen.init() completed
+compileFile: Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+compileFile: Call graph built.
+compileFile: Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 0 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 7 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 7 imported modules...
+generate():   Processing import 1/7: unittest
+generate():   Processing import 2/7: base64
+generate():   Processing import 3/7: binascii
+generate():   Processing import 4/7: os
+generate():   Processing import 5/7: array
+generate():   Processing import 6/7: test.support
+generate():   Processing import 7/7: test
+generate(): Phase 4.7 - Pre-populating module_level_vars with 0 global vars...
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 11 module body statements...
+generate():   Phase 5.1 - Statement 1/11: import_stmt
+generate():   Phase 5.1 - Statement 2/11: import_stmt
+generate():   Phase 5.1 - Statement 3/11: import_stmt
+generate():   Phase 5.1 - Statement 4/11: import_stmt
+generate():   Phase 5.1 - Statement 5/11: import_from
+generate():   Phase 5.1 - Statement 6/11: import_from
+generate():   Phase 5.1 - Statement 7/11: import_from
+generate():   Phase 5.1 - Statement 8/11: class_def
+generate():     Processing class: LegacyBase64TestCase
+generate():   Phase 5.1 - Statement 9/11: class_def
+generate():     Processing class: BaseXYTestCase
+generate():   Phase 5.1 - Statement 10/11: class_def
+generate():     Processing class: TestMain
+generate():   Phase 5.1 - Statement 11/11: if_stmt
+compileFile: Zig code generated successfully.
+Compiling to native binary (fast link)...
+Linking failed:
+.metal0/main_test_base64_1767850757541.zig:75:20: error: expected type '[]const Objects.object.PyValue', found '*const [0:0]u8'
+        _ = f.call("") catch |__m2_ar_err| break :__m0_b __m2_ar_err;
+                   ^~
+.metal0/main_test_base64_1767850757541.zig:75:20: note: pointer type child 'u8' cannot cast into pointer type child 'Objects.object.PyValue'
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/Objects/object.zig:3115:38: note: parameter type declared here
+    pub fn call(self: PyValue, args: []const PyValue) !PyValue {
+                                     ^~~~~~~~~~~~~~~
+referenced by:
+    test_encodebytes: .metal0/main_test_base64_1767850757541.zig:150:35
+    run: .metal0/main_test_base64_1767850757541.zig:2443:62
+    5 reference(s) hidden; use '-freference-trace=7' to see all references
+.metal0/main_test_base64_1767850757541.zig:180:54: error: type 'type' not a function
+        const infp: *runtime.io.BytesIO = try runtime.io(.BytesIO.createWithValue(__global_allocator, runtime.builtins.bytesLiteral("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#0^&*();:<>,. []{}")));
+                                              ~~~~~~~^~~
+.metal0/main_test_base64_1767850757541.zig:240:54: error: type 'type' not a function
+        const infp: *runtime.io.BytesIO = try runtime.io(.BytesIO.createWithValue(__global_allocator, runtime.builtins.bytesLiteral("d3d3LnB5dGhvbi5vcmc=")));
+                                              ~~~~~~~^~~
+.metal0/main_test_base64_1767850757541.zig:460:110: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+        try self.check_nonbyte_element_format(__global_allocator, runtime.getClassAttr(base64, "b64encode"), bytes_data);
+                                                                                                             ^~~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/main_test_base64_1767850757541.zig:480:103: note: parameter type declared here
+    pub fn check_nonbyte_element_format(self: *const @This(), _: std.mem.Allocator, f: anytype, data: []const u8) !void {
+                                                                                                      ^~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:582:33: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                try _dict.put(kv[0], cast_val);
+                              ~~^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:750:13: error: type 'Objects.object.PyValue' not a function
+        _ = __m164_callable(runtime.builtins.bytesLiteral("abc")) catch |__m162_ar_err| break :__m160_b __m162_ar_err;
+            ^~~~~~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/main_test_base64_1767850757541.zig:863:33: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                try _dict.put(kv[0], cast_val);
+                              ~~^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:935:33: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                try _dict.put(kv[0], cast_val);
+                              ~~^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1119:130: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                        if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, try base64.b32hexencode(__global_allocator, to_encode))).eql(try runtime.PyValue.fromAlloc(__global_allocator, expected)))) return error.AssertionFailed;
+                                                                                                                                 ^~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Lib/base64.zig:243:57: note: parameter type declared here
+pub fn b32hexencode(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+                                                        ^~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:1161:130: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                        if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, try base64.b32hexdecode(__global_allocator, to_decode, casefold))).eql(try runtime.PyValue.fromAlloc(__global_allocator, expected)))) return error.AssertionFailed;
+                                                                                                                                 ^~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Lib/base64.zig:283:57: note: parameter type declared here
+pub fn b32hexdecode(allocator: std.mem.Allocator, data: []const u8, casefold: bool) ![]u8 {
+                                                        ^~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:1205:53: error: expected 3 argument(s), found 2
+                    const __m254_ar_val = try base64.b32hexdecode(__global_allocator, data);
+                                              ~~~~~~^~~~~~~~~~~~~
+packages/runtime/src/Lib/base64.zig:283:5: note: function declared here
+pub fn b32hexdecode(allocator: std.mem.Allocator, data: []const u8, casefold: bool) ![]u8 {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:1225:179: error: no field named 'len' in struct 'runtime.builtins.repr.PyBytes'
+        _ = (try eq.call(&.{runtime.PyValue.from((__m257_b16e: { const __v = runtime.builtins.bytesLiteral("\x01\x02\xab\xcd\xef"); const _buf = __global_allocator.alloc(u8, __v.len * 2) catch unreachable; _ = std.fmt.bufPrint(_buf, "{s}", .{std.fmt.fmtSliceHexUpper(__v)}) catch unreachable; break :__m257_b16e _buf; })), runtime.PyValue.from(runtime.builtins.bytesLiteral("0102ABCDEF"))}));
+                                                                                                                                                                                  ^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/main_test_base64_1767850757541.zig:1236:169: error: no field named 'len' in struct 'runtime.builtins.repr.PyBytes'
+        _ = (try eq.call(&.{runtime.PyValue.from((__m259_b16d: { const __v = runtime.builtins.bytesLiteral("0102ABCDEF"); const _buf = __global_allocator.alloc(u8, __v.len / 2) catch unreachable; _ = std.fmt.hexToBytes(_buf, __v) catch unreachable; break :__m259_b16d _buf; })), runtime.PyValue.from(runtime.builtins.bytesLiteral("\x01\x02\xab\xcd\xef"))}));
+                                                                                                                                                                        ^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/main_test_base64_1767850757541.zig:1288:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m290_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1354:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m314_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1396:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m323_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1438:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m333_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1492:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m353_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1535:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m362_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/main_test_base64_1767850757541.zig:1576:14: error: expected type 'void', found '@typeInfo(@typeInfo(@TypeOf(Objects.object.PyValue.call)).@"fn".return_type.?).error_union.error_set'
+        _ = (try eq.call(&.{runtime.PyValue.from((__m372_stub: { _ = &runtime.builtins.bytesLiteral("x"); break :__m372_stub "a85_not_impl"; })), runtime.PyValue.from(runtime.builtins.bytesLiteral("GQ7^D"))}));
+             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:1571:51: note: function cannot return an error
+    pub fn test_a85_padding(self: *const @This()) void {
+                                                  ^~~~
+.metal0/main_test_base64_1767850757541.zig:1593:120: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+        _ = (try eq.call(&.{runtime.PyValue.from(try base64.b85encode(__global_allocator, runtime.builtins.bytesLiteral("x"), true)), runtime.PyValue.from(runtime.builtins.bytesLiteral("cmMzZ"))}));
+                                                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Lib/base64.zig:480:54: note: parameter type declared here
+pub fn b85encode(allocator: std.mem.Allocator, data: []const u8, pad: bool) ![]u8 {
+                                                     ^~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:1614:6: error: type '*cpython.PyObject' is not indexable and not a range
+for (__iter_source) |_item| {
+     ^~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:1614:6: note: for loop operand must be a range, array, slice, tuple, or vector
+.metal0/main_test_base64_1767850757541.zig:1901:42: error: expected type 'runtime.builtins.repr.PyBytes', found 'array_list.Aligned(Objects.object.PyValue,null)'
+                    break :__list_rt_464 __list_var_464;
+                                         ^~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here
+    return struct {
+           ^~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/main_test_base64_1767850757541.zig:2018:42: error: expected type 'runtime.builtins.repr.PyBytes', found 'array_list.Aligned(Objects.object.PyValue,null)'
+                    break :__list_rt_495 __list_var_495;
+                                         ^~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here
+    return struct {
+           ^~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/main_test_base64_1767850757541.zig:2113:20: error: expected type '[]const Objects.object.PyValue', found '*const [17:0]u8'
+        _ = f.call("with non-ascii \xc3\x8b") catch |__m524_ar_err| break :__m522_b __m524_ar_err;
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:2113:20: note: pointer type child 'u8' cannot cast into pointer type child 'Objects.object.PyValue'
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/Objects/object.zig:3115:38: note: parameter type declared here
+    pub fn call(self: PyValue, args: []const PyValue) !PyValue {
+                                     ^~~~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:2234:71: error: expected 1 argument(s), found 3
+return runtime.PyValue.from((attr_12: { const __m529_t = script_helper.assert_python_ok("-m", "base64", args); break :attr_12 __m529_t.out; }));
+                                                         ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~
+packages/runtime/src/Lib/test/support/script_helper.zig:52:5: note: function declared here
+pub fn assert_python_ok(args: anytype) SubprocessResult {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:2253:71: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try runtime.PyFile.write(fp, runtime.builtins.bytesLiteral("a\xffb\n"));
+                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Objects/fileobject.zig:82:51: note: parameter type declared here
+    pub fn write(obj: *runtime.PyObject, content: []const u8) !usize {
+                                                  ^~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:2267:44: error: expected 1 argument(s), found 3
+            var proc: @TypeOf(script_helper.spawn_python("-m", "base64", "-e")) = undefined;
+                              ~~~~~~~~~~~~~^~~~~~~~~~~~~
+packages/runtime/src/Lib/test/support/script_helper.zig:116:5: note: function declared here
+pub fn spawn_python(args: anytype) SubprocessResult {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:2297:79: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                    try runtime.PyFile.write(fp, runtime.builtins.bytesLiteral("Yf9iCg=="));
+                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Objects/fileobject.zig:82:51: note: parameter type declared here
+    pub fn write(obj: *runtime.PyObject, content: []const u8) !usize {
+                                                  ^~~~~~~~~~
+.metal0/main_test_base64_1767850757541.zig:2307:77: error: expected type 'runtime.builtins.repr.PyBytes', found 'Objects.object.PyValue'
+                    const output: runtime.builtins.PyBytes = self.get_output(&[_]runtime.PyValue{try runtime.PyValue.fromAlloc(__global_allocator, "-h")});
+                                                             ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/main_test_base64_1767850757541.zig:2316:104: error: expected 1 argument(s), found 3
+                    const output: runtime.builtins.PyBytes = (attr_13: { const __m538_t = script_helper.assert_python_failure("-m", "base64", "-x"); break :attr_13 __m538_t.err; });
+                                                                                          ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+packages/runtime/src/Lib/test/support/script_helper.zig:69:5: note: function declared here
+pub fn assert_python_failure(args: anytype) SubprocessResult {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Fast link failed (error.LinkFailed), using full compile...
+Zig compilation failed:
+.metal0/metal0_main_test_base64_1767850757945.zig:75:20: error: expected type '[]const Objects.object.PyValue', found '*const [0:0]u8'
+        _ = f.call("") catch |__m2_ar_err| break :__m0_b __m2_ar_err;
+                   ^~
+.metal0/metal0_main_test_base64_1767850757945.zig:75:20: note: pointer type child 'u8' cannot cast into pointer type child 'Objects.object.PyValue'
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/Objects/object.zig:3115:38: note: parameter type declared here
+    pub fn call(self: PyValue, args: []const PyValue) !PyValue {
+                                     ^~~~~~~~~~~~~~~
+referenced by:
+    test_encodebytes: .metal0/metal0_main_test_base64_1767850757945.zig:150:35
+    run: .metal0/metal0_main_test_base64_1767850757945.zig:2443:62
+    5 reference(s) hidden; use '-freference-trace=7' to see all references
+.metal0/metal0_main_test_base64_1767850757945.zig:180:54: error: type 'type' not a function
+        const infp: *runtime.io.BytesIO = try runtime.io(.BytesIO.createWithValue(__global_allocator, runtime.builtins.bytesLiteral("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#0^&*();:<>,. []{}")));
+                                              ~~~~~~~^~~
+.metal0/metal0_main_test_base64_1767850757945.zig:240:54: error: type 'type' not a function
+        const infp: *runtime.io.BytesIO = try runtime.io(.BytesIO.createWithValue(__global_allocator, runtime.builtins.bytesLiteral("d3d3LnB5dGhvbi5vcmc=")));
+                                              ~~~~~~~^~~
+.metal0/metal0_main_test_base64_1767850757945.zig:460:110: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+        try self.check_nonbyte_element_format(__global_allocator, runtime.getClassAttr(base64, "b64encode"), bytes_data);
+                                                                                                             ^~~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:480:103: note: parameter type declared here
+    pub fn check_nonbyte_element_format(self: *const @This(), _: std.mem.Allocator, f: anytype, data: []const u8) !void {
+                                                                                                      ^~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:582:33: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                try _dict.put(kv[0], cast_val);
+                              ~~^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:750:13: error: type 'Objects.object.PyValue' not a function
+        _ = __m164_callable(runtime.builtins.bytesLiteral("abc")) catch |__m162_ar_err| break :__m160_b __m162_ar_err;
+            ^~~~~~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:863:33: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                try _dict.put(kv[0], cast_val);
+                              ~~^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:935:33: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                try _dict.put(kv[0], cast_val);
+                              ~~^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1119:130: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                        if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, try base64.b32hexencode(__global_allocator, to_encode))).eql(try runtime.PyValue.fromAlloc(__global_allocator, expected)))) return error.AssertionFailed;
+                                                                                                                                 ^~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Lib/base64.zig:243:57: note: parameter type declared here
+pub fn b32hexencode(allocator: std.mem.Allocator, data: []const u8) ![]u8 {
+                                                        ^~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1161:130: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                        if (!(try (try runtime.PyValue.fromAlloc(__global_allocator, try base64.b32hexdecode(__global_allocator, to_decode, casefold))).eql(try runtime.PyValue.fromAlloc(__global_allocator, expected)))) return error.AssertionFailed;
+                                                                                                                                 ^~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Lib/base64.zig:283:57: note: parameter type declared here
+pub fn b32hexdecode(allocator: std.mem.Allocator, data: []const u8, casefold: bool) ![]u8 {
+                                                        ^~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1205:53: error: expected 3 argument(s), found 2
+                    const __m254_ar_val = try base64.b32hexdecode(__global_allocator, data);
+                                              ~~~~~~^~~~~~~~~~~~~
+packages/runtime/src/Lib/base64.zig:283:5: note: function declared here
+pub fn b32hexdecode(allocator: std.mem.Allocator, data: []const u8, casefold: bool) ![]u8 {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1225:179: error: no field named 'len' in struct 'runtime.builtins.repr.PyBytes'
+        _ = (try eq.call(&.{runtime.PyValue.from((__m257_b16e: { const __v = runtime.builtins.bytesLiteral("\x01\x02\xab\xcd\xef"); const _buf = __global_allocator.alloc(u8, __v.len * 2) catch unreachable; _ = std.fmt.bufPrint(_buf, "{s}", .{std.fmt.fmtSliceHexUpper(__v)}) catch unreachable; break :__m257_b16e _buf; })), runtime.PyValue.from(runtime.builtins.bytesLiteral("0102ABCDEF"))}));
+                                                                                                                                                                                  ^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1236:169: error: no field named 'len' in struct 'runtime.builtins.repr.PyBytes'
+        _ = (try eq.call(&.{runtime.PyValue.from((__m259_b16d: { const __v = runtime.builtins.bytesLiteral("0102ABCDEF"); const _buf = __global_allocator.alloc(u8, __v.len / 2) catch unreachable; _ = std.fmt.hexToBytes(_buf, __v) catch unreachable; break :__m259_b16d _buf; })), runtime.PyValue.from(runtime.builtins.bytesLiteral("\x01\x02\xab\xcd\xef"))}));
+                                                                                                                                                                        ^~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1288:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m290_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1354:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m314_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1396:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m323_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1438:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m333_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1492:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m353_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1535:59: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try __m362_t.put(runtime.builtins.bytesLiteral(""), runtime.builtins.bytesLiteral(""));
+                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_hash_map.zig:260:38: note: parameter type declared here
+        pub fn put(self: *Self, key: K, value: V) !void {
+                                     ^
+.metal0/metal0_main_test_base64_1767850757945.zig:1576:14: error: expected type 'void', found '@typeInfo(@typeInfo(@TypeOf(Objects.object.PyValue.call)).@"fn".return_type.?).error_union.error_set'
+        _ = (try eq.call(&.{runtime.PyValue.from((__m372_stub: { _ = &runtime.builtins.bytesLiteral("x"); break :__m372_stub "a85_not_impl"; })), runtime.PyValue.from(runtime.builtins.bytesLiteral("GQ7^D"))}));
+             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1571:51: note: function cannot return an error
+    pub fn test_a85_padding(self: *const @This()) void {
+                                                  ^~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1593:120: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+        _ = (try eq.call(&.{runtime.PyValue.from(try base64.b85encode(__global_allocator, runtime.builtins.bytesLiteral("x"), true)), runtime.PyValue.from(runtime.builtins.bytesLiteral("cmMzZ"))}));
+                                                                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Lib/base64.zig:480:54: note: parameter type declared here
+pub fn b85encode(allocator: std.mem.Allocator, data: []const u8, pad: bool) ![]u8 {
+                                                     ^~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1614:6: error: type '*cpython.PyObject' is not indexable and not a range
+for (__iter_source) |_item| {
+     ^~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:1614:6: note: for loop operand must be a range, array, slice, tuple, or vector
+.metal0/metal0_main_test_base64_1767850757945.zig:1901:42: error: expected type 'runtime.builtins.repr.PyBytes', found 'array_list.Aligned(Objects.object.PyValue,null)'
+                    break :__list_rt_464 __list_var_464;
+                                         ^~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here
+    return struct {
+           ^~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2018:42: error: expected type 'runtime.builtins.repr.PyBytes', found 'array_list.Aligned(Objects.object.PyValue,null)'
+                    break :__list_rt_495 __list_var_495;
+                                         ^~~~~~~~~~~~~~
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/array_list.zig:606:12: note: struct declared here
+    return struct {
+           ^~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2113:20: error: expected type '[]const Objects.object.PyValue', found '*const [17:0]u8'
+        _ = f.call("with non-ascii \xc3\x8b") catch |__m524_ar_err| break :__m522_b __m524_ar_err;
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2113:20: note: pointer type child 'u8' cannot cast into pointer type child 'Objects.object.PyValue'
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/Objects/object.zig:3115:38: note: parameter type declared here
+    pub fn call(self: PyValue, args: []const PyValue) !PyValue {
+                                     ^~~~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2234:71: error: expected 1 argument(s), found 3
+return runtime.PyValue.from((attr_12: { const __m529_t = script_helper.assert_python_ok("-m", "base64", args); break :attr_12 __m529_t.out; }));
+                                                         ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~
+packages/runtime/src/Lib/test/support/script_helper.zig:52:5: note: function declared here
+pub fn assert_python_ok(args: anytype) SubprocessResult {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2253:71: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+            try runtime.PyFile.write(fp, runtime.builtins.bytesLiteral("a\xffb\n"));
+                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Objects/fileobject.zig:82:51: note: parameter type declared here
+    pub fn write(obj: *runtime.PyObject, content: []const u8) !usize {
+                                                  ^~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2267:44: error: expected 1 argument(s), found 3
+            var proc: @TypeOf(script_helper.spawn_python("-m", "base64", "-e")) = undefined;
+                              ~~~~~~~~~~~~~^~~~~~~~~~~~~
+packages/runtime/src/Lib/test/support/script_helper.zig:116:5: note: function declared here
+pub fn spawn_python(args: anytype) SubprocessResult {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2297:79: error: expected type '[]const u8', found 'runtime.builtins.repr.PyBytes'
+                    try runtime.PyFile.write(fp, runtime.builtins.bytesLiteral("Yf9iCg=="));
+                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+packages/runtime/src/Objects/fileobject.zig:82:51: note: parameter type declared here
+    pub fn write(obj: *runtime.PyObject, content: []const u8) !usize {
+                                                  ^~~~~~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2307:77: error: expected type 'runtime.builtins.repr.PyBytes', found 'Objects.object.PyValue'
+                    const output: runtime.builtins.PyBytes = self.get_output(&[_]runtime.PyValue{try runtime.PyValue.fromAlloc(__global_allocator, "-h")});
+                                                             ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+packages/runtime/src/runtime/builtins/repr.zig:9:21: note: struct declared here
+pub const PyBytes = struct {
+                    ^~~~~~
+.metal0/metal0_main_test_base64_1767850757945.zig:2316:104: error: expected 1 argument(s), found 3
+                    const output: runtime.builtins.PyBytes = (attr_13: { const __m538_t = script_helper.assert_python_failure("-m", "base64", "-x"); break :attr_13 __m538_t.err; });
+                                                                                          ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~
+packages/runtime/src/Lib/test/support/script_helper.zig:69:5: note: function declared here
+pub fn assert_python_failure(args: anytype) SubprocessResult {
+~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+error: ZigCompilationFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/compile/incremental.zig:745:17: 0x105129ac7 in compileWithPrecompiledObjects (metal0)
+                return error.LinkFailed;
+                ^
+/Users/steven_chong/Downloads/repos/metal0/src/compiler.zig:395:17: 0x10510287b in compileZigWithOptions (metal0)
+                return error.ZigCompilationFailed;
+                ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/compile.zig:1015:17: 0x10513b067 in compileFile (metal0)
+                try compiler.compileZigWithOptions(aa, zig_code, bin_path, c_libs, opts.debug, .{
+                ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/build_commands.zig:82:5: 0x1051a16e7 in cmdBuild (metal0)
+    try compile_mod.compileFile(allocator, opts);
+    ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:82:9: 0x1051dc59b in main (metal0)
+        try build_commands.cmdBuild(allocator, args[2..]);
+        ^

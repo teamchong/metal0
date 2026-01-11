@@ -728,7 +728,8 @@ fn genIterLoop(
                 if (maybe_mangled) |mangled| {
                     try self.emit(mangled);
                 } else {
-                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), loop_var_name);
+                    // Use Pass 2.5 name to match declaration
+                    try zig_keywords.writeEscapedIdent(self.output.writer(self.allocator), self.getZigName(loop_var_name));
                 }
                 try self.emit(";\n");
             }
@@ -803,8 +804,10 @@ fn genTupleUnpack(
                     try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx });
                     break :blk renamed;
                 } else blk: {
-                    try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx });
-                    break :blk var_name;
+                    // Use Pass 2.5 name to match what references will use via getZigName()
+                    const zig_name = self.getZigName(var_name);
+                    try self.output.writer(self.allocator).print("const {s} = __tuple_{d}_{d}__.@\"{d}\";\n", .{ zig_name, label_id, gen_idx, idx });
+                    break :blk zig_name;
                 };
                 // Emit discard to handle cases where variable is used in eval strings
                 // or when only some tuple elements are actually used (e.g., for k, v in dict.items() using only k)
@@ -834,8 +837,10 @@ fn genTupleUnpack(
                             try self.output.writer(self.allocator).print("const {s} = __nested_{d}_{d}_{d}.@\"{d}\";\n", .{ renamed, label_id, gen_idx, idx, nested_idx });
                             break :blk renamed;
                         } else blk: {
-                            try self.output.writer(self.allocator).print("const {s} = __nested_{d}_{d}_{d}.@\"{d}\";\n", .{ var_name, label_id, gen_idx, idx, nested_idx });
-                            break :blk var_name;
+                            // Use Pass 2.5 name to match what references will use via getZigName()
+                            const zig_name = self.getZigName(var_name);
+                            try self.output.writer(self.allocator).print("const {s} = __nested_{d}_{d}_{d}.@\"{d}\";\n", .{ zig_name, label_id, gen_idx, idx, nested_idx });
+                            break :blk zig_name;
                         };
                         try self.emitIndent();
                         try self.emit("_ = &");

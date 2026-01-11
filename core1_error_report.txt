@@ -1,0 +1,4 @@
+=== metal0 test (__all__) ===
+Patterns: _interpreters, _opcode, abc, abstract_numbers, argparse, asdl_parser, asyncgen, atexit, augassign, base64, baseexception, bdb, bigaddrspace, bigmem, binascii, binop, bisect, bool, buffer, bufio, bytes, bz2, call, charmapcodec, class, clinic, cmd, cmd_line_script, code_module, codecencodings_cn, codecencodings_hk, codecencodings_iso2022, codecencodings_jp, codecencodings_kr, codecencodings_tw, codecmaps_cn, codecmaps_hk, codecmaps_jp, codecmaps_kr, codecmaps_tw, codeop, collections, colorsys, compare, compileall
+Checking runtime archive...
+[1;31m✗[0m Cannot open test directory: __all__

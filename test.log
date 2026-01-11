@@ -1,0 +1,150 @@
+=== metal0 test (tests/cpython) ===
+Patterns: test_class
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Skipped import (zig_runtime): unittest
+  Skipped import (zig_runtime): test.support
+  Skipped import (stdlib): sys
+  Skipped import (zig_runtime): test.support
+  Skipped import (zig_runtime): _testinternalcapi
+Generating C extension stubs (0 extensions)...
+Type inference...
+Type inference done.
+Initializing codegen...
+Codegen initialized.
+Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+Call graph built.
+Generating Zig code...
+generate(): Starting...
+generate(): Phase 1 - Analyzing module...
+generate(): Phase 1 complete.
+generate(): Phase 1.1 - Building call graph...
+buildCallGraph() starting...
+buildCallGraph: Initializing graph...
+buildCallGraph: First pass (collect definitions)...
+buildCallGraph: Second pass (analyze traits)...
+buildCallGraph: Third pass (mark reachable)...
+buildCallGraph: Complete.
+buildCallGraph() completed.
+generate(): Phase 1.1 complete.
+generate(): Registering 7 global vars...
+generate(): Global vars registered.
+generate(): Phase 1.5 - Getting source file directory...
+generate(): Phase 1.5 complete.
+generate(): Phase 1.6 - Collecting imports...
+generate(): Phase 1.6 complete - 4 imports collected.
+generate(): Phase 1.7 - Pre-scanning star imports...
+generate(): Phase 1.7 complete.
+generate(): Initializing inlined_modules list...
+generate(): Initializing imported_roots map...
+generate(): Processing 4 imported modules...
+generate():   Processing import 1/4: unittest
+generate():   Processing import 2/4: test.support
+generate():   Processing import 3/4: test
+generate():   Processing import 4/4: _testinternalcapi
+generate(): Phase 4.7 - Pre-populating module_level_vars with 7 global vars...
+  Phase 4.7: var 'testmeths' assign #1 type=array
+  Phase 4.7: var 'testmeths' has_type_changing=false
+  Phase 4.7: var 'callLst' assign #1 type=list
+  Phase 4.7: var 'callLst' has_type_changing=false
+  Phase 4.7: var 'statictests' assign #1 type=string
+  Phase 4.7: var 'statictests' has_type_changing=false
+  Phase 4.7: var 'method_template' assign #1 type=string
+  Phase 4.7: var 'method_template' has_type_changing=false
+  Phase 4.7: var 'd' assign #1 type=dict
+  Phase 4.7: var 'd' has_type_changing=false
+  Phase 4.7: var 'AllTests' assign #1 type=unknown
+  Phase 4.7: var 'AllTests' has_type_changing=false
+  Phase 4.7: var 'Py_TPFLAGS_MANAGED_DICT' assign #1 type=int
+  Phase 4.7: var 'Py_TPFLAGS_MANAGED_DICT' has_type_changing=false
+generate(): Phase 4.7 complete.
+generate(): Phase 5 - Generating class and function definitions...
+generate():   Mode: script
+generate():   Module mode setup complete.
+generate(): Phase 5.1 - Processing 20 module body statements...
+generate():   Phase 5.1 - Statement 1/20: expr_stmt
+generate():   Phase 5.1 - Statement 2/20: import_stmt
+generate():   Phase 5.1 - Statement 3/20: import_from
+generate():   Phase 5.1 - Statement 4/20: assign
+generate():   Phase 5.1 - Statement 5/20: assign
+generate():   Phase 5.1 - Statement 6/20: function_def
+generate():   Phase 5.1 - Statement 7/20: assign
+generate():   Phase 5.1 - Statement 8/20: assign
+generate():   Phase 5.1 - Statement 9/20: assign
+generate():   Phase 5.1 - Statement 10/20: expr_stmt
+generate():   Phase 5.1 - Statement 11/20: for_stmt
+generate():   Phase 5.1 - Statement 12/20: assign
+generate():   Phase 5.1 - Statement 13/20: del_stmt
+generate():   Phase 5.1 - Statement 14/20: class_def
+generate():     Processing class: ClassTests
+generate():   Phase 5.1 - Statement 15/20: import_from
+generate():   Phase 5.1 - Statement 16/20: assign
+generate():   Phase 5.1 - Statement 17/20: class_def
+generate():     Processing class: Plain
+generate():   Phase 5.1 - Statement 18/20: class_def
+generate():     Processing class: WithAttrs
+generate():   Phase 5.1 - Statement 19/20: class_def
+generate():     Processing class: TestInlineValues
+generate():   Phase 5.1 - Statement 20/20: if_stmt
+Zig code generated successfully.
+✓ Generated Zig: .metal0/gen/tests/cpython/test_class.zig
+  Codegen: 1/1
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+
+[BATCH] Compilation errors (1/1 succeeded):
+install
++- install test_class
+   +- compile exe test_class ReleaseFast native 20 errors
+gen/tests/cpython/test_class.zig:861:13: error: pointless discard of local constant
+        _ = testme;
+            ^~~~~~
+gen/tests/cpython/test_class.zig:934:78: note: used here
+            try __list_var_217.append(__global_allocator, .{ "__index__", .{ testme } });
+                                                                             ^~~~~~
+gen/tests/cpython/test_class.zig:1226:75: error: root source file struct 'runtime.builtins' has no member named 'repr'
+            try __list_var_265.append(__global_allocator, runtime.builtins.repr);
+                                                          ~~~~~~~~~~~~~~~~^~~~~
+/Users/steven_chong/Downloads/repos/metal0/packages/runtime/src/runtime/builtins.zig:1:1: note: struct declared here
+/// Built-in Python functions implemented in Zig
+^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+referenced by:
+    run: gen/tests/cpython/test_class.zig:3401:53
+    main: gen/tests/cpython/test_class.zig:3409:25
+    4 reference(s) hidden; use '-freference-trace=6' to see all references
+gen/tests/cpython/test_class.zig:1315:34: error: no field or member function named 'call' in 'fn (anytype) i64'
+        _ = runtime.builtins.hash.call((try C2.init(__global_allocator))) catch |__m273_ar_err| break :__m271_b __m273_ar_err;
+            ~~~~~~~~~~~~~~~~~~~~~^~~~~
+gen/tests/cpython/test_class.zig:1418:46: error: no member named 'format' in '*const [6:0]u8'
+            const __m285_map_func = "__{}__".format;
+                                             ^~~~~~
+gen/tests/cpython/test_class.zig:1487:43: error: error union is ignored
+        runtime.PyValue.setClassAttrByName("A", "__call__", runtime.PyValue.from((try A.init(__global_allocator))));
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+gen/tests/cpython/test_class.zig:1487:43: note: consider using 'try', 'catch', or 'if'
+ge
+... (14147 more bytes)
+  Batch compile: 1/1
+  Compile: 1/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_class
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x1004f02af in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x10051ad67 in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^

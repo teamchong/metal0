@@ -1,0 +1,54 @@
+=== metal0 test (tests/cpython) ===
+Patterns: test_bdb
+Checking runtime archive...
+Found 1 tests, using 10 workers (timeout: 5s)
+
+Phase 1: Codegen (parallel)...
+  Codegen: 1/1 (cached: 1)
+Phase 2: Compile (batch)...
+Running batch compilation: zig build -j10 (timeout: 600s)...
+
+[BATCH] Compilation errors (1/1 succeeded):
+Registered package module: numpy
+Registered package module: yaml
+install
++- install test_bdb
+   +- compile exe test_bdb ReleaseFast native 4 errors
+gen/tests/cpython/test_bdb.zig:303:29: error: invalid left-hand side to assignment
+        runtime.getClassAttr(bp, "ignore") = runtime.getClassAttr(bp, "ignore") + 1;
+        ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+gen/tests/cpython/test_bdb.zig:981:29: error: invalid left-hand side to assignment
+        runtime.getClassAttr(bp, "ignore") = runtime.getClassAttr(bp, "ignore") + 1;
+        ~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~
+gen/tests/cpython/test_bdb.zig:1067:65: error: unused function parameter
+    pub fn init(__alloc: std.mem.Allocator, test_case: anytype, skip: runtime.PyValue) !*@This() {
+                                                                ^~~~
+gen/tests/cpython/test_bdb.zig:3819:47: error: expected type 'Objects.object.PyValue', found 'comptime_int'
+                                    dry_run = 0;
+                                              ^
+/Users/steven_chong/Downloads/repos/metal0/packages/runtime/src/Objects/object.zig:14:21: note: union declared here
+pub const PyValue = union(enum) {
+                    ^~~~~
+referenced by:
+    callMain [inlined]: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:627:37
+    callMainWithArgs [inlined]: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:587:20
+    main: /Users/steven_chong/.local/share/mise/installs/zig/0.15.2/lib/std/start.zig:602:28
+    1 reference(s) hidden; use '-freference-trace=4' to see all references
+error: the following command failed with 4 compilation errors:
+/Users/steven_chong/.local/share/mise/installs/zig/0.15.2/zig build-exe /Users/steven_chong/.metal0/runtime/libruntime-latest.a -OReleaseFast --dep runtime --dep utils.hashmap_helper --dep utils.allocator_helper --dep bigint --dep c_interop -Mroot=/Users/steven_chong/Downloads/repos/metal0/.metal0/gen/tests/cpython/test_bdb.zig -OReleaseF
+... (3895 more bytes)
+  Batch compile: 1/1
+  Compile: 1/1 (cached: 0)
+Phase 3: Run... (1 binaries to check)
+
+[1mFailed/Timeout Tests:[0m
+  [31m[FAIL][0m test_bdb
+
+[1mResults:[0m [31m0/1 passed (0.0%%)[0m | [31m1 runtime[0m
+error: TestsFailed
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli/test_commands.zig:979:9: 0x10128dd57 in cmdTest (metal0)
+        return error.TestsFailed;
+        ^
+/Users/steven_chong/Downloads/repos/metal0/src/main/cli.zig:88:9: 0x1012b880f in main (metal0)
+        try test_commands.cmdTest(allocator, args[2..]);
+        ^
