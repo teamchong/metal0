@@ -12,6 +12,7 @@ pub const main = cli.main;
 pub const compileWithSchema = api.compileWithSchema;
 pub const SchemaTypeHints = api.SchemaTypeHints;
 pub const ColumnType = api.ColumnType;
+pub const ColumnDef = api.ColumnDef;
 
 // Re-export CompileOptions struct
 pub const CompileOptions = struct {
