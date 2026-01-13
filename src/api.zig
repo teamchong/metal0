@@ -289,7 +289,7 @@ pub fn compileWithSchema(
     const result_source = try allocator.dupe(u8, zig_code);
 
     // Extract exported function names from generated code
-    var exports = std.ArrayList([]const u8).init(allocator);
+    var exports = std.array_list.Managed([]const u8).init(allocator);
     errdefer {
         for (exports.items) |name| allocator.free(name);
         exports.deinit();
@@ -331,7 +331,7 @@ pub fn compileWithSchema(
 
 /// Extract exported function names from generated Zig code
 /// Looks for patterns like: export fn ClassName_methodName(
-fn extractExportedFunctions(allocator: std.mem.Allocator, zig_code: []const u8, exports: *std.ArrayList([]const u8)) !void {
+fn extractExportedFunctions(allocator: std.mem.Allocator, zig_code: []const u8, exports: *std.array_list.Managed([]const u8)) !void {
     const export_marker = "export fn ";
     var pos: usize = 0;
 
